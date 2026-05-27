@@ -45,7 +45,6 @@
 - [Project Layout](#project-layout)
 - [Performance](#performance)
 - [Security](#security)
-- [Comparison](#comparison)
 - [Compatibility](#compatibility)
 - [Plugin Source Tour](#plugin-source-tour)
 - [Testing](#testing)
@@ -476,25 +475,6 @@ All hooks pure bash + `jq`. No background processes. No network calls (except op
 | Memory commit privacy | `learnings.jsonl` content abstracted; no PII; large string literals stripped |
 
 Found a security issue? Email maintainer directly — do not file a public issue.
-
----
-
-## Comparison
-
-| Capability | ClaudeHut | Superpowers | Vanilla Claude Code | Custom CLAUDE.md |
-|------------|:---------:|:-----------:|:-------------------:|:----------------:|
-| Mandatory workflow phases | ✓ | ✓ | ✗ | ✗ |
-| Strict TDD with watch-test-fail | ✓ | ✓ | ✗ | ✗ |
-| Reuse-detection before new code | ✓ | ✗ | ✗ | ✗ |
-| Stack-aware rule auto-load | ✓ | ✗ | ✗ | ✗ |
-| Java/Spring-specific knowledge (Spring MVC/WebFlux, JPA/R2DBC, MapStruct, Jackson, Kafka, R2DBC) | ✓ | ✗ | ✗ | partial |
-| Parallel reviewer subagents | ✓ | ✗ | ✗ | ✗ |
-| Project-scoped memory + reinforcement | ✓ | partial | partial (auto-memory) | partial |
-| Hook-enforced phase gates | ✓ | ✓ | ✗ | ✗ |
-| Artifact-derived state (no race) | ✓ | ✗ | n/a | n/a |
-| Native plugin integration (UA, Graphify) | ✓ | ✗ | ✗ | ✗ |
-| Hook performance benchmark | ✓ | ✗ | n/a | n/a |
-| 222-assertion self-test | ✓ | partial | n/a | n/a |
 
 ---
 
