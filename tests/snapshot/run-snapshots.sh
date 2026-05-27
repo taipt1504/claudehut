@@ -18,7 +18,8 @@ declare -a FAIL_LIST=()
 pass() { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
 fail() { printf "  \033[31m✗\033[0m %s :: %s\n" "$1" "$2"; FAIL=$((FAIL+1)); FAIL_LIST+=("$1: $2"); }
 
-# Normalize: strip timestamps + paths + session_ids before comparison
+# Normalize: strip timestamps + paths + session_ids + host-tooling presence
+# (so goldens stay stable across macOS-darwin local and Linux-ubuntu CI runners).
 normalize() {
   sed -E '
     s|"timestamp":"[^"]*"|"timestamp":"<TS>"|g;
@@ -27,6 +28,9 @@ normalize() {
     s|/var/folders/[^"]+|<TMPDIR>|g;
     s|/tmp/tmp\.[^"]+|<TMPDIR>|g;
     s|"session_id":"[^"]*"|"session_id":"<SID>"|g;
+    s|UA=[a-z]+|UA=<bool>|g;
+    s|Graphify=[a-z]+|Graphify=<bool>|g;
+    s|global=[a-z]+|global=<bool>|g;
   '
 }
 
