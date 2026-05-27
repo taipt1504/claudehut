@@ -72,9 +72,12 @@ for agent in agents/*.md; do
   # - agent names (orchestrator, brainstormer, ...)
   for ref in $(grep -oE '\bclaudehut-[a-z-]+' "$agent" 2>/dev/null \
               | grep -vE '^claudehut-(orchestrator|brainstormer|spec-writer|planner|builder|verifier|learner|reuse-scanner|stack-detector|test-runner|migration-validator|reviewer-|config)' \
+              | grep -vE '^claudehut-(brainstorm|spec|plan|build|verify-review|learn)-return$' \
               | sort -u); do
     # Skip if followed by file extension in source
     if grep -qE "\b$ref\.(json|md|sh|yml|yaml)\b" "$agent"; then continue; fi
+    # Skip if used as a fenced-code block tag (```claudehut-...-return).
+    if grep -qE "\`\`\`${ref}\b" "$agent"; then continue; fi
     if [[ ! -f "bin/$ref" ]]; then
       echo "  broken in $agent: $ref (no bin/$ref)"
       broken=$((broken + 1))

@@ -129,6 +129,38 @@ Default to **invoke**. The bar to skip a catalog match is "I can
 articulate why the skill is irrelevant to this exact line of work and
 write it in a comment for the reviewer." If you cannot, invoke.
 
+## Termination contract — never try to ask the user
+
+Anthropic's subagent runtime documents these tools as **unavailable in
+any subagent context, even when listed in your `tools:` frontmatter**
+(source: code.claude.com/docs/en/sub-agents §Available tools):
+
+- `Agent`
+- `AskUserQuestion`
+- `EnterPlanMode`
+- `ExitPlanMode` (unless your `permissionMode` is `plan`)
+- `ScheduleWakeup`
+- `WaitForMcpServers`
+
+If you try to call `AskUserQuestion` from this subagent, the tool call
+is filtered out by the runtime — your turn either stalls or returns an
+empty response. This is the documented behaviour, not a bug to work
+around.
+
+**The pattern instead is scan-and-return:**
+
+1. Scan, invoke the skills you need, draft any artifact on disk.
+2. Emit a structured return block (your phase agent definition spells
+   out the exact shape — e.g. `claudehut-brainstorm-return`).
+3. Surface every decision the user must make as data inside that
+   return block (typically `open_questions[]` with `options[]`).
+4. Terminate.
+
+The main thread then calls `AskUserQuestion` on your behalf, collects
+the user's answers, and re-dispatches you with the answers folded into
+the next turn's prompt. Never wrap a "Q1/5: ... Q2/5: ..." dialog inside
+a single turn — that pattern reaches a runtime that cannot relay it.
+
 ## Catalog
 
 HEAD_EOF

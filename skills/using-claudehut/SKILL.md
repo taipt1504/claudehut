@@ -70,6 +70,38 @@ Default to **invoke**. The bar to skip a catalog match is "I can
 articulate why the skill is irrelevant to this exact line of work and
 write it in a comment for the reviewer." If you cannot, invoke.
 
+## Termination contract — never try to ask the user
+
+Anthropic's subagent runtime documents these tools as **unavailable in
+any subagent context, even when listed in your `tools:` frontmatter**
+(source: code.claude.com/docs/en/sub-agents §Available tools):
+
+- `Agent`
+- `AskUserQuestion`
+- `EnterPlanMode`
+- `ExitPlanMode` (unless your `permissionMode` is `plan`)
+- `ScheduleWakeup`
+- `WaitForMcpServers`
+
+If you try to call `AskUserQuestion` from this subagent, the tool call
+is filtered out by the runtime — your turn either stalls or returns an
+empty response. This is the documented behaviour, not a bug to work
+around.
+
+**The pattern instead is scan-and-return:**
+
+1. Scan, invoke the skills you need, draft any artifact on disk.
+2. Emit a structured return block (your phase agent definition spells
+   out the exact shape — e.g. `claudehut-brainstorm-return`).
+3. Surface every decision the user must make as data inside that
+   return block (typically `open_questions[]` with `options[]`).
+4. Terminate.
+
+The main thread then calls `AskUserQuestion` on your behalf, collects
+the user's answers, and re-dispatches you with the answers folded into
+the next turn's prompt. Never wrap a "Q1/5: ... Q2/5: ..." dialog inside
+a single turn — that pattern reaches a runtime that cannot relay it.
+
 ## Catalog
 
 <!-- catalog:begin -->
@@ -77,7 +109,7 @@ write it in a comment for the reviewer." If you cannot, invoke.
 | Skill | When to invoke (description excerpt) |
 |-------|--------------------------------------|
 | `claudehut:arch-unit-check` | Run ArchUnit tests if present in project to enforce package-layout/hexagonal/DDD rules. Used in Phase 5 verify stage. Optional — skips if ArchUnit not on classpath. Slash-invoke  |
-| `claudehut:brainstorm` | Phase 1 of ClaudeHut workflow — Socratic grilling, reuse-detection scan, design document drafting for a Java backend feature/refactor/bugfix. Use when the user requests new funct |
+| `claudehut:brainstorm` | Phase 1 of ClaudeHut workflow — scan codebase + reuse-detection, draft a design document, run main-thread AskUserQuestion exchanges for any open decisions, converge on an approve |
 | `claudehut:build` | Phase 4 of ClaudeHut workflow — execute the approved plan task-by-task with strict TDD (RED → GREEN → REFACTOR). Touches only files listed in the plan (surgical scope). One c |
 | `claudehut:discover` | Show ClaudeHut plugin status — active task, current phase, detected stack, loaded skills/agents/rules/hooks, integration backends (Understand-Anything, Graphify), and MCP server  |
 | `claudehut:flyway-migration` | Flyway migration conventions for PostgreSQL/MySQL — naming, online-safe DDL (CREATE INDEX CONCURRENTLY, expand-contract for renames), idempotency, backfill patterns. Auto-loads w |

@@ -918,6 +918,66 @@ popd >/dev/null
 rm -rf "$L13_TMPDIR"
 
 #==============================================================================
+section "L15 Subagent UX contract — runtime-blocked tools + brainstormer shape"
+#==============================================================================
+# Anthropic's runtime explicitly blocks the following tools inside a subagent
+# context (source: code.claude.com/docs/en/sub-agents §Available tools):
+#   Agent, AskUserQuestion, EnterPlanMode, ExitPlanMode (unless plan mode),
+#   ScheduleWakeup, WaitForMcpServers.
+# A subagent body that instructs itself to call any of those = guaranteed stall
+# in production. Scan every agent body and fail on calls; mentions in
+# documentation context (e.g. "AskUserQuestion is not available here") are
+# explicitly allowed.
+
+BLOCKED_TOOLS='Agent AskUserQuestion EnterPlanMode ScheduleWakeup WaitForMcpServers'
+for f in $(find agents -name '*.md'); do
+  # Skip the orchestrator marker (main-thread role doc, may legitimately
+  # reference these tools in its narrative).
+  case "$(basename "$f")" in
+    claudehut-orchestrator.md) continue ;;
+  esac
+  body="$(awk '/^---$/{c++; if(c==2){flag=1;next}} flag' "$f")"
+  for t in $BLOCKED_TOOLS; do
+    # We only flag direct call syntax `Tool(...`. Imperative-prose mentions of
+    # the tool (e.g. "the main thread invokes AskUserQuestion", "calling
+    # AskUserQuestion from a subagent fails") are documentation, not a call
+    # instruction; whether the subagent would actually issue the call depends
+    # on model reasoning over the body, not on the prose itself. The runtime
+    # already strips the tool — what we are guarding against here is *example
+    # code* that demonstrates the wrong pattern.
+    call_pattern="${t}\("
+    if grep -nE "$call_pattern" <<<"$body" >/dev/null 2>&1; then
+      fail "L15 $f" "subagent body contains a call to blocked tool $t"
+      grep -nE "$call_pattern" <<<"$body" | head -2
+    fi
+  done
+done
+pass "L15 no subagent body issues a call to a runtime-blocked tool"
+
+# Brainstormer-specific: must contain scan-and-return + structured return token.
+br="agents/claudehut-brainstormer.md"
+for term in 'scan-and-return' 'TERMINATE' 'claudehut-brainstorm-return' 'open_questions'; do
+  if grep -q "$term" "$br"; then
+    pass "L15 brainstormer body contains '$term'"
+  else
+    fail "L15 brainstormer" "missing '$term' — scan-and-return contract incomplete"
+  fi
+done
+
+# brainstorm SKILL.md must wire AskUserQuestion in the main-thread loop.
+bsm="skills/brainstorm/SKILL.md"
+if grep -q 'AskUserQuestion' "$bsm"; then
+  pass "L15 brainstorm SKILL.md documents AskUserQuestion in main thread"
+else
+  fail "L15 brainstorm SKILL.md" "missing AskUserQuestion main-thread integration"
+fi
+if grep -q 'next_action' "$bsm"; then
+  pass "L15 brainstorm SKILL.md documents structured return loop"
+else
+  fail "L15 brainstorm SKILL.md" "missing next_action return-shape doc"
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
