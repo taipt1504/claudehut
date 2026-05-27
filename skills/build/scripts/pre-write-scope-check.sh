@@ -14,8 +14,8 @@ _find_plugin_root() {
   done
   echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
 }
-# shellcheck source=../../../scripts/hooks/lib/state.sh
-source "$(_find_plugin_root)/scripts/hooks/lib/state.sh"
+# shellcheck source=../../../hooks/lib/state.sh
+source "$(_find_plugin_root)/hooks/lib/state.sh"
 
 FILE="${1:-}"
 [[ -n "$FILE" ]] || { echo "error: no file argument" >&2; exit 2; }

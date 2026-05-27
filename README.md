@@ -504,7 +504,7 @@ Source is self-describing. Read the in-repo files to learn each layer:
 | `agents/*.md` | 17 agent system prompts (orchestrator + 6 phase drivers + 4 specialists + 6 reviewers) |
 | `skills/*/SKILL.md` | 28 skills, each in 3-bucket layout (SKILL.md + references/ + scripts/ + assets/) |
 | `rules/{coding,architecture,testing,security,performance,framework}/*.md` | 42 rules with DO/DON'T + examples |
-| `hooks/hooks.json` + `scripts/hooks/*.sh` | 8 hook events + Bash handlers |
+| `hooks/hooks.json` + `hooks/*.sh` | 8 hook events + Bash handlers |
 | `.mcp.json` | 5 MCP server configurations (Postgres, GitHub, Context7, Memory, Sequential-Thinking) |
 | `.claude-plugin/plugin.json` | Plugin manifest (name, version, userConfig) |
 | `bin/claudehut-state` | Read-only CLI for inspecting plugin state |

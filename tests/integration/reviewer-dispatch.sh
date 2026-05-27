@@ -41,7 +41,7 @@ reviewers=(
 
 # Fire SubagentStop for each (sequentially since hooks write to same file)
 for r in "${reviewers[@]}"; do
-  echo "{\"agent_type\":\"$r\"}" | bash "$PLUGIN_ROOT/scripts/hooks/subagent-stop.sh" >/dev/null
+  echo "{\"agent_type\":\"$r\"}" | bash "$PLUGIN_ROOT/hooks/subagent-stop.sh" >/dev/null
 done
 
 # Verify findings.json has all 6 reviewers

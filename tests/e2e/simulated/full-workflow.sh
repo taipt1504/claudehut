@@ -76,7 +76,7 @@ git checkout -q -b feature/add-user-endpoint
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
-source "$PLUGIN_ROOT/scripts/hooks/lib/state.sh"
+source "$PLUGIN_ROOT/hooks/lib/state.sh"
 
 #==============================================================================
 echo "===== E2E SIMULATED FULL WORKFLOW ====="
@@ -87,7 +87,7 @@ echo ""
 
 #----- STEP 0: SessionStart should bind task + derive phase=brainstorm -----
 section "STEP 0 — SessionStart"
-out=$(echo '{}' | bash "$PLUGIN_ROOT/scripts/hooks/session-start.sh")
+out=$(echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh")
 phase=$(claudehut_phase)
 [[ "$phase" == "brainstorm" ]] && pass "phase=brainstorm derived" || fail "phase" "expected brainstorm, got $phase"
 echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("MANDATORY next: /claudehut:brainstorm")' >/dev/null \
@@ -97,14 +97,14 @@ echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("web=webfl
 
 #----- STEP 1: User prompt triggers feature intent — should advance to brainstorm skill -----
 section "STEP 1 — User prompt 'add endpoint'"
-out=$(echo '{"prompt":"add endpoint to fetch user purchase history"}' | bash "$PLUGIN_ROOT/scripts/hooks/prompt-router.sh")
+out=$(echo '{"prompt":"add endpoint to fetch user purchase history"}' | bash "$PLUGIN_ROOT/hooks/prompt-router.sh")
 echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("Phase=brainstorm")' >/dev/null \
   && pass "prompt-router enforces brainstorm skill" || fail "prompt-router" "missing brainstorm hint: $out"
 
 #----- STEP 2: Agent tries to edit src/ in brainstorm → blocked -----
 section "STEP 2 — Premature src/ edit blocked"
 out=$(echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/user/UserController.java\"}}" \
-  | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool edit)
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit)
 echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null \
   && pass "PreToolUse blocks src/ edit in brainstorm" || fail "pre-tool" "should block: $out"
 
@@ -372,7 +372,7 @@ TEST
 
 # PreToolUse should ALLOW (build phase + file in plan + reuse-scan fresh)
 out=$(echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/user/PurchaseMapper.java\"}}" \
-  | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool edit 2>&1)
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit 2>&1)
 if echo "$out" | jq -e '.hookSpecificOutput.permissionDecision == "deny"' >/dev/null 2>&1; then
   fail "pre-tool" "blocked file that's in plan + has fresh reuse-scan: $out"
 else
@@ -448,7 +448,7 @@ phase=$(claudehut_phase)
 
 #----- STEP 9: Stop hook surfaces "invoke /claudehut:learn" -----
 section "STEP 9 — Stop hook"
-out=$(bash "$PLUGIN_ROOT/scripts/hooks/stop.sh")
+out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
 echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("claudehut:learn")' >/dev/null \
   && pass "Stop hook prompts learn" || fail "stop" "missing learn prompt: $out"
 
@@ -469,7 +469,7 @@ phase=$(claudehut_phase)
 
 #----- STEP 11: Stop hook suggests claudehut-finish -----
 section "STEP 11 — Done state"
-out=$(bash "$PLUGIN_ROOT/scripts/hooks/stop.sh")
+out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
 echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("claudehut-finish")' >/dev/null \
   && pass "Stop hook suggests claudehut-finish" || fail "stop" "missing finish suggestion: $out"
 

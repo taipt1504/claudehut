@@ -72,15 +72,15 @@ echo "Runs per hook: $N_RUNS · Reporting p95 latency"
 echo ""
 
 # Budgets from docs/design/70-hooks-specification.md
-bench_hook "SessionStart"     2000 "$PLUGIN_ROOT/scripts/hooks/session-start.sh" '{}'
-bench_hook "UserPromptSubmit"  200 "$PLUGIN_ROOT/scripts/hooks/prompt-router.sh" '{"prompt":"hello"}'
-bench_hook "PreToolUse(bash)"  300 "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" '{"tool_input":{"command":"./gradlew test"}}' "--tool bash"
-bench_hook "PreToolUse(edit)"  300 "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" "--tool edit"
-bench_hook "PostToolUse"       500 "$PLUGIN_ROOT/scripts/hooks/post-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}"
-bench_hook "Stop"             1000 "$PLUGIN_ROOT/scripts/hooks/stop.sh" '{}'
-bench_hook "PreCompact"        500 "$PLUGIN_ROOT/scripts/hooks/pre-compact.sh" '{}'
-bench_hook "FileChanged"       200 "$PLUGIN_ROOT/scripts/hooks/file-changed.sh" '{"file_path":"/tmp/x.md"}'
-bench_hook "SubagentStop"      500 "$PLUGIN_ROOT/scripts/hooks/subagent-stop.sh" '{"agent_type":"claudehut-reviewer-security"}'
+bench_hook "SessionStart"     2000 "$PLUGIN_ROOT/hooks/session-start.sh" '{}'
+bench_hook "UserPromptSubmit"  200 "$PLUGIN_ROOT/hooks/prompt-router.sh" '{"prompt":"hello"}'
+bench_hook "PreToolUse(bash)"  300 "$PLUGIN_ROOT/hooks/pre-tool.sh" '{"tool_input":{"command":"./gradlew test"}}' "--tool bash"
+bench_hook "PreToolUse(edit)"  300 "$PLUGIN_ROOT/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" "--tool edit"
+bench_hook "PostToolUse"       500 "$PLUGIN_ROOT/hooks/post-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}"
+bench_hook "Stop"             1000 "$PLUGIN_ROOT/hooks/stop.sh" '{}'
+bench_hook "PreCompact"        500 "$PLUGIN_ROOT/hooks/pre-compact.sh" '{}'
+bench_hook "FileChanged"       200 "$PLUGIN_ROOT/hooks/file-changed.sh" '{"file_path":"/tmp/x.md"}'
+bench_hook "SubagentStop"      500 "$PLUGIN_ROOT/hooks/subagent-stop.sh" '{"agent_type":"claudehut-reviewer-security"}'
 
 cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"

@@ -63,7 +63,7 @@ claudehut:
 ```
 
 These fields:
-- Read by `scripts/hooks/prompt-router.sh`.
+- Read by `hooks/prompt-router.sh`.
 - Used for phase routing and auto-enforce decisions.
 - Not standard Claude Code — won't break anything if removed.
 

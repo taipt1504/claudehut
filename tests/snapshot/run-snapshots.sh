@@ -90,12 +90,12 @@ export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
 echo "===== HOOK OUTPUT SNAPSHOTS ====="
 echo ""
 
-snapshot "session-start-initialized" "$PLUGIN_ROOT/scripts/hooks/session-start.sh" '{}'
-snapshot "session-start-uninitialized" "$PLUGIN_ROOT/scripts/hooks/session-start.sh" '{}' ""
+snapshot "session-start-initialized" "$PLUGIN_ROOT/hooks/session-start.sh" '{}'
+snapshot "session-start-uninitialized" "$PLUGIN_ROOT/hooks/session-start.sh" '{}' ""
 # Reset for next group
 rm -rf .claudehut
 
-snapshot "session-start-no-claudehut-dir" "$PLUGIN_ROOT/scripts/hooks/session-start.sh" '{}'
+snapshot "session-start-no-claudehut-dir" "$PLUGIN_ROOT/hooks/session-start.sh" '{}'
 
 # Re-init for remaining
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
@@ -103,16 +103,16 @@ cat > .claudehut/memory/stack-signals.json <<'STACK'
 {"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"],"messaging":[],"cache":[],"mapper":"mapstruct","serialization":"jackson"}
 STACK
 
-snapshot "prompt-router-feature-intent-on-main" "$PLUGIN_ROOT/scripts/hooks/prompt-router.sh" '{"prompt":"add endpoint to fetch user data"}'
+snapshot "prompt-router-feature-intent-on-main" "$PLUGIN_ROOT/hooks/prompt-router.sh" '{"prompt":"add endpoint to fetch user data"}'
 
-snapshot "pre-tool-deny-rm-rf" "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" '{"tool_input":{"command":"rm -rf /"}}' "--tool bash"
-snapshot "pre-tool-allow-safe" "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" '{"tool_input":{"command":"./gradlew test"}}' "--tool bash"
-snapshot "pre-tool-deny-src-wrong-phase" "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" "--tool edit"
-snapshot "pre-tool-allow-claudehut" "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/.claudehut/specs/x-design.md\"}}" "--tool edit"
+snapshot "pre-tool-deny-rm-rf" "$PLUGIN_ROOT/hooks/pre-tool.sh" '{"tool_input":{"command":"rm -rf /"}}' "--tool bash"
+snapshot "pre-tool-allow-safe" "$PLUGIN_ROOT/hooks/pre-tool.sh" '{"tool_input":{"command":"./gradlew test"}}' "--tool bash"
+snapshot "pre-tool-deny-src-wrong-phase" "$PLUGIN_ROOT/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" "--tool edit"
+snapshot "pre-tool-allow-claudehut" "$PLUGIN_ROOT/hooks/pre-tool.sh" "{\"tool_input\":{\"file_path\":\"$TMPDIR/.claudehut/specs/x-design.md\"}}" "--tool edit"
 
-snapshot "stop-no-action-needed" "$PLUGIN_ROOT/scripts/hooks/stop.sh" '{}'
-snapshot "pre-compact-snapshot" "$PLUGIN_ROOT/scripts/hooks/pre-compact.sh" '{}'
-snapshot "file-changed-claude-md" "$PLUGIN_ROOT/scripts/hooks/file-changed.sh" '{"file_path":"/tmp/CLAUDE.md"}'
+snapshot "stop-no-action-needed" "$PLUGIN_ROOT/hooks/stop.sh" '{}'
+snapshot "pre-compact-snapshot" "$PLUGIN_ROOT/hooks/pre-compact.sh" '{}'
+snapshot "file-changed-claude-md" "$PLUGIN_ROOT/hooks/file-changed.sh" '{"file_path":"/tmp/CLAUDE.md"}'
 
 cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"

@@ -12,8 +12,8 @@ _find_plugin_root() {
   done
   echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
 }
-# shellcheck source=../../../scripts/hooks/lib/state.sh
-source "$(_find_plugin_root)/scripts/hooks/lib/state.sh"
+# shellcheck source=../../../hooks/lib/state.sh
+source "$(_find_plugin_root)/hooks/lib/state.sh"
 
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || { echo "ClaudeHut not initialized in $PROJECT_ROOT. Run /claudehut:init."; exit 0; }

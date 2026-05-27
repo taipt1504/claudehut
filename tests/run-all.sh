@@ -123,7 +123,7 @@ git checkout -q -b feature/test-task 2>/dev/null
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
-source "$PLUGIN_ROOT/scripts/hooks/lib/state.sh"
+source "$PLUGIN_ROOT/hooks/lib/state.sh"
 
 # Test: uninitialized
 phase=$(claudehut_phase)
@@ -346,7 +346,7 @@ section "L3.1 Hook: SessionStart on uninitialized project"
 #==============================================================================
 TMPDIR=$(mktemp -d)
 export CLAUDE_PROJECT_DIR="$TMPDIR"
-echo '{}' | bash "$PLUGIN_ROOT/scripts/hooks/session-start.sh" > "$TMPDIR/out.json" 2>&1
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.additionalContext | contains("not initialized")' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "SessionStart: uninitialized warning emitted"
 else
@@ -366,7 +366,7 @@ mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
 echo '{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"]}' > .claudehut/memory/stack-signals.json
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
-echo '{}' | bash "$PLUGIN_ROOT/scripts/hooks/session-start.sh" > "$TMPDIR/out.json" 2>&1
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$TMPDIR/out.json" 2>&1
 
 if jq -e '.hookSpecificOutput.additionalContext | contains("ClaudeHut active")' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "SessionStart: outputs ClaudeHut active"
@@ -399,7 +399,7 @@ mkdir -p .claudehut/{specs,plans,memory,findings}
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 
 # Skip-attempt prompt
-echo '{"prompt":"just write the code, skip the plan"}' | bash "$PLUGIN_ROOT/scripts/hooks/prompt-router.sh" > "$TMPDIR/out.json" 2>&1
+echo '{"prompt":"just write the code, skip the plan"}' | bash "$PLUGIN_ROOT/hooks/prompt-router.sh" > "$TMPDIR/out.json" 2>&1
 if jq -e '.decision == "block"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "prompt-router: blocks 'just write the code'"
 else
@@ -409,7 +409,7 @@ fi
 # Intent prompt on main → suggests branch
 cd "$TMPDIR"
 git checkout -q main 2>/dev/null || git checkout -q -b main 2>/dev/null
-echo '{"prompt":"add endpoint to fetch user purchase history"}' | bash "$PLUGIN_ROOT/scripts/hooks/prompt-router.sh" > "$TMPDIR/out.json" 2>&1
+echo '{"prompt":"add endpoint to fetch user purchase history"}' | bash "$PLUGIN_ROOT/hooks/prompt-router.sh" > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.additionalContext | contains("feature branch")' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "prompt-router: suggests branch on feature intent + main"
 else
@@ -428,21 +428,21 @@ git init -q
 mkdir -p .claudehut/{specs,plans,memory}
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 
-echo '{"tool_input":{"command":"rm -rf /"}}' | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
+echo '{"tool_input":{"command":"rm -rf /"}}' | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "pre-tool: denies 'rm -rf /'"
 else
   fail "pre-tool" "destructive not denied: $(cat $TMPDIR/out.json)"
 fi
 
-echo '{"tool_input":{"command":"git push --force origin main"}}' | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
+echo '{"tool_input":{"command":"git push --force origin main"}}' | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "pre-tool: denies 'git push --force'"
 else
   fail "pre-tool" "force push not denied"
 fi
 
-echo '{"tool_input":{"command":"./gradlew test"}}' | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
+echo '{"tool_input":{"command":"./gradlew test"}}' | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool bash > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   fail "pre-tool" "false-positive deny on gradle test"
 else
@@ -463,7 +463,7 @@ mkdir -p .claudehut/{specs,plans,memory} src/main/java/com/x
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 
 # Phase=brainstorm; edit src/ → should deny
-echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool edit > "$TMPDIR/out.json" 2>&1
+echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   pass "pre-tool: blocks src/ edit in brainstorm phase"
 else
@@ -471,7 +471,7 @@ else
 fi
 
 # Edit inside .claudehut/ → should allow
-echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/.claudehut/specs/feature-test-design.md\"}}" | bash "$PLUGIN_ROOT/scripts/hooks/pre-tool.sh" --tool edit > "$TMPDIR/out.json" 2>&1
+echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/.claudehut/specs/feature-test-design.md\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
   fail "pre-tool" "wrongly blocks .claudehut/ writes: $(cat $TMPDIR/out.json)"
 else

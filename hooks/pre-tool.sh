@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# claudehut PreToolUse hook — reuse-scan check, rule auto-load, destructive block,
-# surgical-scope enforce (phase=build only).
+# claudehut PreToolUse hook — destructive-cmd block, phase gate (src/ in build),
+# reuse-scan freshness, surgical-scope enforce. Rule injection now lives in
+# Claude Code's native `.claude/rules/` loader (see hooks/pre-tool.sh tail).
 set -euo pipefail
 
 # shellcheck source=lib/state.sh
@@ -93,29 +94,7 @@ if [[ -n "$PLAN" ]]; then
   fi
 fi
 
-# Rule auto-load
-rules_index="$(dirname "$0")/../../rules/rules-index.json"
-matched=""
-if [[ -f "$rules_index" ]]; then
-  while IFS= read -r entry; do
-    glob="$(echo "$entry" | jq -r '.glob')"
-    rule="$(echo "$entry" | jq -r '.rule')"
-    case "$file_path" in
-      $glob)
-        rule_full="$(dirname "$0")/../../$rule"
-        [[ -f "$rule_full" ]] && matched+="$(cat "$rule_full")"$'\n\n---\n\n'
-        ;;
-    esac
-  done < <(jq -c '.[]' "$rules_index" 2>/dev/null)
-fi
-
-if [[ -n "$matched" ]]; then
-  jq -n --arg c "$matched" '{
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      additionalContext: ("Rules auto-loaded:\n\n" + $c)
-    }
-  }'
-else
-  exit 0
-fi
+# Rule auto-load is handled natively: <project>/.claude/rules/*.md files
+# (copied from the plugin by /claudehut:init) carry `paths:` frontmatter and
+# are loaded by Claude Code's built-in loader when matching files are read.
+exit 0
