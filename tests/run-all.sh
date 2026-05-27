@@ -44,10 +44,18 @@ done
 section "L1.3 Mermaid balance (opens == closes per file)"
 #==============================================================================
 for f in $(find . -name '*.md' -not -path './tests/*' -not -path './.claude/*'); do
-  opens=$(grep -c '^```mermaid' "$f" 2>/dev/null || echo 0)
-  if [[ "$opens" -gt 0 ]]; then
-    closes=$(awk 'flag && /^```$/{count++; flag=0} /^```mermaid/{flag=1} END{print count+0}' "$f")
-    if [[ "$opens" == "$closes" ]]; then pass "$(basename $f) (mermaid x$opens)"; else fail "$f" "mermaid imbalanced: opens=$opens closes=$closes"; fi
+  # awk counts both fences in one pass — guaranteed numeric output, no exit-code games.
+  # (Prior `grep -c ... || echo 0` double-printed "0" on zero-match grep, breaking [[ -gt ]].)
+  read -r opens closes < <(awk '
+    /^```mermaid/                { opens++; in_mer=1; next }
+    in_mer && /^```[[:space:]]*$/ { closes++; in_mer=0; next }
+    END { printf "%d %d\n", opens+0, closes+0 }
+  ' "$f")
+  [[ "$opens" -eq 0 ]] && continue
+  if [[ "$opens" -eq "$closes" ]]; then
+    pass "$(basename $f) (mermaid x$opens)"
+  else
+    fail "$f" "mermaid imbalanced: opens=$opens closes=$closes"
   fi
 done
 
