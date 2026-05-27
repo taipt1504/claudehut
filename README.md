@@ -244,7 +244,18 @@ After every successful task, the Learner agent extracts patterns / anti-patterns
 
 Privacy: every entry passes through a secret-scan (AWS keys, OpenAI/Anthropic keys, PEM blocks, JWTs, DB connection strings) before append. No personally identifiable information.
 
-### 5. Parallel Reviewer Subagents
+### 5. Subagent-Driven Workflow (per-phase model fit + isolated context)
+
+ClaudeHut binds every phase to a dedicated subagent. The main thread acts as the **orchestrator** (context, memory, advisor, task tracking, user dialog); each workflow skill instructs the main thread to `Task(subagent_type=..., prompt=<dispatch-prompt>)`. Per Anthropic's docs, each subagent runs in a **fresh, isolated context** — it does NOT inherit the main thread's loaded skills or files. Every phase agent therefore preloads its phase skill via `skills:` frontmatter, so the skill content is in the subagent's context at startup. The dispatch-prompt.sh script composes the rest (user intent + stack signals + conventions + prior artifacts).
+
+| Phase | Subagent | Preloaded skill(s) | Model |
+|-------|----------|---------------------|-------|
+| Brainstorm | `claudehut-brainstormer` | `claudehut:brainstorm`, `claudehut:reuse-scan` | Opus |
+| Spec | `claudehut-spec-writer` | `claudehut:spec` | Sonnet |
+| Plan | `claudehut-planner` | `claudehut:plan`, `claudehut:tdd-cycle` | Opus |
+| Build | `claudehut-builder` | `claudehut:build`, `claudehut:tdd-cycle` | Sonnet |
+| Loop (verify-review) | `claudehut-verifier` + 6 reviewers | `claudehut:verify-review` (verifier); domain skills per reviewer | Sonnet/Haiku mix |
+| Learn | `claudehut-learner` | `claudehut:learn` | Haiku |
 
 The Loop phase dispatches up to 6 read-only reviewer subagents in a single message:
 

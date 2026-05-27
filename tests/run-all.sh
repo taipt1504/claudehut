@@ -68,6 +68,32 @@ done
 #==============================================================================
 section "L1.5 Agent frontmatter compliance"
 #==============================================================================
+# Each agent must have name/description/model and (except orchestrator) a
+# `skills:` preload list — subagent context is isolated, so the agent's
+# essential phase/domain skill MUST be preloaded via frontmatter, not relied
+# on from the main thread.
+
+# Map: agent stem → required preload skills (space-separated)
+agent_requires() {
+  case "$1" in
+    claudehut-brainstormer)         echo "claudehut:brainstorm claudehut:reuse-scan" ;;
+    claudehut-spec-writer)          echo "claudehut:spec" ;;
+    claudehut-planner)              echo "claudehut:plan claudehut:tdd-cycle" ;;
+    claudehut-builder)              echo "claudehut:build claudehut:tdd-cycle" ;;
+    claudehut-verifier)             echo "claudehut:verify-review" ;;
+    claudehut-learner)              echo "claudehut:learn" ;;
+    claudehut-reuse-scanner)        echo "claudehut:reuse-scan" ;;
+    claudehut-migration-validator)  echo "claudehut:flyway-migration" ;;
+    claudehut-test-runner)          echo "claudehut:tdd-cycle" ;;
+    claudehut-reviewer-db)          echo "claudehut:r2dbc claudehut:jpa-hibernate" ;;
+    claudehut-reviewer-mapping)     echo "claudehut:mapstruct claudehut:jackson" ;;
+    claudehut-reviewer-reactive)    echo "claudehut:spring-webflux" ;;
+    claudehut-reviewer-security)    echo "claudehut:owasp-scan" ;;
+    claudehut-stack-detector|claudehut-reviewer-perf|claudehut-reviewer-style|claudehut-orchestrator) echo "" ;;
+    *) echo "?" ;;
+  esac
+}
+
 for f in $(find agents -name '*.md'); do
   if ! head -1 "$f" | grep -q '^---$'; then fail "$f" "missing frontmatter"; continue; fi
   name=$(awk '/^---$/{c++; next} c==1 && /^name:/{print $2; exit}' "$f")
@@ -77,9 +103,51 @@ for f in $(find agents -name '*.md'); do
   [[ -z "$desc" ]] && { fail "$f" "missing 'description'"; continue; }
   [[ -z "$model" ]] && { fail "$f" "missing 'model'"; continue; }
   case "$model" in
-    sonnet|opus|haiku|sonnet-*|opus-*|haiku-*|claude-*) pass "$f (model=$model)" ;;
-    *) fail "$f" "invalid model '$model'" ;;
+    sonnet|opus|haiku|sonnet-*|opus-*|haiku-*|claude-*) ;;
+    *) fail "$f" "invalid model '$model'"; continue ;;
   esac
+
+  # Preload check.
+  stem="$(basename "$f" .md)"
+  required="$(agent_requires "$stem")"
+  if [[ "$required" == "?" ]]; then
+    fail "$f" "L1.5: unknown agent stem '$stem' — update agent_requires() in tests"
+    continue
+  fi
+  if [[ -z "$required" ]]; then
+    pass "$f (model=$model, no preload required)"
+    continue
+  fi
+  fm_block="$(awk '/^---$/{c++; if(c==2)exit} c==1' "$f")"
+  if ! grep -q '^skills:' <<<"$fm_block"; then
+    fail "$f" "missing 'skills:' preload (required: $required)"
+    continue
+  fi
+  preloaded="$(awk '/^skills:/{flag=1; next} flag && /^[a-z_]+:/{flag=0} flag && /^[[:space:]]+-/{sub(/^[[:space:]]+-[[:space:]]+/,""); print}' <<<"$fm_block" | tr -d ' ')"
+  missing=""
+  for r in $required; do
+    if ! grep -q "^${r}\$" <<<"$preloaded"; then
+      missing="$missing $r"
+    fi
+  done
+  if [[ -n "$missing" ]]; then
+    fail "$f" "skills preload missing:${missing}"
+  else
+    pass "$f (model=$model, preload=[$required])"
+  fi
+done
+
+# Every agent except the orchestrator must include the Skill Discipline section
+# in its body (the main thread's loaded context is not inherited).
+for f in $(find agents -name '*.md'); do
+  case "$(basename "$f")" in
+    claudehut-orchestrator.md) continue ;;
+  esac
+  if grep -q '^## Skill Discipline' "$f"; then
+    pass "$f Skill Discipline present"
+  else
+    fail "$f" "missing '## Skill Discipline' section in body"
+  fi
 done
 
 #==============================================================================

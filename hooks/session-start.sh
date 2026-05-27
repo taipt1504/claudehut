@@ -112,9 +112,19 @@ When a workflow skill is invoked, the skill body instructs you to call
 \`Task(subagent_type=..., prompt=<output of skill/scripts/dispatch-prompt.sh>)\`.
 Do NOT execute phase steps inline in the main thread.
 
+Context contract — per Anthropic Claude Code docs:
+  - Subagent starts with a FRESH, ISOLATED context window.
+  - Skills you loaded here in the main thread are NOT inherited.
+  - Subagent receives: its frontmatter \`skills:\` preloads + CLAUDE.md
+    hierarchy + git status + the prompt you pass via Task.
+  - Pass anything the subagent needs explicitly in the Task prompt.
+  - dispatch-prompt.sh composes that prompt deterministically (user
+    intent + stack signals + conventions + recent learnings + prior
+    artifacts).
+
 Red flags (rationalizations to skip dispatch) — counter each:
   * \"task is small, I'll inline it\"       → wrong model + breaks gate
-  * \"I already know the answer\"           → subagent has memory+artifacts main lacks
+  * \"I already know the answer\"           → subagent's preloaded skill encodes the discipline; your in-context memory does not transfer to it anyway — dispatch and let it do the work right
   * \"subagent overhead is wasteful\"       → per-phase model is the point
   * \"I'll just write the code\"            → blocked by PreToolUse outside Build
 Only exception: user explicitly says \`--inline\` or \"don't spawn a subagent\".
