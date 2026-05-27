@@ -1,6 +1,3 @@
 {
-  "hookSpecificOutput": {
-    "hookEventName": "FileChanged",
-    "additionalContext": "Memory/rules updated externally: /tmp/CLAUDE.md. Context refreshed."
-  }
+  "systemMessage": "ClaudeHut: memory/rules updated externally — /tmp/CLAUDE.md. Reload context if needed."
 }

@@ -23,10 +23,7 @@ Artifacts:
 
 After compact: re-read these artifacts + run claudehut-state phase to resume."
 
-jq -n --arg c "$ctx" '{
-  hookSpecificOutput: {
-    hookEventName: "PreCompact",
-    additionalContext: $c
-  }
-}'
+# Schema note: PreCompact does NOT accept `hookSpecificOutput`. Use top-level
+# `systemMessage` so the artifact snapshot is visible to the user before compaction.
+jq -n --arg c "$ctx" '{ systemMessage: $c }'
 exit 0

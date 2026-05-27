@@ -444,7 +444,9 @@ phase=$(claudehut_phase)
 #----- STEP 9: Stop hook surfaces "invoke /claudehut:learn" -----
 section "STEP 9 — Stop hook"
 out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("claudehut:learn")' >/dev/null \
+# Stop schema: top-level fields only (no hookSpecificOutput). Learn-phase block
+# uses decision=block + reason.
+echo "$out" | jq -e '.decision == "block" and (.reason | contains("claudehut:learn"))' >/dev/null \
   && pass "Stop hook prompts learn" || fail "stop" "missing learn prompt: $out"
 
 #----- STEP 10: Learn writes learnings.jsonl -----
@@ -465,7 +467,8 @@ phase=$(claudehut_phase)
 #----- STEP 11: Stop hook suggests claudehut-finish -----
 section "STEP 11 — Done state"
 out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("claudehut-finish")' >/dev/null \
+# Done state uses non-blocking systemMessage (top-level, per Stop hook schema).
+echo "$out" | jq -e '.systemMessage | contains("claudehut-finish")' >/dev/null \
   && pass "Stop hook suggests claudehut-finish" || fail "stop" "missing finish suggestion: $out"
 
 #----- FINAL VERIFICATION: all expected artifacts present -----
