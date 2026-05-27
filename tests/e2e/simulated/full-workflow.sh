@@ -443,11 +443,21 @@ phase=$(claudehut_phase)
 
 #----- STEP 9: Stop hook surfaces "invoke /claudehut:learn" -----
 section "STEP 9 — Stop hook"
+# Default mode: non-blocking systemMessage (user can still stop).
 out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
-# Stop schema: top-level fields only (no hookSpecificOutput). Learn-phase block
-# uses decision=block + reason.
+echo "$out" | jq -e '.systemMessage | contains("claudehut:learn")' >/dev/null \
+  && pass "Stop hook surfaces learn reminder (default, non-blocking)" \
+  || fail "stop" "missing learn reminder: $out"
+
+# Opt-in enforcement: enable, expect decision=block.
+cat > .claudehut/claudehut-config.json <<'CFG'
+{"phase":{"stop_enforcement_enabled":true}}
+CFG
+out=$(bash "$PLUGIN_ROOT/hooks/stop.sh")
 echo "$out" | jq -e '.decision == "block" and (.reason | contains("claudehut:learn"))' >/dev/null \
-  && pass "Stop hook prompts learn" || fail "stop" "missing learn prompt: $out"
+  && pass "Stop hook blocks under opt-in enforcement" \
+  || fail "stop" "missing decision=block under enforcement: $out"
+rm -f .claudehut/claudehut-config.json
 
 #----- STEP 10: Learn writes learnings.jsonl -----
 section "STEP 10 — Learnings persisted"

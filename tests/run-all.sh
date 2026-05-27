@@ -659,6 +659,116 @@ else
 fi
 
 #==============================================================================
+section "L13 Hook output schema conformance"
+#==============================================================================
+# Anthropic's hook schema permits `hookSpecificOutput` ONLY for PreToolUse,
+# UserPromptSubmit, PostToolUse, PostToolBatch, and SessionStart. All other
+# hook events (Stop, SubagentStop, PreCompact, FileChanged, etc.) must use
+# top-level fields only. This layer drives each hook with a fixture and
+# verifies (a) stdout is valid JSON or empty, (b) no hookSpecificOutput leaks
+# from events that disallow it, (c) emitted top-level keys are within the
+# documented set.
+#
+# Allowed top-level keys: continue, suppressOutput, stopReason, decision,
+#   reason, systemMessage, permissionDecision, hookSpecificOutput.
+ALLOWED_TOP_KEYS='continue suppressOutput stopReason decision reason systemMessage permissionDecision hookSpecificOutput'
+HSO_ALLOWED_EVENTS='PreToolUse UserPromptSubmit PostToolUse PostToolBatch SessionStart'
+
+L13_TMPDIR=$(mktemp -d)
+pushd "$L13_TMPDIR" >/dev/null
+git init -q
+git checkout -q -b feature/schema 2>/dev/null
+mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- mapper: mapstruct
+STACK
+export CLAUDE_PROJECT_DIR="$L13_TMPDIR"
+export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+
+check_hook_schema() {
+  local name="$1" script="$2" event="$3" stdin_json="$4" extra_args="$5"
+  local out
+  if [[ -n "$extra_args" ]]; then
+    out="$(echo "$stdin_json" | bash "$script" $extra_args 2>/dev/null)"
+  else
+    out="$(echo "$stdin_json" | bash "$script" 2>/dev/null)"
+  fi
+  # empty output = valid (hook chose to stay silent)
+  if [[ -z "$out" ]]; then pass "L13 $name silent"; return; fi
+  # must be valid JSON
+  if ! echo "$out" | jq empty 2>/dev/null; then
+    fail "L13 $name" "stdout not valid JSON: $out"; return
+  fi
+  # top-level keys whitelist
+  local k
+  for k in $(echo "$out" | jq -r 'keys[]'); do
+    case " $ALLOWED_TOP_KEYS " in
+      *" $k "*) ;;
+      *) fail "L13 $name" "disallowed top-level key '$k': $out"; return ;;
+    esac
+  done
+  # hookSpecificOutput allowed only for whitelisted events
+  if echo "$out" | jq -e 'has("hookSpecificOutput")' >/dev/null 2>&1; then
+    case " $HSO_ALLOWED_EVENTS " in
+      *" $event "*) ;;
+      *) fail "L13 $name" "$event must not emit hookSpecificOutput: $out"; return ;;
+    esac
+    # hookSpecificOutput.hookEventName must match the actual event
+    local got_event
+    got_event=$(echo "$out" | jq -r '.hookSpecificOutput.hookEventName // empty')
+    if [[ -n "$got_event" && "$got_event" != "$event" ]]; then
+      fail "L13 $name" "hookEventName mismatch: got '$got_event' expected '$event'"
+      return
+    fi
+  fi
+  pass "L13 $name schema valid"
+}
+
+# Each hook driven with a representative fixture.
+check_hook_schema "session-start"  "$PLUGIN_ROOT/hooks/session-start.sh"  "SessionStart"     "{}"                                             ""
+check_hook_schema "prompt-router"  "$PLUGIN_ROOT/hooks/prompt-router.sh"  "UserPromptSubmit" '{"prompt":"add user endpoint"}'                 ""
+check_hook_schema "pre-tool-bash"  "$PLUGIN_ROOT/hooks/pre-tool.sh"       "PreToolUse"       '{"tool_input":{"command":"./gradlew test"}}'   "--tool bash"
+check_hook_schema "pre-tool-edit"  "$PLUGIN_ROOT/hooks/pre-tool.sh"       "PreToolUse"       "{\"tool_input\":{\"file_path\":\"$L13_TMPDIR/.claudehut/specs/x.md\"}}" "--tool edit"
+check_hook_schema "post-tool"      "$PLUGIN_ROOT/hooks/post-tool.sh"      "PostToolUse"      '{"tool_input":{"file_path":"/tmp/x.java"}}'    ""
+check_hook_schema "subagent-stop"  "$PLUGIN_ROOT/hooks/subagent-stop.sh"  "SubagentStop"     '{"agent_type":"claudehut-reviewer-security"}'   ""
+check_hook_schema "stop"           "$PLUGIN_ROOT/hooks/stop.sh"           "Stop"             '{}'                                             ""
+check_hook_schema "pre-compact"    "$PLUGIN_ROOT/hooks/pre-compact.sh"    "PreCompact"       '{}'                                             ""
+check_hook_schema "file-changed"   "$PLUGIN_ROOT/hooks/file-changed.sh"   "FileChanged"      '{"file_path":"/tmp/CLAUDE.md"}'                 ""
+
+# Specific regression: Stop default mode (no config) must NOT block — the
+# block-on-learn behavior is opt-in. Forge the learn-phase state and verify
+# Stop emits systemMessage rather than decision=block.
+mkdir -p "$L13_TMPDIR/.claudehut/specs" "$L13_TMPDIR/.claudehut/plans" "$L13_TMPDIR/.claudehut/findings"
+TID="$(cd "$L13_TMPDIR" && bash -c 'source '"$PLUGIN_ROOT"'/hooks/lib/state.sh; claudehut_task_id')"
+echo "design"   > "$L13_TMPDIR/.claudehut/specs/${TID}-design.md"
+echo "contract" > "$L13_TMPDIR/.claudehut/specs/${TID}-contract.md"
+echo -e "- [x] task1\n  create: src/Foo.java" > "$L13_TMPDIR/.claudehut/plans/${TID}-plan.md"
+echo '{"decision":"pass"}' > "$L13_TMPDIR/.claudehut/findings/${TID}-findings.json"
+out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 \
+   && ! echo "$out" | jq -e '.decision == "block"' >/dev/null 2>&1; then
+  pass "L13 Stop default mode is non-blocking (systemMessage only)"
+else
+  fail "L13 Stop default" "expected systemMessage, got: $out"
+fi
+
+# Opt-in mode: enable enforcement, expect decision=block.
+cat > "$L13_TMPDIR/.claudehut/claudehut-config.json" <<'CFG'
+{"phase":{"stop_enforcement_enabled":true}}
+CFG
+out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.decision == "block" and (.reason | type == "string")' >/dev/null 2>&1; then
+  pass "L13 Stop opt-in mode blocks via decision=block"
+else
+  fail "L13 Stop opt-in" "expected decision=block, got: $out"
+fi
+
+popd >/dev/null
+rm -rf "$L13_TMPDIR"
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))

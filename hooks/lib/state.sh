@@ -164,7 +164,13 @@ claudehut_stack_signal() {
   local f
   f="$(claudehut_claudehut_dir)/memory/stack-signals.md"
   [[ -f "$f" ]] || { echo ""; return 0; }
-  grep -E "^- ${key}:" "$f" 2>/dev/null \
+  # Note: grep returns non-zero when the key is absent. Without the `|| true`
+  # guard, callers running under `set -e` (every hook) would abort silently
+  # whenever stack-signals.md doesn't have a row for the requested key.
+  local line
+  line="$(grep -E "^- ${key}:" "$f" 2>/dev/null || true)"
+  [[ -z "$line" ]] && { echo ""; return 0; }
+  printf '%s' "$line" \
     | head -1 \
     | sed -E "s/^- ${key}:[[:space:]]*//; s/[[:space:]]*#.*//; s/[[:space:]]+$//"
 }

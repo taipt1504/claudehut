@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# claudehut Stop hook — suggest next phase action based on artifact-derived state.
+# claudehut Stop hook — surface pending phase actions before the session ends.
 #
 # Schema note: the Stop event does NOT accept `hookSpecificOutput`. Only top-level
 # fields are valid (decision/reason/systemMessage/stopReason/continue/suppressOutput).
-# We use:
-#   - decision="block" + reason  → force Claude to continue with the next phase task
-#   - systemMessage              → informational, non-blocking
+#
+# Behavior policy (intentional, after real-user feedback):
+#   - Default mode: emit `systemMessage` (informational, non-blocking) — Claude
+#     is allowed to stop; the user sees a reminder, not a wall.
+#   - Hard-enforcement mode (opt-in via .claudehut/claudehut-config.json#
+#     phase.stop_enforcement_enabled = true): emit `decision="block"` to force
+#     Claude to dispatch the missing phase before stopping. Use sparingly —
+#     blocking the Stop event makes Claude continue past the user's stop intent.
 set -euo pipefail
 
 # shellcheck source=lib/state.sh
@@ -17,16 +22,23 @@ PROJECT_ROOT="$(claudehut_project_root)"
 TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
 
+config="$PROJECT_ROOT/.claudehut/claudehut-config.json"
+ENFORCE=false
+if [[ -f "$config" ]]; then
+  ENFORCE="$(jq -r '.phase.stop_enforcement_enabled // false' "$config" 2>/dev/null)"
+fi
+
 case "$PHASE" in
   learn)
-    # Learn phase still pending → block stop, force Claude to dispatch the learner.
-    jq -n '{
-      decision: "block",
-      reason: "Verify/Review gates are green but the Learn phase has not run. Invoke /claudehut:learn (dispatches claudehut-learner) before stopping so patterns are persisted to .claudehut/memory/learnings.jsonl."
-    }'
+    msg="ClaudeHut: Verify/Review gates are green but the Learn phase has not run. Invoke /claudehut:learn (dispatches claudehut-learner) to persist patterns to .claudehut/memory/learnings.jsonl."
+    if [[ "$ENFORCE" == "true" ]]; then
+      jq -n --arg r "$msg" '{ decision: "block", reason: $r }'
+    else
+      jq -n --arg m "$msg" '{ systemMessage: $m }'
+    fi
     ;;
   done)
-    # Task complete → non-blocking suggestion.
+    # Task complete → always non-blocking suggestion.
     jq -n '{
       systemMessage: "ClaudeHut: task complete. Run claudehut-finish to archive findings + state, then merge."
     }'
