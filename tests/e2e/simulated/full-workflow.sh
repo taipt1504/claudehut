@@ -51,23 +51,18 @@ git add -q .; git commit -q -m "scaffold project"
 # Initialize .claudehut/
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
 cp "$PLUGIN_ROOT/templates/claudehut-config.template.json" .claudehut/claudehut-config.json
-cat > .claudehut/memory/stack-signals.json <<'STACK'
-{
-  "build_tool": "maven",
-  "java_version": "21",
-  "spring_boot": "3.3.4",
-  "web_stack": "webflux",
-  "orm": ["r2dbc"],
-  "db": ["postgresql"],
-  "messaging": [],
-  "cache": [],
-  "mapper": "mapstruct",
-  "mapstruct_version": "1.5.5.Final",
-  "serialization": "jackson",
-  "jackson_version": "2.17.2",
-  "test": {"junit": "5.10", "testcontainers": true, "wiremock": false},
-  "detected_at": "2025-05-27T08:00:00Z"
-}
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- build_tool: maven
+- java_version: 21
+- spring_boot: 3.3.4
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
+- detected_at: 2025-05-27T08:00:00Z
 STACK
 git add -q .; git commit -q -m "init claudehut"
 

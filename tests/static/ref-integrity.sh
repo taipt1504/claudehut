@@ -5,7 +5,7 @@
 #   1. Skill cites references/X.md → X.md must exist (forward, already in run-all.sh)
 #   2. Rule cites skill/rule path → target must exist (reverse)
 #   3. Agent cites skill/rule path → target must exist (reverse)
-#   4. rules-index.json entries → rule file must exist
+#   4. Every rule file has a `paths:` frontmatter (native loader contract)
 
 set -uo pipefail
 
@@ -83,31 +83,18 @@ for agent in agents/*.md; do
 done
 [[ $broken -eq 0 ]] && pass "all agent→bin/ citations resolve" || fail "agent→bin" "$broken broken"
 
-# rules-index.json entries
-echo "--- rules-index.json ---"
-broken=0
-while IFS= read -r rule; do
-  if [[ ! -f "$rule" ]]; then
-    echo "  broken index entry: $rule"
-    broken=$((broken + 1))
+# Rule frontmatter contract: paths: (required), stack: (optional)
+echo "--- Rule frontmatter ---"
+missing=0; total=0
+for rule_file in $(find ./rules -name '*.md'); do
+  total=$((total + 1))
+  fm=$(awk '/^---[[:space:]]*$/{n++; if(n==2)exit} n==1' "$rule_file")
+  if ! grep -q '^paths:' <<<"$fm"; then
+    echo "  missing paths: in $rule_file"
+    missing=$((missing + 1))
   fi
-done < <(jq -r '.[].rule' rules/rules-index.json)
-[[ $broken -eq 0 ]] && pass "all rules-index entries resolve" || fail "rules-index" "$broken broken"
-
-# Rules in rules/ but not in rules-index.json (informational)
-echo "--- Rules coverage in index (informational) ---"
-unindexed=0
-while IFS= read -r rule_file; do
-  rule_rel="${rule_file#./}"
-  if ! jq -r '.[].rule' rules/rules-index.json | grep -qF "$rule_rel"; then
-    unindexed=$((unindexed + 1))
-  fi
-done < <(find ./rules -name '*.md')
-if [[ $unindexed -eq 0 ]]; then
-  pass "all 42 rules referenced in rules-index.json"
-else
-  fail "rules-index coverage" "$unindexed rule(s) not indexed"
-fi
+done
+[[ $missing -eq 0 ]] && pass "all $total rules carry paths: frontmatter" || fail "rule frontmatter" "$missing file(s) missing paths:"
 
 echo ""
 echo "===== SUMMARY ====="

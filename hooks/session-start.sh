@@ -31,15 +31,14 @@ BRANCH="$(claudehut_branch)"
 RETRIES="$(claudehut_loop_retries)"
 
 STACK_SUMMARY="not detected"
-if [[ -f "$MEMORY_DIR/stack-signals.json" ]]; then
-  ss="$MEMORY_DIR/stack-signals.json"
-  w=$(jq -r '.web_stack // "?"' "$ss" 2>/dev/null)
-  o=$(jq -r '.orm[0] // "?"' "$ss" 2>/dev/null)
-  d=$(jq -r '.db[0] // "?"' "$ss" 2>/dev/null)
-  m=$(jq -r '.messaging[0] // "?"' "$ss" 2>/dev/null)
-  mp=$(jq -r '.mapper // "?"' "$ss" 2>/dev/null)
-  sr=$(jq -r '.serialization // "?"' "$ss" 2>/dev/null)
-  STACK_SUMMARY="web=$w orm=$o db=$d mq=$m mapper=$mp ser=$sr"
+if [[ -f "$MEMORY_DIR/stack-signals.md" ]]; then
+  w=$(claudehut_stack_signal web)
+  o=$(claudehut_stack_signal orm)
+  d=$(claudehut_stack_signal db)
+  m=$(claudehut_stack_signal messaging)
+  mp=$(claudehut_stack_signal mapper)
+  sr=$(claudehut_stack_signal serialization)
+  STACK_SUMMARY="web=${w:-?} orm=${o:-?} db=${d:-?} mq=${m:-?} mapper=${mp:-?} ser=${sr:-?}"
 fi
 
 ua_avail="false"; ua_path=""

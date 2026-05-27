@@ -79,8 +79,14 @@ JAVA
 
   # Pre-initialize ClaudeHut so workflow engages (skip init prompt)
   mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
-  cat > .claudehut/memory/stack-signals.json <<'STACK'
-{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"],"messaging":[],"cache":[],"mapper":"manual","serialization":"jackson","build_tool":"maven","java_version":"21","spring_boot":"3.3.4","test":{"junit":"5.10","testcontainers":false,"wiremock":false},"detected_at":"2025-05-27T00:00:00Z"}
+  cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
 STACK
   cat > .claudehut/claudehut-config.json <<'CFG'
 {"version":"0.1.0","phase":{"loop_max_retries":3}}

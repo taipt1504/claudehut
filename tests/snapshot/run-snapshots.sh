@@ -80,8 +80,14 @@ git config user.email test@test
 git config user.name Test
 git checkout -q -b feature/snapshot 2>/dev/null
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans} src/main/java/com/x
-cat > .claudehut/memory/stack-signals.json <<'STACK'
-{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"],"messaging":[],"cache":[],"mapper":"mapstruct","serialization":"jackson"}
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
 STACK
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
@@ -99,8 +105,14 @@ snapshot "session-start-no-claudehut-dir" "$PLUGIN_ROOT/hooks/session-start.sh" 
 
 # Re-init for remaining
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
-cat > .claudehut/memory/stack-signals.json <<'STACK'
-{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"],"messaging":[],"cache":[],"mapper":"mapstruct","serialization":"jackson"}
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
 STACK
 
 snapshot "prompt-router-feature-intent-on-main" "$PLUGIN_ROOT/hooks/prompt-router.sh" '{"prompt":"add endpoint to fetch user data"}'

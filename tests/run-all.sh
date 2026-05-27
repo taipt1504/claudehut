@@ -19,7 +19,7 @@ skip() { printf "  \033[33m-\033[0m %s :: %s\n" "$1" "${2:-skipped}"; SKIP=$((SK
 #==============================================================================
 section "L1.1 JSON validity"
 #==============================================================================
-for f in .claude-plugin/plugin.json hooks/hooks.json .mcp.json settings.json rules/rules-index.json templates/claudehut-config.template.json templates/stack-signals.template.json; do
+for f in .claude-plugin/plugin.json hooks/hooks.json .mcp.json settings.json templates/claudehut-config.template.json; do
   if python3 -c "import json; json.load(open('$f'))" 2>/dev/null; then pass "$f"; else fail "$f" "JSON parse error"; fi
 done
 
@@ -95,13 +95,22 @@ for f in $(find skills -name 'SKILL.md'); do
 done
 
 #==============================================================================
-section "L1.7 Rules-index.json references exist"
+section "L1.7 Rule frontmatter (paths:) present + valid"
 #==============================================================================
-broken=0
-while IFS= read -r rule; do
-  if [[ -f "$rule" ]]; then :; else echo "    broken: $rule"; broken=$((broken+1)); fi
-done < <(jq -r '.[].rule' rules/rules-index.json)
-if [[ "$broken" -eq 0 ]]; then pass "all rules-index entries resolve"; else fail "rules-index.json" "$broken broken rule path(s)"; fi
+missing_paths=0; bad_yaml=0
+for f in $(find rules -name '*.md'); do
+  fm=$(awk '/^---[[:space:]]*$/{n++; if(n==2)exit} n==1' "$f")
+  if ! grep -q '^paths:' <<<"$fm"; then
+    echo "    missing paths: $f"; missing_paths=$((missing_paths+1)); continue
+  fi
+  # paths block must be a YAML list (one or more `  - "..."` lines)
+  list=$(awk '/^paths:/{flag=1;next} flag && /^[a-z_]+:/{flag=0} flag{print}' <<<"$fm")
+  if ! grep -qE '^[[:space:]]+- ' <<<"$list"; then
+    echo "    paths not a list: $f"; bad_yaml=$((bad_yaml+1))
+  fi
+done
+[[ "$missing_paths" -eq 0 ]] && pass "all rules carry paths: frontmatter" || fail "rule frontmatter" "$missing_paths file(s) missing paths:"
+[[ "$bad_yaml"      -eq 0 ]] && pass "all paths: blocks are YAML lists"   || fail "rule frontmatter" "$bad_yaml file(s) with malformed paths:"
 
 #==============================================================================
 section "L1.8 Plugin manifest spec compliance"
@@ -363,7 +372,15 @@ cd "$TMPDIR"
 git init -q
 git checkout -q -b feature/test 2>/dev/null
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
-echo '{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"]}' > .claudehut/memory/stack-signals.json
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
+STACK
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$TMPDIR/out.json" 2>&1
@@ -485,18 +502,11 @@ rm -rf "$TMPDIR"
 section "L4 Coverage — rules + skills + agents"
 #==============================================================================
 n_rules=$(find rules -name '*.md' | wc -l | tr -d ' ')
-n_indexed=$(jq -r '.[].rule' rules/rules-index.json | sort -u | wc -l | tr -d ' ')
-[[ "$n_rules" -ge "$n_indexed" ]] && pass "rules: $n_rules files, $n_indexed indexed entries" || fail "coverage" "more indexed than rules?"
+[[ "$n_rules" -eq 42 ]] && pass "rules: $n_rules files (matches design)" || fail "coverage" "expected 42 rule files, found $n_rules"
 
-# Rules not in index (acceptable but worth noting)
-unindexed=0
-while IFS= read -r rule_file; do
-  rule_rel="${rule_file#./}"
-  if ! jq -r '.[].rule' rules/rules-index.json | grep -qF "$rule_rel"; then
-    unindexed=$((unindexed+1))
-  fi
-done < <(find rules -name '*.md')
-if [[ "$unindexed" -eq 0 ]]; then pass "all rule files indexed"; else skip "$unindexed rule(s) not in rules-index.json (may be acceptable)"; fi
+# Stack-conditional rules (frontmatter `stack:` key) — informational
+stack_count=$(grep -l '^stack:' rules/**/*.md 2>/dev/null | wc -l | tr -d ' ')
+pass "stack-conditional rules: $stack_count (init copies these only when stack-signals match)"
 
 # Agent count
 n_agents=$(find agents -name '*.md' | wc -l | tr -d ' ')

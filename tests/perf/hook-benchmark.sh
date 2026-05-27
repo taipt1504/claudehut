@@ -60,8 +60,14 @@ git config user.email test@test
 git config user.name Test
 git checkout -q -b feature/perf 2>/dev/null
 mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans} src/main/java/com/x
-cat > .claudehut/memory/stack-signals.json <<'STACK'
-{"web_stack":"webflux","orm":["r2dbc"],"db":["postgresql"],"mapper":"mapstruct","serialization":"jackson","messaging":[],"cache":[]}
+cat > .claudehut/memory/stack-signals.md <<'STACK'
+- web: webflux
+- orm: r2dbc
+- db: postgresql
+- messaging: none
+- cache: none
+- mapper: mapstruct
+- serialization: jackson
 STACK
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"

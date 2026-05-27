@@ -155,13 +155,18 @@ claudehut_reuse_scan_fresh() {
   (( now_epoch - ts_epoch < 600 ))
 }
 
-# Stack signals (cached detection result; refresh weekly via stack-detector agent)
+# Stack signals (cached detection result; refresh weekly via stack-detector agent).
+# Source-of-truth file is .claudehut/memory/stack-signals.md — markdown so it can
+# be @imported from CLAUDE.md. Format: lines like `- key: value` (optionally with
+# trailing `# comment`).
 claudehut_stack_signal() {
-  local expr="$1"
+  local key="$1"
   local f
-  f="$(claudehut_claudehut_dir)/memory/stack-signals.json"
+  f="$(claudehut_claudehut_dir)/memory/stack-signals.md"
   [[ -f "$f" ]] || { echo ""; return 0; }
-  jq -r "$expr // empty" "$f" 2>/dev/null || echo ""
+  grep -E "^- ${key}:" "$f" 2>/dev/null \
+    | head -1 \
+    | sed -E "s/^- ${key}:[[:space:]]*//; s/[[:space:]]*#.*//; s/[[:space:]]+$//"
 }
 
 claudehut_integration() {
