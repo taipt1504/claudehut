@@ -3,6 +3,40 @@ name: verify-review
 description: Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) then dispatch reviewer subagents in parallel; aggregate findings; pass-or-refactor decision; bounded retry (max 3) then escalate. Use after Build phase completes. Triggers when phase=loop.
 ---
 
+## Dispatch contract (read this FIRST)
+
+This phase runs as a **subagent**, not inline in the main thread.
+Main thread = orchestrator (context, memory, advisor, task tracking, user
+dialog). Phase work = subagent (isolated context, per-phase model).
+
+When you read this skill, you **MUST** invoke the Task tool:
+
+```
+Task(
+  subagent_type = "claudehut-verifier",
+  prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
+)
+```
+
+Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/verify-review/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+
+Do **not** execute the phase steps yourself in the main thread.
+Await the subagent's return, review the artifact it wrote, surface a
+concise status back to the user.
+
+**Red flags that say "skip dispatch"** (counter each, do not give in):
+
+| Rationalization | Reality |
+|---|---|
+| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
+| "Subagent context is overkill." | This phase intentionally runs on `sonnet`. Main thread may be a different model — wrong tool. **Dispatch.** |
+| "Tests pass — skip reviewers." | Verifier dispatches 6 reviewer subagents in parallel; that is the gate. **Dispatch.** |
+| "I'll review the diff myself." | Loop phase = independent eyes; main-thread self-review fails the gate. **Dispatch.** |
+
+**Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
+
+---
+
 # Verify-Review — Phase 5 (Loop)
 
 Quality gate that may iterate. Each iteration either passes (→ Learn) or injects a refactor task back to Build.

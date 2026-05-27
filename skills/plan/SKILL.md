@@ -3,6 +3,40 @@ name: plan
 description: Phase 3 of ClaudeHut workflow — break an approved contract into a file-level task list with 2–5 minute chunks, exact paths, RED test commands, GREEN implementation steps, DAG dependencies, and risk callouts. Use immediately after Spec phase approval. Produces `.claudehut/plans/<id>-plan.md`. Triggers when phase=plan.
 ---
 
+## Dispatch contract (read this FIRST)
+
+This phase runs as a **subagent**, not inline in the main thread.
+Main thread = orchestrator (context, memory, advisor, task tracking, user
+dialog). Phase work = subagent (isolated context, per-phase model).
+
+When you read this skill, you **MUST** invoke the Task tool:
+
+```
+Task(
+  subagent_type = "claudehut-planner",
+  prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
+)
+```
+
+Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/plan/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+
+Do **not** execute the phase steps yourself in the main thread.
+Await the subagent's return, review the artifact it wrote, surface a
+concise status back to the user.
+
+**Red flags that say "skip dispatch"** (counter each, do not give in):
+
+| Rationalization | Reality |
+|---|---|
+| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
+| "Subagent context is overkill." | This phase intentionally runs on `opus`. Main thread may be a different model — wrong tool. **Dispatch.** |
+| "Tasks are obvious — no plan needed." | Build phase reads plan; PreToolUse blocks files not in plan. **Dispatch.** |
+| "I'll plan as I go." | TDD requires file-level tasks upfront. **Dispatch.** |
+
+**Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
+
+---
+
 # Plan — Phase 3
 
 Make a plan so concrete a junior engineer could execute it without rereading the spec.

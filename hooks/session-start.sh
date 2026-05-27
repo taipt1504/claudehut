@@ -19,7 +19,7 @@ if [[ ! -d "$CLAUDEHUT_DIR" ]]; then
   jq -n '{
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: "ClaudeHut available but project not initialized. Run /claudehut:init to scaffold .claudehut/ directory."
+      additionalContext: "ClaudeHut available but project not initialized. Run /claudehut:init to scaffold .claudehut/ directory.\n\nDispatch contract: once initialized, workflow phases run as Task() subagents (brainstorm→claudehut-brainstormer, spec→claudehut-spec-writer, plan→claudehut-planner, build→claudehut-builder, verify-review→claudehut-verifier, learn→claudehut-learner). Main thread = orchestrator."
     }
   }'
   exit 0
@@ -91,8 +91,35 @@ Backends: UA=$ua_avail, Graphify=$gf_avail (global=$gf_global)
 Recent learnings:
 $RECENT
 
-Session-level rules: naming, package-layout, tdd-cycle, owasp-top10, secret-mgmt, coverage.
+------------------------------------------------------------
+ClaudeHut dispatch contract (non-negotiable)
+------------------------------------------------------------
+Main thread = ORCHESTRATOR. Your responsibilities:
+  - own user dialog, context window, memory, advisor calls
+  - track plan progress + phase transitions
+  - dispatch each workflow phase as a SUBAGENT via the Task tool
+  - review subagent output, surface concise status to user
 
+Phase → subagent_type (set deliberately per phase model fit):
+  brainstorm     → claudehut-brainstormer    (opus,   Socratic + reuse-scan)
+  spec           → claudehut-spec-writer     (sonnet, contract drafting)
+  plan           → claudehut-planner         (opus,   task decomposition)
+  build          → claudehut-builder         (sonnet, TDD execution)
+  verify-review  → claudehut-verifier        (sonnet, fans out 6 reviewers)
+  learn          → claudehut-learner         (haiku,  memory consolidation)
+
+When a workflow skill is invoked, the skill body instructs you to call
+\`Task(subagent_type=..., prompt=<output of skill/scripts/dispatch-prompt.sh>)\`.
+Do NOT execute phase steps inline in the main thread.
+
+Red flags (rationalizations to skip dispatch) — counter each:
+  * \"task is small, I'll inline it\"       → wrong model + breaks gate
+  * \"I already know the answer\"           → subagent has memory+artifacts main lacks
+  * \"subagent overhead is wasteful\"       → per-phase model is the point
+  * \"I'll just write the code\"            → blocked by PreToolUse outside Build
+Only exception: user explicitly says \`--inline\` or \"don't spawn a subagent\".
+
+------------------------------------------------------------
 $NEXT
 
 Run /claudehut:discover for full status."

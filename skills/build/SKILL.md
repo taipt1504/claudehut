@@ -3,6 +3,40 @@ name: build
 description: Phase 4 of ClaudeHut workflow — execute the approved plan task-by-task with strict TDD (RED → GREEN → REFACTOR). Touches only files listed in the plan (surgical scope). One commit per task. Use after Plan phase approval. Triggers when phase=build.
 ---
 
+## Dispatch contract (read this FIRST)
+
+This phase runs as a **subagent**, not inline in the main thread.
+Main thread = orchestrator (context, memory, advisor, task tracking, user
+dialog). Phase work = subagent (isolated context, per-phase model).
+
+When you read this skill, you **MUST** invoke the Task tool:
+
+```
+Task(
+  subagent_type = "claudehut-builder",
+  prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
+)
+```
+
+Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/build/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+
+Do **not** execute the phase steps yourself in the main thread.
+Await the subagent's return, review the artifact it wrote, surface a
+concise status back to the user.
+
+**Red flags that say "skip dispatch"** (counter each, do not give in):
+
+| Rationalization | Reality |
+|---|---|
+| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
+| "Subagent context is overkill." | This phase intentionally runs on `sonnet`. Main thread may be a different model — wrong tool. **Dispatch.** |
+| "Quick fix — no need for TDD cycle." | TDD is non-negotiable per workflow contract. **Dispatch.** |
+| "I'll touch one extra file outside the plan task." | PreToolUse will deny the write. **Dispatch.** |
+
+**Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
+
+---
+
 # Build — Phase 4
 
 Execute the plan with strict TDD discipline. The ONLY phase where production code is written.

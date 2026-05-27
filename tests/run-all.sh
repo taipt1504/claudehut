@@ -607,6 +607,54 @@ else
 fi
 
 #==============================================================================
+section "L12 Phase skill → subagent dispatch contract"
+#==============================================================================
+# Each workflow phase skill must (a) contain a Dispatch contract section,
+# (b) reference the correct subagent_type, (c) ship a dispatch-prompt.sh script.
+declare -a phases=(
+  "brainstorm:claudehut-brainstormer"
+  "spec:claudehut-spec-writer"
+  "plan:claudehut-planner"
+  "build:claudehut-builder"
+  "verify-review:claudehut-verifier"
+  "learn:claudehut-learner"
+)
+for entry in "${phases[@]}"; do
+  skill="${entry%%:*}"
+  agent="${entry##*:}"
+  md="skills/$skill/SKILL.md"
+  sh="skills/$skill/scripts/dispatch-prompt.sh"
+  if ! grep -q '^## Dispatch contract' "$md"; then
+    fail "L12 dispatch" "$md missing 'Dispatch contract' section"; continue
+  fi
+  if ! grep -q "subagent_type[[:space:]]*=[[:space:]]*\"$agent\"" "$md"; then
+    fail "L12 dispatch" "$md missing subagent_type=$agent"; continue
+  fi
+  if [[ ! -x "$sh" ]]; then
+    fail "L12 dispatch" "$sh missing or not executable"; continue
+  fi
+  if ! bash -n "$sh" 2>/dev/null; then
+    fail "L12 dispatch" "$sh bash syntax error"; continue
+  fi
+  pass "L12 $skill → $agent dispatch wiring"
+done
+
+# SessionStart hook must inject the orchestrator dispatch contract every session.
+ss_out="$(echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" 2>/dev/null)"
+if echo "$ss_out" | jq -e '.hookSpecificOutput.additionalContext | ascii_downcase | contains("dispatch contract")' >/dev/null 2>&1; then
+  pass "L12 SessionStart injects dispatch contract"
+else
+  fail "L12 dispatch" "SessionStart additionalContext missing 'dispatch contract'"
+fi
+
+# Orchestrator agent file must mark itself as non-spawnable (recursive guard).
+if grep -q 'DO NOT SPAWN as subagent' agents/claudehut-orchestrator.md; then
+  pass "L12 orchestrator marked non-spawnable"
+else
+  fail "L12 dispatch" "orchestrator missing recursive-spawn guard"
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))

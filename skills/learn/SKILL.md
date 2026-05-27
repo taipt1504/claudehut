@@ -3,6 +3,40 @@ name: learn
 description: Phase 6 of ClaudeHut workflow — extract patterns, anti-patterns, decisions, and reusable snippets from the completed task, persist as memory in `.claudehut/memory/learnings.jsonl`, update `index.md`, optionally promote to global tier when threshold met. Use after Verify-Review passes. Triggers when phase=learn.
 ---
 
+## Dispatch contract (read this FIRST)
+
+This phase runs as a **subagent**, not inline in the main thread.
+Main thread = orchestrator (context, memory, advisor, task tracking, user
+dialog). Phase work = subagent (isolated context, per-phase model).
+
+When you read this skill, you **MUST** invoke the Task tool:
+
+```
+Task(
+  subagent_type = "claudehut-learner",
+  prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
+)
+```
+
+Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/learn/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+
+Do **not** execute the phase steps yourself in the main thread.
+Await the subagent's return, review the artifact it wrote, surface a
+concise status back to the user.
+
+**Red flags that say "skip dispatch"** (counter each, do not give in):
+
+| Rationalization | Reality |
+|---|---|
+| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
+| "Subagent context is overkill." | This phase intentionally runs on `haiku`. Main thread may be a different model — wrong tool. **Dispatch.** |
+| "Nothing new learned — skip." | Learner extracts patterns even from routine tasks (recurring signatures promote to global). **Dispatch.** |
+| "I can append to learnings.jsonl myself." | Memory-privacy regex + categorization live in the agent. **Dispatch.** |
+
+**Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
+
+---
+
 # Learn — Phase 6
 
 Convert one completed task into permanent memory that future sessions reuse.
