@@ -1,0 +1,76 @@
+# <Feature title> — Plan
+
+> Task ID: <TASK_ID>
+> Created: <DATE>
+> Status: DRAFT
+
+**Goal:** <one sentence>
+
+**Architecture:** <2-3 sentences>
+
+**Tech stack:** web=<mvc|webflux>, orm=<jpa|r2dbc>, mq=<kafka|...>, mapper=<mapstruct|manual>
+
+**Reference docs:**
+- Design: `.claudehut/specs/<id>-design.md`
+- Contract: `.claudehut/specs/<id>-contract.md`
+
+---
+
+## Task 1: <Imperative title>
+
+**Covers:** AC-1, AC-2
+
+**Files:**
+- create: `src/main/java/com/x/Foo.java`
+- test:   `src/test/java/com/x/FooTest.java`
+
+**RED:**
+```bash
+./gradlew test --tests 'com.x.FooTest.shouldCreateFoo'
+# expect: FAIL with NoSuchMethodError
+```
+
+**GREEN:** Implement `Foo` class with `create(FooRequest)` returning `FooResponse`.
+
+**Verify:**
+```bash
+./gradlew test --tests 'com.x.FooTest'
+```
+
+**Depends on:** (none)
+**Risk:** none
+**Estimate:** 4 min
+
+- [ ] complete
+
+---
+
+## Task 2: <Imperative title>
+
+**Covers:** AC-3
+
+**Files:**
+- modify: `src/main/java/com/x/Foo.java`
+- test:   `src/test/java/com/x/FooTest.java` (add method)
+
+**RED:**
+```bash
+./gradlew test --tests 'com.x.FooTest.shouldRejectInvalid'
+```
+
+**GREEN:** Add Bean Validation on FooRequest; throw `IllegalArgumentException` on null/empty.
+
+**Verify:**
+```bash
+./gradlew test --tests 'com.x.FooTest'
+```
+
+**Depends on:** Task 1
+**Risk:** none
+**Estimate:** 3 min
+
+- [ ] complete
+
+---
+
+## Task N: ...

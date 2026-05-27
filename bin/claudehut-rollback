@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# rollback-to-last-green.sh — reset working tree to last green commit
+set -euo pipefail
+
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+cd "$PROJECT_ROOT"
+
+# shellcheck source=../../../scripts/hooks/lib/state.sh
+source "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/scripts/hooks/lib/state.sh"
+
+TASK_ID="$(claudehut_active_task)"
+[[ "$TASK_ID" == "none" ]] && { echo "error: no active task" >&2; exit 1; }
+
+BRANCH="$(git symbolic-ref --short HEAD 2>/dev/null || echo "")"
+case "$BRANCH" in
+  main|master|trunk|develop|dev) echo "error: refusing to rollback on shared branch '$BRANCH'" >&2; exit 1 ;;
+esac
+
+STATE_DIR="$PROJECT_ROOT/.claudehut/state/tasks/$TASK_ID"
+HISTORY="$STATE_DIR/rollback-history.jsonl"
+mkdir -p "$STATE_DIR"
+
+# Look for last commit where findings.json#decision == pass
+# Heuristic: walk commits, check if matching findings snapshot existed
+TARGET_SHA="$(git log --format=%H "$BRANCH" -- "$STATE_DIR/findings.json" 2>/dev/null | head -1)"
+if [[ -z "$TARGET_SHA" ]]; then
+  echo "error: no prior green commit found in task history" >&2
+  exit 1
+fi
+
+# Show user what will be discarded
+echo "About to discard:"
+git log --oneline "$TARGET_SHA"..HEAD 2>/dev/null | sed 's/^/  /' || echo "  (no commits to discard)"
+echo ""
+echo "Working tree changes:"
+git status --short | sed 's/^/  /' || true
+
+echo ""
+read -r -p "Confirm rollback to $TARGET_SHA? [yes/NO] " ans
+[[ "$ans" == "yes" ]] || { echo "Aborted."; exit 0; }
+
+# Capture state
+STASH_REF=""
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  git stash push -m "claudehut-rollback-$(date -u +%Y%m%dT%H%M%SZ)" >/dev/null
+  STASH_REF="$(git stash list | head -1 | cut -d: -f1)"
+fi
+
+FROM_SHA="$(git rev-parse HEAD)"
+git reset --hard "$TARGET_SHA"
+
+# Log
+jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg from "$FROM_SHA" --arg to "$TARGET_SHA" \
+  --arg stash "$STASH_REF" --arg reason "user-initiated" \
+  '{ts: $ts, reason: $reason, from_sha: $from, to_sha: $to, stash_ref: $stash}' >> "$HISTORY"
+
+# Reset phase state to target
+phase_at_target="$(git show "$TARGET_SHA:$STATE_DIR/phase.json" 2>/dev/null | jq -r '.phase // "build"' || echo "build")"
+claudehut_set_phase "$TASK_ID" "$phase_at_target"
+
+echo ""
+echo "Rolled back to $TARGET_SHA"
+echo "Phase reset to: $phase_at_target"
+echo "Stash: ${STASH_REF:-none}"
+echo "Recover with: git reflog (last 90 days)"

@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "ClaudeHut available but project not initialized. Run /claudehut:init to scaffold .claudehut/ directory."
+  }
+}

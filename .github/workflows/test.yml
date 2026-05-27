@@ -1,0 +1,60 @@
+name: claudehut test suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Static + Unit + Integration + E2E
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y jq
+
+      - name: Verify bash version
+        run: bash --version
+
+      - name: Run full test suite
+        run: bash tests/run-all.sh
+
+      - name: Run E2E simulated workflow
+        run: bash tests/e2e/simulated/full-workflow.sh
+
+      - name: Run hook performance benchmark
+        run: bash tests/perf/hook-benchmark.sh
+        continue-on-error: true  # perf is informational
+
+  bash-compat:
+    name: Bash 3.2 compatibility
+    runs-on: macos-latest  # macOS bash is 3.2 — catches bash 4+ features
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash --version
+      - name: Run test suite on bash 3.2
+        run: bash tests/run-all.sh
+
+  real-claude-e2e:
+    name: Real Claude E2E (manual trigger only)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install claude CLI
+        run: curl -fsSL https://claude.ai/install.sh | bash
+
+      - name: Run real Claude E2E
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: bash tests/e2e/run-real-claude.sh

@@ -1,0 +1,57 @@
+# <Feature title> — Design
+
+> Task ID: <TASK_ID>
+> Created: <DATE>
+> Status: DRAFT
+
+## Overview
+
+<1–3 sentences. What problem does this solve and for whom?>
+
+## Components
+
+```mermaid
+flowchart LR
+    A[Caller] --> B[Component]
+    B --> C[(Datastore)]
+```
+
+| Component | Responsibility | Location |
+|-----------|----------------|----------|
+| <Name>    | <single purpose, ≤ 1 line> | `src/main/java/...` |
+
+## Data flow
+
+1. <step>
+2. <step>
+
+## Error handling
+
+| Error | Trigger | Response |
+|-------|---------|----------|
+| <ErrorType> | <when> | <how returned/logged> |
+
+## Testing strategy
+
+- **Unit:** <what is mocked, what is under test>
+- **Slice:** <WebMvcTest / WebFluxTest / DataJpaTest / R2dbcTest>
+- **Integration:** <Testcontainers stack>
+- **Blackbox:** <WireMock external dependencies if any>
+
+## NFR
+
+| NFR | Budget | Verification |
+|-----|--------|--------------|
+| Latency p95 | <e.g. ≤ 200ms> | Gatling smoke / micro-benchmark |
+| Throughput  | <e.g. ≥ 500 req/s> | Gatling load |
+| Security    | <OWASP focus areas> | OWASP scan + reviewer-security |
+| Observability | <log/metric/trace> | manual review |
+
+## Open questions
+
+- <question>
+- <question>
+
+## Decision log
+
+- **Chose X over Y** because <reason>.

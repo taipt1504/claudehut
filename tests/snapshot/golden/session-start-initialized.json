@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "ClaudeHut active\n================\nTask:     feature-snapshot  (branch: feature/snapshot)\nPhase:    brainstorm  (derived from artifacts)\nStack:    web=webflux orm=r2dbc db=postgresql mq=? mapper=mapstruct ser=jackson\nBackends: UA=false, Graphify=true (global=false)\n\nRecent learnings:\nno learnings yet\n\nSession-level rules: naming, package-layout, tdd-cycle, owasp-top10, secret-mgmt, coverage.\n\nMANDATORY next: /claudehut:brainstorm. Source-code edits BLOCKED until design doc exists.\n\nRun /claudehut:discover for full status."
+  }
+}

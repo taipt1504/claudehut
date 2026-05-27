@@ -1,0 +1,25 @@
+package <PACKAGE>;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.server.RouterFunction;
+import org.springframework.web.reactive.function.server.RouterFunctions;
+import org.springframework.web.reactive.function.server.ServerResponse;
+
+import static org.springframework.web.reactive.function.server.RequestPredicates.accept;
+
+@Configuration
+public class <NAME>RouterConfig {
+
+    @Bean
+    public RouterFunction<ServerResponse> <name>Routes(<NAME>Handler handler) {
+        return RouterFunctions.route()
+            .path("/api/v1/<path>", builder -> builder
+                .GET("/{id}", handler::get)
+                .POST("", accept(MediaType.APPLICATION_JSON), handler::create)
+                .DELETE("/{id}", handler::delete)
+            )
+            .build();
+    }
+}

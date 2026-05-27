@@ -1,0 +1,39 @@
+package <PACKAGE>;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping(value = "<PATH>", produces = MediaType.APPLICATION_JSON_VALUE)
+@RequiredArgsConstructor
+public class <NAME>Controller {
+
+    private final <NAME>Service <name>Service;
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public <NAME>Response create(@RequestBody @Valid Create<NAME>Request req) {
+        return <name>Service.create(req);
+    }
+
+    @GetMapping("/{id}")
+    public <NAME>Response get(@PathVariable String id) {
+        return <name>Service.get(id);
+    }
+
+    @PutMapping("/{id}")
+    public <NAME>Response update(@PathVariable String id,
+                                  @RequestBody @Valid Update<NAME>Request req) {
+        return <name>Service.update(id, req);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String id) {
+        <name>Service.delete(id);
+    }
+}

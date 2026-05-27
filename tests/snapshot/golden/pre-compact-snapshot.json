@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreCompact",
+    "additionalContext": "ClaudeHut state pre-compact:\nTask=feature-snapshot, Phase=brainstorm\nArtifacts:\n  design:   none\n  contract: none\n  plan:     none\n\nAfter compact: re-read these artifacts + run claudehut-state phase to resume."
+  }
+}

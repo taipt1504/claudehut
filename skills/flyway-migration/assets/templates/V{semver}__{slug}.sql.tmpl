@@ -1,0 +1,25 @@
+-- V<VERSION>__<SLUG>.sql
+-- Purpose: <one-line description>
+-- Author:  <author>
+-- Date:    <YYYY-MM-DD>
+--
+-- ROLLBACK:
+--   <reverse SQL statements here as comments>
+--
+-- ONLINE SAFETY:
+--   - Touched table size: <small | medium | large>
+--   - Lock acquired: <none | brief | concurrent>
+--   - Rolling deploy compatible: <yes | requires-coordination>
+
+-- Schema delta
+ALTER TABLE <table>
+    ADD COLUMN <new_column> <TYPE>;
+
+-- Index (use CONCURRENTLY on large tables)
+CREATE INDEX CONCURRENTLY idx_<table>_<column> ON <table>(<column>);
+
+-- Backfill (small data only — large data use separate batched job)
+-- UPDATE <table> SET <new_column> = <default> WHERE <new_column> IS NULL;
+
+-- Constraints (apply AFTER backfill completes)
+-- ALTER TABLE <table> ALTER COLUMN <new_column> SET NOT NULL;

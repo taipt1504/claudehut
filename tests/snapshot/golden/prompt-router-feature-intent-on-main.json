@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "UserPromptSubmit",
+    "additionalContext": "Phase=brainstorm. Use /claudehut:brainstorm. Output: .claudehut/specs/feature-snapshot-design.md → phase advances automatically."
+  }
+}

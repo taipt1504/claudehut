@@ -1,0 +1,36 @@
+package <PACKAGE>;
+
+import com.rabbitmq.client.Channel;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.messaging.handler.annotation.Header;
+import org.springframework.messaging.handler.annotation.Payload;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class <NAME>Listener {
+
+    private final <NAME>Service service;
+
+    @RabbitListener(queues = "<queue-name>", ackMode = "MANUAL")
+    public void on<NAME>(@Payload <NAME>Message msg,
+                          Channel channel,
+                          @Header(AmqpHeaders.DELIVERY_TAG) long tag) throws IOException {
+        try {
+            service.handle(msg);
+            channel.basicAck(tag, false);
+        } catch (TransientException ex) {
+            log.warn("transient failure, requeue: {}", msg.id());
+            channel.basicNack(tag, false, true);
+        } catch (Exception ex) {
+            log.error("non-recoverable, to DLX: {}", msg.id(), ex);
+            channel.basicNack(tag, false, false);
+        }
+    }
+}

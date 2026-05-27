@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# claudehut-state — read-only CLI to inspect plugin state (artifact-derived)
+# Usage:
+#   claudehut-state task-id
+#   claudehut-state phase
+#   claudehut-state branch
+#   claudehut-state retries
+#   claudehut-state stack <field>
+#   claudehut-state integrations
+#   claudehut-state config <key>
+#   claudehut-state docs              # list current task's artifacts
+
+set -euo pipefail
+
+CLAUDEHUT_LIB="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/..}/scripts/hooks/lib/state.sh"
+if [[ -f "$CLAUDEHUT_LIB" ]]; then
+  # shellcheck source=/dev/null
+  source "$CLAUDEHUT_LIB"
+else
+  echo "error: state.sh not found at $CLAUDEHUT_LIB" >&2
+  exit 1
+fi
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  task-id)      claudehut_task_id ;;
+  phase)        claudehut_phase ;;
+  branch)       claudehut_branch ;;
+  retries)      claudehut_loop_retries ;;
+  stack)
+    field="${1:-.web_stack}"
+    [[ "$field" != .* ]] && field=".$field"
+    claudehut_stack_signal "$field"
+    ;;
+  integrations)
+    state_file="$(claudehut_claudehut_dir)/memory/integrations.json"
+    [[ -f "$state_file" ]] && cat "$state_file" || echo "{}"
+    ;;
+  config)
+    key="${1:-}"
+    cfg="$(claudehut_claudehut_dir)/claudehut-config.json"
+    [[ -f "$cfg" ]] || { echo ""; exit 0; }
+    if [[ -z "$key" ]]; then cat "$cfg"
+    else
+      [[ "$key" != .* ]] && key=".$key"
+      jq -r "$key // empty" "$cfg"
+    fi
+    ;;
+  docs)
+    task_id="$(claudehut_task_id)"
+    echo "task_id: $task_id"
+    echo "design:   $(claudehut_design_doc "$task_id" || echo 'missing')"
+    echo "contract: $(claudehut_contract_doc "$task_id" || echo 'missing')"
+    echo "plan:     $(claudehut_plan_doc "$task_id" || echo 'missing')"
+    echo "findings: $(claudehut_findings_doc "$task_id" || echo 'missing')"
+    ;;
+  -h|--help|help)
+    cat <<EOF
+claudehut-state — read-only state inspection (artifact-derived)
+
+USAGE:
+  claudehut-state <command> [args]
+
+COMMANDS:
+  task-id              Current task id (= git branch, slashes → dashes)
+  phase                Current phase (derived from artifact presence)
+  branch               Current git branch
+  retries              Loop retry count (number of refactor(loop) commits)
+  stack <field>        Read field from stack-signals.json
+  integrations         Print memory/integrations.json
+  config [key]         Read claudehut-config.json
+  docs                 Show artifact paths for current task
+  help                 Show this help
+
+EXAMPLES:
+  claudehut-state task-id
+  claudehut-state phase
+  claudehut-state stack web_stack
+  claudehut-state config phase.loop_max_retries
+EOF
+    ;;
+  *)
+    echo "error: unknown command '$cmd'. Run 'claudehut-state help'." >&2
+    exit 1
+    ;;
+esac

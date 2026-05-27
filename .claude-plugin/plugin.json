@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "claudehut",
+  "displayName": "ClaudeHut",
+  "version": "0.1.0",
+  "description": "Agentic AI workflow plugin for Java backend engineers (Spring MVC/WebFlux, JPA/R2DBC, MapStruct, Jackson, Kafka/RabbitMQ/NATS, Redis, Testcontainers). Enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory and reinforcement learning.",
+  "author": {
+    "name": "Phan Tài",
+    "url": "https://github.com/taipt1504"
+  },
+  "homepage": "https://github.com/taipt1504/claudehut",
+  "repository": "https://github.com/taipt1504/claudehut",
+  "license": "MIT",
+  "keywords": [
+    "java",
+    "spring",
+    "spring-boot",
+    "webflux",
+    "backend",
+    "agentic",
+    "tdd",
+    "workflow",
+    "memory",
+    "reuse-detection"
+  ],
+  "userConfig": {
+    "loop_max_retries": {
+      "type": "number",
+      "title": "Loop max retries",
+      "description": "Maximum refactor retries inside Phase 5 Loop before escalating to user.",
+      "default": 3,
+      "min": 1,
+      "max": 10
+    },
+    "promotion_min_projects": {
+      "type": "number",
+      "title": "Memory promotion threshold",
+      "description": "Minimum number of distinct projects a learning signature must appear in before being promoted to global tier.",
+      "default": 3,
+      "min": 2,
+      "max": 10
+    },
+    "coverage_line_threshold": {
+      "type": "number",
+      "title": "Coverage line threshold",
+      "description": "JaCoCo line coverage threshold. Verify gate fails below this value.",
+      "default": 0.80,
+      "min": 0,
+      "max": 1
+    },
+    "coverage_branch_threshold": {
+      "type": "number",
+      "title": "Coverage branch threshold",
+      "description": "JaCoCo branch coverage threshold.",
+      "default": 0.70,
+      "min": 0,
+      "max": 1
+    },
+    "global_promotion_opt_in": {
+      "type": "boolean",
+      "title": "Opt in to global memory promotion",
+      "description": "Allow learnings from this project to be promoted to your global ~/.claude/claudehut/ tier when threshold is met.",
+      "default": false
+    }
+  }
+}

@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="140" viewBox="0 0 800 140" role="img" aria-label="ClaudeHut — Agentic AI workflow plugin for Java backend">
+  <title>ClaudeHut</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="50%" stop-color="#2d1b4e"/>
+      <stop offset="100%" stop-color="#5a3dd2"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f5a623"/>
+      <stop offset="100%" stop-color="#ff6b35"/>
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="140" rx="12" fill="url(#bg)"/>
+
+  <!-- Decorative dots -->
+  <g opacity="0.08" fill="#ffffff">
+    <circle cx="60" cy="30" r="1.5"/>
+    <circle cx="120" cy="60" r="1.5"/>
+    <circle cx="180" cy="20" r="1.5"/>
+    <circle cx="240" cy="80" r="1.5"/>
+    <circle cx="700" cy="30" r="1.5"/>
+    <circle cx="760" cy="100" r="1.5"/>
+    <circle cx="650" cy="110" r="1.5"/>
+    <circle cx="600" cy="20" r="1.5"/>
+  </g>
+
+  <!-- Logo: hut icon -->
+  <g transform="translate(40, 35) scale(1)" filter="url(#shadow)">
+    <path d="M 0 50 L 30 10 L 60 50 L 60 70 L 0 70 Z" fill="url(#accent)" stroke="#ffffff" stroke-width="1.5" opacity="0.95"/>
+    <rect x="22" y="45" width="16" height="25" fill="#1a1a2e"/>
+    <circle cx="30" cy="58" r="1.5" fill="#f5a623"/>
+  </g>
+
+  <!-- Name -->
+  <text x="125" y="60" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="36" font-weight="800" fill="#ffffff" letter-spacing="-0.5">
+    ClaudeHut
+  </text>
+
+  <!-- Tagline -->
+  <text x="125" y="90" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="500" fill="#b8b8d4">
+    Agentic AI workflow plugin · Java backend · 6-phase enforced
+  </text>
+
+  <!-- Bottom tag bar -->
+  <g transform="translate(125, 105)">
+    <rect x="0" y="0" width="100" height="22" rx="11" fill="#f5a623"/>
+    <text x="50" y="15" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#1a1a2e" text-anchor="middle" letter-spacing="0.5">
+      CLAUDE CODE
+    </text>
+
+    <rect x="108" y="0" width="64" height="22" rx="11" fill="#5a3dd2" stroke="#ffffff" stroke-width="1" opacity="0.95"/>
+    <text x="140" y="15" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle" letter-spacing="0.5">
+      v0.1.0
+    </text>
+
+    <rect x="180" y="0" width="44" height="22" rx="11" fill="#1a1a2e" stroke="#f5a623" stroke-width="1"/>
+    <text x="202" y="15" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" font-weight="700" fill="#f5a623" text-anchor="middle" letter-spacing="0.5">
+      MIT
+    </text>
+  </g>
+
+  <!-- Right-side visual: 6-phase pipeline dots -->
+  <g transform="translate(620, 60)">
+    <text x="0" y="-12" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="10" font-weight="700" fill="#f5a623" letter-spacing="1.5">6-PHASE PIPELINE</text>
+    <g fill="#f5a623">
+      <circle cx="0" cy="6" r="6"/>
+      <circle cx="24" cy="6" r="6"/>
+      <circle cx="48" cy="6" r="6"/>
+      <circle cx="72" cy="6" r="6"/>
+      <circle cx="96" cy="6" r="6"/>
+      <circle cx="120" cy="6" r="6"/>
+    </g>
+    <g stroke="#f5a623" stroke-width="2" stroke-linecap="round" opacity="0.5">
+      <line x1="6" y1="6" x2="18" y2="6"/>
+      <line x1="30" y1="6" x2="42" y2="6"/>
+      <line x1="54" y1="6" x2="66" y2="6"/>
+      <line x1="78" y1="6" x2="90" y2="6"/>
+      <line x1="102" y1="6" x2="114" y2="6"/>
+    </g>
+    <g font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif" font-size="8" font-weight="600" fill="#b8b8d4" text-anchor="middle">
+      <text x="0" y="28">BRN</text>
+      <text x="24" y="28">SPC</text>
+      <text x="48" y="28">PLN</text>
+      <text x="72" y="28">BLD</text>
+      <text x="96" y="28">LOP</text>
+      <text x="120" y="28">LRN</text>
+    </g>
+  </g>
+</svg>

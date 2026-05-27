@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# prune-worktree.sh — remove a worktree + archive its claudehut state
+set -euo pipefail
+
+TASK_ID="${1:-}"
+[[ -z "$TASK_ID" ]] && { echo "usage: prune-worktree.sh <task-id>" >&2; exit 2; }
+
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+cd "$PROJECT_ROOT"
+
+WT_PATH="$PROJECT_ROOT/.worktrees/$TASK_ID"
+
+if [[ ! -d "$WT_PATH" ]]; then
+  echo "error: worktree not found: $WT_PATH" >&2
+  exit 1
+fi
+
+# Archive state
+STATE_DIR="$PROJECT_ROOT/.claudehut/state/tasks/$TASK_ID"
+ARCHIVE_DIR="$PROJECT_ROOT/.claudehut/state/tasks/_archive/${TASK_ID}-$(date -u +%Y%m%dT%H%M%SZ)"
+if [[ -d "$STATE_DIR" ]]; then
+  mkdir -p "$(dirname "$ARCHIVE_DIR")"
+  mv "$STATE_DIR" "$ARCHIVE_DIR"
+  echo "Archived state: $STATE_DIR → $ARCHIVE_DIR"
+fi
+
+# Release lock
+LOCK="$PROJECT_ROOT/.claudehut/state/lockfile.d/$TASK_ID"
+[[ -f "$LOCK" ]] && rm "$LOCK"
+
+# Remove worktree
+git worktree remove "$WT_PATH"
+echo "Worktree removed: $WT_PATH"

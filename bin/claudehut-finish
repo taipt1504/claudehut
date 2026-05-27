@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# archive-task.sh — finalize and archive a completed task
+set -euo pipefail
+
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+cd "$PROJECT_ROOT"
+
+# shellcheck source=../../../scripts/hooks/lib/state.sh
+source "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/scripts/hooks/lib/state.sh"
+
+TASK_ID="$(claudehut_active_task)"
+[[ "$TASK_ID" == "none" ]] && { echo "error: no active task" >&2; exit 1; }
+
+PHASE="$(claudehut_phase "$TASK_ID")"
+if [[ "$PHASE" != "done" && "$PHASE" != "learn" ]]; then
+  echo "error: task '$TASK_ID' is in phase '$PHASE' — finish Learn phase first" >&2
+  exit 1
+fi
+
+# Refuse if uncommitted
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "error: uncommitted changes — commit before finishing" >&2
+  exit 1
+fi
+
+echo "Will archive: state/tasks/$TASK_ID"
+read -r -p "Confirm? [yes/NO] " ans
+[[ "$ans" == "yes" ]] || { echo "Aborted."; exit 0; }
+
+TS="$(date -u +%Y%m%dT%H%M%SZ)"
+SRC="$(claudehut_state_dir)/tasks/$TASK_ID"
+DST="$(claudehut_state_dir)/tasks/_archive/${TASK_ID}-${TS}"
+
+mkdir -p "$(dirname "$DST")"
+mv "$SRC" "$DST"
+
+# Release lock + clear active pointer
+rm -f "$(claudehut_state_dir)/lockfile.d/$TASK_ID"
+rm -f "$(claudehut_state_dir)/active-task.json"
+
+echo "Task archived: $TASK_ID → _archive/$(basename "$DST")"
+echo ""
+echo "Next steps:"
+echo "  - Push:    git push -u origin $(git symbolic-ref --short HEAD)"
+echo "  - Or PR:   gh pr create"
+echo "  - Or switch to a new task with /claudehut:start <slug>"

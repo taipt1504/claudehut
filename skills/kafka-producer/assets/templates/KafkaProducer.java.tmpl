@@ -1,0 +1,33 @@
+package <PACKAGE>;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.CompletableFuture;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class <NAME>EventPublisher {
+
+    private static final String TOPIC = "<topic>";
+    private final KafkaTemplate<String, <NAME>Event> kafkaTemplate;
+
+    public CompletableFuture<SendResult<String, <NAME>Event>> publish(<NAME>Event event) {
+        return kafkaTemplate.send(TOPIC, event.aggregateId(), event)
+            .whenComplete((result, ex) -> {
+                if (ex != null) {
+                    log.error("failed to publish {} to {}", event.id(), TOPIC, ex);
+                } else {
+                    log.info("published {} → {}-{}@{}",
+                        event.id(),
+                        result.getRecordMetadata().topic(),
+                        result.getRecordMetadata().partition(),
+                        result.getRecordMetadata().offset());
+                }
+            });
+    }
+}

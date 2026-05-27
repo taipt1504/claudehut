@@ -1,0 +1,13 @@
+# Test runs / scratch
+tests/e2e/.runs/
+tests/.tmp/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Session-local Claude state (from running claude inside plugin dir)
+.claude/

@@ -1,0 +1,21 @@
+package <PACKAGE>;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
+
+import java.time.Instant;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public record <NAME>Response(
+    String id,
+    String name,
+    String email,
+    Instant createdAt
+) {}
+
+public record Create<NAME>Request(
+    @NotBlank @Size(max = 100) String name,
+    @NotBlank @Email @Size(max = 254) String email
+) {}

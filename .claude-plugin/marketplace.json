@@ -1,0 +1,20 @@
+{
+  "name": "claudehut",
+  "owner": {
+    "name": "Phan Tài",
+    "url": "https://github.com/taipt1504"
+  },
+  "description": "Single-plugin marketplace hosting the ClaudeHut agentic AI workflow plugin for Java backend engineers.",
+  "homepage": "https://github.com/taipt1504/claudehut",
+  "plugins": [
+    {
+      "name": "claudehut",
+      "source": "./",
+      "description": "Agentic AI workflow plugin for Java backend engineers — enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory, reinforcement learning, hook-gated phase enforcement, and strict TDD discipline.",
+      "version": "0.1.0",
+      "category": "workflow",
+      "tags": ["java", "spring", "spring-boot", "webflux", "backend", "agentic", "tdd", "workflow", "memory", "reuse-detection"],
+      "license": "MIT"
+    }
+  ]
+}

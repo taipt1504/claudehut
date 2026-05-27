@@ -1,0 +1,25 @@
+package <PACKAGE>;
+
+import org.springframework.data.r2dbc.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.repository.reactive.ReactiveCrudRepository;
+import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
+import java.util.UUID;
+
+@Repository
+public interface <NAME>Repository extends ReactiveCrudRepository<<NAME>, UUID> {
+
+    Mono<<NAME>> findByName(String name);
+
+    Mono<Boolean> existsByName(String name);
+
+    Flux<<NAME>> findByActiveTrueOrderByCreatedAtDesc();
+
+    @Query("SELECT * FROM <table_name> WHERE active = :active LIMIT :limit OFFSET :offset")
+    Flux<<NAME>> page(@Param("active") boolean active,
+                      @Param("limit") int limit,
+                      @Param("offset") int offset);
+}

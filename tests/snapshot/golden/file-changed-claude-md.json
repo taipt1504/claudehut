@@ -1,0 +1,6 @@
+{
+  "hookSpecificOutput": {
+    "hookEventName": "FileChanged",
+    "additionalContext": "Memory/rules updated externally: /tmp/CLAUDE.md. Context refreshed."
+  }
+}
