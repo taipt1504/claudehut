@@ -22,23 +22,32 @@ MARK_BEGIN="<!-- catalog:begin -->"
 MARK_END="<!-- catalog:end -->"
 
 # 1) Build catalog table from skills/*/SKILL.md frontmatter.
+#
+# Determinism notes (CI runs on Linux, dev usually on macOS):
+#   - Skill files are enumerated via `find … | LC_ALL=C sort` so glob order is
+#     locale-independent. Plain bash globs ordered differently on macOS vs Linux
+#     when filenames mix hyphens/underscores under non-C locales.
+#   - Description truncation uses awk `substr` on byte semantics with an
+#     explicit `LC_ALL=C`; macOS BSD `cut -c` and GNU `cut -c` differ on
+#     multibyte chars (em-dash, Vietnamese accents) which appear in some
+#     skill descriptions.
 CATALOG_TMP="$(mktemp)"
 {
   echo "$MARK_BEGIN"
   echo ""
   echo "| Skill | When to invoke (description excerpt) |"
   echo "|-------|--------------------------------------|"
-  for f in "$PLUGIN_ROOT"/skills/*/SKILL.md; do
+  while IFS= read -r f; do
     dir="$(dirname "$f")"
     stem="$(basename "$dir")"
     [[ "$stem" == "using-claudehut" ]] && continue
     name="$(awk '/^---/{c++; next} c==1 && /^name:/{sub(/^name:[[:space:]]*/,""); print; exit}' "$f")"
     desc="$(awk '/^---/{c++; next} c==1 && /^description:/{sub(/^description:[[:space:]]*/,""); print; exit}' "$f")"
-    # Trim to 180 chars + escape pipes for markdown table.
-    excerpt="$(printf '%s' "$desc" | sed 's/|/\\|/g' | cut -c1-180)"
+    # Escape pipes, then byte-truncate to 180 via awk (consistent across platforms).
+    excerpt="$(printf '%s' "$desc" | sed 's/|/\\|/g' | LC_ALL=C awk '{print substr($0, 1, 180)}')"
     [[ -z "$name" ]] && name="$stem"
     echo "| \`claudehut:$name\` | $excerpt |"
-  done
+  done < <(find "$PLUGIN_ROOT/skills" -mindepth 2 -maxdepth 2 -name 'SKILL.md' -type f | LC_ALL=C sort)
   echo ""
   echo "_Auto-generated from \`skills/*/SKILL.md\` by \`scripts/regen-using-claudehut.sh\`. Do not hand-edit this block._"
   echo ""
