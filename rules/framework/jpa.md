@@ -1,10 +1,13 @@
 ---
 id: rules/framework/jpa
-applies-to: "**/*Repository.java, **/*Entity.java"
-stack-signal: "orm=jpa"
+paths:
+  - "**/*Entity.java"
+  - "**/*Repository.java"
+stack: "orm=jpa"
 severity: high
 tags: [jpa, hibernate, n+1]
 ---
+
 
 # JPA / Hibernate Rules
 

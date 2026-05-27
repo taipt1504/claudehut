@@ -1,9 +1,12 @@
 ---
 id: rules/testing/stepverifier
-applies-to: "**/*Test.java"
+paths:
+  - "**/*Test.java"
+stack: "web=webflux"
 severity: medium
 tags: [stepverifier, reactor, webflux, reactive]
 ---
+
 
 # StepVerifier Conventions
 

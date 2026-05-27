@@ -1,10 +1,12 @@
 ---
 id: rules/framework/mapstruct
-applies-to: "**/*Mapper.java"
-stack-signal: "mapper=mapstruct"
+paths:
+  - "**/*Mapper.java"
+stack: "mapper=mapstruct"
 severity: medium
 tags: [mapstruct, mapping]
 ---
+
 
 # MapStruct Rules
 

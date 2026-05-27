@@ -1,9 +1,11 @@
 ---
 id: rules/testing/mockito
-applies-to: "**/*Test.java"
+paths:
+  - "**/*Test.java"
 severity: medium
 tags: [mockito, mocking]
 ---
+
 
 # Mockito Conventions
 

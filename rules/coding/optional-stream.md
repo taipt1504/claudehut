@@ -1,9 +1,11 @@
 ---
 id: rules/coding/optional-stream
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [optional, stream, java]
 ---
+
 
 # Optional + Stream Best Practices
 

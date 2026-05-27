@@ -1,9 +1,12 @@
 ---
 id: rules/performance/connection-pool
-applies-to: "**/application*.yml, **/application*.properties"
+paths:
+  - "**/application*.properties"
+  - "**/application*.yml"
 severity: medium
 tags: [hikaricp, r2dbc-pool, performance]
 ---
+
 
 # Connection Pool Sizing
 

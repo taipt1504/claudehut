@@ -1,9 +1,13 @@
 ---
 id: rules/security/owasp-top10
-applies-to: "**/SecurityConfig*.java, **/*Controller.java, **/*Handler.java"
+paths:
+  - "**/*Controller.java"
+  - "**/*Handler.java"
+  - "**/SecurityConfig*.java"
 severity: critical
 tags: [security, owasp]
 ---
+
 
 # OWASP Top 10 — Java/Spring Checklist
 

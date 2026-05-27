@@ -1,9 +1,11 @@
 ---
 id: rules/architecture/adr-format
-applies-to: "**/*"
+paths:
+  - "docs/adr/**/*.md"
 severity: low
 tags: [adr, decisions, madr]
 ---
+
 
 # Architecture Decision Records (MADR)
 

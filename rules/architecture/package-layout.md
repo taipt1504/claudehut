@@ -1,9 +1,11 @@
 ---
 id: rules/architecture/package-layout
-applies-to: "**/*"
+paths:
+  - "**/*"
 severity: high
 tags: [architecture, layout]
 ---
+
 
 # Package Layout Rule
 

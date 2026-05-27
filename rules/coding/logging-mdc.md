@@ -1,9 +1,11 @@
 ---
 id: rules/coding/logging-mdc
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [logging, mdc, observability]
 ---
+
 
 # Logging + MDC
 

@@ -1,9 +1,12 @@
 ---
 id: rules/security/input-validation
-applies-to: "**/*Controller.java, **/*Handler.java"
+paths:
+  - "**/*Controller.java"
+  - "**/*Handler.java"
 severity: high
 tags: [validation, bean-validation, owasp]
 ---
+
 
 # Input Validation
 

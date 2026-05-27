@@ -1,10 +1,12 @@
 ---
 id: rules/framework/webflux
-applies-to: "**/*Handler.java"
-stack-signal: "web_stack=webflux"
+paths:
+  - "**/*Handler.java"
+stack: "web=webflux"
 severity: high
 tags: [webflux, reactive, handler, router]
 ---
+
 
 # Spring WebFlux Handler Rules
 

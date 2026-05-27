@@ -1,9 +1,11 @@
 ---
 id: rules/coding/exception
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: high
 tags: [exception, error-handling]
 ---
+
 
 # Exception Handling
 

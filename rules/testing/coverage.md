@@ -1,9 +1,11 @@
 ---
 id: rules/testing/coverage
-applies-to: "**/*Test.java"
+paths:
+  - "**/*Test.java"
 severity: medium
 tags: [coverage, jacoco]
 ---
+
 
 # Coverage Thresholds
 

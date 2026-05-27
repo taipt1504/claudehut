@@ -1,9 +1,12 @@
 ---
 id: rules/security/actuator
-applies-to: "**/application*.yml, **/application*.properties"
+paths:
+  - "**/application*.properties"
+  - "**/application*.yml"
 severity: high
 tags: [actuator, spring-boot, exposure]
 ---
+
 
 # Spring Boot Actuator — Safe Exposure
 

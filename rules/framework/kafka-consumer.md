@@ -1,10 +1,13 @@
 ---
 id: rules/framework/kafka-consumer
-applies-to: "**/*Listener*.java, **/*Consumer*.java"
-stack-signal: "messaging=kafka"
+paths:
+  - "**/*Consumer*.java"
+  - "**/*Listener*.java"
+stack: "messaging=kafka"
 severity: high
 tags: [kafka, consumer, dlt, idempotency]
 ---
+
 
 # Spring Kafka Consumer Rules
 

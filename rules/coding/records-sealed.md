@@ -1,9 +1,11 @@
 ---
 id: rules/coding/records-sealed
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: low
 tags: [java17, records, sealed, pattern-matching]
 ---
+
 
 # Records + Sealed + Pattern Matching (Java 17+)
 

@@ -1,9 +1,11 @@
 ---
 id: rules/testing/wiremock
-applies-to: "**/*Test.java, **/*IT.java"
+paths:
+  - "**/*Test.java"
 severity: medium
 tags: [wiremock, http-stub, integration-test]
 ---
+
 
 # WireMock Rules
 

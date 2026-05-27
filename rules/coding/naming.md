@@ -1,9 +1,11 @@
 ---
 id: rules/coding/naming
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [naming, conventions]
 ---
+
 
 # Java Naming Conventions
 

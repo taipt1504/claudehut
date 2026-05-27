@@ -1,9 +1,12 @@
 ---
 id: rules/security/spring-security
-applies-to: "**/SecurityConfig*.java, **/WebSecurityConfig*.java"
+paths:
+  - "**/SecurityConfig*.java"
+  - "**/WebSecurityConfig*.java"
 severity: critical
 tags: [spring-security, auth, authorization]
 ---
+
 
 # Spring Security Configuration
 

@@ -1,9 +1,11 @@
 ---
 id: rules/architecture/cqrs
-applies-to: "**/*"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [cqrs, command, query]
 ---
+
 
 # CQRS — Command/Query Responsibility Segregation
 

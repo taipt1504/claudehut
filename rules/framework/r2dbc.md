@@ -1,10 +1,12 @@
 ---
 id: rules/framework/r2dbc
-applies-to: "**/*Repository.java"
-stack-signal: "orm=r2dbc"
+paths:
+  - "**/*Repository.java"
+stack: "orm=r2dbc"
 severity: high
 tags: [r2dbc, reactive, repository]
 ---
+
 
 # R2DBC Rules
 

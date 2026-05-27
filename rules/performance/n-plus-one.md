@@ -1,9 +1,12 @@
 ---
 id: rules/performance/n-plus-one
-applies-to: "**/*Repository.java, **/*Service.java"
+paths:
+  - "**/*Repository.java"
+  - "**/*Service.java"
 severity: high
 tags: [n+1, jpa, r2dbc, performance]
 ---
+
 
 # N+1 Query Prevention
 

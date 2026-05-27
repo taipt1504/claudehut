@@ -1,9 +1,11 @@
 ---
 id: rules/framework/migration-safety
-applies-to: "**/db/migration/V*.sql"
+paths:
+  - "**/db/migration/V*.sql"
 severity: critical
 tags: [flyway, migration, online-safety]
 ---
+
 
 # Migration Safety
 

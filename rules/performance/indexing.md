@@ -1,9 +1,11 @@
 ---
 id: rules/performance/indexing
-applies-to: "**/db/migration/V*.sql"
+paths:
+  - "**/db/migration/V*.sql"
 severity: medium
 tags: [database, indexing, query-performance]
 ---
+
 
 # Database Indexing
 

@@ -1,9 +1,11 @@
 ---
 id: rules/coding/immutability
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [immutability, records, defensive-copy]
 ---
+
 
 # Immutability
 

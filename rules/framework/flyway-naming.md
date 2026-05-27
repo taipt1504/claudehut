@@ -1,9 +1,12 @@
 ---
 id: rules/framework/flyway-naming
-applies-to: "**/db/migration/V*.sql, **/db/migration/R*.sql"
+paths:
+  - "**/db/migration/R*.sql"
+  - "**/db/migration/V*.sql"
 severity: high
 tags: [flyway, migration, naming]
 ---
+
 
 # Flyway Migration Naming
 

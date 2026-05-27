@@ -1,9 +1,14 @@
 ---
 id: rules/framework/jackson
-applies-to: "**/*Dto.java, **/*Request.java, **/*Response.java, **/*ObjectMapper*.java"
+paths:
+  - "**/*Dto.java"
+  - "**/*ObjectMapper*.java"
+  - "**/*Request.java"
+  - "**/*Response.java"
 severity: high
 tags: [jackson, deserialization, polymorphism]
 ---
+
 
 # Jackson Rules
 

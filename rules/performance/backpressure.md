@@ -1,9 +1,13 @@
 ---
 id: rules/performance/backpressure
-applies-to: "**/*Handler.java, **/*Service.java"
+paths:
+  - "**/*Handler.java"
+  - "**/*Service.java"
+stack: "web=webflux"
 severity: high
 tags: [backpressure, webflux, reactor]
 ---
+
 
 # Backpressure (WebFlux)
 

@@ -1,9 +1,11 @@
 ---
 id: rules/testing/testcontainers
-applies-to: "**/*IT.java"
+paths:
+  - "**/*IT.java"
 severity: medium
 tags: [testcontainers, integration-test]
 ---
+
 
 # Testcontainers Rules
 

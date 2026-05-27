@@ -1,10 +1,12 @@
 ---
 id: rules/framework/spring-mvc
-applies-to: "**/*Controller.java"
-stack-signal: "web_stack=mvc"
+paths:
+  - "**/*Controller.java"
+stack: "web=mvc"
 severity: high
 tags: [spring-mvc, rest, controller]
 ---
+
 
 # Spring MVC Controller Rules
 

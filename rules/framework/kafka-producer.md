@@ -1,10 +1,13 @@
 ---
 id: rules/framework/kafka-producer
-applies-to: "**/*Producer*.java, **/*Publisher*.java"
-stack-signal: "messaging=kafka"
+paths:
+  - "**/*Producer*.java"
+  - "**/*Publisher*.java"
+stack: "messaging=kafka"
 severity: high
 tags: [kafka, producer, idempotent, outbox]
 ---
+
 
 # Spring Kafka Producer Rules
 

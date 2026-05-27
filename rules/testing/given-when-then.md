@@ -1,9 +1,11 @@
 ---
 id: rules/testing/given-when-then
-applies-to: "**/*Test.java"
+paths:
+  - "**/*Test.java"
 severity: low
 tags: [test-naming, structure]
 ---
+
 
 # Given/When/Then Test Structure
 

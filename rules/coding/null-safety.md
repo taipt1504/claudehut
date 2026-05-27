@@ -1,9 +1,11 @@
 ---
 id: rules/coding/null-safety
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [null-safety, jsr-305, jspecify]
 ---
+
 
 # Null Safety
 

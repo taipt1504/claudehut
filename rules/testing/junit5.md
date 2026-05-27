@@ -1,9 +1,11 @@
 ---
 id: rules/testing/junit5
-applies-to: "**/*Test.java, **/*IT.java"
+paths:
+  - "**/*Test.java"
 severity: medium
 tags: [junit5, jupiter, test]
 ---
+
 
 # JUnit 5 Conventions
 

@@ -1,9 +1,11 @@
 ---
 id: rules/security/deserialization
-applies-to: "**/*.java"
+paths:
+  - "**/*.java"
 severity: critical
 tags: [jackson, deserialization, rce]
 ---
+
 
 # Safe Deserialization
 

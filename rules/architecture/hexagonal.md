@@ -1,9 +1,11 @@
 ---
 id: rules/architecture/hexagonal
-applies-to: "**/*"
+paths:
+  - "**/*.java"
 severity: high
 tags: [architecture, hexagonal, ports-adapters]
 ---
+
 
 # Hexagonal Architecture (Ports & Adapters)
 

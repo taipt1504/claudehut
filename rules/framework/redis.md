@@ -1,10 +1,12 @@
 ---
 id: rules/framework/redis
-applies-to: "**/*Redis*.java, **/*Cache*.java"
-stack-signal: "cache=redis"
+paths:
+  - "**/*Redis*.java"
+stack: "cache=redis"
 severity: medium
 tags: [redis, cache, distributed-lock]
 ---
+
 
 # Redis Rules
 

@@ -1,9 +1,11 @@
 ---
 id: rules/security/secret-mgmt
-applies-to: "**/*"
+paths:
+  - "**/*"
 severity: critical
 tags: [secrets, vault, env-vars]
 ---
+
 
 # Secret Management
 

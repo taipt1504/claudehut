@@ -1,9 +1,11 @@
 ---
 id: rules/performance/caching
-applies-to: "**/*Service.java, **/*Cache*.java"
+paths:
+  - "**/*Cache*.java"
 severity: medium
 tags: [cache, redis, spring-cache]
 ---
+
 
 # Caching
 

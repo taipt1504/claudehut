@@ -1,9 +1,11 @@
 ---
 id: rules/architecture/ddd
-applies-to: "**/*"
+paths:
+  - "**/*.java"
 severity: medium
 tags: [ddd, aggregate, value-object, domain-event]
 ---
+
 
 # Domain-Driven Design Patterns
 

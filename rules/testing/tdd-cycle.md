@@ -1,9 +1,12 @@
 ---
 id: rules/testing/tdd-cycle
-applies-to: "**/*Test.java"
+paths:
+  - "**/*IT.java"
+  - "**/*Test.java"
 severity: high
 tags: [tdd, testing, red-green-refactor]
 ---
+
 
 # TDD Cycle — RED → GREEN → REFACTOR
 
