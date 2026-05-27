@@ -4,6 +4,7 @@ description: MapStruct and Jackson correctness reviewer. Verifies generated mapp
 model: haiku
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:mapstruct
   - claudehut:jackson
 ---

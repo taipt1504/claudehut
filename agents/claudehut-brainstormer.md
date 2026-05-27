@@ -4,6 +4,7 @@ description: Phase 1 driver. Socratic grilling, reuse-detection scan, design doc
 model: opus
 tools: Read, Grep, Glob, WebFetch, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:brainstorm
   - claudehut:reuse-scan
 ---

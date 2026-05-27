@@ -4,6 +4,7 @@ description: Flyway/Liquibase migration safety validator. Checks naming conventi
 model: haiku
 tools: Read, Grep, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:flyway-migration
 ---
 

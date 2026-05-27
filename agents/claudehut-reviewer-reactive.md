@@ -4,6 +4,7 @@ description: Reactive correctness reviewer for Spring WebFlux + Project Reactor.
 model: sonnet
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:spring-webflux
 ---
 

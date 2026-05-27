@@ -4,6 +4,7 @@ description: Phase 5 driver. Runs the verify pipeline (build, tests, coverage, l
 model: sonnet
 tools: Read, Bash, Skill, Grep, Glob, Task
 skills:
+  - claudehut:using-claudehut
   - claudehut:verify-review
 ---
 

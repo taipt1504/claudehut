@@ -4,6 +4,7 @@ description: Phase 3 driver. Converts an approved contract into a file-level tas
 model: opus
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:plan
   - claudehut:tdd-cycle
 ---

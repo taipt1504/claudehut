@@ -4,6 +4,7 @@ description: Security review specialist for Java Spring (MVC + WebFlux). Reviews
 model: sonnet
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:owasp-scan
 ---
 

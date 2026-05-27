@@ -4,6 +4,7 @@ description: Test execution and result parsing specialist. Runs Gradle/Maven tes
 model: haiku
 tools: Read, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:tdd-cycle
 ---
 

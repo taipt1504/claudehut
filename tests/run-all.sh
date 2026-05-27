@@ -150,6 +150,21 @@ for f in $(find agents -name '*.md'); do
   fi
 done
 
+# Bootstrap skill `using-claudehut` must be the FIRST preload entry of every
+# dispatch-eligible agent so the catalog + invocation discipline is in the
+# subagent's context at startup, ahead of phase-specific skills.
+for f in $(find agents -name '*.md'); do
+  case "$(basename "$f")" in
+    claudehut-orchestrator.md) continue ;;
+  esac
+  first_preload="$(awk '/^---$/{c++; if(c==2)exit} c==1 && /^skills:/{flag=1; next} flag && /^[[:space:]]+-/{sub(/^[[:space:]]+-[[:space:]]+/,""); print; exit}' "$f")"
+  if [[ "$first_preload" == "claudehut:using-claudehut" ]]; then
+    pass "$f bootstrap preload first"
+  else
+    fail "$f" "first 'skills:' entry must be claudehut:using-claudehut (got '$first_preload')"
+  fi
+done
+
 #==============================================================================
 section "L1.6 SKILL.md reference links resolve"
 #==============================================================================
@@ -582,7 +597,7 @@ n_agents=$(find agents -name '*.md' | wc -l | tr -d ' ')
 
 # Skill count
 n_skills=$(find skills -name 'SKILL.md' | wc -l | tr -d ' ')
-[[ "$n_skills" -eq 28 ]] && pass "skill count: 28 (matches design)" || skip "skill count: $n_skills (expected 28)"
+[[ "$n_skills" -eq 29 ]] && pass "skill count: 29 (28 workflow/domain + using-claudehut bootstrap)" || fail "coverage" "skill count: $n_skills (expected 29)"
 
 # Hook events configured
 n_hooks=$(jq -r '.hooks | keys[]' hooks/hooks.json | wc -l | tr -d ' ')
@@ -724,6 +739,64 @@ if grep -q 'DO NOT SPAWN as subagent' agents/claudehut-orchestrator.md; then
   pass "L12 orchestrator marked non-spawnable"
 else
   fail "L12 dispatch" "orchestrator missing recursive-spawn guard"
+fi
+
+#==============================================================================
+section "L14 Bootstrap skill `using-claudehut` integrity"
+#==============================================================================
+# (a) Skill file exists with required frontmatter + body sections.
+boot="skills/using-claudehut/SKILL.md"
+if [[ -f "$boot" ]]; then
+  pass "L14 bootstrap skill file exists"
+else
+  fail "L14 bootstrap" "$boot missing"
+fi
+
+if grep -q '^name: using-claudehut$' "$boot" 2>/dev/null; then
+  pass "L14 bootstrap frontmatter name"
+else
+  fail "L14 bootstrap" "name field wrong or missing"
+fi
+
+# Required body sections.
+for section in '^## Non-negotiable invocation rule' \
+               '^## Red flags' \
+               '^## How dispatch maps to skill invocation' \
+               '^## Catalog'; do
+  if grep -qE "$section" "$boot" 2>/dev/null; then
+    pass "L14 bootstrap section: $(echo "$section" | sed 's/^\^//; s/^## //')"
+  else
+    fail "L14 bootstrap" "missing section matching: $section"
+  fi
+done
+
+# 1% rule must be quoted literally.
+if grep -q '1% chance' "$boot" 2>/dev/null; then
+  pass "L14 bootstrap states 1% rule"
+else
+  fail "L14 bootstrap" "missing the '1% chance' invocation rule"
+fi
+
+# (b) Catalog block must list every non-bootstrap skill exactly once.
+expected=$(find skills -mindepth 1 -maxdepth 1 -type d -not -name 'using-claudehut' | wc -l | tr -d ' ')
+actual=$(awk '/^<!-- catalog:begin -->/{flag=1;next} /^<!-- catalog:end -->/{flag=0} flag && /^\| `claudehut:/{count++} END{print count+0}' "$boot")
+if [[ "$expected" -eq "$actual" ]]; then
+  pass "L14 catalog covers all $expected skills"
+else
+  fail "L14 bootstrap" "catalog rows=$actual but skills dir has $expected entries"
+fi
+
+# (c) Regenerator must be idempotent — running it on a clean tree must
+# produce zero diff against the committed file.
+if bash "$PLUGIN_ROOT/scripts/regen-using-claudehut.sh" >/tmp/regen.log 2>&1; then
+  if grep -q 'no change' /tmp/regen.log; then
+    pass "L14 regen script idempotent"
+  else
+    fail "L14 bootstrap" "regen script produced a diff against committed SKILL.md — re-run scripts/regen-using-claudehut.sh and commit"
+    cat /tmp/regen.log
+  fi
+else
+  fail "L14 bootstrap" "regen script failed"
 fi
 
 #==============================================================================

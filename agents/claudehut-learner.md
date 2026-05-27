@@ -4,6 +4,7 @@ description: Phase 6 driver. Extracts patterns, anti-patterns, decisions, and re
 model: haiku
 tools: Read, Bash, Edit, Grep, Glob, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:learn
 ---
 

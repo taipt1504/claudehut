@@ -4,6 +4,7 @@ description: Codebase reuse-detection specialist. Detects which reuse backend (U
 model: haiku
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:reuse-scan
 ---
 

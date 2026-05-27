@@ -4,6 +4,7 @@ description: Database review specialist — schema delta safety, migration backw
 model: sonnet
 tools: Read, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:r2dbc
   - claudehut:jpa-hibernate
 ---

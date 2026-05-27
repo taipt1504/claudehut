@@ -4,6 +4,7 @@ description: Phase 2 driver. Converts an approved design document into a measura
 model: sonnet
 tools: Read, Grep, Glob, Skill, Bash
 skills:
+  - claudehut:using-claudehut
   - claudehut:spec
 ---
 

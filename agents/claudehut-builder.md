@@ -4,6 +4,7 @@ description: Phase 4 driver. Executes the approved plan task-by-task with strict
 model: sonnet
 tools: Read, Edit, Write, Grep, Glob, Bash, Skill
 skills:
+  - claudehut:using-claudehut
   - claudehut:build
   - claudehut:tdd-cycle
 ---
