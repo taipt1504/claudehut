@@ -6,6 +6,18 @@ set -euo pipefail
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$PROJECT_ROOT"
 
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
+}
+PLUGIN_ROOT="$(_find_plugin_root)"
+
 TOPIC="${1:-}"
 shift || true
 NOUNS=("$@")
@@ -13,7 +25,7 @@ NOUNS=("$@")
 # If no explicit nouns, derive from topic
 if [[ ${#NOUNS[@]} -eq 0 && -n "$TOPIC" ]]; then
   # Reuse extract-nouns.sh from brainstorm skill
-  EXTRACT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/skills/brainstorm/scripts/extract-nouns.sh"
+  EXTRACT="$PLUGIN_ROOT/skills/brainstorm/scripts/extract-nouns.sh"
   if [[ -x "$EXTRACT" ]]; then
     read -ra NOUNS < <("$EXTRACT" "$TOPIC")
   fi

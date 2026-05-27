@@ -12,7 +12,17 @@ if ! [[ "$NAME" =~ ^[a-z][a-z0-9-]*$ ]]; then
   exit 1
 fi
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}"
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
+}
+PLUGIN_ROOT="$(_find_plugin_root)"
 TARGET="$PLUGIN_ROOT/skills/$NAME"
 
 if [[ -d "$TARGET" ]]; then

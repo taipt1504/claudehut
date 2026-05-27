@@ -4,7 +4,22 @@
 set -euo pipefail
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../..}"
+
+# Walk up from script location until we find the plugin marker.
+# Works whether script is invoked from scripts/state/, skills/init/scripts/, or elsewhere.
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root (no .claude-plugin/plugin.json found upward)" >&2
+  exit 1
+}
+PLUGIN_ROOT="$(_find_plugin_root)"
+
 TARGET="$PROJECT_ROOT/.claudehut"
 
 if [[ -d "$TARGET" ]]; then

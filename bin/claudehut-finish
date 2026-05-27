@@ -5,8 +5,19 @@ set -euo pipefail
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(pwd)}"
 cd "$PROJECT_ROOT"
 
-# shellcheck source=../../../scripts/hooks/lib/state.sh
-source "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/scripts/hooks/lib/state.sh"
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
+}
+PLUGIN_ROOT="$(_find_plugin_root)"
+# shellcheck source=../scripts/hooks/lib/state.sh
+source "$PLUGIN_ROOT/scripts/hooks/lib/state.sh"
 
 TASK_ID="$(claudehut_active_task)"
 [[ "$TASK_ID" == "none" ]] && { echo "error: no active task" >&2; exit 1; }

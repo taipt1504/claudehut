@@ -2,8 +2,18 @@
 # render-discover.sh — pretty-print ClaudeHut status to stdout
 set -euo pipefail
 
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
+}
 # shellcheck source=../../../scripts/hooks/lib/state.sh
-source "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/scripts/hooks/lib/state.sh"
+source "$(_find_plugin_root)/scripts/hooks/lib/state.sh"
 
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || { echo "ClaudeHut not initialized in $PROJECT_ROOT. Run /claudehut:init."; exit 0; }

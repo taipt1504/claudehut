@@ -4,8 +4,18 @@
 # Exit 0 if in scope, 1 if not.
 set -euo pipefail
 
+_find_plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d
+  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
+}
 # shellcheck source=../../../scripts/hooks/lib/state.sh
-source "${CLAUDE_PLUGIN_ROOT:-$(dirname "$(realpath "$0")")/../../..}/scripts/hooks/lib/state.sh"
+source "$(_find_plugin_root)/scripts/hooks/lib/state.sh"
 
 FILE="${1:-}"
 [[ -n "$FILE" ]] || { echo "error: no file argument" >&2; exit 2; }
