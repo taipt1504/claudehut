@@ -579,11 +579,15 @@ fi
 #==============================================================================
 section "L9 Snapshot tests (hook outputs)"
 #==============================================================================
-if bash "$PLUGIN_ROOT/tests/snapshot/run-snapshots.sh" >/tmp/snap.log 2>&1; then
+if VERBOSE=1 bash "$PLUGIN_ROOT/tests/snapshot/run-snapshots.sh" >/tmp/snap.log 2>&1; then
   snap_pass=$(grep -oE 'Pass: [0-9]+' /tmp/snap.log | head -1 | awk '{print $2}')
   pass "snapshot tests: $snap_pass scenarios match golden files"
 else
-  fail "snapshots" "drift detected; see /tmp/snap.log"
+  fail "snapshots" "drift detected — diff below"
+  # Surface the actual diff so CI logs show the cause.
+  echo "---- snapshot drift detail ----"
+  cat /tmp/snap.log
+  echo "---- end snapshot drift ----"
 fi
 
 #==============================================================================
