@@ -593,7 +593,7 @@ rm -rf "$TMPDIR"
 section "L4 Coverage — rules + skills + agents"
 #==============================================================================
 n_rules=$(find rules -name '*.md' | wc -l | tr -d ' ')
-[[ "$n_rules" -eq 42 ]] && pass "rules: $n_rules files (matches design)" || fail "coverage" "expected 42 rule files, found $n_rules"
+[[ "$n_rules" -eq 45 ]] && pass "rules: $n_rules files (42 baseline + 3 Lombok)" || fail "coverage" "expected 45 rule files, found $n_rules"
 
 # Stack-conditional rules (frontmatter `stack:` key) — informational
 stack_count=$(grep -l '^stack:' rules/**/*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -605,7 +605,7 @@ n_agents=$(find agents -name '*.md' | wc -l | tr -d ' ')
 
 # Skill count
 n_skills=$(find skills -name 'SKILL.md' | wc -l | tr -d ' ')
-[[ "$n_skills" -eq 29 ]] && pass "skill count: 29 (28 workflow/domain + using-claudehut bootstrap)" || fail "coverage" "skill count: $n_skills (expected 29)"
+[[ "$n_skills" -eq 30 ]] && pass "skill count: 30 (29 workflow/domain + using-claudehut bootstrap; +1 lombok)" || fail "coverage" "skill count: $n_skills (expected 30)"
 
 # Hook events configured
 n_hooks=$(jq -r '.hooks | keys[]' hooks/hooks.json | wc -l | tr -d ' ')

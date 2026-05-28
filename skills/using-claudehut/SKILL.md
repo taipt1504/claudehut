@@ -53,6 +53,7 @@ Examples:
 | `claudehut-builder`       | Touching `*Dto/*Request/*Response.java` | `claudehut:jackson` |
 | `claudehut-builder`       | Touching `*Repository.java`    | `claudehut:jpa-hibernate` (or `r2dbc` per stack) |
 | `claudehut-builder`       | Touching `db/migration/V*.sql` | `claudehut:flyway-migration` |
+| `claudehut-builder`       | Any `.java` file with a Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import | `claudehut:lombok` |
 | `claudehut-builder`       | New Java file                  | `claudehut:reuse-scan` |
 | `claudehut-builder`       | Adding `*Test.java`            | `claudehut:tdd-cycle` (preloaded — already in context) |
 | `claudehut-builder`       | Adding `*IT.java`              | `claudehut:testcontainers` |
@@ -119,6 +120,7 @@ a single turn — that pattern reaches a runtime that cannot relay it.
 | `claudehut:kafka-consumer` | Spring Kafka consumer conventions — @KafkaListener, manual ack modes, DLT pattern, retry topic, idempotency via dedup store, JSON/Avro deserialization. Auto-loads when editing `* |
 | `claudehut:kafka-producer` | Spring Kafka producer conventions — idempotent producer config, transactional outbox pattern, Schema Registry integration, JSON/Avro serialization, retry + backoff. Auto-loads wh |
 | `claudehut:learn` | Phase 6 of ClaudeHut workflow — extract patterns, anti-patterns, decisions, and reusable snippets from the completed task, persist as memory in `.claudehut/memory/learnings.jsonl |
+| `claudehut:lombok` | Project Lombok conventions for Java/Spring Boot 3.x. Auto-loads when a file uses Lombok annotations (@Data, @Value, @Builder, @SuperBuilder, @Slf4j, @RequiredArgsConstructor, etc.) |
 | `claudehut:mapstruct` | MapStruct mapper conventions for Java. Auto-loads when editing `**/*Mapper.java` files with @Mapper annotation. Covers @Mapping/@MappingTarget/@BeanMapping config, null strategies, |
 | `claudehut:nats` | NATS / JetStream consumer + publisher conventions for Java (jnats). Auto-loads when editing `**/*NatsListener*.java`, `**/*NatsClient*.java` in projects with messaging=nats. Covers |
 | `claudehut:owasp-scan` | Run OWASP dependency-check + custom Spring Security misconfig regex scans. Used in Phase 5 verify stage. Slash-invoke /claudehut:owasp-scan for on-demand scans. Outputs structured  |

@@ -112,6 +112,7 @@ Examples:
 | `claudehut-builder`       | Touching `*Dto/*Request/*Response.java` | `claudehut:jackson` |
 | `claudehut-builder`       | Touching `*Repository.java`    | `claudehut:jpa-hibernate` (or `r2dbc` per stack) |
 | `claudehut-builder`       | Touching `db/migration/V*.sql` | `claudehut:flyway-migration` |
+| `claudehut-builder`       | Any `.java` file with a Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import | `claudehut:lombok` |
 | `claudehut-builder`       | New Java file                  | `claudehut:reuse-scan` |
 | `claudehut-builder`       | Adding `*Test.java`            | `claudehut:tdd-cycle` (preloaded — already in context) |
 | `claudehut-builder`       | Adding `*IT.java`              | `claudehut:testcontainers` |
