@@ -5,61 +5,27 @@ description: Phase 4 of ClaudeHut workflow — execute the approved plan by disp
 
 ## Dispatch contract (read this FIRST)
 
-This phase dispatches **one isolated `claudehut-builder` subagent per plan task**, grouped by `Parallel group:` so independent tasks execute concurrently.
-
-Main thread = orchestrator (parallel dispatch, worktree merge-back, checkbox ticking, user dialog).
-Each builder = isolated subagent in its own git worktree (no git conflicts, no gradle contention).
+This phase executes parallel groups via **`scripts/run-parallel-group.sh`** — one `claude --print` process per task, each in an isolated git worktree. Concurrency is guaranteed at the OS level; the script handles worktree lifecycle, result parsing, and merge-back automatically.
 
 ### Parallel-group execution loop
 
 ```
-PLAN = .claudehut/plans/<task-id>-plan.md
-GROUPS = sorted distinct "Parallel group:" values from PLAN (1, 2, 3 …)
+PLAN    = .claudehut/plans/<task-id>-plan.md
+TASK_ID = claudehut-state task-id
+GROUPS  = sorted distinct "Parallel group:" values in PLAN (1, 2, 3 …)
 
 for G in GROUPS:
-  TASKS = all unchecked tasks in PLAN where Parallel group == G
+  Run: scripts/run-parallel-group.sh "$ARGUMENTS" TASK_ID PLAN G
+  # subagent_type = "claudehut-builder"  (each worker follows builder instructions)
+  Exit 0 → proceed to next group
+  Exit 1 → surface failures to user; await decision
 
-  # ── Dispatch all tasks in this group in ONE message ──────────────────
-  # Single turn = concurrent execution. NEVER loop and dispatch one-by-one.
-  for each T in TASKS:
-    PROMPT = run $CLAUDE_PLUGIN_ROOT/skills/build/scripts/dispatch-prompt.sh \
-                  "$ARGUMENTS" "$T.number"
-    Agent(
-      subagent_type = "claudehut-builder",
-      isolation     = "worktree",
-      prompt        = PROMPT
-    )
-
-  # ── Wait for all — collect claudehut-builder-result blocks ────────────
-  RESULTS = all returned results for group G
-
-  # ── Merge successful worktrees back to main branch ────────────────────
-  PASS_PAIRS = ["N:branch" for R in RESULTS where R.verify_status == "pass"]
-  run $CLAUDE_PLUGIN_ROOT/skills/build/scripts/merge-parallel-group.sh \
-        "<task-id>" PLAN PASS_PAIRS...
-
-  # ── Surface failures before continuing ────────────────────────────────
-  FAILURES = [R for R in RESULTS where R.verify_status == "fail"]
-  if FAILURES:
-    surface errors to user; await decision before next group
-
-# ── Final full-suite check ────────────────────────────────────────────
-./gradlew check  (or mvn verify)
-phase advances to loop
+After last group:
+  ./gradlew check  (or mvn verify)
+  Advance phase to loop
 ```
 
-**All agents for a parallel group MUST be dispatched in a single message.** Dispatching them in separate turns serializes execution — defeats the entire purpose.
-
-**Red flags that say "skip parallel dispatch"** (counter each, do not give in):
-
-| Rationalization | Reality |
-|---|---|
-| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
-| "Tasks are independent — I'll serialize to be safe." | Independent = same `Parallel group` = dispatch all at once. Serializing is exactly the 30-min problem being fixed. **Dispatch all in one message.** |
-| "Worktree isolation is overkill for one task." | Worktree prevents git index lock + gradle contention. Always use `isolation: worktree`. |
-| "Quick fix — no need for TDD cycle." | TDD is non-negotiable per workflow contract. **Dispatch.** |
-
-**Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
+`run-parallel-group.sh` creates git worktrees, launches parallel `claude --print` processes, waits for all, parses `claudehut-builder-result` blocks, and calls `merge-parallel-group.sh` for passing tasks.
 
 ---
 
@@ -70,13 +36,11 @@ Execute the plan with strict TDD discipline. The ONLY phase where production cod
 ## Quick start
 
 1. Read `.claudehut/plans/<id>-plan.md`. Extract all distinct `Parallel group:` values.
-2. For group 1: dispatch all group-1 tasks as parallel `Agent(isolation: worktree)` calls — one message, multiple calls.
-3. Wait for results. Run `scripts/merge-parallel-group.sh` for successful tasks.
-4. Surface failures to user; on resolution proceed to group 2.
-5. Repeat for each group in order.
-6. After last group: `./gradlew check`; advance phase to `loop`.
+2. For each group G in order: run `scripts/run-parallel-group.sh "$ARGUMENTS" <task-id> <plan-file> G`.
+3. On non-zero exit: surface failures to user; await decision before next group.
+4. After last group: `./gradlew check`; advance phase to `loop`.
 
-Each builder subagent handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result).
+Each builder process handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result).
 
 ## Hard rules
 
@@ -104,6 +68,7 @@ The PreToolUse hook auto-loads matching rules:
 
 ## Scripts
 
+- `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — dispatch all unchecked tasks in a parallel group as concurrent `claude --print` processes; merges passing branches automatically.
 - `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — generate a single-task builder prompt (task-num selects which plan task block to include).
 - `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each worktree branch onto main and tick plan checkboxes.
 - `scripts/pre-write-scope-check.sh <file>` — verify file is in current task's allowed scope (called by PreToolUse).

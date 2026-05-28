@@ -27,7 +27,12 @@ claudehut_claudehut_dir() {
 }
 
 # Task id = git branch name, slashes → dashes for filesystem safety
+# CLAUDEHUT_TASK_ID env var overrides derivation (used by worktree-launched builders).
 claudehut_task_id() {
+  if [[ -n "${CLAUDEHUT_TASK_ID:-}" ]]; then
+    echo "$CLAUDEHUT_TASK_ID"
+    return 0
+  fi
   local root branch
   root="$(claudehut_project_root)"
   if ! git -C "$root" rev-parse --git-dir >/dev/null 2>&1; then

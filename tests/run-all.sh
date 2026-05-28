@@ -1185,6 +1185,43 @@ else
   fail "L16 planner agent" "G5 gate missing plan-parallel-group-scan.sh reference"
 fi
 
+# run-parallel-group.sh must exist and be executable
+rpg_script="$PLUGIN_ROOT/skills/build/scripts/run-parallel-group.sh"
+if [[ -x "$rpg_script" ]]; then
+  pass "L16 run-parallel-group.sh exists and is executable"
+else
+  fail "L16 build scripts" "run-parallel-group.sh missing or not executable"
+fi
+
+# run-parallel-group.sh must invoke claude (OS-level parallelism, Path B)
+if grep -q 'claude' "$rpg_script" 2>/dev/null; then
+  pass "L16 run-parallel-group.sh invokes claude (Path B dispatch)"
+else
+  fail "L16 run-parallel-group.sh" "missing 'claude' invocation — not a parallel dispatcher"
+fi
+
+# run-parallel-group.sh must create git worktrees (isolated execution)
+if grep -q 'worktree add' "$rpg_script" 2>/dev/null; then
+  pass "L16 run-parallel-group.sh uses git worktree add"
+else
+  fail "L16 run-parallel-group.sh" "missing 'worktree add' — no worktree isolation"
+fi
+
+# Build skill must reference run-parallel-group.sh
+if grep -q 'run-parallel-group.sh' "$build_skill"; then
+  pass "L16 build SKILL.md references run-parallel-group.sh"
+else
+  fail "L16 build SKILL.md" "missing run-parallel-group.sh reference"
+fi
+
+# CLAUDEHUT_TASK_ID env override must exist in state.sh (worktree builder fix)
+state_sh="$PLUGIN_ROOT/hooks/lib/state.sh"
+if grep -q 'CLAUDEHUT_TASK_ID' "$state_sh"; then
+  pass "L16 state.sh has CLAUDEHUT_TASK_ID env override"
+else
+  fail "L16 state.sh" "missing CLAUDEHUT_TASK_ID override — worktree builders will derive wrong task id"
+fi
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================
