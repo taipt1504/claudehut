@@ -423,6 +423,90 @@ if bash "$script1" "$tmp" >/dev/null 2>&1; then fail "plan-placeholder" "accepte
 
 rm "$tmp" "$contract"
 
+# L2.5b — parallel group scan
+script3="$PLUGIN_ROOT/skills/plan/scripts/plan-parallel-group-scan.sh"
+tmp=$(mktemp -t test-pg.XXXXXX)
+
+# Good: 2 independent tasks in group 1, 1 dependent in group 2
+cat > "$tmp" <<'P'
+# Plan
+## Task 1: create Foo
+**Files:**
+- create: `src/main/java/Foo.java`
+- test:   `src/test/java/FooTest.java`
+**Depends on:** (none)
+**Parallel group:** 1
+- [ ] complete
+---
+## Task 2: create Bar
+**Files:**
+- create: `src/main/java/Bar.java`
+- test:   `src/test/java/BarTest.java`
+**Depends on:** (none)
+**Parallel group:** 1
+- [ ] complete
+---
+## Task 3: create FooBar
+**Files:**
+- create: `src/main/java/FooBar.java`
+- test:   `src/test/java/FooBarTest.java`
+**Depends on:** Task 1, Task 2
+**Parallel group:** 2
+- [ ] complete
+P
+bash "$script3" "$tmp" >/dev/null 2>&1 && pass "L2.5b parallel-group scan: valid plan accepted" || fail "plan-pg-scan" "rejected valid parallel groups"
+
+# Bad: file conflict within same group
+cat > "$tmp" <<'P'
+# Plan
+## Task 1: create Foo
+**Files:**
+- create: `src/main/java/Shared.java`
+**Depends on:** (none)
+**Parallel group:** 1
+- [ ] complete
+---
+## Task 2: also touch Shared
+**Files:**
+- modify: `src/main/java/Shared.java`
+**Depends on:** (none)
+**Parallel group:** 1
+- [ ] complete
+P
+if bash "$script3" "$tmp" >/dev/null 2>&1; then fail "plan-pg-scan" "accepted file conflict in same group"; else pass "L2.5b parallel-group scan: rejects file conflict in group"; fi
+
+# Bad: dep in same group
+cat > "$tmp" <<'P'
+# Plan
+## Task 1: base
+**Files:**
+- create: `src/main/java/Base.java`
+**Depends on:** (none)
+**Parallel group:** 1
+- [ ] complete
+---
+## Task 2: depends on task 1 but same group
+**Files:**
+- create: `src/main/java/Ext.java`
+**Depends on:** Task 1
+**Parallel group:** 1
+- [ ] complete
+P
+if bash "$script3" "$tmp" >/dev/null 2>&1; then fail "plan-pg-scan" "accepted dep with same group"; else pass "L2.5b parallel-group scan: rejects dep in same group"; fi
+
+# Bad: missing Parallel group field
+cat > "$tmp" <<'P'
+# Plan
+## Task 1: no group
+**Files:**
+- create: `src/main/java/Foo.java`
+**Depends on:** (none)
+- [ ] complete
+P
+if bash "$script3" "$tmp" >/dev/null 2>&1; then fail "plan-pg-scan" "accepted task missing Parallel group"; else pass "L2.5b parallel-group scan: rejects missing Parallel group field"; fi
+
+rm "$tmp"
+
 #==============================================================================
 section "L2.6 validate-skill.sh"
 #==============================================================================
@@ -630,6 +714,50 @@ for f in agents/*.md; do
   fi
 done
 [[ "$n_compliant" -eq 17 ]] && pass "all 17 agents follow Goals+Gates+Guardrails+Heuristics" || fail "agent compliance" "only $n_compliant/17 compliant"
+
+# Plan template must include Parallel group field
+tmpl="$PLUGIN_ROOT/skills/plan/assets/templates/plan-doc.md.tmpl"
+if grep -q 'Parallel group:' "$tmpl"; then
+  pass "L4 plan template contains Parallel group field"
+else
+  fail "L4 plan template" "missing 'Parallel group:' field"
+fi
+
+# Planner agent must document Parallel group in output contract
+if grep -q 'Parallel group' "$PLUGIN_ROOT/agents/claudehut-planner.md"; then
+  pass "L4 planner agent documents Parallel group"
+else
+  fail "L4 planner agent" "missing Parallel group assignment logic"
+fi
+
+# plan-parallel-group-scan.sh must exist and be executable
+pg_script="$PLUGIN_ROOT/skills/plan/scripts/plan-parallel-group-scan.sh"
+if [[ -x "$pg_script" ]]; then
+  pass "L4 plan-parallel-group-scan.sh exists and is executable"
+else
+  fail "L4 plan scripts" "plan-parallel-group-scan.sh missing or not executable"
+fi
+
+# Builder agent must be single-task (no "PickTask" loop)
+builder="$PLUGIN_ROOT/agents/claudehut-builder.md"
+if grep -q 'claudehut-builder-result' "$builder"; then
+  pass "L4 builder agent has claudehut-builder-result return contract"
+else
+  fail "L4 builder agent" "missing claudehut-builder-result return block"
+fi
+if grep -q 'worktree' "$PLUGIN_ROOT/skills/build/SKILL.md"; then
+  pass "L4 build skill documents worktree isolation"
+else
+  fail "L4 build skill" "missing worktree in dispatch contract"
+fi
+
+# merge script must exist and be executable
+merge_script="$PLUGIN_ROOT/skills/build/scripts/merge-parallel-group.sh"
+if [[ -x "$merge_script" ]]; then
+  pass "L4 merge-parallel-group.sh exists and is executable"
+else
+  fail "L4 build scripts" "merge-parallel-group.sh missing or not executable"
+fi
 
 # 7 main agents must have state diagram (Mermaid)
 n_main_diagrammed=0
@@ -975,6 +1103,86 @@ if grep -q 'next_action' "$bsm"; then
   pass "L15 brainstorm SKILL.md documents structured return loop"
 else
   fail "L15 brainstorm SKILL.md" "missing next_action return-shape doc"
+fi
+
+#==============================================================================
+section "L16 Parallel build workflow contracts"
+#==============================================================================
+# Verify the end-to-end contract for parallel build dispatch:
+#   - Build skill instructs one Agent per task (not one Agent for all tasks)
+#   - Dispatch script supports task-number argument
+#   - Merge script handles colon-separated task:branch pairs
+#   - Builder result block shape is consistent across skill and agent
+
+build_skill="$PLUGIN_ROOT/skills/build/SKILL.md"
+builder_agent="$PLUGIN_ROOT/agents/claudehut-builder.md"
+dispatch_script="$PLUGIN_ROOT/skills/build/scripts/dispatch-prompt.sh"
+merge_script="$PLUGIN_ROOT/skills/build/scripts/merge-parallel-group.sh"
+
+# Build skill must document parallel-group loop
+for term in 'Parallel group' 'merge-parallel-group.sh' 'worktree'; do
+  if grep -q "$term" "$build_skill"; then
+    pass "L16 build SKILL.md contains '$term'"
+  else
+    fail "L16 build SKILL.md" "missing '$term' — parallel contract incomplete"
+  fi
+done
+
+# Dispatch script accepts task-number (second positional arg)
+if grep -q 'TASK_NUM' "$dispatch_script"; then
+  pass "L16 dispatch-prompt.sh accepts TASK_NUM argument"
+else
+  fail "L16 dispatch-prompt.sh" "missing TASK_NUM parameter — cannot do per-task dispatch"
+fi
+
+# Dispatch script emits single-task plan block when TASK_NUM set
+if grep -q 'Plan.*Task.*only\|single.*task\|only the requested task' "$dispatch_script"; then
+  pass "L16 dispatch-prompt.sh emits single task block when TASK_NUM set"
+else
+  fail "L16 dispatch-prompt.sh" "does not restrict plan output to single task block"
+fi
+
+# Merge script handles task:branch pairs
+if grep -q 'cherry-pick\|cherry_pick' "$merge_script"; then
+  pass "L16 merge-parallel-group.sh performs cherry-pick"
+else
+  fail "L16 merge-parallel-group.sh" "missing cherry-pick — branches not merged"
+fi
+if grep -q 'task_num.*branch\|branch.*task_num\|pair' "$merge_script"; then
+  pass "L16 merge-parallel-group.sh parses task:branch pairs"
+else
+  fail "L16 merge-parallel-group.sh" "missing task:branch pair parsing"
+fi
+
+# Builder result shape: task + commit_sha + verify_status
+for field in '"task"' '"commit_sha"' '"verify_status"' '"task_id"'; do
+  if grep -q "$field" "$builder_agent"; then
+    pass "L16 builder result block has field $field"
+  else
+    fail "L16 builder agent" "claudehut-builder-result missing field $field"
+  fi
+done
+
+# Builder agent MUST NOT still contain "PickTask" loop behavior
+if grep -q 'PickTask' "$builder_agent"; then
+  fail "L16 builder agent" "still contains PickTask loop — must be single-task executor"
+else
+  pass "L16 builder agent: no PickTask loop (single-task executor)"
+fi
+
+# Build skill MUST NOT instruct single big builder for all tasks
+if grep -q 'claudehut-builder.*all tasks\|loop.*all.*tasks\|each.*task.*loop' "$build_skill" 2>/dev/null; then
+  fail "L16 build SKILL.md" "still contains single-builder-for-all-tasks pattern"
+else
+  pass "L16 build SKILL.md: no single-builder-all-tasks pattern"
+fi
+
+# Verify planner G5 gate references parallel-group-scan
+planner="$PLUGIN_ROOT/agents/claudehut-planner.md"
+if grep -q 'plan-parallel-group-scan.sh' "$planner"; then
+  pass "L16 planner agent G5 gate wires plan-parallel-group-scan.sh"
+else
+  fail "L16 planner agent" "G5 gate missing plan-parallel-group-scan.sh reference"
 fi
 
 #==============================================================================

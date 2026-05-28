@@ -1,37 +1,63 @@
 ---
 name: build
-description: Phase 4 of ClaudeHut workflow — execute the approved plan task-by-task with strict TDD (RED → GREEN → REFACTOR). Touches only files listed in the plan (surgical scope). One commit per task. Use after Plan phase approval. Triggers when phase=build.
+description: Phase 4 of ClaudeHut workflow — execute the approved plan by dispatching each parallel group of tasks as concurrent builder subagents (each in its own git worktree), then merging results. Tasks within the same Parallel group run simultaneously; groups run in order. Strict TDD enforced per task. Use after Plan phase approval. Triggers when phase=build.
 ---
 
 ## Dispatch contract (read this FIRST)
 
-This phase runs as a **subagent**, not inline in the main thread.
-Main thread = orchestrator (context, memory, advisor, task tracking, user
-dialog). Phase work = subagent (isolated context, per-phase model).
+This phase dispatches **one isolated `claudehut-builder` subagent per plan task**, grouped by `Parallel group:` so independent tasks execute concurrently.
 
-When you read this skill, you **MUST** invoke the Task tool:
+Main thread = orchestrator (parallel dispatch, worktree merge-back, checkbox ticking, user dialog).
+Each builder = isolated subagent in its own git worktree (no git conflicts, no gradle contention).
+
+### Parallel-group execution loop
 
 ```
-Task(
-  subagent_type = "claudehut-builder",
-  prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
-)
+PLAN = .claudehut/plans/<task-id>-plan.md
+GROUPS = sorted distinct "Parallel group:" values from PLAN (1, 2, 3 …)
+
+for G in GROUPS:
+  TASKS = all unchecked tasks in PLAN where Parallel group == G
+
+  # ── Dispatch all tasks in this group in ONE message ──────────────────
+  # Single turn = concurrent execution. NEVER loop and dispatch one-by-one.
+  for each T in TASKS:
+    PROMPT = run $CLAUDE_PLUGIN_ROOT/skills/build/scripts/dispatch-prompt.sh \
+                  "$ARGUMENTS" "$T.number"
+    Agent(
+      subagent_type = "claudehut-builder",
+      isolation     = "worktree",
+      prompt        = PROMPT
+    )
+
+  # ── Wait for all — collect claudehut-builder-result blocks ────────────
+  RESULTS = all returned results for group G
+
+  # ── Merge successful worktrees back to main branch ────────────────────
+  PASS_PAIRS = ["N:branch" for R in RESULTS where R.verify_status == "pass"]
+  run $CLAUDE_PLUGIN_ROOT/skills/build/scripts/merge-parallel-group.sh \
+        "<task-id>" PLAN PASS_PAIRS...
+
+  # ── Surface failures before continuing ────────────────────────────────
+  FAILURES = [R for R in RESULTS where R.verify_status == "fail"]
+  if FAILURES:
+    surface errors to user; await decision before next group
+
+# ── Final full-suite check ────────────────────────────────────────────
+./gradlew check  (or mvn verify)
+phase advances to loop
 ```
 
-Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/build/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+**All agents for a parallel group MUST be dispatched in a single message.** Dispatching them in separate turns serializes execution — defeats the entire purpose.
 
-Do **not** execute the phase steps yourself in the main thread.
-Await the subagent's return, review the artifact it wrote, surface a
-concise status back to the user.
-
-**Red flags that say "skip dispatch"** (counter each, do not give in):
+**Red flags that say "skip parallel dispatch"** (counter each, do not give in):
 
 | Rationalization | Reality |
 |---|---|
 | "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
-| "Subagent context is overkill." | This phase intentionally runs on `sonnet`. Main thread may be a different model — wrong tool. **Dispatch.** |
+| "Tasks are independent — I'll serialize to be safe." | Independent = same `Parallel group` = dispatch all at once. Serializing is exactly the 30-min problem being fixed. **Dispatch all in one message.** |
+| "Worktree isolation is overkill for one task." | Worktree prevents git index lock + gradle contention. Always use `isolation: worktree`. |
 | "Quick fix — no need for TDD cycle." | TDD is non-negotiable per workflow contract. **Dispatch.** |
-| "I'll touch one extra file outside the plan task." | PreToolUse will deny the write. **Dispatch.** |
 
 **Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
 
@@ -43,14 +69,14 @@ Execute the plan with strict TDD discipline. The ONLY phase where production cod
 
 ## Quick start
 
-For each unchecked task in `.claudehut/plans/<id>-plan.md`:
+1. Read `.claudehut/plans/<id>-plan.md`. Extract all distinct `Parallel group:` values.
+2. For group 1: dispatch all group-1 tasks as parallel `Agent(isolation: worktree)` calls — one message, multiple calls.
+3. Wait for results. Run `scripts/merge-parallel-group.sh` for successful tasks.
+4. Surface failures to user; on resolution proceed to group 2.
+5. Repeat for each group in order.
+6. After last group: `./gradlew check`; advance phase to `loop`.
 
-1. Load the task block. The PreToolUse hook will auto-inject matching tech-stack rules by file pattern.
-2. **RED.** Write the failing test. Run RED command — must FAIL with expected error.
-3. **GREEN.** Write minimal code. Run verify command — must PASS.
-4. **REFACTOR.** Optional. Improve naming/structure without changing behavior. Tests must still pass.
-5. Commit per task using Conventional Commits.
-6. Check off the task in the plan.
+Each builder subagent handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result).
 
 ## Hard rules
 
@@ -78,6 +104,8 @@ The PreToolUse hook auto-loads matching rules:
 
 ## Scripts
 
+- `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — generate a single-task builder prompt (task-num selects which plan task block to include).
+- `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each worktree branch onto main and tick plan checkboxes.
 - `scripts/pre-write-scope-check.sh <file>` — verify file is in current task's allowed scope (called by PreToolUse).
 
 ## Exit criteria

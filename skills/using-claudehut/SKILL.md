@@ -111,7 +111,7 @@ a single turn — that pattern reaches a runtime that cannot relay it.
 |-------|--------------------------------------|
 | `claudehut:arch-unit-check` | Run ArchUnit tests if present in project to enforce package-layout/hexagonal/DDD rules. Used in Phase 5 verify stage. Optional — skips if ArchUnit not on classpath. Slash-invoke  |
 | `claudehut:brainstorm` | Phase 1 of ClaudeHut workflow — scan codebase + reuse-detection, draft a design document, run main-thread AskUserQuestion exchanges for any open decisions, converge on an approve |
-| `claudehut:build` | Phase 4 of ClaudeHut workflow — execute the approved plan task-by-task with strict TDD (RED → GREEN → REFACTOR). Touches only files listed in the plan (surgical scope). One c |
+| `claudehut:build` | Phase 4 of ClaudeHut workflow — execute the approved plan by dispatching each parallel group of tasks as concurrent builder subagents (each in its own git worktree), then merging |
 | `claudehut:discover` | Show ClaudeHut plugin status — active task, current phase, detected stack, loaded skills/agents/rules/hooks, integration backends (Understand-Anything, Graphify), and MCP server  |
 | `claudehut:flyway-migration` | Flyway migration conventions for PostgreSQL/MySQL — naming, online-safe DDL (CREATE INDEX CONCURRENTLY, expand-contract for renames), idempotency, backfill patterns. Auto-loads w |
 | `claudehut:init` | Scaffold the .claudehut/ directory in the current Java project (creates memory/, specs/, plans/, state/, rules/ subdirs and seeds template configs). Run via /claudehut:init when fi |

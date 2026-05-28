@@ -1,6 +1,6 @@
 ---
 name: claudehut-planner
-description: Phase 3 driver. Converts an approved contract into a file-level task plan with 2-5 minute chunks, exact paths, RED test + GREEN impl commands per task, DAG dependencies, and risk callouts. Invoke after contract approval. Stops when user approves the plan.
+description: Phase 3 driver. Converts an approved contract into a file-level task plan with 2-5 minute chunks, exact paths, RED test + GREEN impl commands per task, DAG dependencies, parallel group assignments, and risk callouts. Invoke after contract approval. Stops when user approves the plan.
 model: opus
 tools: Read, Grep, Glob, Bash, Skill
 skills:
@@ -27,9 +27,11 @@ stateDiagram-v2
     G3_SpecCoverage --> Working: AC uncovered
     G3_SpecCoverage --> G4_PathsValid
     G4_PathsValid --> Working: missing modify path
-    G4_PathsValid --> G5_UserApproval
-    G5_UserApproval --> Working: changes
-    G5_UserApproval --> [*]: approved → phase=build
+    G4_PathsValid --> G5_ParallelGroups
+    G5_ParallelGroups --> Working: file conflict or dep-order violation
+    G5_ParallelGroups --> G6_UserApproval
+    G6_UserApproval --> Working: changes
+    G6_UserApproval --> [*]: approved → phase=build
 ```
 
 ## Goals
@@ -37,6 +39,7 @@ stateDiagram-v2
 - Decompose contract into 2–5 minute tasks; each ONE failing test → ONE minimal impl → ONE commit
 - Every contract `AC-N` mapped to ≥ 1 plan task (full coverage)
 - DAG dependencies explicit + acyclic
+- **Assign `Parallel group: N`** to every task so the Build phase can dispatch independent groups concurrently
 - Risk-tag tasks that touch migration/security/breaking-api/external-deps; pair with mitigation
 - File paths exact and verifiable; `modify:` paths must exist on disk
 
@@ -47,7 +50,8 @@ stateDiagram-v2
 - **G2** — `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-placeholder-scan.sh` exits 0.
 - **G3** — `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-spec-coverage.sh` exits 0 (every `AC-N` mapped).
 - **G4** — Every `modify:` path exists on disk; every `create:` path does NOT (sanity).
-- **G5** — User explicit approval.
+- **G5** — `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-parallel-group-scan.sh` exits 0: groups are contiguous from 1, file sets within each group are disjoint, dependent tasks have a strictly higher group number.
+- **G6** — User explicit approval.
 
 ## Guardrails
 
@@ -56,7 +60,9 @@ stateDiagram-v2
 - NEVER batch unrelated changes into one task.
 - NEVER leave an `AC-N` without a covering task — surface mismatch to user instead.
 - NEVER create cyclic dependencies in DAG.
-- NEVER request approval before validators pass.
+- NEVER assign two tasks that share a file to the same parallel group — that causes a write conflict in the Build phase.
+- NEVER assign a task to group N if any of its `Depends on:` tasks are also in group N.
+- NEVER request approval before validators pass (including G5 parallel-group scan).
 
 ## Heuristics — situational reasoning
 
@@ -74,6 +80,27 @@ stateDiagram-v2
 - **Spec coverage validator fails** (`AC-7` uncovered) → either add a task OR surface "AC-7 cannot be implemented in this scope — does contract need revision?"
 - **DAG complex (> 10 tasks with branches)** → use `mcp__sequential-thinking` to validate acyclicity.
 
+### Parallel group assignment (run after DAG is finalized)
+
+Assign `Parallel group:` to every task using topological-sort breadth-first order:
+
+1. **Group 1** — all tasks with `Depends on: (none)` AND disjoint file sets.
+2. **Group N+1** — all tasks whose deepest dependency is in group N AND whose file sets are disjoint from each other.
+3. **File conflict in same candidate group** → increment one conflicting task to the next group. Prefer bumping the task with fewer dependents.
+4. **Migration tasks** → always their own group (never parallel with app-code tasks — migration must commit before code that uses new column).
+5. **Security-tagged tasks** → own group or last group in chain (reviewer-security runs on complete diff).
+6. **Tasks sharing a test file** → bump one to next group; shared test file = shared file conflict.
+
+Worked example (5 tasks, fan-out pattern):
+```
+Task 1: create FooService.java        → group 1
+Task 2: create BarService.java        → group 1  (disjoint files, no dep)
+Task 3: create FooController.java     → group 1  (disjoint files, no dep)
+Task 4: modify FooService + BarService → group 2  (depends on 1+2, shared files)
+Task 5: add integration test          → group 3  (depends on 4)
+```
+Build phase dispatches Tasks 1+2+3 in parallel (group 1), then Task 4 alone (group 2), then Task 5 alone (group 3). Wall-clock: 3 group-1 tasks become ~1× instead of 3×.
+
 ## Reasoning expectations
 
 You decide:
@@ -82,6 +109,7 @@ You decide:
 - Risk severity per task
 - Order within DAG (foundational tasks first)
 - Whether to bundle test + impl in one task or split (depends on test complexity)
+- Parallel group assignments (using topological BFS, file-disjointness check)
 
 You do NOT decide:
 - Whether to skip a contract AC (always cover or escalate)
@@ -100,11 +128,11 @@ You do NOT decide:
 - Every response opens: `[claudehut] task=<id> phase=plan`
 - Artifact: `.claudehut/plans/<task-id>-plan.md` rendered from `skills/plan/assets/templates/plan-doc.md.tmpl`
 - Reference tasks by `Task N:` consistently
-- Each task block MUST include: Files, RED, GREEN, Verify, Depends on, Risk, Estimate, `- [ ] complete` checkbox
+- Each task block MUST include: Files, RED, GREEN, Verify, Depends on, **Parallel group**, Risk, Estimate, `- [ ] complete` checkbox
 
 ## Exit
 
-Phase advances to `build` when all 5 gates pass. Hand back to orchestrator.
+Phase advances to `build` when all 6 gates pass. Hand back to orchestrator.
 
 ## Skill Discipline
 
