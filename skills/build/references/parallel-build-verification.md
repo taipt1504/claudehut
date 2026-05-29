@@ -28,22 +28,33 @@ Run via `--plugin-dir <repo>` to load the (uninstalled-in-dev) plugin.
      introspection limit, or a real non-load). Mitigation: TDD essentials are also
      injected via `--append-system-prompt`, and the persona body is authoritative.
 
-2. **Hook firing + enforcement (item 3)** — in a real `-p --plugin-dir` session at
-   phase=build, asking the agent to write an off-plan file → the PreToolUse hook
-   FIRED and DENIED it (`permission_denials` populated, file not created, hook's
-   denial text surfaced verbatim). Confirms plugin hooks fire headless and enforce.
+2. **Hook firing + enforcement (item 3)** — in real `-p --plugin-dir` sessions at
+   phase=build, an off-plan Write was DENIED (`permission_denials` populated, file
+   not created, hook denial text surfaced verbatim). Both gates confirmed in real
+   headless runs: the reuse-scan freshness gate, and — with `CLAUDEHUT_WORKER=1`
+   (reuse-scan skipped) — the surgical-scope gate ("file … not in current plan").
+   Plugin hooks fire headless and enforce.
 
 3. **Stub compile-retry (item 2)** — mechanical; smoke-verified (single-compile loop,
    resume on failure, loud fail on empty session_id).
 
 ## Worker hook-stack guard
 
-A worker is a full session, so the whole hook stack fires. Block-capable ambient
-hooks (`prompt-router.sh` skip-phrase block, `stop.sh` learn-phase block) early-exit
-under `CLAUDEHUT_WORKER=1` — otherwise a headless worker could never satisfy a block
-and would hang to the watchdog. PreToolUse scope-check stays active (`CLAUDEHUT_WORKER`
-does not bypass it); only `CLAUDEHUT_SCAFFOLD=1` bypasses scope+reuse-scan, for the
-whole-skeleton stub session.
+A worker is a full session, so the whole hook stack fires. Anything that can `deny`
+or block a non-interactive worker that cannot satisfy it must early-exit under
+`CLAUDEHUT_WORKER=1`:
+
+- `prompt-router.sh` skip-phrase block — bypassed (user intent text could contain a
+  skip-phrase and block every worker).
+- `stop.sh` learn-phase block — bypassed (defensive; workers stay at phase=build).
+- `pre-tool.sh` reuse-scan freshness gate — bypassed. A worker's RED step writes a
+  NEW `*Test.java` (scaffold writes no tests), and a headless worker can't run
+  `/reuse-scan` to clear a stale gate → would hang. The reuse decision was already
+  made at plan time. **The surgical-scope gate is NOT bypassed** — workers are still
+  denied off-plan writes (verified in a real run).
+
+`CLAUDEHUT_SCAFFOLD=1` (stub session only) bypasses both scope AND reuse-scan, since
+it writes the whole-feature skeleton including files no single task owns.
 
 ## Deterministic backstop
 

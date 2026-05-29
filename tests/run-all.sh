@@ -1386,6 +1386,40 @@ else
 fi
 rm -rf "$_tmpg"
 
+# Worker RED-step blocker: reuse-scan freshness gate must NOT block new files for
+# workers (a worker's first action is writing a NEW *Test.java; scaffold writes no
+# tests; a headless worker can't run /reuse-scan to clear a stale gate → hang).
+# But the SCOPE gate must still fire for workers (defense-in-depth). Behavioral:
+if grep -q 'CLAUDEHUT_WORKER' "$pre_tool" && grep -q 'reuse-scan freshness for new Java' "$pre_tool"; then
+  pass "L16 pre-tool.sh: reuse-scan gate is CLAUDEHUT_WORKER-aware"
+else
+  fail "L16 pre-tool.sh" "reuse-scan gate not worker-aware — worker RED step (new *Test.java) hangs on stale scan"
+fi
+_rt="$(mktemp -d)"
+(
+  cd "$_rt" && git init -q && git checkout -q -b feature/rt
+  mkdir -p .claudehut/{specs,plans,memory} src
+  tid=feature-rt
+  echo d > ".claudehut/specs/${tid}-design.md"; echo c > ".claudehut/specs/${tid}-contract.md"
+  printf '# Plan\n## Task 1: a\n**Files:**\n- create: `src/A.java`\n- test: `src/ATest.java`\n**Depends on:** (none)\n**Parallel group:** 1\n- [ ] complete\n---\n' > ".claudehut/plans/${tid}-plan.md"
+  echo x > .claudehut/memory/stack-signals.md
+)
+# WORKER + new in-plan test file (no reuse-scan present = stale) → expect ALLOW (empty)
+out_allow="$(echo "{\"tool_input\":{\"file_path\":\"$_rt/src/ATest.java\"}}" | CLAUDE_PROJECT_DIR="$_rt" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDEHUT_WORKER=1 bash "$pre_tool" --tool edit 2>/dev/null)"
+# WORKER + new OFF-plan file → expect DENY via scope (not reuse-scan)
+out_scope="$(echo "{\"tool_input\":{\"file_path\":\"$_rt/src/Z.java\"}}" | CLAUDE_PROJECT_DIR="$_rt" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDEHUT_WORKER=1 bash "$pre_tool" --tool edit 2>/dev/null)"
+if [[ -z "$out_allow" ]]; then
+  pass "L16 pre-tool.sh: worker may create in-plan new test file (reuse-scan bypassed)"
+else
+  fail "L16 pre-tool.sh" "worker blocked creating in-plan test file: $out_allow"
+fi
+if echo "$out_scope" | grep -q 'not in current plan'; then
+  pass "L16 pre-tool.sh: scope gate STILL fires for worker (off-plan denied)"
+else
+  fail "L16 pre-tool.sh" "scope gate did not fire for worker off-plan write: $out_scope"
+fi
+rm -rf "$_rt"
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================

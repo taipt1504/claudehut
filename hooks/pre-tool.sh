@@ -70,8 +70,13 @@ if [[ "$PHASE" != "build" ]]; then
   exit 0
 fi
 
-# Build phase: reuse-scan freshness for new Java/Kotlin
-if [[ "$file_path" =~ \.(java|kt|kts)$ ]] && [[ ! -f "$file_path" ]]; then
+# Build phase: reuse-scan freshness for new Java/Kotlin.
+# Skipped for parallel workers (CLAUDEHUT_WORKER): a worker's RED step creates a
+# NEW *Test.java (scaffold deliberately writes no tests), which would trip this
+# freshness gate — and a headless `-p` worker cannot run /reuse-scan to satisfy it,
+# so it would hang to the watchdog. The reuse decision was already made at plan
+# time; re-gating it per-write is wrong for a worker. Scope-check below stays live.
+if [[ -z "${CLAUDEHUT_WORKER:-}" ]] && [[ "$file_path" =~ \.(java|kt|kts)$ ]] && [[ ! -f "$file_path" ]]; then
   if ! claudehut_reuse_scan_fresh "$TASK_ID"; then
     jq -n --arg f "$file_path" '{
       hookSpecificOutput: {
