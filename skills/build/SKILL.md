@@ -5,7 +5,7 @@ description: Phase 4 of ClaudeHut workflow — execute the approved plan by disp
 
 ## Dispatch contract (read this FIRST)
 
-This phase executes parallel groups via **`scripts/run-parallel-group.sh`** — one `claude --print` process per task, each in an isolated git worktree. Concurrency is guaranteed at the OS level; the script handles worktree lifecycle, result parsing, and merge-back automatically.
+This phase executes parallel groups via **`scripts/run-parallel-group.sh`** — one `claude --print` process per task, each in an isolated git worktree. Workers are FULL headless sessions (not Agent-tool subagents), so they load skills/hooks normally; persona guardrails are injected via `--append-system-prompt` and the model is pinned to `sonnet` for cost. Concurrency is guaranteed at the OS level; the script handles worktree lifecycle, result parsing, merge-back, and the per-group gate automatically.
 
 ### Parallel-group execution loop
 
@@ -14,18 +14,29 @@ PLAN    = .claudehut/plans/<task-id>-plan.md
 TASK_ID = claudehut-state task-id
 GROUPS  = sorted distinct "Parallel group:" values in PLAN (1, 2, 3 …)
 
+# ── Stub step (sequential, ONCE before any group) ─────────────────────
+# Scaffold compiling skeletons for every type/signature the plan introduces,
+# committed to the branch. Workers branch from this commit, so they cannot
+# invent divergent signatures (drift), reference a missing type (hidden dep),
+# or merge-then-break (semantic conflict).
+Run: scripts/scaffold-stubs.sh "$ARGUMENTS" TASK_ID
+  Exit 1 (stubs do not compile) → surface to user; STOP
+
+# ── Group loop ────────────────────────────────────────────────────────
 for G in GROUPS:
   Run: scripts/run-parallel-group.sh "$ARGUMENTS" TASK_ID PLAN G
   # subagent_type = "claudehut-builder"  (each worker follows builder instructions)
+  # script merges passing branches, then runs a per-group compile+test gate
   Exit 0 → proceed to next group
-  Exit 1 → surface failures to user; await decision
+  Exit 1 → surface failures (worker fail OR gate fail) to user; await decision
 
 After last group:
   ./gradlew check  (or mvn verify)
   Advance phase to loop
 ```
 
-`run-parallel-group.sh` creates git worktrees, launches parallel `claude --print` processes, waits for all, parses `claudehut-builder-result` blocks, and calls `merge-parallel-group.sh` for passing tasks.
+`scaffold-stubs.sh` runs once: generates + commits compiling stubs from `contract.md` + plan.
+`run-parallel-group.sh` per group: creates worktrees, launches parallel `claude --print` workers, waits, parses `claudehut-builder-result` blocks, merges passing tasks, then gates on compile+test before returning.
 
 ---
 
@@ -36,11 +47,12 @@ Execute the plan with strict TDD discipline. The ONLY phase where production cod
 ## Quick start
 
 1. Read `.claudehut/plans/<id>-plan.md`. Extract all distinct `Parallel group:` values.
-2. For each group G in order: run `scripts/run-parallel-group.sh "$ARGUMENTS" <task-id> <plan-file> G`.
-3. On non-zero exit: surface failures to user; await decision before next group.
-4. After last group: `./gradlew check`; advance phase to `loop`.
+2. Run `scripts/scaffold-stubs.sh "$ARGUMENTS" <task-id>` once. Non-zero exit → stop, surface.
+3. For each group G in order: run `scripts/run-parallel-group.sh "$ARGUMENTS" <task-id> <plan-file> G`.
+4. On non-zero exit (worker fail or per-group gate fail): surface failures; await decision before next group.
+5. After last group: `./gradlew check`; advance phase to `loop`.
 
-Each builder process handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result).
+Each builder process handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result), branching from the stub commit.
 
 ## Hard rules
 
@@ -68,7 +80,8 @@ The PreToolUse hook auto-loads matching rules:
 
 ## Scripts
 
-- `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — dispatch all unchecked tasks in a parallel group as concurrent `claude --print` processes; merges passing branches automatically.
+- `scripts/scaffold-stubs.sh "<user-intent>" <task-id>` — sequential pre-build step; generate + commit compiling stubs from contract + plan so parallel workers branch from real types.
+- `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — dispatch all unchecked tasks in a parallel group as concurrent `claude --print` processes; merges passing branches and runs a per-group compile+test gate. Tunables: `CLAUDEHUT_WORKER_MODEL` (default sonnet), `CLAUDEHUT_TASK_TIMEOUT` (default 900s).
 - `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — generate a single-task builder prompt (task-num selects which plan task block to include).
 - `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each worktree branch onto main and tick plan checkboxes.
 - `scripts/pre-write-scope-check.sh <file>` — verify file is in current task's allowed scope (called by PreToolUse).

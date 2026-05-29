@@ -90,6 +90,9 @@ Assign `Parallel group:` to every task using topological-sort breadth-first orde
 4. **Migration tasks** → always their own group (never parallel with app-code tasks — migration must commit before code that uses new column).
 5. **Security-tagged tasks** → own group or last group in chain (reviewer-security runs on complete diff).
 6. **Tasks sharing a test file** → bump one to next group; shared test file = shared file conflict.
+7. **Not worth parallelizing** → if the plan has < 3 tasks, OR all tasks are trivial (< 2 min each), assign everything to a single group OR mark the plan `single-builder` — the per-task `claude --print` worktree overhead (~30–60s spawn each) exceeds the savings. Parallelism pays only for 3+ non-trivial independent tasks.
+
+**Symbol/dependency check (catches hidden deps the file-disjointness check misses):** before finalizing a group, for each task verify it does not *consume* a type, interface, method, or field that another task in the SAME group *creates*. Such a consumer must be in a later group. Note: the Stub step scaffolds all signatures before any group runs, so consuming a stubbed signature is fine — the hidden-dep risk is only for symbols a sibling task changes the *behavior or shape* of.
 
 Worked example (5 tasks, fan-out pattern):
 ```

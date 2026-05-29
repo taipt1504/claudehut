@@ -3,9 +3,18 @@
 #
 # Dispatches all unchecked tasks from <group-num> in <plan-file> in parallel:
 # each task gets its own git worktree and a background `claude --print` process.
-# After all complete, merges passing branches via merge-parallel-group.sh.
+# After all complete, merges passing branches via merge-parallel-group.sh, then
+# runs a per-group compile+test gate.
 #
-# Exits 0 if all tasks pass; exits 1 if any fail (prints failures to stderr).
+# Worker sessions are FULL headless `claude` sessions (not Agent-tool subagents):
+#   - persona/guardrails injected via --append-system-prompt (frontmatter is inert
+#     for --print, so we cannot rely on the agent's model:/skills: fields)
+#   - --model sonnet keeps per-task cost down
+#   - .claudehut is symlinked into the worktree so the PreToolUse scope-check hook
+#     and claudehut-state can read the plan (worktree only checks out committed
+#     files; .claudehut is untracked)
+#
+# Exits 0 if all tasks pass AND the group gate passes; exits 1 otherwise.
 set -euo pipefail
 
 USER_INTENT="${1:-}"
@@ -17,6 +26,11 @@ GROUP_NUM="${4:-}"
 [[ -n "$TASK_ID"     ]] || { echo "error: task-id required" >&2; exit 1; }
 [[ -f "$PLAN_FILE"   ]] || { echo "error: plan file not found: $PLAN_FILE" >&2; exit 1; }
 [[ -n "$GROUP_NUM"   ]] || { echo "error: group-num required" >&2; exit 1; }
+
+# Per-task wall-clock budget (seconds). Watchdog kills a hung worker so a single
+# stuck task cannot block the whole group indefinitely.
+TASK_TIMEOUT="${CLAUDEHUT_TASK_TIMEOUT:-900}"
+WORKER_MODEL="${CLAUDEHUT_WORKER_MODEL:-sonnet}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
@@ -32,8 +46,25 @@ _find_plugin_root() {
 }
 PLUGIN_ROOT="$(_find_plugin_root)"
 
+# Critical builder guardrails — injected into every worker via --append-system-prompt.
+# These survive even when the claudehut plugin (and its agent frontmatter) is not
+# resolvable by name. Keep in sync with agents/claudehut-builder.md Guardrails.
+GUARDRAILS="$(cat <<'GUARD'
+You are the ClaudeHut Builder executing EXACTLY ONE plan task in an isolated git worktree.
+NON-NEGOTIABLE:
+- Strict TDD: write ONE failing test, watch it fail for the RIGHT reason, write minimum
+  production code, watch all tests pass, optionally refactor, then commit.
+- The types/interfaces for this task already exist as compiling stubs on this branch. Your test
+  asserts BEHAVIOR (the stub returns null / throws), so RED fails correctly; GREEN fills it in.
+- SURGICAL SCOPE: edit ONLY files listed in this task Files list (create/modify/test). Never touch others.
+- ONE commit, Conventional Commits format. Do NOT tick plan checkboxes (orchestrator owns that).
+- NEVER execute more than ONE task. Terminate after the single task commit.
+- You MUST end your output with a fenced code block tagged claudehut-builder-result, containing
+  task_id, task, verify_status (pass|fail), commit_sha, error. The orchestrator cannot merge without it.
+GUARD
+)"
+
 # Find all unchecked tasks in this parallel group.
-# Flushes each task block on the next "## Task" header or EOF.
 TASK_NUMS=()
 while IFS= read -r n; do
   [[ -n "$n" ]] && TASK_NUMS+=("$n")
@@ -62,52 +93,74 @@ fi
 echo "Parallel group $GROUP_NUM: dispatching ${#TASK_NUMS[@]} task(s): ${TASK_NUMS[*]}"
 
 TMP_DIR="$(mktemp -d)"
+LOG_DIR="$MAIN_REPO/.claudehut/logs"
+mkdir -p "$LOG_DIR"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
-declare -a PIDS=()
+PIDS=()
+WATCHDOGS=()
 
 for TNUM in "${TASK_NUMS[@]}"; do
   BRANCH="claudehut/task-${TASK_ID}-${TNUM}"
   WT_PATH="${TMP_DIR}/wt-${TNUM}"
-  OUT_FILE="${TMP_DIR}/out-${TNUM}.txt"
+  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}.log"
   PROMPT_FILE="${TMP_DIR}/prompt-${TNUM}.txt"
 
-  # Create isolated worktree on a fresh branch
+  # Create isolated worktree on a fresh branch (branches from HEAD = stub commit)
   if ! git -C "$MAIN_REPO" worktree add "$WT_PATH" -b "$BRANCH" HEAD 2>&1; then
     echo "ERROR: worktree add failed for task $TNUM" >&2
     echo 'worktree-fail' > "$OUT_FILE"
-    PIDS+=(-1)
+    PIDS+=(-1); WATCHDOGS+=(-1)
     continue
   fi
+
+  # Symlink .claudehut into the worktree so the scope-check hook + claudehut-state
+  # can read the plan/state. Worktree only checks out committed files; .claudehut
+  # is untracked, so without this the in-worktree hooks see "uninitialized".
+  ln -s "$MAIN_REPO/.claudehut" "$WT_PATH/.claudehut"
 
   # Generate dispatch prompt in main repo context (correct branch for state.sh)
   "$SCRIPT_DIR/dispatch-prompt.sh" "$USER_INTENT" "$TNUM" > "$PROMPT_FILE"
 
-  # Launch builder; CLAUDEHUT_TASK_ID overrides branch-derived task id in worktree
+  # Launch worker (full headless session). CLAUDEHUT_TASK_ID overrides the
+  # branch-derived task id so state lookups resolve the original task.
   (
     cd "$WT_PATH"
     CLAUDE_PROJECT_DIR="$WT_PATH" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
     CLAUDEHUT_TASK_ID="$TASK_ID" \
-    claude --print "$(cat "$PROMPT_FILE")" > "$OUT_FILE" 2>&1
+    claude --print \
+           --model "$WORKER_MODEL" \
+           --append-system-prompt "$GUARDRAILS" \
+           "$(cat "$PROMPT_FILE")" > "$OUT_FILE" 2>&1
   ) &
-  PIDS+=($!)
+  wpid=$!
+  PIDS+=("$wpid")
+
+  # Per-task watchdog: kill the worker if it exceeds TASK_TIMEOUT.
+  ( sleep "$TASK_TIMEOUT"; kill -TERM "$wpid" 2>/dev/null ) &
+  WATCHDOGS+=($!)
 done
 
-# Wait for all background processes
+# Wait for all workers; cancel their watchdogs as they finish.
+i=0
 for pid in "${PIDS[@]}"; do
-  [[ "$pid" == "-1" ]] && continue
-  wait "$pid" 2>/dev/null || true
+  if [[ "$pid" != "-1" ]]; then
+    wait "$pid" 2>/dev/null || true
+    wd="${WATCHDOGS[$i]}"
+    [[ "$wd" != "-1" ]] && kill "$wd" 2>/dev/null || true
+  fi
+  i=$((i+1))
 done
 
-echo "Group $GROUP_NUM: all processes finished. Collecting results..."
+echo "Group $GROUP_NUM: all processes finished. Collecting results... (logs: $LOG_DIR)"
 
 PASS_PAIRS=()
 FAIL_TASKS=()
 ERRORS=0
 
 for TNUM in "${TASK_NUMS[@]}"; do
-  OUT_FILE="${TMP_DIR}/out-${TNUM}.txt"
+  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}.log"
   BRANCH="claudehut/task-${TASK_ID}-${TNUM}"
 
   STATUS=""
@@ -128,22 +181,18 @@ for TNUM in "${TASK_NUMS[@]}"; do
     PASS_PAIRS+=("${TNUM}:${BRANCH}")
     echo "  Task $TNUM: PASS"
   else
-    echo "  Task $TNUM: FAIL (status=${STATUS:-missing-result-block})" >&2
-    if [[ -f "$OUT_FILE" ]]; then
-      echo "  --- last 20 lines of task $TNUM output ---" >&2
-      tail -20 "$OUT_FILE" >&2
-    fi
+    echo "  Task $TNUM: FAIL (status=${STATUS:-missing-result-block}) — see $OUT_FILE" >&2
     FAIL_TASKS+=("$TNUM")
     ERRORS=$((ERRORS+1))
   fi
 done
 
-# Merge passing tasks back before surfacing failures
+# Merge passing tasks back before surfacing failures or gating.
 if [[ ${#PASS_PAIRS[@]} -gt 0 ]]; then
   "$SCRIPT_DIR/merge-parallel-group.sh" "$TASK_ID" "$PLAN_FILE" "${PASS_PAIRS[@]}"
 fi
 
-# Remove worktrees (best-effort)
+# Remove worktrees (best-effort). Symlink is removed with the worktree dir.
 for TNUM in "${TASK_NUMS[@]}"; do
   WT_PATH="${TMP_DIR}/wt-${TNUM}"
   [[ -d "$WT_PATH" ]] && git -C "$MAIN_REPO" worktree remove --force "$WT_PATH" 2>/dev/null || true
@@ -156,4 +205,28 @@ if [[ "$ERRORS" -gt 0 ]]; then
   exit 1
 fi
 
-echo "Group $GROUP_NUM: all ${#TASK_NUMS[@]} task(s) passed."
+# ── Per-group integration gate ───────────────────────────────────────────────
+# Catch semantic merge breaks early (group N must compile + pass tests before
+# group N+1 builds on it). Auto-detect build tool.
+GATE=""
+if [[ -x "$MAIN_REPO/gradlew" ]]; then
+  GATE="./gradlew compileTestJava test"
+elif [[ -f "$MAIN_REPO/pom.xml" ]]; then
+  GATE="mvn -q test-compile test"
+fi
+
+if [[ -n "$GATE" ]]; then
+  echo "Group $GROUP_NUM: running integration gate ($GATE)..."
+  if ( cd "$MAIN_REPO" && eval "$GATE" ); then
+    echo "Group $GROUP_NUM: gate PASSED."
+  else
+    echo "Group $GROUP_NUM: integration gate FAILED after merge." >&2
+    echo "Merged code is on the working tree but does not compile/test." >&2
+    echo "Resolve before proceeding to next group." >&2
+    exit 1
+  fi
+else
+  echo "Group $GROUP_NUM: no build tool detected (gradlew/pom.xml) — skipping gate."
+fi
+
+echo "Group $GROUP_NUM: all ${#TASK_NUMS[@]} task(s) passed + gate green."

@@ -1222,6 +1222,64 @@ else
   fail "L16 state.sh" "missing CLAUDEHUT_TASK_ID override — worktree builders will derive wrong task id"
 fi
 
+# Bug-2 fix: worker must symlink .claudehut into worktree (hooks/state can read plan)
+if grep -q 'ln -s.*\.claudehut' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh symlinks .claudehut into worktree"
+else
+  fail "L16 run-parallel-group.sh" "missing .claudehut symlink — scope-check hook + state break in worktree"
+fi
+
+# Bug-1 fix: worker persona injected via --append-system-prompt + pinned model
+if grep -q 'append-system-prompt' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh injects guardrails via --append-system-prompt"
+else
+  fail "L16 run-parallel-group.sh" "missing --append-system-prompt — builder persona not loaded (frontmatter inert for --print)"
+fi
+if grep -q -- '--model' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh pins worker model (cost control)"
+else
+  fail "L16 run-parallel-group.sh" "missing --model — worker runs on session default"
+fi
+
+# Aggregation block (#13): per-task watchdog timeout
+if grep -q 'TASK_TIMEOUT' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh has per-task timeout watchdog"
+else
+  fail "L16 run-parallel-group.sh" "missing TASK_TIMEOUT — a hung worker blocks the group"
+fi
+
+# Per-group integration gate (decision: per-group, not final-only)
+if grep -q 'integration gate' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh runs per-group integration gate"
+else
+  fail "L16 run-parallel-group.sh" "missing per-group compile+test gate"
+fi
+
+# Stub-commit step (decision L2): scaffold-stubs.sh exists + executable + commits
+stub_script="$PLUGIN_ROOT/skills/build/scripts/scaffold-stubs.sh"
+if [[ -x "$stub_script" ]]; then
+  pass "L16 scaffold-stubs.sh exists and is executable"
+else
+  fail "L16 build scripts" "scaffold-stubs.sh missing or not executable"
+fi
+if grep -q 'scaffold stubs for' "$stub_script"; then
+  pass "L16 scaffold-stubs.sh commits stub scaffold"
+else
+  fail "L16 scaffold-stubs.sh" "missing stub commit step"
+fi
+if grep -q 'scaffold-stubs.sh' "$build_skill"; then
+  pass "L16 build SKILL.md wires scaffold-stubs.sh (stub step before groups)"
+else
+  fail "L16 build SKILL.md" "missing scaffold-stubs.sh — stub step not in loop"
+fi
+
+# Planner must document parallelization-not-worth heuristic (#15)
+if grep -qi 'not worth parallelizing\|< 3 tasks\|single-builder' "$planner"; then
+  pass "L16 planner documents over-parallelization guard"
+else
+  fail "L16 planner agent" "missing over-parallelization heuristic (trivial/few-task tasks)"
+fi
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================

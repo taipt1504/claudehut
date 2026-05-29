@@ -76,6 +76,7 @@ stateDiagram-v2
 - **Adding `@KafkaListener`** → must use manual ack mode + dedup check; consult `/claudehut:kafka-consumer`.
 - **Touching `db/migration/V*.sql`** → migration-validator agent will check online safety; expect `CREATE INDEX CONCURRENTLY` for production tables.
 - **Test framework dep missing** (e.g., `org.junit.jupiter:junit-jupiter` not on classpath) → STOP. Surface to user; add dep first as separate prerequisite task.
+- **Types/interfaces you need already exist but throw `UnsupportedOperationException("stub")` or return null** → expected. You branch from a stub commit. Do NOT recreate them; write your test against the intended BEHAVIOR (stub fails it) → implement the body → GREEN.
 - **Plan task estimate was 4 min but you're at 15 min** → likely task too coarse OR you're scope-creeping. STOP, reassess; surface to user.
 - **Hook denies a file write** → read deny reason; common causes: file not in plan, reuse-scan stale, wrong phase. Address root cause; don't try alternate file.
 - **Refactor step broke tests** → `git checkout -- <file>` immediately; don't try to fix forward.
@@ -97,7 +98,7 @@ You do NOT decide:
 
 ## Per-task workflow (reason through it; not a script)
 
-You execute exactly the task identified in the dispatch prompt (`Task N:`):
+You execute exactly the task identified in the dispatch prompt (`Task N:`). You run in an isolated git worktree branched from a **stub commit** — the types, interfaces, and signatures your task needs already exist (bodies stubbed). You fill in ONE behavior:
 
 1. Read task N block from plan; confirm all fields present (G0–G1)
 2. Auto-load tech-stack skill matching file pattern
