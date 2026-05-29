@@ -129,6 +129,7 @@ a single turn — that pattern reaches a runtime that cannot relay it.
 | `claudehut:rabbitmq` | Spring AMQP (RabbitMQ) conventions — exchange/queue/binding topology, manual ack, DLX (dead-letter exchange) pattern, retry policy, message TTL. Auto-loads when editing `**/*Rabb |
 | `claudehut:redis-cache` | Spring Data Redis conventions — caching with @Cacheable, key strategy, TTL/eviction policies, Redisson distributed lock patterns. Auto-loads when editing `**/*Cache*.java` or fil |
 | `claudehut:reuse-scan` | Quét codebase tìm impl tái sử dụng được trước khi tạo mới (Java backend). Detect plugin reuse ngoài đã cài (Understand-Anything, Graphify) rồi invoke trực |
+| `claudehut:route` | Phase 0.5 of ClaudeHut workflow — triage the task's intent and choose the pipeline DEPTH (the Routing pattern). Classifies the request into a profile (quick = build+verify only,  |
 | `claudehut:spec` | Phase 2 of ClaudeHut workflow — convert an approved design document into a binary behavioral contract (Given/When/Then, API shape, edge cases, NFRs). Use immediately after Brains |
 | `claudehut:spring-mvc` | Spring MVC REST controller conventions for Java Spring Boot 3.x. Auto-loads when editing `**/*Controller.java` files in projects with web_stack=mvc. Covers @RestController, validat |
 | `claudehut:spring-webflux` | Spring WebFlux conventions for Java Spring Boot 3.x reactive stack. Auto-loads when editing `**/*Handler.java` or `**/*Controller.java` in projects with web_stack=webflux. Covers R |

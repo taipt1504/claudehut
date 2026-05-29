@@ -114,6 +114,7 @@ esac
 
 TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
+PROFILE_PT="$(claudehut_route_profile "$TASK_ID")"
 
 # Source-code edits blocked outside build phase
 if [[ "$PHASE" != "build" ]]; then
@@ -138,7 +139,10 @@ fi
 # freshness gate — and a headless `-p` worker cannot run /reuse-scan to satisfy it,
 # so it would hang to the watchdog. The reuse decision was already made at plan
 # time; re-gating it per-write is wrong for a worker. Scope-check below stays live.
-if [[ -z "${CLAUDEHUT_WORKER:-}" ]] && [[ "$file_path" =~ \.(java|kt|kts)$ ]] && [[ ! -f "$file_path" ]]; then
+# Also skipped for the QUICK route: reuse-scan is a brainstorm-phase gate, and
+# quick deliberately skips brainstorm — there is no phase in which a quick task
+# could run /reuse-scan, so gating new-file writes on it would deadlock the route.
+if [[ -z "${CLAUDEHUT_WORKER:-}" ]] && [[ "$PROFILE_PT" != "quick" ]] && [[ "$file_path" =~ \.(java|kt|kts)$ ]] && [[ ! -f "$file_path" ]]; then
   if ! claudehut_reuse_scan_fresh "$TASK_ID"; then
     jq -n --arg f "$file_path" '{
       hookSpecificOutput: {

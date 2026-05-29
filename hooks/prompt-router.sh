@@ -19,12 +19,15 @@ PROJECT_ROOT="$(claudehut_project_root)"
 
 TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
+PROFILE="$(claudehut_route_profile "$TASK_ID")"
 
-# Block skip-attempt language
+# Block skip-attempt language. Depth is reduced by RECORDING a route (quick), not
+# by ad-hoc prompt requests — so an unrecorded "skip the spec" is still blocked,
+# but the corrective action is to route, not to bypass.
 if echo "$prompt" | grep -qiE '\b(just write the code|skip (the )?(spec|plan|brainstorm|review)|no need for (spec|plan|test|review)|ignore phases?)\b'; then
   jq -n --arg p "$PHASE" '{
     decision: "block",
-    reason: "ClaudeHut enforces 6-phase pipeline. Current phase=\($p). Phases cannot be skipped. Create the required artifact (design → contract → plan) to advance."
+    reason: "ClaudeHut sets pipeline depth via routing (/claudehut:route → quick|full), not ad-hoc skips. Current phase=\($p). For a trivial fix, record a quick route (build+verify only); within the chosen profile, phases are not skippable. Verify always runs."
   }'
   exit 0
 fi
@@ -42,10 +45,17 @@ if [[ "$PHASE" == "none" ]] && echo "$prompt" | grep -qiE "$INTENT_REGEX"; then
 fi
 
 case "$PHASE" in
+  route)      HINT="Phase=route. Use /claudehut:route to triage depth (quick vs full). Output: .claudehut/state/route-${TASK_ID}.json → phase advances automatically. Cheap inline classify, not a subagent." ;;
   brainstorm) HINT="Phase=brainstorm. Use /claudehut:brainstorm. Output: .claudehut/specs/${TASK_ID}-design.md → phase advances automatically." ;;
   spec)       HINT="Phase=spec. Use /claudehut:spec. Output: .claudehut/specs/${TASK_ID}-contract.md → phase advances automatically." ;;
   plan)       HINT="Phase=plan. Use /claudehut:plan. Output: .claudehut/plans/${TASK_ID}-plan.md with all tasks unchecked → phase advances." ;;
-  build)      HINT="Phase=build. Per plan task: RED → GREEN → REFACTOR. Tick checkbox in plan when done. Surgical scope enforced." ;;
+  build)
+    if [[ "$PROFILE" == "quick" ]]; then
+      HINT="Phase=build (QUICK route — no plan). Make the fix INLINE with TDD discipline (/claudehut:tdd-cycle: failing test first → minimal fix → commit). The builder subagent doesn't apply (no plan/Task N/stub-worktree). Then invoke /claudehut:verify-review — the gate still runs. No plan/checkbox; surgical-scope + reuse-scan self-disable."
+    else
+      HINT="Phase=build. Per plan task: RED → GREEN → REFACTOR. Tick checkbox in plan when done. Surgical scope enforced."
+    fi
+    ;;
   loop)
     # Deterministically surface the configurable retry cap so the loop can't run
     # forever: read loop_max_retries from config (default 3) and the git-derived

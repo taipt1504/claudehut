@@ -127,22 +127,71 @@ claudehut_has_learnings() {
   jq -se --arg id "$task_id" 'any(.[]?; .task_id == $id)' "$f" >/dev/null 2>&1
 }
 
-# Main: derive phase from artifacts
+# --- Adaptive-depth route (Phase 3) ---------------------------------------
+# The route artifact declares WHICH phases are required for this task (the
+# Routing pattern, "Building Effective Agents"). Phase derivation walks only the
+# declared phases, so a trivial fix doesn't pay the full-pipeline tax. The
+# artifact (not the prompt) is the source of truth — keeps the gate honest:
+# skipping is a recorded decision, not an ad-hoc bypass. Absent → legacy
+# full waterfall (backward compat for tasks created before routing).
+claudehut_route_path() {
+  local task_id="${1:-$(claudehut_task_id)}"
+  echo "$(claudehut_state_dir)/route-${task_id}.json"
+}
+
+# Profile name ("" if no route artifact yet). Profiles: quick | full.
+claudehut_route_profile() {
+  local task_id="${1:-$(claudehut_task_id)}"
+  local f
+  f="$(claudehut_route_path "$task_id")"
+  [[ -f "$f" ]] || { echo ""; return 0; }
+  jq -r '.profile // ""' "$f" 2>/dev/null || echo ""
+}
+
+# Does the route declare phase $1? (consumed by NEXT-text switches so the
+# build→verify hand-off prose is route-aware). Non-zero when absent.
+claudehut_route_has_phase() {
+  local phase="$1" task_id="${2:-$(claudehut_task_id)}"
+  local f
+  f="$(claudehut_route_path "$task_id")"
+  [[ -f "$f" ]] || return 1
+  jq -e --arg p "$phase" '((.phases // []) | index($p)) != null' "$f" >/dev/null 2>&1
+}
+
+# Main: derive phase from artifacts (route-aware)
 claudehut_phase() {
   local task_id="${1:-$(claudehut_task_id)}"
-  local cdir
+  local cdir profile decision
   cdir="$(claudehut_claudehut_dir)"
 
   if [[ ! -d "$cdir" ]]; then echo "uninitialized"; return 0; fi
   if [[ "$task_id" == "none" ]]; then echo "none"; return 0; fi
 
+  profile="$(claudehut_route_profile "$task_id")"
+
+  # No route artifact yet. A FRESH task (no design doc) triages first → phase
+  # "route". A LEGACY task that already has a design doc predates routing → fall
+  # through to the full waterfall so an in-flight task is never stranded.
+  if [[ -z "$profile" && -z "$(claudehut_design_doc "$task_id")" ]]; then
+    echo "route"; return 0
+  fi
+
+  # quick profile: [build, loop] only (no brainstorm/spec/plan/learn). Build runs
+  # until verify writes findings; pass → done (quick consolidates no learnings).
+  if [[ "$profile" == "quick" ]]; then
+    decision="$(claudehut_findings_decision "$task_id")"
+    if [[ -z "$decision" ]];        then echo "build"; return 0; fi
+    if [[ "$decision" == "fail" ]]; then echo "loop";  return 0; fi
+    echo "done"; return 0
+  fi
+
+  # full profile OR legacy (no route, design exists): the original waterfall.
   if [[ -z "$(claudehut_design_doc "$task_id")" ]]; then echo "brainstorm"; return 0; fi
   if [[ -z "$(claudehut_contract_doc "$task_id")" ]]; then echo "spec"; return 0; fi
   if [[ -z "$(claudehut_plan_doc "$task_id")" ]]; then echo "plan"; return 0; fi
 
   if claudehut_plan_has_unchecked "$task_id"; then echo "build"; return 0; fi
 
-  local decision
   decision="$(claudehut_findings_decision "$task_id")"
   if [[ "$decision" == "fail" ]]; then echo "loop"; return 0; fi
   if [[ "$decision" == "pass" ]]; then

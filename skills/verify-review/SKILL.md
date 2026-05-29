@@ -112,6 +112,16 @@ else:
         escalate to user with full findings
 ```
 
+**Route-aware (adaptive depth):** the `advance to "learn"` / `inject refactor
+task into plan` steps assume the **full** profile. In the **quick** profile
+there is no plan and no Learn phase, so:
+- pass → the state machine advances straight to `done` (quick consolidates no
+  learnings); just suggest `claudehut-finish`.
+- fail (retry < cap) → there is no plan to inject into. Address the finding
+  **inline** with TDD discipline, commit `refactor(loop): …` (the retry counter
+  is git-derived, so the commit prefix is what matters), then re-invoke
+  verify-review. Escalation at the cap is identical.
+
 ## Scripts
 
 - `scripts/run-verify-parallel.sh` — invokes Gradle/Maven verify gates; emits gate JSON.

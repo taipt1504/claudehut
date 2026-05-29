@@ -29,6 +29,7 @@ TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
 BRANCH="$(claudehut_branch)"
 RETRIES="$(claudehut_loop_retries)"
+PROFILE="$(claudehut_route_profile "$TASK_ID")"
 
 # Active-task pointer (1.7): give the readers (learn-extract/run-archunit/owasp-scan)
 # a real task pointer, and detect a branch rename that would orphan artifacts. The
@@ -102,10 +103,17 @@ fi
 case "$PHASE" in
   none)          NEXT="No active task. Create a feature branch and workflow engages." ;;
   uninitialized) NEXT="Run /claudehut:init to set up the project." ;;
+  route)         NEXT="MANDATORY next: /claudehut:route — triage task depth (quick vs full) before anything else. Source-code edits BLOCKED until a route is recorded. This is a cheap inline classification, not a subagent." ;;
   brainstorm)    NEXT="MANDATORY next: /claudehut:brainstorm. Source-code edits BLOCKED until design doc exists." ;;
   spec)          NEXT="MANDATORY next: /claudehut:spec. Contract required before plan." ;;
   plan)          NEXT="MANDATORY next: /claudehut:plan. File-level tasks required before build." ;;
-  build)         NEXT="Build phase. Use /claudehut:tdd-cycle per task. PreToolUse enforces surgical scope + reuse-scan." ;;
+  build)
+    if [[ "$PROFILE" == "quick" ]]; then
+      NEXT="Build phase (QUICK route — no plan). Make the fix INLINE on the main thread with TDD discipline: invoke /claudehut:tdd-cycle (write a failing test FIRST, then the minimal fix), run tests, commit. The claudehut-builder subagent does NOT apply in quick mode — it requires a plan, Task N, and a stub-commit worktree, none of which exist here. There is no plan or checkbox; surgical-scope + reuse-scan gates self-disable. Then IMMEDIATELY invoke /claudehut:verify-review (the quality gate still runs). Do NOT brainstorm/spec/plan. If Verify reveals the change is non-trivial, re-route to full."
+    else
+      NEXT="Build phase. Use /claudehut:tdd-cycle per task. PreToolUse enforces surgical scope + reuse-scan."
+    fi
+    ;;
   loop)          NEXT="Verify/Review phase. Invoke /claudehut:verify-review. Retry counter: $RETRIES/3." ;;
   learn)         NEXT="All gates green. Invoke /claudehut:learn before finishing." ;;
   done)          NEXT="Task complete. Run claudehut-finish to archive, then merge or start next task." ;;
@@ -115,6 +123,7 @@ CTX="ClaudeHut active
 ================
 Task:     $TASK_ID  (branch: $BRANCH)
 Phase:    $PHASE  (derived from artifacts)
+Route:    ${PROFILE:-unrouted (triage pending)}  (adaptive-depth profile)
 Stack:    $STACK_SUMMARY
 Backends: UA=$ua_avail, Graphify=$gf_avail (global=$gf_global)
 
@@ -131,6 +140,7 @@ Main thread = ORCHESTRATOR. Your responsibilities:
   - review subagent output, surface concise status to user
 
 Phase → subagent_type (set deliberately per phase model fit):
+  route          → (INLINE main thread — cheap deterministic classify, NO subagent)
   brainstorm     → claudehut-brainstormer    (opus,   Socratic + reuse-scan)
   spec           → claudehut-spec-writer     (sonnet, contract drafting)
   plan           → claudehut-planner         (opus,   task decomposition)

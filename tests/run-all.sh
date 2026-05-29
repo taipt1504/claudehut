@@ -229,13 +229,13 @@ source "$PLUGIN_ROOT/hooks/lib/state.sh"
 phase=$(claudehut_phase)
 [[ "$phase" == "uninitialized" ]] && pass "phase=uninitialized when no .claudehut/" || fail "state.sh" "expected uninitialized got '$phase'"
 
-mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans}
+mkdir -p .claudehut/{specs,plans,memory,findings,reuse-scans,state}
 
-# Test: brainstorm phase (no design doc)
+# Test: route phase — a FRESH task (no route.json, no design doc) triages first (Phase 3).
 phase=$(claudehut_phase)
-[[ "$phase" == "brainstorm" ]] && pass "phase=brainstorm when no design doc" || fail "state.sh" "expected brainstorm got '$phase'"
+[[ "$phase" == "route" ]] && pass "phase=route when fresh (Phase 3 triage-first)" || fail "state.sh" "expected route got '$phase'"
 
-# Create design doc → expect spec
+# Create design doc with NO route.json → legacy fallthrough (pre-routing task) → spec
 TASK_ID=$(claudehut_task_id)
 echo "design" > ".claudehut/specs/${TASK_ID}-design.md"
 phase=$(claudehut_phase)
@@ -678,8 +678,8 @@ else
   fail "SessionStart" "active output missing: $(cat $TMPDIR/out.json)"
 fi
 
-if jq -e '.hookSpecificOutput.additionalContext | contains("Phase:    brainstorm")' "$TMPDIR/out.json" >/dev/null 2>&1; then
-  pass "SessionStart: derives phase=brainstorm"
+if jq -e '.hookSpecificOutput.additionalContext | contains("Phase:    route")' "$TMPDIR/out.json" >/dev/null 2>&1; then
+  pass "SessionStart: derives phase=route (fresh task triages first)"
 else
   fail "SessionStart" "phase derivation missing in output"
 fi
@@ -817,12 +817,12 @@ git checkout -q -b feature/test 2>/dev/null
 mkdir -p .claudehut/{specs,plans,memory} src/main/java/com/x
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 
-# Phase=brainstorm; edit src/ → should deny
+# Fresh task → phase=route (pre-build); edit src/ → should deny (only build allows)
 echo "{\"tool_input\":{\"file_path\":\"$TMPDIR/src/main/java/com/x/Foo.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$TMPDIR/out.json" 2>&1
 if jq -e '.hookSpecificOutput.permissionDecision == "deny"' "$TMPDIR/out.json" >/dev/null 2>&1; then
-  pass "pre-tool: blocks src/ edit in brainstorm phase"
+  pass "pre-tool: blocks src/ edit in non-build phase (route)"
 else
-  fail "pre-tool" "should block src/ in brainstorm: $(cat $TMPDIR/out.json)"
+  fail "pre-tool" "should block src/ outside build: $(cat $TMPDIR/out.json)"
 fi
 
 # Edit inside .claudehut/ → should allow
@@ -919,7 +919,7 @@ n_agents=$(find agents -name '*.md' | wc -l | tr -d ' ')
 
 # Skill count
 n_skills=$(find skills -name 'SKILL.md' | wc -l | tr -d ' ')
-[[ "$n_skills" -eq 30 ]] && pass "skill count: 30 (29 workflow/domain + using-claudehut bootstrap; +1 lombok)" || fail "coverage" "skill count: $n_skills (expected 30)"
+[[ "$n_skills" -eq 31 ]] && pass "skill count: 31 (30 workflow/domain + using-claudehut bootstrap; +1 route)" || fail "coverage" "skill count: $n_skills (expected 31)"
 
 # Hook events configured
 n_hooks=$(jq -r '.hooks | keys[]' hooks/hooks.json | wc -l | tr -d ' ')
@@ -1756,6 +1756,92 @@ krow="$(bash "$score_sh" trivial-sum-bug "$e17" --claude-json "$e17/claude-kille
 [[ "$(echo "$krow" | jq -r '.terminal_status')" == "error_max_budget_usd" && "$(echo "$krow" | jq -r '.is_error')" == "true" ]] \
   && pass "L17 scorer: budget-kill row self-describes (terminal_status+is_error)" || fail "L17 eval" "kill row not self-describing: $krow"
 rm -rf "$e17"; unset e17 row krow score_sh
+
+#==============================================================================
+section "L18 Adaptive-depth routing (Phase 3)"
+#==============================================================================
+# Phase 3: a route artifact (.claudehut/state/route-<task>.json) declares the
+# pipeline depth; state.sh derives phase from it. Spec 3.1's proving test
+# ("trivial→build+verify; migration→full+DB review") is fully deterministic — so
+# it is proven here for free, no eval $. The real eval (3.2: does routing help)
+# stays opt-in.
+CL="$PLUGIN_ROOT/skills/route/scripts/classify.sh"
+WR="$PLUGIN_ROOT/skills/route/scripts/write-route.sh"
+[[ -x "$CL" && -x "$WR" ]] && pass "L18 route scripts exist + executable" || fail "L18 route" "classify/write-route missing or not exec"
+
+# --- A. classifier proving matrix (conservative by construction) ---
+[[ "$(bash "$CL" "$(cat "$PLUGIN_ROOT/evals/tasks/trivial-sum-bug/task.md")" | jq -r .profile)" == "quick" ]] \
+  && pass "L18 classify: trivial-sum-bug → quick" || fail "L18 route" "trivial not classified quick"
+mig="$(bash "$CL" "Add a Flyway migration to add a status column to the orders table")"
+[[ "$(echo "$mig"|jq -r .profile)" == "full" && "$(echo "$mig"|jq -r .db_review)" == "true" ]] \
+  && pass "L18 classify: migration → full + db_review" || fail "L18 route" "migration wrong: $mig"
+# Conservative boundary: a feature description must NOT be quick (locks against a
+# later tweak silently widening quick and stripping the design gate from features).
+[[ "$(bash "$CL" "implement a new payment service with retry and idempotency" | jq -r .profile)" == "full" ]] \
+  && pass "L18 classify: feature → full (not quick) — boundary locked" || fail "L18 route" "feature leaked into quick"
+[[ "$(bash "$CL" "" | jq -r .profile)" == "full" ]] \
+  && pass "L18 classify: empty/unknown → full (conservative default)" || fail "L18 route" "default not full"
+
+# --- B. write-route.sh → artifact shape + validation ---
+R18="$(mktemp -d)"; ( cd "$R18" && git init -q && git checkout -q -b feature/r18 2>/dev/null )
+mkdir -p "$R18/.claudehut"
+( cd "$R18" && CLAUDE_PROJECT_DIR="$R18" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$WR" quick --reason t ) >/dev/null 2>&1
+rj="$R18/.claudehut/state/route-feature-r18.json"
+if [[ -f "$rj" ]] && [[ "$(jq -r .profile "$rj")" == "quick" ]] && [[ "$(jq -c '.phases' "$rj")" == '["build","loop"]' ]]; then
+  pass "L18 write-route quick → profile=quick, phases=[build,loop]"
+else
+  fail "L18 route" "quick route.json wrong: $(cat "$rj" 2>/dev/null)"
+fi
+( cd "$R18" && CLAUDE_PROJECT_DIR="$R18" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$WR" full --db-review --reason t ) >/dev/null 2>&1
+if [[ "$(jq -r .profile "$rj")" == "full" ]] && [[ "$(jq '.phases|length' "$rj")" == "6" ]] && [[ "$(jq -r '.flags.db_review' "$rj")" == "true" ]]; then
+  pass "L18 write-route full --db-review → 6 phases + db_review flag"
+else
+  fail "L18 route" "full route.json wrong: $(cat "$rj")"
+fi
+if ( cd "$R18" && CLAUDE_PROJECT_DIR="$R18" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$WR" bogus ) >/dev/null 2>&1; then
+  fail "L18 route" "write-route accepted a bogus profile"
+else
+  pass "L18 write-route rejects an invalid profile (exit≠0)"
+fi
+rm -rf "$R18"
+
+# --- C. route-aware phase derivation (the core) ---
+D18="$(mktemp -d)"; export CLAUDE_PROJECT_DIR="$D18"; export CLAUDEHUT_TASK_ID="t18"
+mkdir -p "$D18/.claudehut/"{specs,plans,findings,state}
+(
+  source "$PLUGIN_ROOT/hooks/lib/state.sh"
+  rp="$D18/.claudehut/state/route-t18.json"
+  printf '{"profile":"quick","phases":["build","loop"]}\n' > "$rp"
+  [[ "$(claudehut_phase)" == "build" ]] && pass "L18 derive: quick + no findings → build" || fail "L18 route" "quick→build got $(claudehut_phase)"
+  printf '{"decision":"fail"}\n' > "$D18/.claudehut/findings/t18-findings.json"
+  [[ "$(claudehut_phase)" == "loop" ]]  && pass "L18 derive: quick + findings fail → loop" || fail "L18 route" "quick fail got $(claudehut_phase)"
+  printf '{"decision":"pass"}\n' > "$D18/.claudehut/findings/t18-findings.json"
+  [[ "$(claudehut_phase)" == "done" ]]  && pass "L18 derive: quick + pass → done (SKIPS learn)" || fail "L18 route" "quick pass got $(claudehut_phase)"
+  rm -f "$D18/.claudehut/findings/t18-findings.json"
+  printf '{"profile":"full","phases":["brainstorm","spec","plan","build","loop","learn"]}\n' > "$rp"
+  [[ "$(claudehut_phase)" == "brainstorm" ]] && pass "L18 derive: full + no design → brainstorm (== legacy waterfall)" || fail "L18 route" "full got $(claudehut_phase)"
+  rm -f "$rp"; echo design > "$D18/.claudehut/specs/t18-design.md"
+  [[ "$(claudehut_phase)" == "spec" ]] && pass "L18 derive: no route + design exists → legacy fallthrough (never strands in-flight task)" || fail "L18 route" "legacy got $(claudehut_phase)"
+  rm -f "$D18/.claudehut/specs/t18-design.md"
+  [[ "$(claudehut_phase)" == "route" ]] && pass "L18 derive: fresh (no route, no design) → route" || fail "L18 route" "fresh got $(claudehut_phase)"
+)
+unset CLAUDEHUT_TASK_ID; rm -rf "$D18"; unset CLAUDE_PROJECT_DIR
+
+# --- D. gate (pre-tool) respects the route, no pre-tool phase-name coupling ---
+G18="$(mktemp -d)"; ( cd "$G18" && git init -q && git checkout -q -b feature/g18 2>/dev/null )
+mkdir -p "$G18/.claudehut/state" "$G18/src/main/java"
+export CLAUDE_PROJECT_DIR="$G18"
+echo "{\"tool_input\":{\"file_path\":\"$G18/src/main/java/A.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$G18/o.json" 2>&1
+jq -e '.hookSpecificOutput.permissionDecision=="deny"' "$G18/o.json" >/dev/null 2>&1 \
+  && pass "L18 gate: route phase blocks src/ edit" || fail "L18 route" "route should block src: $(cat "$G18/o.json")"
+printf '{"profile":"quick","phases":["build","loop"]}\n' > "$G18/.claudehut/state/route-feature-g18.json"
+echo "{\"tool_input\":{\"file_path\":\"$G18/src/main/java/A.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$G18/o2.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision=="deny"' "$G18/o2.json" >/dev/null 2>&1; then
+  fail "L18 route" "quick build wrongly blocked a NEW src file (reuse-scan gate should self-disable): $(cat "$G18/o2.json")"
+else
+  pass "L18 gate: quick route → build allows new src/ (plan-scope + reuse-scan gates self-disable)"
+fi
+cd "$PLUGIN_ROOT"; rm -rf "$G18"; unset CLAUDE_PROJECT_DIR CL WR mig rj
 
 #==============================================================================
 section "SUMMARY"

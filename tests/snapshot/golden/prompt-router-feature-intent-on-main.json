@@ -1,6 +1,6 @@
 {
   "hookSpecificOutput": {
     "hookEventName": "UserPromptSubmit",
-    "additionalContext": "Phase=brainstorm. Use /claudehut:brainstorm. Output: .claudehut/specs/feature-snapshot-design.md → phase advances automatically."
+    "additionalContext": "Phase=route. Use /claudehut:route to triage depth (quick vs full). Output: .claudehut/state/route-feature-snapshot.json → phase advances automatically. Cheap inline classify, not a subagent."
   }
 }

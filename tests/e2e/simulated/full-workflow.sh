@@ -80,15 +80,25 @@ echo "Branch: $(claudehut_branch)  Task: $(claudehut_task_id)"
 echo ""
 #==============================================================================
 
-#----- STEP 0: SessionStart should bind task + derive phase=brainstorm -----
-section "STEP 0 — SessionStart"
+#----- STEP 0: SessionStart on a fresh task → phase=route (Phase 3 triage-first) -----
+section "STEP 0 — SessionStart + route triage"
 out=$(echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh")
 phase=$(claudehut_phase)
-[[ "$phase" == "brainstorm" ]] && pass "phase=brainstorm derived" || fail "phase" "expected brainstorm, got $phase"
-echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("MANDATORY next: /claudehut:brainstorm")' >/dev/null \
-  && pass "SessionStart instructs brainstorm" || fail "session-start" "missing brainstorm instruction"
+[[ "$phase" == "route" ]] && pass "phase=route derived (fresh task triages first)" || fail "phase" "expected route, got $phase"
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("MANDATORY next: /claudehut:route")' >/dev/null \
+  && pass "SessionStart instructs route" || fail "session-start" "missing route instruction"
 echo "$out" | jq -e '.hookSpecificOutput.additionalContext | contains("web=webflux")' >/dev/null \
   && pass "SessionStart shows stack" || fail "session-start" "stack not surfaced"
+
+# The agent runs the deterministic classifier on the request: a NEW endpoint is
+# not trivial → full. It records the route; phase then advances to brainstorm.
+TASK_ID=$(claudehut_task_id)
+classified=$(bash "$PLUGIN_ROOT/skills/route/scripts/classify.sh" "add endpoint to fetch user purchase history" | jq -r .profile)
+[[ "$classified" == "full" ]] && pass "classify: new-endpoint feature → full" || fail "route" "feature classified $classified (expected full)"
+CLAUDE_PROJECT_DIR="$TMPDIR" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash "$PLUGIN_ROOT/skills/route/scripts/write-route.sh" full --reason "new endpoint, not trivial" >/dev/null
+phase=$(claudehut_phase)
+[[ "$phase" == "brainstorm" ]] && pass "route=full recorded → phase advances to brainstorm" || fail "phase" "expected brainstorm after route, got $phase"
 
 #----- STEP 1: User prompt triggers feature intent — should advance to brainstorm skill -----
 section "STEP 1 — User prompt 'add endpoint'"
