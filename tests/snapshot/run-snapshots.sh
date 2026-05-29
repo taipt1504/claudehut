@@ -25,6 +25,8 @@ normalize() {
     s|"timestamp":"[^"]*"|"timestamp":"<TS>"|g;
     s|"detected_at":"[^"]*"|"detected_at":"<TS>"|g;
     s|"ts":"[^"]*"|"ts":"<TS>"|g;
+    s|/private/var/folders/[^"]+|<TMPDIR>|g;
+    s|/private/tmp/tmp\.[^"]+|<TMPDIR>|g;
     s|/var/folders/[^"]+|<TMPDIR>|g;
     s|/tmp/tmp\.[^"]+|<TMPDIR>|g;
     s|"session_id":"[^"]*"|"session_id":"<SID>"|g;

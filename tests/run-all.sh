@@ -1420,6 +1420,40 @@ else
 fi
 rm -rf "$_rt"
 
+# Scope-check path canonicalization (found by real Gradle e2e): worktrees live in
+# temp dirs where CLAUDE_PROJECT_DIR (e.g. /tmp/x, a symlink) and the tool's
+# file_path (canonical /private/tmp/x) differ → naive prefix-strip no-ops → every
+# in-scope worker write wrongly denied. Reproduce with an explicit symlink so it
+# fails cross-platform (not only on macOS /tmp).
+if grep -q 'pwd -P' "$pre_tool"; then
+  pass "L16 pre-tool.sh canonicalizes paths (pwd -P) for scope match"
+else
+  fail "L16 pre-tool.sh" "no path canonicalization — /tmp vs /private/tmp breaks worker scope-check"
+fi
+_creal="$(mktemp -d)/real"; mkdir -p "$_creal"
+_clink="$(dirname "$_creal")/link"; ln -s "$_creal" "$_clink"
+( cd "$_creal" && git init -q && git checkout -q -b feature/c && mkdir -p .claudehut/{specs,plans,memory} src )
+echo d > "$_creal/.claudehut/specs/feature-c-design.md"; echo c > "$_creal/.claudehut/specs/feature-c-contract.md"
+printf '# Plan\n## Task 1: a\n**Files:**\n- create: `src/A.java`\n**Depends on:** (none)\n**Parallel group:** 1\n- [ ] complete\n---\n' > "$_creal/.claudehut/plans/feature-c-plan.md"
+echo x > "$_creal/.claudehut/memory/stack-signals.md"
+# PROJECT_ROOT = symlink form, file_path = physical form, in-plan file → expect ALLOW
+_creal_phys="$(cd "$_creal" && pwd -P)"
+_cout="$(echo "{\"tool_input\":{\"file_path\":\"$_creal_phys/src/A.java\"}}" | CLAUDE_PROJECT_DIR="$_clink" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDEHUT_WORKER=1 bash "$pre_tool" --tool edit 2>/dev/null)"
+if [[ -z "$_cout" ]]; then
+  pass "L16 pre-tool.sh: in-plan write allowed across symlink/canonical path mismatch"
+else
+  fail "L16 pre-tool.sh" "canonicalization fix failed — in-plan write denied across symlink: $_cout"
+fi
+rm -rf "$(dirname "$_creal")"
+
+# Re-run safety (found by e2e): worktree branch must be force-created (-B) so a
+# group retry after a failure doesn't collide with the prior attempt's branch.
+if grep -q 'worktree add -B' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh uses 'worktree add -B' (re-run safe, no branch collision)"
+else
+  fail "L16 run-parallel-group.sh" "uses -b not -B — group re-run collides with stale branch"
+fi
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================

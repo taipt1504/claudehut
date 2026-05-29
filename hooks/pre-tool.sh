@@ -12,6 +12,13 @@ input="$(cat)"
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || exit 0
 
+# Canonicalize to the physical path. Workers run in git worktrees under temp dirs,
+# and on macOS /tmp→/private/tmp and /var→/private/var are symlinks: the tool's
+# file_path arrives canonicalized (/private/...) while CLAUDE_PROJECT_DIR may be
+# the /tmp/... form. Without this, the relative-path strip below no-ops and every
+# in-scope worker write is wrongly denied. (Found by the real Gradle e2e.)
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" 2>/dev/null && pwd -P || echo "$PROJECT_ROOT")"
+
 tool_mode="edit"
 for arg in "$@"; do
   case "$arg" in
@@ -38,6 +45,11 @@ fi
 # Edit/Write mode
 file_path="$(echo "$input" | jq -r '.tool_input.file_path // ""')"
 [[ -n "$file_path" ]] || exit 0
+
+# Canonicalize the file path to physical form too (its dir exists even if the
+# file is new), so the /tmp↔/private/tmp prefix match below is apples-to-apples.
+_fp_dir="$(cd "$(dirname "$file_path")" 2>/dev/null && pwd -P || echo "$(dirname "$file_path")")"
+file_path="$_fp_dir/$(basename "$file_path")"
 
 # Always allow writes inside .claudehut/
 case "$file_path" in

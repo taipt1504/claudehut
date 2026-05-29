@@ -142,8 +142,10 @@ for TNUM in "${TASK_NUMS[@]}"; do
   OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}.log"
   PROMPT_FILE="${TMP_DIR}/prompt-${TNUM}.txt"
 
-  # Create isolated worktree on a fresh branch (branches from HEAD = stub commit)
-  if ! git -C "$MAIN_REPO" worktree add "$WT_PATH" -b "$BRANCH" HEAD 2>&1; then
+  # Create isolated worktree on a fresh branch (branches from HEAD = stub commit).
+  # -B (not -b) force-resets the branch to HEAD if it already exists, so a re-run
+  # of a group after a failure does not collide with the prior attempt's branch.
+  if ! git -C "$MAIN_REPO" worktree add -B "$BRANCH" "$WT_PATH" HEAD 2>&1; then
     echo "ERROR: worktree add failed for task $TNUM" >&2
     echo 'worktree-fail' > "$OUT_FILE"
     PIDS+=(-1); WATCHDOGS+=(-1)
