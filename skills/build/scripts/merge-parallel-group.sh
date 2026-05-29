@@ -61,19 +61,29 @@ for pair in "${PAIRS[@]}"; do
   fi
 
   if [[ $ERRORS -eq 0 ]]; then
-    # Tick the checkbox for this task in the plan file
-    # Matches "- [ ] complete" that appears after "## Task <N>:" block
-    awk -v tnum="$task_num" '
+    # Tick the checkbox for this task in the plan file.
+    # Matches "- [ ] complete" that appears after "## Task <N>:" block.
+    # POSIX awk only — extract task number via sub()+coercion, NOT the gawk-only
+    # 3-argument match (BSD/macOS awk supports only the 2-argument form).
+    if awk -v tnum="$task_num" '
       /^## Task [0-9]+:/{
-        match($0, /^## Task ([0-9]+):/, arr)
-        in_task = (arr[1] == tnum)
+        line = $0
+        sub(/^## Task /, "", line)
+        in_task = ((line + 0) == (tnum + 0))
       }
       in_task && /^- \[ \] complete/{
         sub(/- \[ \]/, "- [x]")
         in_task = 0
       }
       {print}
-    ' "$PLAN_FILE" > "${PLAN_FILE}.tmp" && mv "${PLAN_FILE}.tmp" "$PLAN_FILE"
+    ' "$PLAN_FILE" > "${PLAN_FILE}.tmp"; then
+      mv "${PLAN_FILE}.tmp" "$PLAN_FILE"
+    else
+      rm -f "${PLAN_FILE}.tmp"
+      echo "ERROR: failed to tick checkbox for task $task_num" >&2
+      ((ERRORS++)) || true
+      continue
+    fi
 
     git add "$PLAN_FILE"
     git commit -m "chore(plan): task $task_num complete [parallel-merge]" --no-edit 2>/dev/null || \

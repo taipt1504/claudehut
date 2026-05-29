@@ -33,7 +33,9 @@ TASK_TIMEOUT="${CLAUDEHUT_TASK_TIMEOUT:-900}"
 WORKER_MODEL="${CLAUDEHUT_WORKER_MODEL:-sonnet}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
-MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# MAIN_REPO is the USER'S PROJECT repo (where worktrees/commits/gate happen) —
+# NOT the plugin repo that hosts this script. Derive from the project dir.
+MAIN_REPO="$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --show-toplevel)"
 
 _find_plugin_root() {
   if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
@@ -143,12 +145,17 @@ for TNUM in "${TASK_NUMS[@]}"; do
 done
 
 # Wait for all workers; cancel their watchdogs as they finish.
+# kill + wait on the watchdog reaps it quietly (otherwise bash prints
+# "Terminated: 15" job-control noise when the sleeper is signalled).
 i=0
 for pid in "${PIDS[@]}"; do
   if [[ "$pid" != "-1" ]]; then
     wait "$pid" 2>/dev/null || true
     wd="${WATCHDOGS[$i]}"
-    [[ "$wd" != "-1" ]] && kill "$wd" 2>/dev/null || true
+    if [[ "$wd" != "-1" ]]; then
+      kill "$wd" 2>/dev/null || true
+      wait "$wd" 2>/dev/null || true
+    fi
   fi
   i=$((i+1))
 done

@@ -47,6 +47,9 @@ scan_feature "associative arrays (declare -A, bash 4+)" 'declare -[Anlur]'
 scan_feature "nameref (declare -n, bash 4.3+)" 'declare -n[a-zA-Z]*\s'
 scan_feature "case modification (\${var,,} or \${var^^}, bash 4+)" '\$\{[a-zA-Z_][a-zA-Z0-9_]*[,^]{1,2}'
 scan_feature "wait -n (bash 4.3+)" '\bwait\s+-n'
+# gawk-only 3-argument match(str, regex, arr) — BSD/macOS awk has no 3-arg match.
+# Detect a comma before the closing paren of a match(...) call.
+scan_feature "gawk 3-arg match() (not in BSD awk)" 'match\([^)]*,[^)]*,[^)]*\)'
 
 # Check shebang convention
 echo ""

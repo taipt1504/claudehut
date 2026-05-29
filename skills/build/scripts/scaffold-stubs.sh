@@ -27,7 +27,8 @@ WORKER_MODEL="${CLAUDEHUT_WORKER_MODEL:-sonnet}"
 [[ -n "$TASK_ID"     ]] || { echo "error: task-id required" >&2; exit 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
-MAIN_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+# MAIN_REPO is the USER'S PROJECT repo (compile/commit target) — NOT the plugin repo.
+MAIN_REPO="$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" rev-parse --show-toplevel)"
 
 _find_plugin_root() {
   if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
