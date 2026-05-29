@@ -61,7 +61,7 @@ Each builder process handles its task autonomously (RED → GREEN → REFACTOR �
 - NEVER use "reference code" while writing tests — that's test-after.
 - ONE commit per task. Conventional Commits format.
 
-Detailed TDD anti-patterns: `references/red-green-refactor.md`. Surgical scope enforcement: `references/surgical-scope-rules.md`. Commit conventions: `references/commit-convention.md`.
+Detailed TDD anti-patterns: `references/red-green-refactor.md`. Surgical scope enforcement: `references/surgical-scope-rules.md`. Commit conventions: `references/commit-convention.md`. Parallel-build mechanism + verification record: `references/parallel-build-verification.md`.
 
 ## Per-file pattern rule loading
 
