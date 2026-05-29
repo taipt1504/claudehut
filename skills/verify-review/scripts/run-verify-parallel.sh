@@ -8,6 +8,31 @@ set -euo pipefail
 PROJECT_ROOT="${1:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"
 cd "$PROJECT_ROOT"
 
+# Reset the reviewer shard dir at the START of every verify iteration. The Loop
+# is iterative (verify → fail → refactor → re-verify); without this, a reviewer
+# that is not re-dispatched (or errors) in a later iteration would leave its
+# stale shard on disk for aggregate-findings.sh to count → false fail. This is
+# the first script the verifier runs each iteration, so the reset is deterministic
+# and happens before any reviewer writes a fresh shard.
+_rvp_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
+  local d; d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
+  while [[ "$d" != "/" && -n "$d" ]]; do
+    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
+    d="$(dirname "$d")"
+  done
+}
+_rvp_plugin="$(_rvp_root || true)"
+if [[ -n "$_rvp_plugin" && -f "$_rvp_plugin/hooks/lib/state.sh" ]]; then
+  # shellcheck source=../../../hooks/lib/state.sh
+  source "$_rvp_plugin/hooks/lib/state.sh"
+  _rvp_tid="$(claudehut_task_id)"
+  if [[ "$_rvp_tid" != "none" ]]; then
+    _rvp_shards="$(claudehut_claudehut_dir)/findings/$_rvp_tid"
+    rm -rf "$_rvp_shards"; mkdir -p "$_rvp_shards"
+  fi
+fi
+
 # Detect build tool
 if [[ -f "gradlew" ]]; then
   BUILD="gradlew"

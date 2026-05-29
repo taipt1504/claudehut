@@ -108,6 +108,21 @@ S
 bash "$AGG" "$TASK_ID" >/dev/null
 [[ "$(jq -r '.decision' "$findings_file")" == "fail" ]] && pass "critical → decision=fail" || fail "critical" "expected fail, got $(jq -r '.decision' "$findings_file")"
 
+# ---- stale-shard guard (Loop iteration N must not count iteration N-1 shards) ----
+# A prior iteration left a high shard. The verifier runs run-verify-parallel.sh
+# FIRST every iteration, which must reset the shard dir before fresh reviewers run.
+cat > "$shard_dir/reviewer-security.json" <<'S'
+{"reviewer":"claudehut-reviewer-security","completed_at":"old-iteration","findings":[{"severity":"high","category":"security","file":"x","line":1,"title":"stale","detail":"from a prior loop iteration","suggestion":"n/a"}]}
+S
+# run-verify-parallel exits non-zero here (no build tool in fixture) but the
+# shard-dir reset runs before build detection, so the stale shard is cleared.
+bash "$PLUGIN_ROOT/skills/verify-review/scripts/run-verify-parallel.sh" "$TMPDIR" >/dev/null 2>&1 || true
+if [[ ! -f "$shard_dir/reviewer-security.json" ]]; then
+  pass "stale-shard guard: verify run cleared the prior-iteration shard"
+else
+  fail "stale-shard guard" "stale reviewer shard survived the verify run → would be counted"
+fi
+
 cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
 

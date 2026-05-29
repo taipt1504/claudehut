@@ -1,36 +1,35 @@
 # ClaudeHut — Architecture & Implementation Reference
 
-> **Status:** implementation-accurate as of 2026-05-29 · **Plugin version:** 0.1.0 · **Scope:** full plugin (manifest, state machine, 6-phase workflow, 17 agents, 31 skills, 45 rules, 8 hooks, memory/RL, parallel build, tests).
+> **Status:** implementation-accurate as of 2026-05-29 · **Plugin version:** 0.1.0 · **Scope:** full plugin — manifest, artifact-derived state machine, 6-phase workflow, 17 agents, 30 skills, 45 rules, 8 hooks, memory/RL, parallel build, test harness.
 
 ## For reviewers (Codex · Claude Mythos)
 
 This document is the single source of truth for an external architecture and implementation review of the **ClaudeHut** Claude Code plugin. It is written **general → detail** and **high-level → low-level**, with structure deliberately mirroring the on-disk implementation so every claim is checkable against a real file.
 
 How to use it:
-
 - Sections 1–3 give the mental model (what it is, the artifact-derived state machine, the 6-phase pipeline).
 - Sections 4–9 are the component deep-dives (agents, skills, rules, hooks, memory, parallel build) — each cites real paths and identifiers.
 - Sections 10–11 are the **runtime composition** and an **end-to-end walkthrough** — the most important for understanding actual behavior vs. the catalog.
-- Section 12 covers the test/quality harness.
+- Section 12 covers the test / quality harness.
 - Section 13 lays out **design decisions, trade-offs, known limitations, and the specific questions we want you to scrutinize** (see its final subsection).
 
-Every section was extracted directly from source by reading the real files; where the implementation flags a residual or unconfirmed behavior, the document says so explicitly rather than papering over it.
+Counts are authoritative as of the build above: **17 agents, 30 skills, 45 rules, 8 hooks, 5 MCP servers, 5 CLI utilities**. Where the implementation flags a residual or unconfirmed behavior, the document says so explicitly.
 
 ## Table of contents
 
-1. [1. Overview, Manifest & Repository Layout](#1-overview-manifest--repository-layout)
-2. [2. Mental Model & Artifact-Derived State Machine](#2-mental-model--artifact-derived-state-machine)
-3. [3. The 6-Phase Agentic Workflow Pipeline](#3-the-6-phase-agentic-workflow-pipeline)
-4. [4. Agent System (17 Subagents)](#4-agent-system-17-subagents)
-5. [5. Skill system (29 skills)](#5-skill-system-29-skills)
-6. [6. Rules system (45 rules)](#6-rules-system-45-rules)
-7. [7. Hook System (8 Hooks)](#7-hook-system-8-hooks)
-8. [8. Memory & Reinforcement Learning](#8-memory--reinforcement-learning)
-9. [9. Parallel build deep-dive (Path B)](#9-parallel-build-deep-dive-path-b)
-10. [10. Runtime Interaction Model — How Agents, Skills, Rules, and Hooks Actually Compose](#10-runtime-interaction-model--how-agents-skills-rules-and-hooks-actually-compose)
-11. [11. End-to-end walkthrough — "add endpoint to fetch user purchase history"](#11-end-to-end-walkthrough--add-endpoint-to-fetch-user-purchase-history)
-12. [12. Testing & quality gates](#12-testing--quality-gates)
-13. [13. Design Decisions, Trade-offs, Known Limitations & Questions for Reviewers](#13-design-decisions-trade-offs-known-limitations--questions-for-reviewers)
+- [1. Overview, Manifest & Repository Layout](#1-overview-manifest--repository-layout)
+- [2. Mental Model & Artifact-Derived State Machine](#2-mental-model--artifact-derived-state-machine)
+- [3. The 6-Phase Agentic Workflow Pipeline](#3-the-6-phase-agentic-workflow-pipeline)
+- [4. Agent System (17 Subagents)](#4-agent-system-17-subagents)
+- [5. Skill system (30 skills)](#5-skill-system-30-skills)
+- [6. Rules system (45 rules)](#6-rules-system-45-rules)
+- [7. Hook System (8 Hooks)](#7-hook-system-8-hooks)
+- [8. Memory & Reinforcement Learning](#8-memory--reinforcement-learning)
+- [9. Parallel build deep-dive (Path B)](#9-parallel-build-deep-dive-path-b)
+- [10. Runtime Interaction Model — How Agents, Skills, Rules, and Hooks Actually Compose](#10-runtime-interaction-model--how-agents-skills-rules-and-hooks-actually-compose)
+- [11. End-to-end walkthrough — "add endpoint to fetch user purchase history"](#11-end-to-end-walkthrough--add-endpoint-to-fetch-user-purchase-history)
+- [12. Testing & quality gates](#12-testing--quality-gates)
+- [13. Design Decisions, Trade-offs, Known Limitations & Questions for Reviewers](#13-design-decisions-trade-offs-known-limitations--questions-for-reviewers)
 
 ---
 
@@ -44,7 +43,7 @@ ClaudeHut is a Claude Code plugin that imposes a **deterministic, six-phase, art
 Brainstorm → Spec → Plan → Build → Loop (Verify ↔ Review ↔ Refactor) → Learn
 ```
 
-Phase transitions are **derived from artifact presence on disk** — no mutable state file, no race condition. The plugin adds 8 hook handlers, 17 agent system prompts, 28 skills, 42 path-scoped rules, 5 MCP servers, and 5 CLI utilities on top of Claude Code's native infrastructure.
+Phase transitions are **derived from artifact presence on disk** — no mutable state file, no race condition. The plugin adds 8 hook handlers, 17 agent system prompts, 30 skills, 45 path-scoped rules, 5 MCP servers, and 5 CLI utilities on top of Claude Code's native infrastructure.
 
 **Target users:** Senior Java backend engineers working with Spring Boot 3.x stacks that include any combination of: Spring MVC / WebFlux, JPA / Hibernate, R2DBC, MapStruct, Jackson, Kafka, RabbitMQ, NATS, Redis, Flyway, Testcontainers, Lombok.
 
@@ -56,25 +55,25 @@ Phase transitions are **derived from artifact presence on disk** — no mutable 
 
 The manifest validates against `https://json.schemastore.org/claude-code-plugin-manifest.json`.
 
-| Field                     | Value                                                           |
-| ------------------------- | --------------------------------------------------------------- |
-| `name`                    | `claudehut`                                                     |
-| `displayName`             | `ClaudeHut`                                                     |
-| `version`                 | `0.1.0`                                                         |
-| `license`                 | `MIT`                                                           |
-| `homepage` / `repository` | `https://github.com/taipt1504/claudehut`                        |
-| `author.name`             | `Phan Tài`                                                      |
-| `$schema`                 | `https://json.schemastore.org/claude-code-plugin-manifest.json` |
+| Field | Value |
+|---|---|
+| `name` | `claudehut` |
+| `displayName` | `ClaudeHut` |
+| `version` | `0.1.0` |
+| `license` | `MIT` |
+| `homepage` / `repository` | `https://github.com/taipt1504/claudehut` |
+| `author.name` | `Phan Tài` |
+| `$schema` | `https://json.schemastore.org/claude-code-plugin-manifest.json` |
 
 **`userConfig` options** (all surfaced to the Claude Code settings UI):
 
-| Key                         | Type      | Default | Min / Max | Purpose                                                                            |
-| --------------------------- | --------- | ------- | --------- | ---------------------------------------------------------------------------------- |
-| `loop_max_retries`          | `number`  | `3`     | 1 / 10    | Max refactor retries in Phase 5 before escalating to the user                      |
-| `promotion_min_projects`    | `number`  | `3`     | 2 / 10    | Distinct projects a learning signature must appear in before global-tier promotion |
-| `coverage_line_threshold`   | `number`  | `0.80`  | 0 / 1     | JaCoCo line coverage gate; verify fails below this value                           |
-| `coverage_branch_threshold` | `number`  | `0.70`  | 0 / 1     | JaCoCo branch coverage gate                                                        |
-| `global_promotion_opt_in`   | `boolean` | `false` | —         | Permit learnings from this project to reach `~/.claude/claudehut/` global tier     |
+| Key | Type | Default | Min / Max | Purpose |
+|---|---|---|---|---|
+| `loop_max_retries` | `number` | `3` | 1 / 10 | Max refactor retries in Phase 5 before escalating to the user |
+| `promotion_min_projects` | `number` | `3` | 2 / 10 | Distinct projects a learning signature must appear in before global-tier promotion |
+| `coverage_line_threshold` | `number` | `0.80` | 0 / 1 | JaCoCo line coverage gate; verify fails below this value |
+| `coverage_branch_threshold` | `number` | `0.70` | 0 / 1 | JaCoCo branch coverage gate |
+| `global_promotion_opt_in` | `boolean` | `false` | — | Permit learnings from this project to reach `~/.claude/claudehut/` global tier |
 
 ---
 
@@ -95,13 +94,13 @@ The `plugins[0].source` is `"./"` (the repo root), and `plugins[0].category` is 
 
 Five MCP servers are declared. All are launched via `npx -y` (no install required beyond Node):
 
-| Server key            | Package                                            | Purpose                         | Auth / Config                                                                 |
-| --------------------- | -------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------- |
-| `context7`            | `@upstash/context7-mcp`                            | Live library-doc lookup         | `CONTEXT7_API_KEY` env var                                                    |
-| `memory`              | `@modelcontextprotocol/server-memory`              | Project-scoped knowledge graph  | `MEMORY_FILE_PATH` → `${CLAUDE_PROJECT_DIR}/.claudehut/memory/mcp-graph.json` |
-| `sequential-thinking` | `@modelcontextprotocol/server-sequential-thinking` | Structured multi-step reasoning | None                                                                          |
-| `github`              | `@modelcontextprotocol/server-github`              | PR / issue / code access        | `GITHUB_PERSONAL_ACCESS_TOKEN` → `${GITHUB_TOKEN}`                            |
-| `postgres`            | `@modelcontextprotocol/server-postgres`            | Schema introspection, EXPLAIN   | DSN `${CLAUDEHUT_PG_URL}` as positional arg                                   |
+| Server key | Package | Purpose | Auth / Config |
+|---|---|---|---|
+| `context7` | `@upstash/context7-mcp` | Live library-doc lookup | `CONTEXT7_API_KEY` env var |
+| `memory` | `@modelcontextprotocol/server-memory` | Project-scoped knowledge graph | `MEMORY_FILE_PATH` → `${CLAUDE_PROJECT_DIR}/.claudehut/memory/mcp-graph.json` |
+| `sequential-thinking` | `@modelcontextprotocol/server-sequential-thinking` | Structured multi-step reasoning | None |
+| `github` | `@modelcontextprotocol/server-github` | PR / issue / code access | `GITHUB_PERSONAL_ACCESS_TOKEN` → `${GITHUB_TOKEN}` |
+| `postgres` | `@modelcontextprotocol/server-postgres` | Schema introspection, EXPLAIN | DSN `${CLAUDEHUT_PG_URL}` as positional arg |
 
 The config template (`templates/claudehut-config.template.json`) lists `"mcp_servers_enabled": ["context7", "memory", "sequential-thinking"]` as the default active set; `github` and `postgres` are optional.
 
@@ -124,24 +123,24 @@ The config template (`templates/claudehut-config.template.json`) lists `"mcp_ser
 
 Scaffolded into `<project>/.claudehut/claudehut-config.json` by `/claudehut:init`. Mirrors `userConfig` and adds runtime knobs:
 
-| Section                  | Key                             | Default                               | Notes                                                  |
-| ------------------------ | ------------------------------- | ------------------------------------- | ------------------------------------------------------ |
-| `phase`                  | `loop_max_retries`              | `3`                                   | Same as manifest                                       |
-| `phase`                  | `allow_skip_phases`             | `[]`                                  | Locked; no phases are skippable by default             |
-| `phase`                  | `destructive_command_allowlist` | `[]`                                  | Per-project overrides for `PreToolUse(Bash)` deny list |
-| `phase`                  | `stop_enforcement_enabled`      | `false`                               | Toggle hook-level `Stop` enforcement                   |
-| `reuse_detection`        | `stale_threshold_minutes`       | `10`                                  | `PreToolUse(Write/Edit)` rejects scan older than this  |
-| `reuse_detection`        | `prefer_backends`               | `["understand_anything", "graphify"]` | Priority order for semantic scan                       |
-| `reuse_detection`        | `fallback_to_grep`              | `true`                                | Always-on fallback                                     |
-| `memory`                 | `promotion_min_projects`        | `3`                                   | Same as manifest                                       |
-| `memory`                 | `decay_days`                    | `180`                                 | Learnings older than this are candidates for eviction  |
-| `memory`                 | `global_promotion_opt_in`       | `false`                               | Same as manifest                                       |
-| `coverage`               | `line_threshold`                | `0.80`                                | JaCoCo gate                                            |
-| `coverage`               | `branch_threshold`              | `0.70`                                | JaCoCo gate                                            |
-| `agents`                 | `builder_model`                 | `claude-sonnet-4-6`                   | Model used for Build-phase subagent                    |
-| `agents.reviewer_models` | `default`                       | `claude-sonnet-4-6`                   | General reviewer                                       |
-| `agents.reviewer_models` | `style`                         | `claude-haiku-4-5`                    | Style reviewer (cheaper)                               |
-| `agents.reviewer_models` | `mapping`                       | `claude-haiku-4-5`                    | MapStruct/Jackson reviewer (cheaper)                   |
+| Section | Key | Default | Notes |
+|---|---|---|---|
+| `phase` | `loop_max_retries` | `3` | Same as manifest |
+| `phase` | `allow_skip_phases` | `[]` | Locked; no phases are skippable by default |
+| `phase` | `destructive_command_allowlist` | `[]` | Per-project overrides for `PreToolUse(Bash)` deny list |
+| `phase` | `stop_enforcement_enabled` | `false` | Toggle hook-level `Stop` enforcement |
+| `reuse_detection` | `stale_threshold_minutes` | `10` | `PreToolUse(Write/Edit)` rejects scan older than this |
+| `reuse_detection` | `prefer_backends` | `["understand_anything", "graphify"]` | Priority order for semantic scan |
+| `reuse_detection` | `fallback_to_grep` | `true` | Always-on fallback |
+| `memory` | `promotion_min_projects` | `3` | Same as manifest |
+| `memory` | `decay_days` | `180` | Learnings older than this are candidates for eviction |
+| `memory` | `global_promotion_opt_in` | `false` | Same as manifest |
+| `coverage` | `line_threshold` | `0.80` | JaCoCo gate |
+| `coverage` | `branch_threshold` | `0.70` | JaCoCo gate |
+| `agents` | `builder_model` | `claude-sonnet-4-6` | Model used for Build-phase subagent |
+| `agents.reviewer_models` | `default` | `claude-sonnet-4-6` | General reviewer |
+| `agents.reviewer_models` | `style` | `claude-haiku-4-5` | Style reviewer (cheaper) |
+| `agents.reviewer_models` | `mapping` | `claude-haiku-4-5` | MapStruct/Jackson reviewer (cheaper) |
 
 `rules_override: {}` allows per-project rule suppression by key.
 
@@ -181,7 +180,7 @@ claudehut/                        ← plugin root (also serves as marketplace)
 │   ├── claudehut-reviewer-style.md
 │   └── claudehut-reviewer-mapping.md
 │
-├── skills/                       ← 28 skills, each: SKILL.md + references/ + scripts/ + assets/templates/
+├── skills/                       ← 30 skills, each: SKILL.md + references/ + scripts/ + assets/templates/
 │   ├── brainstorm/               ← Phase 1 driver
 │   ├── spec/                     ← Phase 2 driver
 │   ├── plan/                     ← Phase 3 driver
@@ -215,13 +214,13 @@ claudehut/                        ← plugin root (also serves as marketplace)
 │   ├── owasp-scan/
 │   └── systematic-debug/
 │
-├── rules/                        ← 42 path-scoped rules (Claude native rules/ format)
+├── rules/                        ← 45 path-scoped rules (Claude native rules/ format)
 │   ├── coding/                   ← 7 rules (exception, immutability, logging-mdc, naming, null-safety, optional-stream, records-sealed)
 │   ├── architecture/             ← 5 rules (adr-format, cqrs, ddd, hexagonal, package-layout)
 │   ├── testing/                  ← 8 rules (coverage, given-when-then, junit5, mockito, stepverifier, tdd-cycle, testcontainers, wiremock)
 │   ├── security/                 ← 6 rules (actuator, deserialization, input-validation, owasp-top10, secret-mgmt, spring-security)
 │   ├── performance/              ← 5 rules (backpressure, caching, connection-pool, indexing, n-plus-one)
-│   └── framework/                ← 11 rules (flyway-naming, jackson, jpa, kafka-consumer, kafka-producer, lombok-*, mapstruct, migration-safety, r2dbc, redis, spring-mvc, webflux)
+│   └── framework/                ← 14 rules (flyway-naming, jackson, jpa, kafka-consumer, kafka-producer, lombok-*, mapstruct, migration-safety, r2dbc, redis, spring-mvc, webflux)
 │
 ├── hooks/                        ← 8 hook event handlers
 │   ├── hooks.json                ← Hook registration (event → script mapping)
@@ -273,13 +272,13 @@ claudehut/                        ← plugin root (also serves as marketplace)
 
 All five scripts source `scripts/hooks/lib/state.sh` via a `_find_plugin_root()` helper that walks parent directories looking for `.claude-plugin/plugin.json`, then falls back to `$CLAUDE_PLUGIN_ROOT` env var. They require Bash 3.2+, `jq` 1.6+, and `git`.
 
-| Executable                           | Key behaviour                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `claudehut-state <cmd>`              | Read-only. Subcommands: `task-id` (= branch name, `/` → `-`), `phase` (artifact-derived), `branch`, `retries` (count of `refactor(loop)` commits), `stack <field>` (reads `.claudehut/memory/stack-signals.json`), `integrations`, `config [key]`, `docs` (prints paths to current task's four artifacts). No writes.                      |
-| `claudehut-rollback`                 | Interactive. Refuses to run on `main`/`master`/`trunk`/`develop`/`dev`. Walks `git log` for the last commit that had a `findings.json` snapshot. Stashes uncommitted changes, runs `git reset --hard <target-sha>`, resets phase via `claudehut_set_phase`, appends a JSON record to `.claudehut/state/tasks/<id>/rollback-history.jsonl`. |
-| `claudehut-finish`                   | Requires phase `done` or `learn`. Requires clean working tree. Archives `.claudehut/state/tasks/<id>` to `_archive/<id>-<timestamp>`, removes lockfile and `active-task.json`. Prints next steps (push / PR).                                                                                                                              |
-| `claudehut-worktree-create <branch>` | Refuses default branches. Derives `TASK_ID` by translating `/` and non-alphanumeric to `-`. Creates worktree at `.worktrees/<task-id>`. Prints the `cd … && claude --plugin-dir …` command to start a session.                                                                                                                             |
-| `claudehut-worktree-prune <task-id>` | Archives task state to `_archive/`, removes lock, runs `git worktree remove`.                                                                                                                                                                                                                                                              |
+| Executable | Key behaviour |
+|---|---|
+| `claudehut-state <cmd>` | Read-only. Subcommands: `task-id` (= branch name, `/` → `-`), `phase` (artifact-derived), `branch`, `retries` (count of `refactor(loop)` commits), `stack <field>` (reads `.claudehut/memory/stack-signals.json`), `integrations`, `config [key]`, `docs` (prints paths to current task's four artifacts). No writes. |
+| `claudehut-rollback` | Interactive. Refuses to run on `main`/`master`/`trunk`/`develop`/`dev`. Walks `git log` for the last commit that had a `findings.json` snapshot. Stashes uncommitted changes, runs `git reset --hard <target-sha>`, resets phase via `claudehut_set_phase`, appends a JSON record to `.claudehut/state/tasks/<id>/rollback-history.jsonl`. |
+| `claudehut-finish` | Requires phase `done` or `learn`. Requires clean working tree. Archives `.claudehut/state/tasks/<id>` to `_archive/<id>-<timestamp>`, removes lockfile and `active-task.json`. Prints next steps (push / PR). |
+| `claudehut-worktree-create <branch>` | Refuses default branches. Derives `TASK_ID` by translating `/` and non-alphanumeric to `-`. Creates worktree at `.worktrees/<task-id>`. Prints the `cd … && claude --plugin-dir …` command to start a session. |
+| `claudehut-worktree-prune <task-id>` | Archives task state to `_archive/`, removes lock, runs `git worktree remove`. |
 
 ---
 
@@ -465,7 +464,7 @@ claudehut/
 
 ClaudeHut's phase system is **stateless by design**: there is no JSON state file, no writable phase register. The current phase is computed fresh on every hook invocation by inspecting which artifacts exist on disk and which git branch is checked out. The comment at the top of `hooks/lib/state.sh` states this explicitly:
 
-> _"Principle: phase is DERIVED from artifacts present in the project + branch name. No JSON state file. No race conditions. Git branch = task identity."_
+> *"Principle: phase is DERIVED from artifacts present in the project + branch name. No JSON state file. No race conditions. Git branch = task identity."*
 
 `state.sh` is a **pure reader**. Phase transitions occur as a side effect of skills/subagents creating the required artifact — not by any call to `state.sh`. There is no `set_phase()` function because none is needed.
 
@@ -475,37 +474,37 @@ ClaudeHut's phase system is **stateless by design**: there is no JSON state file
 
 `scripts/state/init-project.sh` (lines 55–62) scaffolds exactly these five subdirectories. `logs/` is **not** created by `init`; it is created lazily at build time by `skills/build/scripts/run-parallel-group.sh` (line 120) and `skills/build/scripts/scaffold-stubs.sh` (line 61) using `mkdir -p`.
 
-| Path                               | Created by                 | Purpose                                                                           |
-| ---------------------------------- | -------------------------- | --------------------------------------------------------------------------------- |
-| `.claudehut/specs/`                | `init-project.sh`          | Per-task design docs and contract docs                                            |
-| `.claudehut/plans/`                | `init-project.sh`          | Per-task Markdown plan files with checkbox tasks                                  |
-| `.claudehut/findings/`             | `init-project.sh`          | Per-task `{task_id}-findings.json` (verify/review output)                         |
-| `.claudehut/reuse-scans/`          | `init-project.sh`          | Per-task `{task_id}.json` reuse-scan cache (TTL 600 s)                            |
-| `.claudehut/memory/`               | `init-project.sh`          | Cross-task persistent memory: learnings, stack signals, conventions, integrations |
-| `.claudehut/logs/`                 | build scripts (`mkdir -p`) | Parallel-build worker stdout/stderr logs                                          |
-| `.claudehut/claudehut-config.json` | `init-project.sh`          | Project-level config (e.g. `phase.stop_enforcement_enabled`)                      |
+| Path | Created by | Purpose |
+|---|---|---|
+| `.claudehut/specs/` | `init-project.sh` | Per-task design docs and contract docs |
+| `.claudehut/plans/` | `init-project.sh` | Per-task Markdown plan files with checkbox tasks |
+| `.claudehut/findings/` | `init-project.sh` | Per-task `{task_id}-findings.json` (verify/review output) |
+| `.claudehut/reuse-scans/` | `init-project.sh` | Per-task `{task_id}.json` reuse-scan cache (TTL 600 s) |
+| `.claudehut/memory/` | `init-project.sh` | Cross-task persistent memory: learnings, stack signals, conventions, integrations |
+| `.claudehut/logs/` | build scripts (`mkdir -p`) | Parallel-build worker stdout/stderr logs |
+| `.claudehut/claudehut-config.json` | `init-project.sh` | Project-level config (e.g. `phase.stop_enforcement_enabled`) |
 
 **Per-task artifact naming convention** (`{task_id}` = branch slug, see below):
 
-| Artifact     | Path pattern                                  |
-| ------------ | --------------------------------------------- |
-| Design doc   | `.claudehut/specs/{task_id}-design.md`        |
-| Contract doc | `.claudehut/specs/{task_id}-contract.md`      |
-| Plan doc     | `.claudehut/plans/{task_id}-plan.md`          |
-| Findings     | `.claudehut/findings/{task_id}-findings.json` |
-| Reuse scan   | `.claudehut/reuse-scans/{task_id}.json`       |
+| Artifact | Path pattern |
+|---|---|
+| Design doc | `.claudehut/specs/{task_id}-design.md` |
+| Contract doc | `.claudehut/specs/{task_id}-contract.md` |
+| Plan doc | `.claudehut/plans/{task_id}-plan.md` |
+| Findings | `.claudehut/findings/{task_id}-findings.json` |
+| Reuse scan | `.claudehut/reuse-scans/{task_id}.json` |
 
 **Memory directory files:**
 
-| File                            | Format                                    | Role                                                      |
-| ------------------------------- | ----------------------------------------- | --------------------------------------------------------- |
-| `memory/learnings.jsonl`        | JSONL (`{task_id, category, title, ...}`) | Append-only learnings log                                 |
-| `memory/learnings-recent.md`    | Markdown                                  | Top-N recent learnings; `@`-imported by CLAUDE.md         |
-| `memory/stack-signals.md`       | `- key: value` lines                      | Tech-stack detection cache                                |
-| `memory/conventions.md`         | Markdown                                  | Team-specific conventions                                 |
-| `memory/integrations.json`      | JSON                                      | `understand_anything` and `graphify` backend availability |
-| `memory/reusable-impl-map.json` | JSON                                      | Reuse-scanner output                                      |
-| `memory/index.md`               | Markdown                                  | Human-readable project memory index                       |
+| File | Format | Role |
+|---|---|---|
+| `memory/learnings.jsonl` | JSONL (`{task_id, category, title, ...}`) | Append-only learnings log |
+| `memory/learnings-recent.md` | Markdown | Top-N recent learnings; `@`-imported by CLAUDE.md |
+| `memory/stack-signals.md` | `- key: value` lines | Tech-stack detection cache |
+| `memory/conventions.md` | Markdown | Team-specific conventions |
+| `memory/integrations.json` | JSON | `understand_anything` and `graphify` backend availability |
+| `memory/reusable-impl-map.json` | JSON | Reuse-scanner output |
+| `memory/index.md` | Markdown | Human-readable project memory index |
 
 ---
 
@@ -529,18 +528,18 @@ The slug transformation uses `tr '/' '-' | tr -c '[:alnum:]-' '-'`.
 
 Defined in `claudehut_phase()` (`state.sh` lines 114–142). Evaluated strictly in order; the first matching rule wins.
 
-| Priority | Condition                                                             | Phase returned  |
-| -------- | --------------------------------------------------------------------- | --------------- |
-| 1        | `.claudehut/` directory does not exist                                | `uninitialized` |
-| 2        | `task_id == "none"` (default branch or no git)                        | `none`          |
-| 3        | `{task_id}-design.md` absent                                          | `brainstorm`    |
-| 4        | `{task_id}-contract.md` absent                                        | `spec`          |
-| 5        | `{task_id}-plan.md` absent                                            | `plan`          |
-| 6        | Plan file exists **and** contains a `- [ ]` line                      | `build`         |
-| 7        | `findings.json` exists **and** `.decision == "fail"`                  | `loop`          |
-| 8        | `findings.json` exists, `.decision == "pass"`, learnings entry exists | `done`          |
-| 9        | `findings.json` exists, `.decision == "pass"`, no learnings entry     | `learn`         |
-| 10       | Plan complete, no `findings.json` yet (fall-through)                  | `loop`          |
+| Priority | Condition | Phase returned |
+|---|---|---|
+| 1 | `.claudehut/` directory does not exist | `uninitialized` |
+| 2 | `task_id == "none"` (default branch or no git) | `none` |
+| 3 | `{task_id}-design.md` absent | `brainstorm` |
+| 4 | `{task_id}-contract.md` absent | `spec` |
+| 5 | `{task_id}-plan.md` absent | `plan` |
+| 6 | Plan file exists **and** contains a `- [ ]` line | `build` |
+| 7 | `findings.json` exists **and** `.decision == "fail"` | `loop` |
+| 8 | `findings.json` exists, `.decision == "pass"`, learnings entry exists | `done` |
+| 9 | `findings.json` exists, `.decision == "pass"`, no learnings entry | `learn` |
+| 10 | Plan complete, no `findings.json` yet (fall-through) | `loop` |
 
 **Two paths into `loop`**: rule 7 (findings present with `fail`) and rule 10 (plan complete, no findings yet). Both are explicit in the code — the fall-through `echo "loop"` at line 141 is intentional.
 
@@ -555,7 +554,7 @@ stateDiagram-v2
     [*] --> uninitialized : .claudehut/ absent
     [*] --> none : on main/master/trunk/develop/dev branch
 
-    uninitialized --> none : /init creates .claudehut/\nthen switch to feature branch
+    uninitialized --> none : /claudehut:init creates .claudehut/\nthen switch to feature branch
     none --> brainstorm : git checkout -b feature/<slug>
 
     brainstorm --> spec : create .claudehut/specs/{id}-design.md
@@ -570,10 +569,10 @@ stateDiagram-v2
 
     learn --> done : learnings.jsonl entry\nappended for task_id
 
-    done --> [*] : claudehut-finish archives branch merged
+    done --> [*] : claudehut-finish archives;\nbranch merged
 ```
 
-_Edges are labeled by the artifact event that triggers the re-evaluation; `state.sh` itself never writes._
+*Edges are labeled by the artifact event that triggers the re-evaluation; `state.sh` itself never writes.*
 
 ---
 
@@ -582,73 +581,56 @@ _Edges are labeled by the artifact event that triggers the re-evaluation; `state
 All functions are sourced into hooks; none take positional git-write actions.
 
 #### `claudehut_project_root()`
-
 Returns `$CLAUDE_PROJECT_DIR` if set, otherwise `$(pwd)`. Single source of truth for the project root across all hooks.
 
 #### `claudehut_claudehut_dir()`
-
 Returns `$(claudehut_project_root)/.claudehut`. Used by every other function to anchor paths.
 
 #### `claudehut_task_id([task_id_override])`
-
 Derives the task identity. See "Task ID Derivation" above. Returns `"none"` for default branches, detached HEAD, or non-git directories. `CLAUDEHUT_TASK_ID` env var overrides all derivation.
 
 #### `claudehut_branch()`
-
 Returns the output of `git symbolic-ref --short HEAD` against the project root, or empty string on failure. Thin wrapper used by `claudehut_loop_retries`.
 
 #### `claudehut_design_doc([task_id])`
-
 Returns the absolute path to `.claudehut/specs/{task_id}-design.md` if the file exists, empty string otherwise. `task_id` defaults to `$(claudehut_task_id)`. Returns empty immediately if `task_id == "none"`.
 
 #### `claudehut_contract_doc([task_id])`
-
 Returns the absolute path to `.claudehut/specs/{task_id}-contract.md` if the file exists, empty string otherwise. Same defaulting and `none`-guard as `claudehut_design_doc`.
 
 #### `claudehut_plan_doc([task_id])`
-
 Returns the absolute path to `.claudehut/plans/{task_id}-plan.md` if the file exists, empty string otherwise. Same defaulting and guard.
 
 #### `claudehut_findings_doc([task_id])`
-
 Returns the absolute path to `.claudehut/findings/{task_id}-findings.json` if the file exists, empty string otherwise.
 
 #### `claudehut_plan_has_unchecked([task_id])`
-
 Returns exit code 0 (true) if the plan file contains at least one line matching `^- \[ \]`, otherwise 1. Returns 1 if plan file is absent. Used by `claudehut_phase` to distinguish `build` from `loop`.
 
 #### `claudehut_findings_decision([task_id])`
-
 Reads `.decision` from `{task_id}-findings.json` using `jq -r '.decision // ""'`. Returns `"pass"`, `"fail"`, or `""` (absent or malformed). Called inside `claudehut_phase`.
 
 #### `claudehut_has_learnings([task_id])`
-
 Returns exit code 0 if `memory/learnings.jsonl` contains a line with `"task_id":"<task_id>"` (literal grep, not JSON parse). Returns 1 if the file is absent or no matching line is found. Distinguishes `learn` from `done`.
 
 #### `claudehut_phase([task_id])`
-
 Main entry point. Evaluates rules 1–10 in priority order (see table above). Always returns one of: `uninitialized`, `none`, `brainstorm`, `spec`, `plan`, `build`, `loop`, `learn`, `done`.
 
 #### `claudehut_reuse_scan_path([task_id])`
-
 Returns the path `.claudehut/reuse-scans/{task_id}.json` regardless of whether it exists.
 
 #### `claudehut_reuse_scan_fresh([task_id])`
-
 Returns exit code 0 if the reuse scan file exists **and** its `.timestamp` field (ISO-8601 UTC) is less than 600 seconds old. Uses `date -u -j -f` (macOS) with `date -u -d` (Linux) fallback. Returns 1 if the file is absent, unreadable, or stale.
 
 #### `claudehut_stack_signal(key)`
-
 Reads a value from `memory/stack-signals.md`. The file uses `- key: value` lines; optionally with trailing `# comment`. The function greps `^- ${key}:`, strips the key prefix and any trailing comment/whitespace, and echoes the value. Returns empty string if the key is absent or the file does not exist. The `|| true` guard prevents `set -e` hooks from aborting on a missing key.
 
 > **Observed discrepancy**: `bin/claudehut-state stack <field>` (lines 43–45) prepends `.` to the field before calling `claudehut_stack_signal` (i.e., `web` → `.web`), which causes the grep pattern `^- .web:` to not match `- web:` in `stack-signals.md`. Direct callers in `session-start.sh` pass bare keys (e.g., `claudehut_stack_signal web`) and work correctly. The CLI help also refers to `stack-signals.json`, while the actual file is `stack-signals.md`.
 
 #### `claudehut_integration(backend)`
-
 Reads `memory/integrations.json`. Accepts `"ua"` (maps to `.understand_anything.available`) or `"graphify"` (maps to `.graphify.available`). Returns `"true"` or `"false"`; defaults to `"false"` if the file is absent or the key is missing. `integrations.json` is written fresh on every `SessionStart` by `hooks/session-start.sh`.
 
 #### `claudehut_loop_retries()`
-
 Counts the number of commits on the current branch whose subject line matches `^refactor\(loop\)` (grep -cE). Returns `"0"` if there is no branch or no matching commits. This count is surfaced in `SessionStart` context and in `prompt-router.sh` hints.
 
 ---
@@ -657,16 +639,16 @@ Counts the number of commits on the current branch whose subject line matches `^
 
 A read-only inspection CLI that sources `hooks/lib/state.sh` via a plugin-root walk (looks for `.claude-plugin/plugin.json` upward, or respects `CLAUDE_PLUGIN_ROOT`). Exposes state functions as subcommands:
 
-| Subcommand      | Calls                    | Output                                                                                  |
-| --------------- | ------------------------ | --------------------------------------------------------------------------------------- |
-| `task-id`       | `claudehut_task_id`      | Current task slug or `"none"`                                                           |
-| `phase`         | `claudehut_phase`        | Current phase string                                                                    |
-| `branch`        | `claudehut_branch`       | Raw git branch name                                                                     |
-| `retries`       | `claudehut_loop_retries` | Loop retry count integer                                                                |
+| Subcommand | Calls | Output |
+|---|---|---|
+| `task-id` | `claudehut_task_id` | Current task slug or `"none"` |
+| `phase` | `claudehut_phase` | Current phase string |
+| `branch` | `claudehut_branch` | Raw git branch name |
+| `retries` | `claudehut_loop_retries` | Loop retry count integer |
 | `stack <field>` | `claudehut_stack_signal` | Field value from stack-signals.md (note: prepends `.` to field — see discrepancy above) |
-| `integrations`  | —                        | Prints raw `memory/integrations.json` or `{}`                                           |
-| `config [key]`  | —                        | Reads `claudehut-config.json`; optional jq key selector                                 |
-| `docs`          | all `_doc` functions     | Lists all four artifact paths for current task                                          |
+| `integrations` | — | Prints raw `memory/integrations.json` or `{}` |
+| `config [key]` | — | Reads `claudehut-config.json`; optional jq key selector |
+| `docs` | all `_doc` functions | Lists all four artifact paths for current task |
 
 The binary locates `state.sh` at `scripts/hooks/lib/state.sh` relative to the plugin root (note the `scripts/` prefix in the path, line 25: `CLAUDEHUT_LIB="$(_find_plugin_root)/scripts/hooks/lib/state.sh"`).
 
@@ -762,7 +744,6 @@ The task identity is the current git branch name (slashes → dashes). The orche
 Every phase (except Build) follows the same skeleton: the **main thread** (orchestrator) calls the phase skill, the skill runs `scripts/dispatch-prompt.sh "$ARGUMENTS"` to compose a context-rich prompt, and the result is passed verbatim to `Task(subagent_type=..., prompt=...)`. The subagent runs in an **isolated context** (no access to main-thread conversation, file reads, or loaded skills beyond its `skills:` frontmatter).
 
 **`dispatch-prompt.sh` composition order** (identical across all phases):
-
 1. User intent
 2. Active task-id + current phase + loop retry count (`$RETRIES/3`)
 3. Stack signals (`.claudehut/memory/stack-signals.md`, ≤60 lines)
@@ -773,7 +754,6 @@ Every phase (except Build) follows the same skeleton: the **main thread** (orche
 8. Phase-specific instruction footer referencing the agent definition
 
 All six phase scripts set `PHASE=<name>` and call `claudehut_loop_retries` from `state.sh`. The prompt header is always:
-
 ```
 # ClaudeHut <phase> — task dispatch
 **Task id**: $TASK_ID
@@ -787,14 +767,14 @@ All six phase scripts set `PHASE=<name>` and call `claudehut_loop_retries` from 
 
 ### Per-Phase Reference Table
 
-| #   | Phase                    | Skill                     | Agent Dispatched                                                                                                                                     | Model                                 | Trigger Condition                                                              | Input Artifacts                                                                                                    | Output Artifact                                                                                                                       | Gates                                                                                                                                              | Auto-Advance Mechanism                                                                                                                               |
-| --- | ------------------------ | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Brainstorm**           | `claudehut:brainstorm`    | `claudehut-brainstormer` (via Task tool, multi-iteration loop)                                                                                       | opus                                  | `phase == brainstorm` (no design doc on branch)                                | stack-signals.md, conventions.md, learnings-recent.md, prior `answers[]`                                           | `.claudehut/specs/<id>-design.md`                                                                                                     | G1: reuse-scan ran; G2: design.md non-empty; G3: `design-doc-selfreview.sh` exits 0; user approval via AskUserQuestion                             | design.md saved + user approval → `claudehut_phase()` returns `spec`                                                                                 |
-| 2   | **Spec**                 | `claudehut:spec`          | `claudehut-spec-writer` (single Task dispatch)                                                                                                       | sonnet                                | `phase == spec` (design.md exists, no contract.md)                             | design.md, stack-signals.md, conventions.md, learnings-recent.md                                                   | `.claudehut/specs/<id>-contract.md`                                                                                                   | `validate-contract.sh` exits 0; user approval                                                                                                      | contract.md saved → phase = `plan`                                                                                                                   |
-| 3   | **Plan**                 | `claudehut:plan`          | `claudehut-planner` (single Task dispatch)                                                                                                           | opus                                  | `phase == plan` (contract.md exists, no plan.md)                               | contract.md, design.md, stack-signals.md, learnings-recent.md                                                      | `.claudehut/plans/<id>-plan.md`                                                                                                       | `plan-placeholder-scan.sh` + `plan-spec-coverage.sh` + `plan-parallel-group-scan.sh` all exit 0; user approval                                     | plan.md with `- [ ]` checkboxes saved → phase = `build`                                                                                              |
-| 4   | **Build**                | `claudehut:build`         | `claudehut-builder` via headless `claude --print` workers (NOT Task-tool subagents) — one per task per parallel group, each in isolated git worktree | sonnet                                | `phase == build` (plan has unchecked `- [ ]` tasks)                            | contract.md, plan.md (single task block injected per worker), design.md; `.claudehut` symlinked into each worktree | Production code commits (one per task); `- [x]` checkboxes in plan (set by `merge-parallel-group.sh`); `chore: scaffold stubs` commit | Per-group: `merge-parallel-group.sh` + `./gradlew compileTestJava test`; final: `./gradlew check`                                                  | All checkboxes `- [x]` → `claudehut_plan_has_unchecked` returns false → phase = `loop`                                                               |
-| 5   | **Loop (Verify-Review)** | `claudehut:verify-review` | `claudehut-verifier` (single Task dispatch); verifier itself fans out 2–6 `claudehut-reviewer-*` subagents in **one parallel message**               | sonnet (verifier); sonnet (reviewers) | `phase == loop` (plan complete, no findings.json or `decision=fail`)           | design.md, contract.md, plan.md, prior findings.json                                                               | `.claudehut/findings/<id>-findings.json` with `decision: pass\|fail`                                                                  | All verify gates green (build, test, coverage ≥ 0.80, lint, static, OWASP); `critical==0 AND high<3`; findings.json written with aggregated totals | `decision=pass` in findings.json → phase = `learn` OR `decision=fail` + refactor task injected → plan has unchecked tasks → phase reverts to `build` |
-| 6   | **Learn**                | `claudehut:learn`         | `claudehut-learner` (single Task dispatch)                                                                                                           | haiku                                 | `phase == learn` (findings.json decision=pass, no learnings entry for task_id) | git diff since branch base, design.md, contract.md, plan.md, findings.json                                         | `.claudehut/memory/learnings.jsonl` (append-only); `.claudehut/memory/index.md` regenerated                                           | G1: every candidate passes `secret-scan.sh`; G2: entries appended with required schema; G3: ≥1 entry for task_id in learnings.jsonl                | learnings.jsonl has entry for task_id → `claudehut_has_learnings` returns true → phase = `done`                                                      |
+| # | Phase | Skill | Agent Dispatched | Model | Trigger Condition | Input Artifacts | Output Artifact | Gates | Auto-Advance Mechanism |
+|---|-------|-------|-----------------|-------|-------------------|----------------|----------------|-------|------------------------|
+| 1 | **Brainstorm** | `claudehut:brainstorm` | `claudehut-brainstormer` (via Task tool, multi-iteration loop) | opus | `phase == brainstorm` (no design doc on branch) | stack-signals.md, conventions.md, learnings-recent.md, prior `answers[]` | `.claudehut/specs/<id>-design.md` | G1: reuse-scan ran; G2: design.md non-empty; G3: `design-doc-selfreview.sh` exits 0; user approval via AskUserQuestion | design.md saved + user approval → `claudehut_phase()` returns `spec` |
+| 2 | **Spec** | `claudehut:spec` | `claudehut-spec-writer` (single Task dispatch) | sonnet | `phase == spec` (design.md exists, no contract.md) | design.md, stack-signals.md, conventions.md, learnings-recent.md | `.claudehut/specs/<id>-contract.md` | `validate-contract.sh` exits 0; user approval | contract.md saved → phase = `plan` |
+| 3 | **Plan** | `claudehut:plan` | `claudehut-planner` (single Task dispatch) | opus | `phase == plan` (contract.md exists, no plan.md) | contract.md, design.md, stack-signals.md, learnings-recent.md | `.claudehut/plans/<id>-plan.md` | `plan-placeholder-scan.sh` + `plan-spec-coverage.sh` + `plan-parallel-group-scan.sh` all exit 0; user approval | plan.md with `- [ ]` checkboxes saved → phase = `build` |
+| 4 | **Build** | `claudehut:build` | `claudehut-builder` via headless `claude --print` workers (NOT Task-tool subagents) — one per task per parallel group, each in isolated git worktree | sonnet | `phase == build` (plan has unchecked `- [ ]` tasks) | contract.md, plan.md (single task block injected per worker), design.md; `.claudehut` symlinked into each worktree | Production code commits (one per task); `- [x]` checkboxes in plan (set by `merge-parallel-group.sh`); `chore: scaffold stubs` commit | Per-group: `merge-parallel-group.sh` + `./gradlew compileTestJava test`; final: `./gradlew check` | All checkboxes `- [x]` → `claudehut_plan_has_unchecked` returns false → phase = `loop` |
+| 5 | **Loop (Verify-Review)** | `claudehut:verify-review` | `claudehut-verifier` (single Task dispatch); verifier itself fans out 2–6 `claudehut-reviewer-*` subagents in **one parallel message** | sonnet (verifier); sonnet (reviewers) | `phase == loop` (plan complete, no findings.json or `decision=fail`) | design.md, contract.md, plan.md, prior findings.json | `.claudehut/findings/<id>-findings.json` with `decision: pass\|fail` | All verify gates green (build, test, coverage ≥ 0.80, lint, static, OWASP); `critical==0 AND high<3`; findings.json written with aggregated totals | `decision=pass` in findings.json → phase = `learn` OR `decision=fail` + refactor task injected → plan has unchecked tasks → phase reverts to `build` |
+| 6 | **Learn** | `claudehut:learn` | `claudehut-learner` (single Task dispatch) | haiku | `phase == learn` (findings.json decision=pass, no learnings entry for task_id) | git diff since branch base, design.md, contract.md, plan.md, findings.json | `.claudehut/memory/learnings.jsonl` (append-only); `.claudehut/memory/index.md` regenerated | G1: every candidate passes `secret-scan.sh`; G2: entries appended with required schema; G3: ≥1 entry for task_id in learnings.jsonl | learnings.jsonl has entry for task_id → `claudehut_has_learnings` returns true → phase = `done` |
 
 ---
 
@@ -813,7 +793,6 @@ Brainstorm is the only phase where the orchestrator may need to **re-dispatch th
 ```
 
 The main thread parses `next_action`:
-
 - `MAIN_ASKS_USER` → call `AskUserQuestion` with `open_questions[]` verbatim; re-dispatch brainstormer with `answers[]` folded into prompt via `ANSWERS_JSON` env var.
 - `MAIN_REVIEWS_DRAFT` → show ≤8-line summary of design.md + final approve/revise `AskUserQuestion`; on approve, phase advances.
 - `BLOCKED` → surface blocker to user, stop loop.
@@ -831,7 +810,6 @@ Build does **not** use the Claude `Task` tool for worker execution. It uses `scr
 
 **Per-group loop:**
 For each `Parallel group: N` value in the plan (sorted, ascending):
-
 1. `run-parallel-group.sh <user-intent> <task-id> <plan-file> <N>` creates one git worktree per unchecked task in that group at `<tmp>/wt-<task-num>`.
 2. Each worktree gets a `.claudehut` symlink to the main repo's `.claudehut/` so hooks and state can read the plan.
 3. A `dispatch-prompt.sh "$USER_INTENT" "$TASK_NUM"` call generates a per-task prompt (only that task's block extracted from plan).
@@ -851,18 +829,17 @@ For each `Parallel group: N` value in the plan (sorted, ascending):
 ### Phase 5 — Loop: Verify, Review, and Retry
 
 The `claudehut-verifier` agent:
-
 1. Runs `scripts/run-verify-parallel.sh` — gates run in parallel where possible (build first sequential, then test + lint + static together, then integration + coverage together).
 2. In **a single message**, dispatches 2–6 reviewer subagents in parallel:
 
-| Reviewer subagent             | Condition                                                                   |
-| ----------------------------- | --------------------------------------------------------------------------- |
-| `claudehut-reviewer-security` | always                                                                      |
-| `claudehut-reviewer-perf`     | always                                                                      |
-| `claudehut-reviewer-style`    | always                                                                      |
-| `claudehut-reviewer-db`       | diff touches `db/migration/` or `*Repository.java`                          |
-| `claudehut-reviewer-reactive` | `web_stack == webflux`                                                      |
-| `claudehut-reviewer-mapping`  | diff touches `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java` |
+| Reviewer subagent | Condition |
+|---|---|
+| `claudehut-reviewer-security` | always |
+| `claudehut-reviewer-perf` | always |
+| `claudehut-reviewer-style` | always |
+| `claudehut-reviewer-db` | diff touches `db/migration/` or `*Repository.java` |
+| `claudehut-reviewer-reactive` | `web_stack == webflux` |
+| `claudehut-reviewer-mapping` | diff touches `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java` |
 
 3. `scripts/aggregate-findings.sh` merges reviewer sections into totals and sets `decision: "pass" | "fail"` using:
    ```
@@ -872,15 +849,12 @@ The `claudehut-verifier` agent:
 
 **Loop / retry logic:**
 The retry counter is **not** read from a JSON state file. `state.sh::claudehut_loop_retries()` counts git commits whose subject line matches `^refactor\(loop\)` on the current branch:
-
 ```bash
 git log --format='%s' "$branch" | grep -cE '^refactor\(loop\)'
 ```
-
 The threshold is hardcoded to `3` in `retry-escalation.md`, all `dispatch-prompt.sh` scripts, and verifier G7. The `plugin.json` `userConfig.loop_max_retries` (default 3, range 1–10) declares this as a tunable but is not currently wired to replace the hardcoded constant anywhere in the codebase.
 
 On FAIL:
-
 - If `retries < 3`: verifier injects a synthetic refactor task into the plan (commit subject `refactor(loop): address findings from loop iteration N`). Plan now has a `- [ ]` entry → `claudehut_phase()` returns `build` → loop restarts from Build phase.
 - If `retries ≥ 3`: verifier writes an escalation report and hands control back to user. The user may re-plan (resets counter, phase = `plan`) or explicitly accept (phase = `learn`).
 
@@ -889,7 +863,6 @@ On FAIL:
 ### Phase 6 — Learn
 
 The `claudehut-learner` agent runs on `haiku` (cheapest model; task is extraction, not reasoning). It:
-
 1. Runs `scripts/learn-extract.sh` — proposes candidates from `git diff <merge-base>..HEAD`, heuristically categorized by file pattern (`*Mapper.java` → `pattern/mapstruct`, `db/migration/V*.sql` → `pattern/flyway`, etc.).
 2. Categorizes each entry: `pattern | anti-pattern | decision | gotcha | command | tombstone`.
 3. Runs `scripts/secret-scan.sh` on every candidate — rejects any matching secret regex patterns before write.
@@ -903,20 +876,20 @@ Phase advances to `done` when `claudehut_has_learnings()` finds `"task_id":"<id>
 
 ### Key File Paths
 
-| Artifact                 | Path                                          |
-| ------------------------ | --------------------------------------------- |
-| Design document          | `.claudehut/specs/<task-id>-design.md`        |
-| Contract document        | `.claudehut/specs/<task-id>-contract.md`      |
-| Plan document            | `.claudehut/plans/<task-id>-plan.md`          |
-| Findings + decision      | `.claudehut/findings/<task-id>-findings.json` |
-| Project learnings        | `.claudehut/memory/learnings.jsonl`           |
-| Memory index             | `.claudehut/memory/index.md`                  |
-| Stack signals            | `.claudehut/memory/stack-signals.md`          |
-| Conventions              | `.claudehut/memory/conventions.md`            |
-| Worker logs              | `.claudehut/logs/group<N>-task<M>.log`        |
-| Global promoted patterns | `~/.claude/claudehut/memory/patterns.jsonl`   |
-| State library            | `hooks/lib/state.sh`                          |
-| Phase dispatch scripts   | `skills/<phase>/scripts/dispatch-prompt.sh`   |
+| Artifact | Path |
+|---|---|
+| Design document | `.claudehut/specs/<task-id>-design.md` |
+| Contract document | `.claudehut/specs/<task-id>-contract.md` |
+| Plan document | `.claudehut/plans/<task-id>-plan.md` |
+| Findings + decision | `.claudehut/findings/<task-id>-findings.json` |
+| Project learnings | `.claudehut/memory/learnings.jsonl` |
+| Memory index | `.claudehut/memory/index.md` |
+| Stack signals | `.claudehut/memory/stack-signals.md` |
+| Conventions | `.claudehut/memory/conventions.md` |
+| Worker logs | `.claudehut/logs/group<N>-task<M>.log` |
+| Global promoted patterns | `~/.claude/claudehut/memory/patterns.jsonl` |
+| State library | `hooks/lib/state.sh` |
+| Phase dispatch scripts | `skills/<phase>/scripts/dispatch-prompt.sh` |
 
 ---
 
@@ -936,18 +909,18 @@ name: claudehut-<agent-name>
 description: <one-line purpose + spawn eligibility note>
 model: sonnet | opus | haiku
 tools: <comma-separated allowlist>
-skills: # optional — preloaded before the task prompt
+skills:               # optional — preloaded before the task prompt
   - claudehut:<skill-name>
 ---
 ```
 
-| Field         | Meaning                                                                                                                    |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `name`        | Stable identifier used in `Task(subagent_type=...)` calls                                                                  |
+| Field | Meaning |
+|---|---|
+| `name` | Stable identifier used in `Task(subagent_type=...)` calls |
 | `description` | Human + orchestrator routing hint; orchestrator's description explicitly reads "DO NOT SPAWN as subagent (recursive call)" |
-| `model`       | Model tier assigned to the agent (see table below)                                                                         |
-| `tools`       | Explicit tool allowlist — the agent cannot call tools outside this list                                                    |
-| `skills`      | Skills preloaded into the subagent's context before the task prompt; each entry is a `claudehut:<name>` skill pointer      |
+| `model` | Model tier assigned to the agent (see table below) |
+| `tools` | Explicit tool allowlist — the agent cannot call tools outside this list |
+| `skills` | Skills preloaded into the subagent's context before the task prompt; each entry is a `claudehut:<name>` skill pointer |
 
 ---
 
@@ -955,12 +928,12 @@ skills: # optional — preloaded before the task prompt
 
 Every agent body (except the orchestrator, which adds a Routing table) uses the same four-section behavioral scaffold:
 
-| Section        | Purpose                                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Goals**      | Desired end-states expressed as observable outcomes, not instructions                                                                                                       |
-| **Gates**      | Numbered preconditions (`G0`, `G1`, …) that must be satisfied before the agent can exit a phase. Each gate is binary (script exit code, file existence, user approval verb) |
-| **Guardrails** | Absolute prohibitions written as `NEVER …` / `ALWAYS …` imperatives — the agent must not rationalize past them                                                              |
-| **Heuristics** | Situational rules in the form `**<condition>** → <action/severity>`. They encode calibrated judgment the agent applies when facts are ambiguous                             |
+| Section | Purpose |
+|---|---|
+| **Goals** | Desired end-states expressed as observable outcomes, not instructions |
+| **Gates** | Numbered preconditions (`G0`, `G1`, …) that must be satisfied before the agent can exit a phase. Each gate is binary (script exit code, file existence, user approval verb) |
+| **Guardrails** | Absolute prohibitions written as `NEVER …` / `ALWAYS …` imperatives — the agent must not rationalize past them |
+| **Heuristics** | Situational rules in the form `**<condition>** → <action/severity>`. They encode calibrated judgment the agent applies when facts are ambiguous |
 
 This pattern exists verbatim across all 16 spawned agents and in the orchestrator itself.
 
@@ -974,7 +947,7 @@ Every spawned agent carries an identical **"Skill Discipline"** section (introdu
 
 2. **The 1% rule (non-negotiable).** Quoted verbatim from every agent:
 
-   > _"Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check."_
+   > *"Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check."*
 
    The rule explicitly lists domain-specific skills (e.g., `jpa-hibernate`, `spring-webflux`, `mapstruct`, `kafka-*`), safety skills (`owasp-scan`, `flyway-migration`, `secret-scan`), and workflow skills (`tdd-cycle`, `reuse-scan`). Skipping is framed as "guessing in your own head where authoritative content already exists." The justification: "Skill invocation cost is small. Skipping cost is silent drift from project conventions and missed safety gates."
 
@@ -1003,35 +976,35 @@ Its own body reinforces this with a direct instruction: "Do not call `Task(subag
 
 ### Agent Inventory Table
 
-| Agent                             | File                                      | Model  | Preloaded Skills                                                            | Role                                                                                                                                  | Dispatched By                                                                                                    |
-| --------------------------------- | ----------------------------------------- | ------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------- |
-| **claudehut-orchestrator**        | `agents/claudehut-orchestrator.md`        | sonnet | — (main thread; not spawned)                                                | Routes phases, owns session state, never writes code                                                                                  | SessionStart hook (reads file for orientation)                                                                   |
-| **claudehut-brainstormer**        | `agents/claudehut-brainstormer.md`        | opus   | `claudehut:using-claudehut`, `claudehut:brainstorm`, `claudehut:reuse-scan` | Phase 1: scan codebase, draft design doc, enumerate open decisions, return structured payload                                         | Orchestrator (`/claudehut:brainstorm` skill)                                                                     |
-| **claudehut-spec-writer**         | `agents/claudehut-spec-writer.md`         | sonnet | `claudehut:using-claudehut`, `claudehut:spec`                               | Phase 2: convert approved design into Given/When/Then contract with Java types, NFR numbers, edge cases                               | Orchestrator (`/claudehut:spec` skill)                                                                           |
-| **claudehut-planner**             | `agents/claudehut-planner.md`             | opus   | `claudehut:using-claudehut`, `claudehut:plan`, `claudehut:tdd-cycle`        | Phase 3: decompose contract into 2–5 min task blocks with DAG, parallel groups, file paths, risk tags                                 | Orchestrator (`/claudehut:plan` skill)                                                                           |
-| **claudehut-builder**             | `agents/claudehut-builder.md`             | sonnet | `claudehut:using-claudehut`, `claudehut:build`, `claudehut:tdd-cycle`       | Phase 4: execute ONE plan task (RED→GREEN→REFACTOR→commit) in isolated git worktree                                                   | Orchestrator — one instance per task per parallel group                                                          |
-| **claudehut-verifier**            | `agents/claudehut-verifier.md`            | sonnet | `claudehut:using-claudehut`, `claudehut:verify-review`                      | Phase 5: run verify gates, dispatch reviewer fleet in parallel, aggregate findings, decide pass/fail                                  | Orchestrator (`/claudehut:verify-review` skill)                                                                  |
-| **claudehut-learner**             | `agents/claudehut-learner.md`             | haiku  | `claudehut:using-claudehut`, `claudehut:learn`                              | Phase 6: extract patterns/anti-patterns from diff + findings, append to `learnings.jsonl`, reindex                                    | Orchestrator (`/claudehut:learn` skill)                                                                          |
-| **claudehut-reuse-scanner**       | `agents/claudehut-reuse-scanner.md`       | haiku  | `claudehut:using-claudehut`, `claudehut:reuse-scan`                         | Codebase reuse detection (Understand-Anything or Graphify backends; grep fallback); invoked from brainstorm phase and PreToolUse hook | Brainstormer; PreToolUse hook on `*.java` create                                                                 |
-| **claudehut-migration-validator** | `agents/claudehut-migration-validator.md` | haiku  | `claudehut:using-claudehut`, `claudehut:flyway-migration`                   | Pre-write SQL migration safety check (naming, online DDL safety, rolling-deploy compat); returns `pass                                | warn                                                                                                             | block` JSON | PreToolUse hook on `**/db/migration/V*.sql` |
-| **claudehut-test-runner**         | `agents/claudehut-test-runner.md`         | haiku  | `claudehut:using-claudehut`, `claudehut:tdd-cycle`                          | Run one Gradle/Maven test command; return structured JSON summary ≤ 4 KB; no analysis                                                 | Builder (RED/GREEN steps); Verifier                                                                              |
-| **claudehut-stack-detector**      | `agents/claudehut-stack-detector.md`      | haiku  | `claudehut:using-claudehut`                                                 | One-shot Java/Spring stack detection; writes `stack-signals.md`; runs at SessionStart or when signals >14 days old                    | SessionStart hook                                                                                                |
-| **claudehut-reviewer-security**   | `agents/claudehut-reviewer-security.md`   | sonnet | `claudehut:using-claudehut`, `claudehut:owasp-scan`                         | Security review: OWASP Top 10, Spring Security misconfig, SpEL injection, Jackson deserialization, hardcoded secrets                  | Verifier (always dispatched)                                                                                     |
-| **claudehut-reviewer-perf**       | `agents/claudehut-reviewer-perf.md`       | sonnet | `claudehut:using-claudehut`                                                 | Performance review: N+1, blocking in reactive chains, unbounded streams, pool misuse                                                  | Verifier (always dispatched)                                                                                     |
-| **claudehut-reviewer-db**         | `agents/claudehut-reviewer-db.md`         | sonnet | `claudehut:using-claudehut`, `claudehut:r2dbc`, `claudehut:jpa-hibernate`   | DB review: migration online safety, JPA/R2DBC correctness, EXPLAIN ANALYZE via Postgres MCP (dev only)                                | Verifier (when `db/migration/` or `*Repository.java` in diff)                                                    |
-| **claudehut-reviewer-reactive**   | `agents/claudehut-reviewer-reactive.md`   | sonnet | `claudehut:using-claudehut`, `claudehut:spring-webflux`                     | Reactive correctness: subscribe leaks, blocking-in-chain, wrong scheduler, context propagation                                        | Verifier (when `web_stack == webflux`)                                                                           |
-| **claudehut-reviewer-style**      | `agents/claudehut-reviewer-style.md`      | haiku  | `claudehut:using-claudehut`, `claudehut:lombok`                             | Style/idiom review: Java 17+ idioms, SOLID, naming, over-engineering; most findings Low                                               | Verifier (always dispatched)                                                                                     |
-| **claudehut-reviewer-mapping**    | `agents/claudehut-reviewer-mapping.md`    | haiku  | `claudehut:using-claudehut`, `claudehut:mapstruct`, `claudehut:jackson`     | MapStruct config + Jackson polymorphism/DTO correctness                                                                               | Verifier (when `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java`, or `*ObjectMapper*.java` in diff) |
+| Agent | File | Model | Preloaded Skills | Role | Dispatched By |
+|---|---|---|---|---|---|
+| **claudehut-orchestrator** | `agents/claudehut-orchestrator.md` | sonnet | — (main thread; not spawned) | Routes phases, owns session state, never writes code | SessionStart hook (reads file for orientation) |
+| **claudehut-brainstormer** | `agents/claudehut-brainstormer.md` | opus | `claudehut:using-claudehut`, `claudehut:brainstorm`, `claudehut:reuse-scan` | Phase 1: scan codebase, draft design doc, enumerate open decisions, return structured payload | Orchestrator (`/claudehut:brainstorm` skill) |
+| **claudehut-spec-writer** | `agents/claudehut-spec-writer.md` | sonnet | `claudehut:using-claudehut`, `claudehut:spec` | Phase 2: convert approved design into Given/When/Then contract with Java types, NFR numbers, edge cases | Orchestrator (`/claudehut:spec` skill) |
+| **claudehut-planner** | `agents/claudehut-planner.md` | opus | `claudehut:using-claudehut`, `claudehut:plan`, `claudehut:tdd-cycle` | Phase 3: decompose contract into 2–5 min task blocks with DAG, parallel groups, file paths, risk tags | Orchestrator (`/claudehut:plan` skill) |
+| **claudehut-builder** | `agents/claudehut-builder.md` | sonnet | `claudehut:using-claudehut`, `claudehut:build`, `claudehut:tdd-cycle` | Phase 4: execute ONE plan task (RED→GREEN→REFACTOR→commit) in isolated git worktree | Orchestrator — one instance per task per parallel group |
+| **claudehut-verifier** | `agents/claudehut-verifier.md` | sonnet | `claudehut:using-claudehut`, `claudehut:verify-review` | Phase 5: run verify gates, dispatch reviewer fleet in parallel, aggregate findings, decide pass/fail | Orchestrator (`/claudehut:verify-review` skill) |
+| **claudehut-learner** | `agents/claudehut-learner.md` | haiku | `claudehut:using-claudehut`, `claudehut:learn` | Phase 6: extract patterns/anti-patterns from diff + findings, append to `learnings.jsonl`, reindex | Orchestrator (`/claudehut:learn` skill) |
+| **claudehut-reuse-scanner** | `agents/claudehut-reuse-scanner.md` | haiku | `claudehut:using-claudehut`, `claudehut:reuse-scan` | Codebase reuse detection (Understand-Anything or Graphify backends; grep fallback); invoked from brainstorm phase and PreToolUse hook | Brainstormer; PreToolUse hook on `*.java` create |
+| **claudehut-migration-validator** | `agents/claudehut-migration-validator.md` | haiku | `claudehut:using-claudehut`, `claudehut:flyway-migration` | Pre-write SQL migration safety check (naming, online DDL safety, rolling-deploy compat); returns `pass|warn|block` JSON | PreToolUse hook on `**/db/migration/V*.sql` |
+| **claudehut-test-runner** | `agents/claudehut-test-runner.md` | haiku | `claudehut:using-claudehut`, `claudehut:tdd-cycle` | Run one Gradle/Maven test command; return structured JSON summary ≤ 4 KB; no analysis | Builder (RED/GREEN steps); Verifier |
+| **claudehut-stack-detector** | `agents/claudehut-stack-detector.md` | haiku | `claudehut:using-claudehut` | One-shot Java/Spring stack detection; writes `stack-signals.md`; runs at SessionStart or when signals >14 days old | SessionStart hook |
+| **claudehut-reviewer-security** | `agents/claudehut-reviewer-security.md` | sonnet | `claudehut:using-claudehut`, `claudehut:owasp-scan` | Security review: OWASP Top 10, Spring Security misconfig, SpEL injection, Jackson deserialization, hardcoded secrets | Verifier (always dispatched) |
+| **claudehut-reviewer-perf** | `agents/claudehut-reviewer-perf.md` | sonnet | `claudehut:using-claudehut` | Performance review: N+1, blocking in reactive chains, unbounded streams, pool misuse | Verifier (always dispatched) |
+| **claudehut-reviewer-db** | `agents/claudehut-reviewer-db.md` | sonnet | `claudehut:using-claudehut`, `claudehut:r2dbc`, `claudehut:jpa-hibernate` | DB review: migration online safety, JPA/R2DBC correctness, EXPLAIN ANALYZE via Postgres MCP (dev only) | Verifier (when `db/migration/` or `*Repository.java` in diff) |
+| **claudehut-reviewer-reactive** | `agents/claudehut-reviewer-reactive.md` | sonnet | `claudehut:using-claudehut`, `claudehut:spring-webflux` | Reactive correctness: subscribe leaks, blocking-in-chain, wrong scheduler, context propagation | Verifier (when `web_stack == webflux`) |
+| **claudehut-reviewer-style** | `agents/claudehut-reviewer-style.md` | haiku | `claudehut:using-claudehut`, `claudehut:lombok` | Style/idiom review: Java 17+ idioms, SOLID, naming, over-engineering; most findings Low | Verifier (always dispatched) |
+| **claudehut-reviewer-mapping** | `agents/claudehut-reviewer-mapping.md` | haiku | `claudehut:using-claudehut`, `claudehut:mapstruct`, `claudehut:jackson` | MapStruct config + Jackson polymorphism/DTO correctness | Verifier (when `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java`, or `*ObjectMapper*.java` in diff) |
 
 ---
 
 ### Model Assignment Rationale
 
-| Model      | Agents                                                                                                         | Observed rationale                                                                                    |
-| ---------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **opus**   | brainstormer, planner                                                                                          | Highest creative and reasoning load: open-ended design, complex DAG construction with BFS parallelism |
-| **sonnet** | orchestrator, spec-writer, builder, verifier, reviewer-security, reviewer-perf, reviewer-db, reviewer-reactive | Balanced reasoning + code production; security and performance judgment demands mid-tier              |
-| **haiku**  | learner, reuse-scanner, migration-validator, test-runner, stack-detector, reviewer-style, reviewer-mapping     | Narrow, well-defined tasks with structured outputs; cost/latency optimization                         |
+| Model | Agents | Observed rationale |
+|---|---|---|
+| **opus** | brainstormer, planner | Highest creative and reasoning load: open-ended design, complex DAG construction with BFS parallelism |
+| **sonnet** | orchestrator, spec-writer, builder, verifier, reviewer-security, reviewer-perf, reviewer-db, reviewer-reactive | Balanced reasoning + code production; security and performance judgment demands mid-tier |
+| **haiku** | learner, reuse-scanner, migration-validator, test-runner, stack-detector, reviewer-style, reviewer-mapping | Narrow, well-defined tasks with structured outputs; cost/latency optimization |
 
 ---
 
@@ -1076,14 +1049,14 @@ Each reviewer is **read-only** — `Edit` and `Write` are absent from every revi
 
 **Conditional dispatch matrix** (from `claudehut-verifier.md`):
 
-| Reviewer                      | Always | Trigger condition                                                                                  |
-| ----------------------------- | ------ | -------------------------------------------------------------------------------------------------- |
-| `claudehut-reviewer-security` | Yes    | —                                                                                                  |
-| `claudehut-reviewer-perf`     | Yes    | —                                                                                                  |
-| `claudehut-reviewer-style`    | Yes    | —                                                                                                  |
-| `claudehut-reviewer-db`       | No     | diff touches `db/migration/` or `*Repository.java`                                                 |
-| `claudehut-reviewer-reactive` | No     | `web_stack == webflux` (from `stack-signals.md`)                                                   |
-| `claudehut-reviewer-mapping`  | No     | diff touches `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java`, `*ObjectMapper*.java` |
+| Reviewer | Always | Trigger condition |
+|---|---|---|
+| `claudehut-reviewer-security` | Yes | — |
+| `claudehut-reviewer-perf` | Yes | — |
+| `claudehut-reviewer-style` | Yes | — |
+| `claudehut-reviewer-db` | No | diff touches `db/migration/` or `*Repository.java` |
+| `claudehut-reviewer-reactive` | No | `web_stack == webflux` (from `stack-signals.md`) |
+| `claudehut-reviewer-mapping` | No | diff touches `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java`, `*ObjectMapper*.java` |
 
 **Decision rule.** The verifier aggregates all reviewer findings and applies a binary decision: `0 critical AND 0 high → pass`; any critical or high finding → `fail`. On fail with `retries < 3`, the verifier injects a refactor task into the plan (commit message prefixed `refactor(loop):` to increment the retry counter). On `retries >= 3`, the verifier escalates to the user and stops looping.
 
@@ -1127,9 +1100,9 @@ Every orchestrator response opens with `[claudehut] task=<id> phase=<phase>` and
 
 ---
 
-## 5. Skill system (29 skills)
+## 5. Skill system (30 skills)
 
-ClaudeHut ships 29 skills under `skills/*/SKILL.md`. Each skill is a self-contained knowledge unit loaded into an agent's context window on demand via the `Skill` tool or preloaded via agent `skills:` frontmatter. The count in the task prompt says "31 skills" but the live filesystem at `/Users/taiphan/Documents/Projects/lab/claudehut/claudehut/skills/` contains exactly 29 directories, each with one `SKILL.md`.
+ClaudeHut ships 30 skills under `skills/*/SKILL.md`. Each skill is a self-contained knowledge unit loaded into an agent's context window on demand via the `Skill` tool or preloaded via agent `skills:` frontmatter. The count in the task prompt says "30 skills" but the live filesystem at `/Users/taiphan/Documents/Projects/lab/claudehut/claudehut/skills/` contains exactly 29 directories, each with one `SKILL.md`.
 
 ---
 
@@ -1137,18 +1110,17 @@ ClaudeHut ships 29 skills under `skills/*/SKILL.md`. Each skill is a self-contai
 
 Every `SKILL.md` begins with a YAML frontmatter block parsed by the Claude Code harness. The full specification lives in `skills/write-skill/references/frontmatter-contract.md`.
 
-| Field                      | Required | Constraints                                                                                  | Effect                                                                                                       |
-| -------------------------- | -------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `name`                     | Yes      | Lowercase kebab-case; **must equal folder name exactly**                                     | Resolves `/claudehut:<name>` slash command                                                                   |
-| `description`              | Yes      | ≤ 200 chars recommended (hard limit 500); must encode both _what_ and _when-to-use triggers_ | **This is the only content read to decide auto-trigger** — body only loads after trigger fires               |
-| `allowed-tools`            | No       | List e.g. `[Read, Grep, Bash]`                                                               | Restricts tool set inside the skill invocation                                                               |
-| `disable-model-invocation` | No       | `true` / `false`                                                                             | When `true`, skill is only invokable via explicit slash command — never auto-triggers from description match |
-| `model`                    | No       | e.g. `claude-haiku-4-5`                                                                      | Pins the model for that skill invocation                                                                     |
+| Field | Required | Constraints | Effect |
+|---|---|---|---|
+| `name` | Yes | Lowercase kebab-case; **must equal folder name exactly** | Resolves `/claudehut:<name>` slash command |
+| `description` | Yes | ≤ 200 chars recommended (hard limit 500); must encode both *what* and *when-to-use triggers* | **This is the only content read to decide auto-trigger** — body only loads after trigger fires |
+| `allowed-tools` | No | List e.g. `[Read, Grep, Bash]` | Restricts tool set inside the skill invocation |
+| `disable-model-invocation` | No | `true` / `false` | When `true`, skill is only invokable via explicit slash command — never auto-triggers from description match |
+| `model` | No | e.g. `claude-haiku-4-5` | Pins the model for that skill invocation |
 
 Non-standard `claudehut:` extensions (`phase`, `mandatory`, `triggers`, `auto-enforce-when`, `produces`, `next-phase-skill`) are read by `hooks/prompt-router.sh` for phase routing and auto-enforce decisions. The harness ignores them if `prompt-router.sh` is absent.
 
 The structural contract enforced by `scripts/validate-skill.sh`:
-
 - Folder name = `name` in frontmatter (identical, case-exact).
 - Body ≤ 500 lines; target ≤ 300.
 - No `README.md`, `INSTALL.md`, or `CHANGELOG.md` inside the skill folder (Anthropic guideline).
@@ -1173,7 +1145,7 @@ flowchart LR
 Two invocation paths exist:
 
 1. **Skill tool (programmatic)** — an agent calls `Skill("claudehut:spring-mvc")`. The harness loads the full `SKILL.md` body into the agent's context. This is the primary path inside subagents.
-2. **Slash command (interactive)** — a human types `/claudehut:discover`. The harness resolves the name to `skills/discover/SKILL.md`. Skills with `disable-model-invocation: true` (`systematic-debug`, `write-skill`) are _only_ reachable this way.
+2. **Slash command (interactive)** — a human types `/claudehut:discover`. The harness resolves the name to `skills/discover/SKILL.md`. Skills with `disable-model-invocation: true` (`systematic-debug`, `write-skill`) are *only* reachable this way.
 
 ---
 
@@ -1202,16 +1174,14 @@ skills:
 Its body establishes three contracts:
 
 1. **The 1% rule (non-negotiable invocation rule)**
-
-   > _Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check._
-   > The rule is stated as a hard constraint, not a heuristic. Six named rationalizations ("I already know this pattern", "Task is small", etc.) are explicitly listed and rebutted in a red-flags table.
+   > *Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check.*
+   The rule is stated as a hard constraint, not a heuristic. Six named rationalizations ("I already know this pattern", "Task is small", etc.) are explicitly listed and rebutted in a red-flags table.
 
 2. **Dispatch-to-skill mapping table** — A lookup table maps each `subagent_type` × file pattern to the required skill. Example: `claudehut-builder` touching `*KafkaListener.java` → must invoke `claudehut:kafka-consumer`. This mapping is human-authored and lives in the skill body, not in a hook.
 
 3. **Termination contract** — Documents that `AskUserQuestion`, `Agent`, `EnterPlanMode`, `ExitPlanMode`, `ScheduleWakeup`, and `WaitForMcpServers` are unavailable in subagent contexts. Subagents must use the scan-and-return pattern: draft artifact, emit structured return block with `open_questions[]`, terminate. The main thread relays questions to the user.
 
 **Catalog regeneration** — The catalog table inside `using-claudehut/SKILL.md` is machine-generated and must not be hand-edited. The script `scripts/regen-using-claudehut.sh`:
-
 - Enumerates `skills/*/SKILL.md` via `find … | LC_ALL=C sort` (locale-independent for CI portability).
 - Extracts `name` and `description` from each frontmatter block using `awk`.
 - Truncates descriptions to 180 bytes via `LC_ALL=C awk substr` (consistent across macOS BSD and GNU `cut` for multibyte characters — several descriptions contain Vietnamese and em-dash characters).
@@ -1224,38 +1194,38 @@ Run after any skill add, remove, or description edit.
 
 ### Skill catalog
 
-| Skill                        | Category                 | What it provides                                                                                                                                                                 | Trigger                                                                                                                                                                                                               |
-| ---------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claudehut:brainstorm`       | Workflow — phase 1       | Codebase scan + reuse detection, design document draft, `open_questions[]` payload for main thread                                                                               | Natural language "add / implement / build / design / refactor / fix bug" + noun; or `/claudehut:brainstorm`                                                                                                           |
-| `claudehut:spec`             | Workflow — phase 2       | Converts approved design into Given/When/Then behavioral contract; produces `.claudehut/specs/<id>-contract.md`                                                                  | `phase=spec` or explicit invocation after Brainstorm approval                                                                                                                                                         |
-| `claudehut:plan`             | Workflow — phase 3       | Breaks contract into file-level tasks (2–5 min chunks), RED test commands, GREEN steps, DAG dependencies; produces `.claudehut/plans/<id>-plan.md`                               | `phase=plan` or after Spec approval                                                                                                                                                                                   |
-| `claudehut:build`            | Workflow — phase 4       | Dispatches parallel builder subagents per DAG group, each in isolated git worktree; merges results; strict TDD per task                                                          | `phase=build` or after Plan approval                                                                                                                                                                                  |
-| `claudehut:verify-review`    | Workflow — phase 5       | Runs verify pipeline (build/tests/coverage/lint/static/security); dispatches parallel reviewer subagents; pass-or-refactor with max 3 retries                                    | `phase=loop`; preloaded into `claudehut-verifier`                                                                                                                                                                     |
-| `claudehut:learn`            | Workflow — phase 6       | Extracts patterns, anti-patterns, decisions, reusable snippets; persists to `.claudehut/memory/learnings.jsonl`; updates `index.md`; promotes to global tier at threshold        | `phase=learn`; after Verify-Review passes                                                                                                                                                                             |
-| `claudehut:init`             | Workflow — bootstrap     | Scaffolds `.claudehut/` directory (memory/, specs/, plans/, state/, rules/); refuses if already initialized                                                                      | `/claudehut:init`; one-time per project                                                                                                                                                                               |
-| `claudehut:discover`         | Workflow — diagnostic    | Read-only status dump: active task, current phase, detected stack, loaded skills/agents/rules/hooks, integration backend status, MCP server status                               | `/claudehut:discover`; on-demand                                                                                                                                                                                      |
-| `claudehut:spring-mvc`       | Domain — web layer       | `@RestController` conventions, validation, `ResponseEntity`, `@ControllerAdvice`, RFC 7807 `ProblemDetail`, JWT auth integration for Spring Boot 3.x servlet stack               | Auto: editing `**/*Controller.java` in projects with `web_stack=mvc`                                                                                                                                                  |
-| `claudehut:spring-webflux`   | Domain — web layer       | `RouterFunctions` + Handler pattern, schedulers, context propagation, `StepVerifier` testing, backpressure for Spring Boot 3.x reactive stack                                    | Auto: editing `**/*Handler.java` or `**/*Controller.java` with `web_stack=webflux`                                                                                                                                    |
-| `claudehut:jpa-hibernate`    | Domain — persistence     | `@Entity` mapping, fetch strategies (N+1 prevention), `@Transactional` semantics, JPQL/Criteria, projection patterns for servlet stack                                           | Auto: editing `**/*Repository.java` or `**/*Entity.java` with `orm=jpa`                                                                                                                                               |
-| `claudehut:r2dbc`            | Domain — persistence     | `ReactiveCrudRepository`, `R2dbcEntityTemplate`, reactive transactions, converter setup, Testcontainers integration for WebFlux stack                                            | Auto: editing `**/*Repository.java` with `orm=r2dbc`                                                                                                                                                                  |
-| `claudehut:mapstruct`        | Domain — mapping         | `@Mapping` / `@MappingTarget` / `@BeanMapping` config, null strategies, Lombok interop, before/after mapping hooks, generated impl review                                        | Auto: editing `**/*Mapper.java` with `@Mapper` annotation                                                                                                                                                             |
-| `claudehut:jackson`          | Domain — serialization   | `ObjectMapper` config, polymorphic deserialization (subtype whitelist), `JavaTimeModule`, mixins, mass-assignment prevention for Spring Boot 3.x                                 | Auto: editing `**/*Dto.java`, `**/*Request.java`, `**/*Response.java`, `**/ObjectMapper*.java`, `**/JsonConfig*.java`                                                                                                 |
-| `claudehut:kafka-consumer`   | Domain — messaging       | `@KafkaListener`, manual ack modes, DLT pattern, retry topic, idempotency via dedup store, JSON/Avro deserialization                                                             | Auto: editing `**/*Listener*.java` or `**/*Consumer*.java` with `messaging=kafka`                                                                                                                                     |
-| `claudehut:kafka-producer`   | Domain — messaging       | Idempotent producer config, transactional outbox pattern, Schema Registry integration, JSON/Avro serialization, retry + backoff                                                  | Auto: editing `**/*Producer*.java` or `**/*Publisher*.java` with `messaging=kafka`                                                                                                                                    |
-| `claudehut:rabbitmq`         | Domain — messaging       | Exchange/queue/binding topology, manual ack, DLX (dead-letter exchange) pattern, retry policy, message TTL (Spring AMQP)                                                         | Auto: editing `**/*RabbitListener*.java` with `messaging=rabbitmq`                                                                                                                                                    |
-| `claudehut:nats`             | Domain — messaging       | JetStream durable consumers, ack policies, streams + consumers, replay (jnats library)                                                                                           | Auto: editing `**/*NatsListener*.java` or `**/*NatsClient*.java` with `messaging=nats`                                                                                                                                |
-| `claudehut:redis-cache`      | Domain — caching         | `@Cacheable` key strategy, TTL/eviction policies, Redisson distributed lock patterns, `RedisTemplate` config + serialization                                                     | Auto: editing `**/*Cache*.java` or files using `@Cacheable`                                                                                                                                                           |
-| `claudehut:testcontainers`   | Domain — testing         | Singleton vs per-class lifecycle, reuse flag, network sharing, Postgres/Kafka/Redis containers, dynamic Spring properties                                                        | Auto: editing `**/*IT.java` or `src/integrationTest/**/*.java`                                                                                                                                                        |
-| `claudehut:wiremock-stub`    | Domain — testing         | Stub mapping JSON format, scenario-based stateful stubs, request matching strategies, fault injection for HTTP integration tests                                                 | Auto: editing `src/test/**/*Wiremock*.java` or `**/__stubs/*.json`                                                                                                                                                    |
-| `claudehut:flyway-migration` | Domain — schema          | Naming conventions, online-safe DDL (`CREATE INDEX CONCURRENTLY`, expand-contract for renames), idempotency, backfill patterns for PostgreSQL/MySQL                              | Auto: editing `**/db/migration/V*.sql` or `R*.sql`                                                                                                                                                                    |
-| `claudehut:lombok`           | Domain — code generation | Safe-annotation matrix, JPA-entity / Jackson / MapStruct interop traps, builder patterns with inheritance and defaults, recommended `lombok.config`                              | Auto: any `.java` file with Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import — even a one-line `@Slf4j` edit triggers via the 1% rule |
-| `claudehut:owasp-scan`       | Domain — security        | OWASP dependency-check + Spring Security misconfig regex scans; structured findings; fails build on High/Critical CVEs                                                           | Used in Phase 5 verify stage; `/claudehut:owasp-scan` for on-demand                                                                                                                                                   |
-| `claudehut:arch-unit-check`  | Domain — architecture    | Runs ArchUnit tests to enforce package-layout / hexagonal / DDD rules; optional (skips if ArchUnit not on classpath)                                                             | Used in Phase 5 verify stage; `/claudehut:arch-unit-check` for ad-hoc                                                                                                                                                 |
-| `claudehut:tdd-cycle`        | Workflow discipline      | Enforces RED → GREEN → REFACTOR; detects and rejects anti-patterns (prod-before-test, test-after, manual-test rationalization)                                                   | Required every Build phase task; auto: test files in scope; preloaded into `claudehut-builder`                                                                                                                        |
-| `claudehut:reuse-scan`       | Workflow discipline      | Scans codebase for reusable implementations before creating new classes; detects and invokes Understand-Anything / Graphify if installed; fallback grep + heuristic              | Auto: Phase Brainstorm step 2; `PreToolUse(Write)` for new Java files; `/claudehut:reuse-scan <topic>`                                                                                                                |
-| `claudehut:systematic-debug` | Workflow discipline      | Structured reproduce → isolate (bisect) → root cause → test → fix protocol; `disable-model-invocation: true`                                                                     | On-demand only: `/claudehut:debug <symptom>` or explicit Skill tool call; does not auto-trigger                                                                                                                       |
-| `claudehut:using-claudehut`  | Meta                     | Preloads the 1% invocation rule, dispatch-to-skill mapping table, termination contract, and full generated skill catalog into every dispatch-eligible subagent                   | Preloaded via `skills:` frontmatter in every agent definition; not invoked for domain knowledge                                                                                                                       |
-| `claudehut:write-skill`      | Meta                     | Scaffolds new skill directory (3-bucket layout: `SKILL.md` + `references/` + `scripts/` + `assets/templates/`); validates frontmatter contract; `disable-model-invocation: true` | `/claudehut:write-skill <skill-name> <description>`                                                                                                                                                                   |
+| Skill | Category | What it provides | Trigger |
+|---|---|---|---|
+| `claudehut:brainstorm` | Workflow — phase 1 | Codebase scan + reuse detection, design document draft, `open_questions[]` payload for main thread | Natural language "add / implement / build / design / refactor / fix bug" + noun; or `/claudehut:brainstorm` |
+| `claudehut:spec` | Workflow — phase 2 | Converts approved design into Given/When/Then behavioral contract; produces `.claudehut/specs/<id>-contract.md` | `phase=spec` or explicit invocation after Brainstorm approval |
+| `claudehut:plan` | Workflow — phase 3 | Breaks contract into file-level tasks (2–5 min chunks), RED test commands, GREEN steps, DAG dependencies; produces `.claudehut/plans/<id>-plan.md` | `phase=plan` or after Spec approval |
+| `claudehut:build` | Workflow — phase 4 | Dispatches parallel builder subagents per DAG group, each in isolated git worktree; merges results; strict TDD per task | `phase=build` or after Plan approval |
+| `claudehut:verify-review` | Workflow — phase 5 | Runs verify pipeline (build/tests/coverage/lint/static/security); dispatches parallel reviewer subagents; pass-or-refactor with max 3 retries | `phase=loop`; preloaded into `claudehut-verifier` |
+| `claudehut:learn` | Workflow — phase 6 | Extracts patterns, anti-patterns, decisions, reusable snippets; persists to `.claudehut/memory/learnings.jsonl`; updates `index.md`; promotes to global tier at threshold | `phase=learn`; after Verify-Review passes |
+| `claudehut:init` | Workflow — bootstrap | Scaffolds `.claudehut/` directory (memory/, specs/, plans/, state/, rules/); refuses if already initialized | `/claudehut:init`; one-time per project |
+| `claudehut:discover` | Workflow — diagnostic | Read-only status dump: active task, current phase, detected stack, loaded skills/agents/rules/hooks, integration backend status, MCP server status | `/claudehut:discover`; on-demand |
+| `claudehut:spring-mvc` | Domain — web layer | `@RestController` conventions, validation, `ResponseEntity`, `@ControllerAdvice`, RFC 7807 `ProblemDetail`, JWT auth integration for Spring Boot 3.x servlet stack | Auto: editing `**/*Controller.java` in projects with `web_stack=mvc` |
+| `claudehut:spring-webflux` | Domain — web layer | `RouterFunctions` + Handler pattern, schedulers, context propagation, `StepVerifier` testing, backpressure for Spring Boot 3.x reactive stack | Auto: editing `**/*Handler.java` or `**/*Controller.java` with `web_stack=webflux` |
+| `claudehut:jpa-hibernate` | Domain — persistence | `@Entity` mapping, fetch strategies (N+1 prevention), `@Transactional` semantics, JPQL/Criteria, projection patterns for servlet stack | Auto: editing `**/*Repository.java` or `**/*Entity.java` with `orm=jpa` |
+| `claudehut:r2dbc` | Domain — persistence | `ReactiveCrudRepository`, `R2dbcEntityTemplate`, reactive transactions, converter setup, Testcontainers integration for WebFlux stack | Auto: editing `**/*Repository.java` with `orm=r2dbc` |
+| `claudehut:mapstruct` | Domain — mapping | `@Mapping` / `@MappingTarget` / `@BeanMapping` config, null strategies, Lombok interop, before/after mapping hooks, generated impl review | Auto: editing `**/*Mapper.java` with `@Mapper` annotation |
+| `claudehut:jackson` | Domain — serialization | `ObjectMapper` config, polymorphic deserialization (subtype whitelist), `JavaTimeModule`, mixins, mass-assignment prevention for Spring Boot 3.x | Auto: editing `**/*Dto.java`, `**/*Request.java`, `**/*Response.java`, `**/ObjectMapper*.java`, `**/JsonConfig*.java` |
+| `claudehut:kafka-consumer` | Domain — messaging | `@KafkaListener`, manual ack modes, DLT pattern, retry topic, idempotency via dedup store, JSON/Avro deserialization | Auto: editing `**/*Listener*.java` or `**/*Consumer*.java` with `messaging=kafka` |
+| `claudehut:kafka-producer` | Domain — messaging | Idempotent producer config, transactional outbox pattern, Schema Registry integration, JSON/Avro serialization, retry + backoff | Auto: editing `**/*Producer*.java` or `**/*Publisher*.java` with `messaging=kafka` |
+| `claudehut:rabbitmq` | Domain — messaging | Exchange/queue/binding topology, manual ack, DLX (dead-letter exchange) pattern, retry policy, message TTL (Spring AMQP) | Auto: editing `**/*RabbitListener*.java` with `messaging=rabbitmq` |
+| `claudehut:nats` | Domain — messaging | JetStream durable consumers, ack policies, streams + consumers, replay (jnats library) | Auto: editing `**/*NatsListener*.java` or `**/*NatsClient*.java` with `messaging=nats` |
+| `claudehut:redis-cache` | Domain — caching | `@Cacheable` key strategy, TTL/eviction policies, Redisson distributed lock patterns, `RedisTemplate` config + serialization | Auto: editing `**/*Cache*.java` or files using `@Cacheable` |
+| `claudehut:testcontainers` | Domain — testing | Singleton vs per-class lifecycle, reuse flag, network sharing, Postgres/Kafka/Redis containers, dynamic Spring properties | Auto: editing `**/*IT.java` or `src/integrationTest/**/*.java` |
+| `claudehut:wiremock-stub` | Domain — testing | Stub mapping JSON format, scenario-based stateful stubs, request matching strategies, fault injection for HTTP integration tests | Auto: editing `src/test/**/*Wiremock*.java` or `**/__stubs/*.json` |
+| `claudehut:flyway-migration` | Domain — schema | Naming conventions, online-safe DDL (`CREATE INDEX CONCURRENTLY`, expand-contract for renames), idempotency, backfill patterns for PostgreSQL/MySQL | Auto: editing `**/db/migration/V*.sql` or `R*.sql` |
+| `claudehut:lombok` | Domain — code generation | Safe-annotation matrix, JPA-entity / Jackson / MapStruct interop traps, builder patterns with inheritance and defaults, recommended `lombok.config` | Auto: any `.java` file with Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import — even a one-line `@Slf4j` edit triggers via the 1% rule |
+| `claudehut:owasp-scan` | Domain — security | OWASP dependency-check + Spring Security misconfig regex scans; structured findings; fails build on High/Critical CVEs | Used in Phase 5 verify stage; `/claudehut:owasp-scan` for on-demand |
+| `claudehut:arch-unit-check` | Domain — architecture | Runs ArchUnit tests to enforce package-layout / hexagonal / DDD rules; optional (skips if ArchUnit not on classpath) | Used in Phase 5 verify stage; `/claudehut:arch-unit-check` for ad-hoc |
+| `claudehut:tdd-cycle` | Workflow discipline | Enforces RED → GREEN → REFACTOR; detects and rejects anti-patterns (prod-before-test, test-after, manual-test rationalization) | Required every Build phase task; auto: test files in scope; preloaded into `claudehut-builder` |
+| `claudehut:reuse-scan` | Workflow discipline | Scans codebase for reusable implementations before creating new classes; detects and invokes Understand-Anything / Graphify if installed; fallback grep + heuristic | Auto: Phase Brainstorm step 2; `PreToolUse(Write)` for new Java files; `/claudehut:reuse-scan <topic>` |
+| `claudehut:systematic-debug` | Workflow discipline | Structured reproduce → isolate (bisect) → root cause → test → fix protocol; `disable-model-invocation: true` | On-demand only: `/claudehut:debug <symptom>` or explicit Skill tool call; does not auto-trigger |
+| `claudehut:using-claudehut` | Meta | Preloads the 1% invocation rule, dispatch-to-skill mapping table, termination contract, and full generated skill catalog into every dispatch-eligible subagent | Preloaded via `skills:` frontmatter in every agent definition; not invoked for domain knowledge |
+| `claudehut:write-skill` | Meta | Scaffolds new skill directory (3-bucket layout: `SKILL.md` + `references/` + `scripts/` + `assets/templates/`); validates frontmatter contract; `disable-model-invocation: true` | `/claudehut:write-skill <skill-name> <description>` |
 
 ---
 
@@ -1279,21 +1249,21 @@ No `README.md`, `INSTALL.md`, or `CHANGELOG.md` are permitted inside a skill fol
 
 ### Category summary
 
-| Category                         | Skills                                                   | Count  |
-| -------------------------------- | -------------------------------------------------------- | ------ |
-| Workflow phases (ordered)        | brainstorm → spec → plan → build → verify-review → learn | 6      |
-| Workflow utilities               | init, discover                                           | 2      |
-| Domain — web layer               | spring-mvc, spring-webflux                               | 2      |
-| Domain — persistence             | jpa-hibernate, r2dbc                                     | 2      |
-| Domain — messaging               | kafka-consumer, kafka-producer, rabbitmq, nats           | 4      |
-| Domain — mapping / serialization | mapstruct, jackson, lombok                               | 3      |
-| Domain — caching                 | redis-cache                                              | 1      |
-| Domain — testing                 | testcontainers, wiremock-stub                            | 2      |
-| Domain — schema / migrations     | flyway-migration                                         | 1      |
-| Domain — security / architecture | owasp-scan, arch-unit-check                              | 2      |
-| Workflow discipline              | tdd-cycle, reuse-scan, systematic-debug                  | 3      |
-| Meta                             | using-claudehut, write-skill                             | 2      |
-| **Total**                        |                                                          | **32** |
+| Category | Skills | Count |
+|---|---|---|
+| Workflow phases (ordered) | brainstorm → spec → plan → build → verify-review → learn | 6 |
+| Workflow utilities | init, discover | 2 |
+| Domain — web layer | spring-mvc, spring-webflux | 2 |
+| Domain — persistence | jpa-hibernate, r2dbc | 2 |
+| Domain — messaging | kafka-consumer, kafka-producer, rabbitmq, nats | 4 |
+| Domain — mapping / serialization | mapstruct, jackson, lombok | 3 |
+| Domain — caching | redis-cache | 1 |
+| Domain — testing | testcontainers, wiremock-stub | 2 |
+| Domain — schema / migrations | flyway-migration | 1 |
+| Domain — security / architecture | owasp-scan, arch-unit-check | 2 |
+| Workflow discipline | tdd-cycle, reuse-scan, systematic-debug | 3 |
+| Meta | using-claudehut, write-skill | 2 |
+| **Total** | | **32** |
 
 > Note: The filesystem contains 29 skill directories. The catalog inside `using-claudehut/SKILL.md` lists 28 entries (excluding `using-claudehut` itself). The category table above counts 32 because `lombok` spans both "mapping/serialization" and could be argued under "code generation" — adjust categorization boundaries as needed for the review audience.
 
@@ -1301,22 +1271,22 @@ No `README.md`, `INSTALL.md`, or `CHANGELOG.md` are permitted inside a skill fol
 
 ## 6. Rules system (45 rules)
 
-ClaudeHut ships 45 Markdown rule files organized into six category directories under `rules/`. At project init, `scripts/state/init-project.sh` copies them into the project's `.claude/rules/` directory — the location Claude Code's **native built-in loader** reads. From that point forward, Claude Code loads each rule whenever it reads a file whose path matches the rule's `paths:` frontmatter glob. No custom hook injection is involved; `hooks/pre-tool.sh` lines 120–123 states this explicitly: _"Rule auto-load is handled natively … loaded by Claude Code's built-in loader."_
+ClaudeHut ships 45 Markdown rule files organized into six category directories under `rules/`. At project init, `scripts/state/init-project.sh` copies them into the project's `.claude/rules/` directory — the location Claude Code's **native built-in loader** reads. From that point forward, Claude Code loads each rule whenever it reads a file whose path matches the rule's `paths:` frontmatter glob. No custom hook injection is involved; `hooks/pre-tool.sh` lines 120–123 states this explicitly: *"Rule auto-load is handled natively … loaded by Claude Code's built-in loader."*
 
-> **Doc discrepancy:** The README's architecture diagram (line 317) cites "42 rules / 11 framework." The real file count is **45 rules / 14 framework**. The README is stale; the files on disk are authoritative.
+> **Doc discrepancy:** The README's architecture diagram (line 317) cites "45 rules / 11 framework." The real file count is **45 rules / 14 framework**. The README is stale; the files on disk are authoritative.
 
 ---
 
 ### Category inventory
 
-| Category        | Count | Severity distribution        | Stack-conditional rules         |
-| --------------- | ----- | ---------------------------- | ------------------------------- |
-| `architecture/` | 5     | high×2, medium×2, low×1      | none                            |
-| `coding/`       | 7     | high×1, medium×5, low×1      | none                            |
-| `framework/`    | 14    | critical×2, high×8, medium×4 | 8 of 14                         |
-| `performance/`  | 5     | high×2, medium×3             | 1 (`backpressure`, web=webflux) |
-| `security/`     | 6     | critical×4, high×2           | none                            |
-| `testing/`      | 8     | high×1, medium×6, low×1      | 1 (`stepverifier`, web=webflux) |
+| Category | Count | Severity distribution | Stack-conditional rules |
+|---|---|---|---|
+| `architecture/` | 5 | high×2, medium×2, low×1 | none |
+| `coding/` | 7 | high×1, medium×5, low×1 | none |
+| `framework/` | 14 | critical×2, high×8, medium×4 | 8 of 14 |
+| `performance/` | 5 | high×2, medium×3 | 1 (`backpressure`, web=webflux) |
+| `security/` | 6 | critical×4, high×2 | none |
+| `testing/` | 8 | high×1, medium×6, low×1 | 1 (`stepverifier`, web=webflux) |
 
 ---
 
@@ -1326,12 +1296,12 @@ Every rule file opens with a YAML frontmatter block. The schema has three load-b
 
 ```yaml
 ---
-id: rules/framework/spring-mvc # dot-path identifier; used by findings JSON
-paths: # Claude Code native loader globs (required)
+id: rules/framework/spring-mvc           # dot-path identifier; used by findings JSON
+paths:                                    # Claude Code native loader globs (required)
   - "**/*Controller.java"
-stack: "web=mvc" # optional: key=value constraint from stack-signals.md
-severity: high # advisory severity: critical | high | medium | low
-tags: [spring-mvc, rest, controller] # informational; used by reviewers and verify-review
+stack: "web=mvc"                          # optional: key=value constraint from stack-signals.md
+severity: high                           # advisory severity: critical | high | medium | low
+tags: [spring-mvc, rest, controller]     # informational; used by reviewers and verify-review
 ---
 ```
 
@@ -1347,18 +1317,18 @@ tags: [spring-mvc, rest, controller] # informational; used by reviewers and veri
 
 The 10 stack-conditional rules and their constraints are:
 
-| Rule file                     | `stack:` constraint | Copied when                      |
-| ----------------------------- | ------------------- | -------------------------------- |
-| `framework/spring-mvc.md`     | `web=mvc`           | Web stack detected as Spring MVC |
-| `framework/webflux.md`        | `web=webflux`       | Web stack detected as WebFlux    |
-| `framework/jpa.md`            | `orm=jpa`           | ORM detected as JPA/Hibernate    |
-| `framework/r2dbc.md`          | `orm=r2dbc`         | ORM detected as R2DBC            |
-| `framework/kafka-consumer.md` | `messaging=kafka`   | Messaging detected as Kafka      |
-| `framework/kafka-producer.md` | `messaging=kafka`   | Messaging detected as Kafka      |
-| `framework/mapstruct.md`      | `mapper=mapstruct`  | Mapper detected as MapStruct     |
-| `framework/redis.md`          | `cache=redis`       | Cache detected as Redis          |
-| `performance/backpressure.md` | `web=webflux`       | Web stack detected as WebFlux    |
-| `testing/stepverifier.md`     | `web=webflux`       | Web stack detected as WebFlux    |
+| Rule file | `stack:` constraint | Copied when |
+|---|---|---|
+| `framework/spring-mvc.md` | `web=mvc` | Web stack detected as Spring MVC |
+| `framework/webflux.md` | `web=webflux` | Web stack detected as WebFlux |
+| `framework/jpa.md` | `orm=jpa` | ORM detected as JPA/Hibernate |
+| `framework/r2dbc.md` | `orm=r2dbc` | ORM detected as R2DBC |
+| `framework/kafka-consumer.md` | `messaging=kafka` | Messaging detected as Kafka |
+| `framework/kafka-producer.md` | `messaging=kafka` | Messaging detected as Kafka |
+| `framework/mapstruct.md` | `mapper=mapstruct` | Mapper detected as MapStruct |
+| `framework/redis.md` | `cache=redis` | Cache detected as Redis |
+| `performance/backpressure.md` | `web=webflux` | Web stack detected as WebFlux |
+| `testing/stepverifier.md` | `web=webflux` | Web stack detected as WebFlux |
 
 The `spring-mvc` and `webflux` rules are mutually exclusive: only one is ever present in `.claude/rules/` for a given project. Similarly, `jpa.md` and `r2dbc.md` are mutually exclusive via `orm=`.
 
@@ -1368,16 +1338,16 @@ The `spring-mvc` and `webflux` rules are mutually exclusive: only one is ever pr
 
 The `build` skill documents the practical mapping between file naming conventions and the rules that fire on each. Both JPA and R2DBC target `**/*Repository.java`; only one is copied, selected by the `orm=` stack signal.
 
-| File pattern                      | Rule loaded                           | `stack:` guard     |
-| --------------------------------- | ------------------------------------- | ------------------ |
-| `**/*Controller.java`             | `rules/framework/spring-mvc.md`       | `web=mvc`          |
-| `**/*Handler.java`                | `rules/framework/webflux.md`          | `web=webflux`      |
-| `**/*Repository.java`             | `rules/framework/jpa.md`              | `orm=jpa`          |
-| `**/*Repository.java`             | `rules/framework/r2dbc.md`            | `orm=r2dbc`        |
-| `**/*Mapper.java`                 | `rules/framework/mapstruct.md`        | `mapper=mapstruct` |
-| `**/*{Dto,Request,Response}.java` | `rules/framework/jackson.md`          | none               |
-| `**/db/migration/V*.sql`          | `rules/framework/migration-safety.md` | none               |
-| `**/*{Consumer,Listener}*.java`   | `rules/framework/kafka-consumer.md`   | `messaging=kafka`  |
+| File pattern | Rule loaded | `stack:` guard |
+|---|---|---|
+| `**/*Controller.java` | `rules/framework/spring-mvc.md` | `web=mvc` |
+| `**/*Handler.java` | `rules/framework/webflux.md` | `web=webflux` |
+| `**/*Repository.java` | `rules/framework/jpa.md` | `orm=jpa` |
+| `**/*Repository.java` | `rules/framework/r2dbc.md` | `orm=r2dbc` |
+| `**/*Mapper.java` | `rules/framework/mapstruct.md` | `mapper=mapstruct` |
+| `**/*{Dto,Request,Response}.java` | `rules/framework/jackson.md` | none |
+| `**/db/migration/V*.sql` | `rules/framework/migration-safety.md` | none |
+| `**/*{Consumer,Listener}*.java` | `rules/framework/kafka-consumer.md` | `messaging=kafka` |
 
 ---
 
@@ -1413,7 +1383,7 @@ Rules that are also hardcoded into reviewer agent system prompts. The clearest e
 **Tier 3 — Enforced (hook-gated denial)**
 Rules where violations can produce a `permissionDecision: "deny"` before the write reaches Claude at all, or where the Phase 5 verify gate blocks phase promotion. Two distinct enforcement points:
 
-- **PreToolUse write-time block (via `claudehut-migration-validator`):** `rules/framework/migration-safety.md` and `rules/framework/flyway-naming.md` are the only rules with a direct write-time denial path. The `claudehut-migration-validator` agent is invoked by the PreToolUse hook when any `**/db/migration/V*.sql` file is about to be written. If its verdict is `"block"` (≥1 Critical issue), the hook emits `permissionDecision: "deny"`. The rule file itself states: _"PreToolUse hook invokes validator on every migration write. Critical issues block via `permissionDecision: 'deny'`."_
+- **PreToolUse write-time block (via `claudehut-migration-validator`):** `rules/framework/migration-safety.md` and `rules/framework/flyway-naming.md` are the only rules with a direct write-time denial path. The `claudehut-migration-validator` agent is invoked by the PreToolUse hook when any `**/db/migration/V*.sql` file is about to be written. If its verdict is `"block"` (≥1 Critical issue), the hook emits `permissionDecision: "deny"`. The rule file itself states: *"PreToolUse hook invokes validator on every migration write. Critical issues block via `permissionDecision: 'deny'`."*
 
 - **Phase 5 Loop verify gate:** The four `severity: critical` security rules (`deserialization`, `owasp-top10`, `spring-security`, `secret-mgmt`) and `severity: critical` `lombok-jpa-safety` block Loop-phase promotion rather than write-time execution. The `claudehut-verifier` agent aggregates reviewer findings; the decision rule is `0 critical AND 0 high → pass`. A critical finding from `claudehut-reviewer-security` or `claudehut-reviewer-mapping` causes `decision: "fail"` and reinjects a refactor task into the plan. After 3 failures the loop escalates to the user. Coverage enforcement (`rules/testing/coverage.md`) also operates at this tier: `./gradlew jacocoTestCoverageVerification` failure blocks promotion from Loop to Learn.
 
@@ -1423,14 +1393,14 @@ Rules where violations can produce a `permissionDecision: "deny"` before the wri
 
 ### Category-level summary table
 
-| Category        | Count | Example rule                                     | Dominant tier                                                 | `severity: critical` rules                                         |
-| --------------- | ----- | ------------------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `architecture/` | 5     | `hexagonal.md` — ports/adapters layout           | Advisory                                                      | none                                                               |
-| `coding/`       | 7     | `exception.md` — domain exception hierarchy      | Advisory                                                      | none                                                               |
-| `framework/`    | 14    | `migration-safety.md` — online-safe DDL          | Enforced (hook-deny for migrations; reviewer-gate for lombok) | `migration-safety`, `lombok-jpa-safety`                            |
-| `performance/`  | 5     | `n-plus-one.md` — JPA/R2DBC batch fetch          | Advisory                                                      | none                                                               |
-| `security/`     | 6     | `spring-security.md` — deny-all, `@PreAuthorize` | Reinforced + Loop-gate                                        | `deserialization`, `owasp-top10`, `spring-security`, `secret-mgmt` |
-| `testing/`      | 8     | `tdd-cycle.md` — RED before production code      | Reinforced (watch-test-fail.sh) + Loop-gate (coverage)        | none                                                               |
+| Category | Count | Example rule | Dominant tier | `severity: critical` rules |
+|---|---|---|---|---|
+| `architecture/` | 5 | `hexagonal.md` — ports/adapters layout | Advisory | none |
+| `coding/` | 7 | `exception.md` — domain exception hierarchy | Advisory | none |
+| `framework/` | 14 | `migration-safety.md` — online-safe DDL | Enforced (hook-deny for migrations; reviewer-gate for lombok) | `migration-safety`, `lombok-jpa-safety` |
+| `performance/` | 5 | `n-plus-one.md` — JPA/R2DBC batch fetch | Advisory | none |
+| `security/` | 6 | `spring-security.md` — deny-all, `@PreAuthorize` | Reinforced + Loop-gate | `deserialization`, `owasp-top10`, `spring-security`, `secret-mgmt` |
+| `testing/` | 8 | `tdd-cycle.md` — RED before production code | Reinforced (watch-test-fail.sh) + Loop-gate (coverage) | none |
 
 ---
 
@@ -1470,34 +1440,33 @@ graph TD
 Claude Code's hook protocol allows `hookSpecificOutput` (an event-specific envelope) **only** for `PreToolUse`, `UserPromptSubmit`, `PostToolUse`, `PostToolBatch`, and `SessionStart`. Events outside that set must use top-level fields (`systemMessage`, `decision`, `reason`).
 
 The scripts enforce this themselves. `stop.sh` lines 4–6 state it explicitly:
-
 > "Schema note: the Stop event does NOT accept `hookSpecificOutput`. Only top-level fields are valid (decision/reason/systemMessage/stopReason/continue/suppressOutput)."
 
 `pre-compact.sh` (line 26) and `file-changed.sh` (lines 3–5) carry the same note. `subagent-stop.sh` emits no output at all, writing only to the findings file.
 
-| Event            | `hookSpecificOutput` allowed? | Actual output in script                                                                   |
-| ---------------- | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| SessionStart     | Yes                           | `hookSpecificOutput.additionalContext`                                                    |
-| UserPromptSubmit | Yes                           | `hookSpecificOutput.additionalContext` (advise) or top-level `decision:"block"` (enforce) |
-| PreToolUse       | Yes                           | `hookSpecificOutput.permissionDecision:"deny"` + `permissionDecisionReason`               |
-| PostToolUse      | Yes                           | none (side-effect only)                                                                   |
-| SubagentStop     | No                            | none (file write only)                                                                    |
-| Stop             | No                            | top-level `systemMessage` or top-level `decision:"block"`                                 |
-| PreCompact       | No                            | top-level `systemMessage`                                                                 |
-| FileChanged      | No                            | top-level `systemMessage`                                                                 |
+| Event | `hookSpecificOutput` allowed? | Actual output in script |
+|---|---|---|
+| SessionStart | Yes | `hookSpecificOutput.additionalContext` |
+| UserPromptSubmit | Yes | `hookSpecificOutput.additionalContext` (advise) or top-level `decision:"block"` (enforce) |
+| PreToolUse | Yes | `hookSpecificOutput.permissionDecision:"deny"` + `permissionDecisionReason` |
+| PostToolUse | Yes | none (side-effect only) |
+| SubagentStop | No | none (file write only) |
+| Stop | No | top-level `systemMessage` or top-level `decision:"block"` |
+| PreCompact | No | top-level `systemMessage` |
+| FileChanged | No | top-level `systemMessage` |
 
 ### Per-Hook Reference Table
 
-| Script             | Event            | Matcher (hooks.json)                                       | Timeout             | Mode                      | Effect                                                                                       |
-| ------------------ | ---------------- | ---------------------------------------------------------- | ------------------- | ------------------------- | -------------------------------------------------------------------------------------------- |
-| `session-start.sh` | SessionStart     | `startup\|resume`                                          | 30 s                | Advise                    | Injects phase/task/stack/integrations context via `hookSpecificOutput.additionalContext`     |
-| `prompt-router.sh` | UserPromptSubmit | _(none — all prompts)_                                     | 15 s                | Enforce / Advise          | Blocks skip-language; advises phase hint; advises branch creation on feature intent          |
-| `pre-tool.sh`      | PreToolUse       | `Write\|Edit` (20 s) / `Bash` (10 s)                       | 20 / 10 s           | Enforce                   | Denies destructive bash, out-of-phase source edits, stale reuse-scan, and out-of-scope files |
-| `post-tool.sh`     | PostToolUse      | `Write\|Edit`                                              | 60 s (`async:true`) | Side-effect               | Spawns `gradlew spotlessApply` in background after `.java` edits                             |
-| `subagent-stop.sh` | SubagentStop     | `claudehut-.*`                                             | 30 s                | Side-effect               | Merges reviewer completion timestamp into `findings.json`                                    |
-| `stop.sh`          | Stop             | _(none — all stops)_                                       | 60 s                | Enforce (opt-in) / Advise | Blocks stop (if `stop_enforcement_enabled`) or emits reminder at `learn`/`done` phase        |
-| `pre-compact.sh`   | PreCompact       | _(none — all compactions)_                                 | 15 s                | Advise                    | Surfaces task/phase/artifact snapshot before context is discarded                            |
-| `file-changed.sh`  | FileChanged      | `CLAUDE\.md\|\.claudehut/memory/.*\|\.claude/rules/.*\.md` | 10 s                | Advise                    | Emits `systemMessage` prompting context reload                                               |
+| Script | Event | Matcher (hooks.json) | Timeout | Mode | Effect |
+|---|---|---|---|---|---|
+| `session-start.sh` | SessionStart | `startup\|resume` | 30 s | Advise | Injects phase/task/stack/integrations context via `hookSpecificOutput.additionalContext` |
+| `prompt-router.sh` | UserPromptSubmit | _(none — all prompts)_ | 15 s | Enforce / Advise | Blocks skip-language; advises phase hint; advises branch creation on feature intent |
+| `pre-tool.sh` | PreToolUse | `Write\|Edit` (20 s) / `Bash` (10 s) | 20 / 10 s | Enforce | Denies destructive bash, out-of-phase source edits, stale reuse-scan, and out-of-scope files |
+| `post-tool.sh` | PostToolUse | `Write\|Edit` | 60 s (`async:true`) | Side-effect | Spawns `gradlew spotlessApply` in background after `.java` edits |
+| `subagent-stop.sh` | SubagentStop | `claudehut-.*` | 30 s | Side-effect | Merges reviewer completion timestamp into `findings.json` |
+| `stop.sh` | Stop | _(none — all stops)_ | 60 s | Enforce (opt-in) / Advise | Blocks stop (if `stop_enforcement_enabled`) or emits reminder at `learn`/`done` phase |
+| `pre-compact.sh` | PreCompact | _(none — all compactions)_ | 15 s | Advise | Surfaces task/phase/artifact snapshot before context is discarded |
+| `file-changed.sh` | FileChanged | `CLAUDE\.md\|\.claudehut/memory/.*\|\.claude/rules/.*\.md` | 10 s | Advise | Emits `systemMessage` prompting context reload |
 
 ---
 
@@ -1524,11 +1493,9 @@ Output mechanism: `hookSpecificOutput` with `hookEventName: "SessionStart"`.
 Receives the user prompt via stdin as JSON (field `prompt`). Three ordered checks:
 
 **1. CLAUDEHUT_WORKER early exit (line 15)**
-
 ```bash
 [[ -n "${CLAUDEHUT_WORKER:-}" ]] && exit 0
 ```
-
 Headless `claude -p` worker sessions spawned by the Build phase must not receive phase routing. If a `decision:"block"` is emitted into a non-interactive session there is no human to acknowledge it, so the session hangs until its watchdog kills it. The early exit short-circuits all three checks for workers.
 
 **2. Skip-language block (enforce)**
@@ -1560,13 +1527,13 @@ Emits `hookSpecificOutput.permissionDecision:"deny"` with `permissionDecisionRea
 
 Gates are evaluated in order; the first failure denies with its specific message.
 
-| Gate                            | Condition that triggers deny                                                                                               | Bypass                                       |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `.claudehut/` write passthrough | `file_path` starts with `$PROJECT_ROOT/.claudehut/`                                                                        | Always allowed (`exit 0` at line 56)         |
-| `CLAUDEHUT_SCAFFOLD` bypass     | Env var set                                                                                                                | All edit gates skipped (`exit 0` at line 63) |
-| Phase gate                      | File is `*.java`, `*.kt`, `*.kts`, `*.sql`, or under `src/` AND phase ≠ `build`                                            | —                                            |
-| Reuse-scan freshness            | New Java/Kotlin file (`[[ ! -f "$file_path" ]]`) AND `claudehut_reuse_scan_fresh` returns false (stale = older than 600 s) | `CLAUDEHUT_WORKER` set                       |
-| Surgical scope                  | File's relative path not found in plan doc under `(create\|modify\|test):.*<filename>`                                     | —                                            |
+| Gate | Condition that triggers deny | Bypass |
+|---|---|---|
+| `.claudehut/` write passthrough | `file_path` starts with `$PROJECT_ROOT/.claudehut/` | Always allowed (`exit 0` at line 56) |
+| `CLAUDEHUT_SCAFFOLD` bypass | Env var set | All edit gates skipped (`exit 0` at line 63) |
+| Phase gate | File is `*.java`, `*.kt`, `*.kts`, `*.sql`, or under `src/` AND phase ≠ `build` | — |
+| Reuse-scan freshness | New Java/Kotlin file (`[[ ! -f "$file_path" ]]`) AND `claudehut_reuse_scan_fresh` returns false (stale = older than 600 s) | `CLAUDEHUT_WORKER` set |
+| Surgical scope | File's relative path not found in plan doc under `(create\|modify\|test):.*<filename>` | — |
 
 **CLAUDEHUT_SCAFFOLD bypass (line 63):** `scaffold-stubs.sh` runs a `claude -p` session at `phase=build` to write the entire feature skeleton in one pass, including shared types and enums that no single plan task owns. Both the surgical-scope gate and the reuse-scan freshness gate are per-task constraints that must not apply to a whole-skeleton scaffold pass. Because `CLAUDEHUT_SCAFFOLD` exits before phase is even computed, it bypasses all three edit-mode gates (phase gate, reuse-scan, surgical scope).
 
@@ -1608,11 +1575,11 @@ Fires on every session stop. Two bypass guards execute first:
 
 Then reads `.claudehut/claudehut-config.json` key `phase.stop_enforcement_enabled` (defaults false if absent).
 
-| Phase         | `stop_enforcement_enabled=false`                  | `stop_enforcement_enabled=true`           |
-| ------------- | ------------------------------------------------- | ----------------------------------------- |
-| `learn`       | top-level `systemMessage` (non-blocking reminder) | top-level `decision:"block"`              |
-| `done`        | top-level `systemMessage` (archive suggestion)    | top-level `systemMessage` (never blocked) |
-| anything else | `exit 0`                                          | `exit 0`                                  |
+| Phase | `stop_enforcement_enabled=false` | `stop_enforcement_enabled=true` |
+|---|---|---|
+| `learn` | top-level `systemMessage` (non-blocking reminder) | top-level `decision:"block"` |
+| `done` | top-level `systemMessage` (archive suggestion) | top-level `systemMessage` (never blocked) |
+| anything else | `exit 0` | `exit 0` |
 
 Unlike `pre-tool.sh`'s destructive block, the opt-in enforcement here is fully implemented — the config key is actually read.
 
@@ -1652,12 +1619,12 @@ Non-blocking. Does not re-index anything itself; the message prompts the user or
 
 ### Bypass Guard Summary
 
-| Guard variable       | Set by                                  | Hooks where it fires                     | Effect                                                                   |
-| -------------------- | --------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------ |
-| `CLAUDEHUT_WORKER`   | Build-phase `claude -p` worker launcher | `prompt-router.sh` — full exit 0         | Skips all phase routing / skip-phrase blocking                           |
-| `CLAUDEHUT_WORKER`   | same                                    | `stop.sh` — full exit 0                  | Prevents stop-block on headless session                                  |
-| `CLAUDEHUT_WORKER`   | same                                    | `pre-tool.sh` — partial skip             | Skips reuse-scan freshness only; phase gate + surgical scope stay active |
-| `CLAUDEHUT_SCAFFOLD` | `scaffold-stubs.sh` `claude -p`         | `pre-tool.sh` — full exit 0 on edit path | Bypasses all edit-mode gates (phase + reuse-scan + surgical scope)       |
+| Guard variable | Set by | Hooks where it fires | Effect |
+|---|---|---|---|
+| `CLAUDEHUT_WORKER` | Build-phase `claude -p` worker launcher | `prompt-router.sh` — full exit 0 | Skips all phase routing / skip-phrase blocking |
+| `CLAUDEHUT_WORKER` | same | `stop.sh` — full exit 0 | Prevents stop-block on headless session |
+| `CLAUDEHUT_WORKER` | same | `pre-tool.sh` — partial skip | Skips reuse-scan freshness only; phase gate + surgical scope stay active |
+| `CLAUDEHUT_SCAFFOLD` | `scaffold-stubs.sh` `claude -p` | `pre-tool.sh` — full exit 0 on edit path | Bypasses all edit-mode gates (phase + reuse-scan + surgical scope) |
 
 The shared rationale for both variables: a `claude -p` non-interactive session cannot respond to a `decision:"block"` or interactive prompt. Any gate that blocks and waits for a human response causes the headless session to hang until its external watchdog kills it. The guards are not permission shortcuts — they are correctness guards that prevent the blocking machinery from targeting sessions that are structurally unable to satisfy it.
 
@@ -1693,14 +1660,14 @@ The project tier under `.claudehut/memory/` is committed to source control and s
 
 **File roles at a glance:**
 
-| File                  | Format                      | Written by                                               | Read by                                                                                               |
-| --------------------- | --------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `stack-signals.md`    | Markdown `- key: value`     | `claudehut-stack-detector` agent (+ manual edit)         | `dispatch-prompt.sh` (all phases), `init-project.sh` (rule copy filter), `session-start.sh` (summary) |
-| `conventions.md`      | Markdown                    | Human / init template                                    | `dispatch-prompt.sh` (all phases)                                                                     |
-| `learnings.jsonl`     | JSONL (one object per line) | `claudehut-learner` agent via `promote.sh`               | `dispatch-prompt.sh` (via `learnings-recent.md`), `promote.sh`, `session-start.sh` (tail-5 inline)    |
-| `learnings-recent.md` | Markdown                    | `init-project.sh` seeds it; content populated by learner | `dispatch-prompt.sh` (all phases), `@import` in `.claude/CLAUDE.md`                                   |
-| `index.md`            | Markdown                    | `reindex.sh` (called by learner)                         | Brainstorm / reuse-scan                                                                               |
-| `integrations.json`   | JSON                        | `session-start.sh` (each session)                        | `claudehut_integration()` in `state.sh`, reuse-scan backends                                          |
+| File | Format | Written by | Read by |
+|---|---|---|---|
+| `stack-signals.md` | Markdown `- key: value` | `claudehut-stack-detector` agent (+ manual edit) | `dispatch-prompt.sh` (all phases), `init-project.sh` (rule copy filter), `session-start.sh` (summary) |
+| `conventions.md` | Markdown | Human / init template | `dispatch-prompt.sh` (all phases) |
+| `learnings.jsonl` | JSONL (one object per line) | `claudehut-learner` agent via `promote.sh` | `dispatch-prompt.sh` (via `learnings-recent.md`), `promote.sh`, `session-start.sh` (tail-5 inline) |
+| `learnings-recent.md` | Markdown | `init-project.sh` seeds it; content populated by learner | `dispatch-prompt.sh` (all phases), `@import` in `.claude/CLAUDE.md` |
+| `index.md` | Markdown | `reindex.sh` (called by learner) | Brainstorm / reuse-scan |
+| `integrations.json` | JSON | `session-start.sh` (each session) | `claudehut_integration()` in `state.sh`, reuse-scan backends |
 
 ---
 
@@ -1710,11 +1677,9 @@ The project tier under `.claudehut/memory/` is committed to source control and s
 
 ```markdown
 <!-- claudehut-managed-section -->
-
 @.claudehut/memory/conventions.md
 @.claudehut/memory/stack-signals.md
 @.claudehut/memory/learnings-recent.md
-
 <!-- /claudehut-managed-section -->
 ```
 
@@ -1743,14 +1708,14 @@ stateDiagram-v2
 
 **Step detail:**
 
-| Step | Script / action                                                                                          | Guard                                                             |
-| ---- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 1    | `learn-extract.sh <task_id>` — proposes JSONL candidates from git diff (heuristic file-pattern matching) | Produces raw proposals only; agent refines                        |
-| 2    | Agent categorizes each: `pattern`, `anti-pattern`, `decision`, `gotcha`, `command`                       | Rejects vague / non-specific titles                               |
-| 3    | `secret-scan.sh <candidate>` — regex scan for API keys, PEM blocks, JWTs, DB URLs                        | Exit 1 → log to `learn-rejected.log` without leaking matched text |
-| 4    | Append clean entries to `learnings.jsonl`                                                                | Append-only; never edit prior lines                               |
-| 5    | `reindex.sh` — regenerates `index.md` from Java source tree + learnings                                  | Preserves `<!-- BEGIN MANUAL -->` sections                        |
-| 6    | `promote.sh` — conditional cross-project promotion                                                       | Only if `global_promotion_opt_in == true`                         |
+| Step | Script / action | Guard |
+|---|---|---|
+| 1 | `learn-extract.sh <task_id>` — proposes JSONL candidates from git diff (heuristic file-pattern matching) | Produces raw proposals only; agent refines |
+| 2 | Agent categorizes each: `pattern`, `anti-pattern`, `decision`, `gotcha`, `command` | Rejects vague / non-specific titles |
+| 3 | `secret-scan.sh <candidate>` — regex scan for API keys, PEM blocks, JWTs, DB URLs | Exit 1 → log to `learn-rejected.log` without leaking matched text |
+| 4 | Append clean entries to `learnings.jsonl` | Append-only; never edit prior lines |
+| 5 | `reindex.sh` — regenerates `index.md` from Java source tree + learnings | Preserves `<!-- BEGIN MANUAL -->` sections |
+| 6 | `promote.sh` — conditional cross-project promotion | Only if `global_promotion_opt_in == true` |
 
 **Entry schema** (one JSON object per JSONL line):
 
@@ -1780,17 +1745,17 @@ Optional fields: `noPromote` (prevents promotion), `deprecated` (set on decay), 
 
 Every candidate entry passes through `secret-scan.sh` before appending. The script checks 12 hard-reject regex patterns:
 
-| Pattern class                       | Example                                                          |
-| ----------------------------------- | ---------------------------------------------------------------- | --- | --- | --------------------------- |
-| OpenAI/Anthropic keys               | `sk-[a-zA-Z0-9_-]{20,}`                                          |
-| AWS access key                      | `AKIA[0-9A-Z]{16}`                                               |
-| PEM private key                     | `-----BEGIN (RSA                                                 | EC  | DSA | OPENSSH)? PRIVATE KEY-----` |
-| GitHub PAT (classic + fine-grained) | `ghp_…`, `github_pat_…`                                          |
-| GitHub OAuth                        | `gho_[a-zA-Z0-9]{36}`                                            |
-| Slack tokens                        | `xox[baprs]-…`                                                   |
-| GitLab PAT                          | `glpat-…`                                                        |
-| JWT                                 | `eyJ…eyJ…` (three-part)                                          |
-| DB URLs with credentials            | `postgres://user:pass@`, `mongodb+srv://…`, `redis://user:pass@` |
+| Pattern class | Example |
+|---|---|
+| OpenAI/Anthropic keys | `sk-[a-zA-Z0-9_-]{20,}` |
+| AWS access key | `AKIA[0-9A-Z]{16}` |
+| PEM private key | `-----BEGIN (RSA|EC|DSA|OPENSSH)? PRIVATE KEY-----` |
+| GitHub PAT (classic + fine-grained) | `ghp_…`, `github_pat_…` |
+| GitHub OAuth | `gho_[a-zA-Z0-9]{36}` |
+| Slack tokens | `xox[baprs]-…` |
+| GitLab PAT | `glpat-…` |
+| JWT | `eyJ…eyJ…` (three-part) |
+| DB URLs with credentials | `postgres://user:pass@`, `mongodb+srv://…`, `redis://user:pass@` |
 
 On a hit: the entry is rejected and logged to `state/tasks/<id>/learn-rejected.log` with only the pattern type — never the matched text. Users can add safe overrides to `claudehut-config.json#learn.secret_scan_allowlist`.
 
@@ -1800,12 +1765,12 @@ On a hit: the entry is rejected and logged to `state/tasks/<id>/learn-rejected.l
 
 Memory exists at two tiers with different scopes:
 
-| Dimension   | Project tier                                | Global tier                                               |
-| ----------- | ------------------------------------------- | --------------------------------------------------------- |
-| Location    | `<repo>/.claudehut/memory/learnings.jsonl`  | `~/.claude/claudehut/memory/patterns.jsonl`               |
-| Scope       | Single repo; includes `files_touched` paths | Cross-repo; `files_touched` stripped on promotion         |
-| Default     | Always active                               | Opt-in only (`global_promotion_opt_in: false` by default) |
-| Hit counter | Per entry in project JSONL                  | `projects.json` maps signature → distinct project hashes  |
+| Dimension | Project tier | Global tier |
+|---|---|---|
+| Location | `<repo>/.claudehut/memory/learnings.jsonl` | `~/.claude/claudehut/memory/patterns.jsonl` |
+| Scope | Single repo; includes `files_touched` paths | Cross-repo; `files_touched` stripped on promotion |
+| Default | Always active | Opt-in only (`global_promotion_opt_in: false` by default) |
+| Hit counter | Per entry in project JSONL | `projects.json` maps signature → distinct project hashes |
 
 ---
 
@@ -1848,8 +1813,8 @@ Stack signals are detected by the `claudehut-stack-detector` agent (model: `haik
 - build_tool: gradle
 - java_version: 17
 - spring_boot: 3.2.4
-- web: webflux # mvc | webflux | unknown
-- orm: r2dbc # jpa | r2dbc | none | unknown
+- web: webflux            # mvc | webflux | unknown
+- orm: r2dbc              # jpa | r2dbc | none | unknown
 - db: postgres
 - messaging: kafka
 - cache: redis
@@ -1870,10 +1835,10 @@ Stack signals also gate which rules are copied from the plugin into the project'
 
 Integration availability is written to `<repo>/.claudehut/memory/integrations.json` on every `SessionStart`. The detection is inline in `hooks/session-start.sh` (lines 44–64) — it checks for two tools:
 
-| Integration                | Detection method                               | `available` = true when                            |
-| -------------------------- | ---------------------------------------------- | -------------------------------------------------- |
-| `understand-anything` (UA) | File presence check                            | `.understand-anything/knowledge-graph.json` exists |
-| `graphify`                 | `command -v graphify` + `graphify global list` | `graphify` binary is on PATH                       |
+| Integration | Detection method | `available` = true when |
+|---|---|---|
+| `understand-anything` (UA) | File presence check | `.understand-anything/knowledge-graph.json` exists |
+| `graphify` | `command -v graphify` + `graphify global list` | `graphify` binary is on PATH |
 
 Example `integrations.json`:
 
@@ -1951,9 +1916,9 @@ The cycle is: task completes → learner extracts patterns → appends to `learn
 
 ClaudeHut Build Phase dispatches each parallel task as a **separate OS process** (`claude --print` launched with `&`) rather than as Agent-tool subagents for two compounding reasons, both documented in `skills/build/references/parallel-build-verification.md`:
 
-| Reason                                          | Detail                                                                                                                                                                                                                                                                              |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Concurrency cannot be forced via Agent tool** | The LLM orchestrating with Agent tool cannot be made to issue multiple Agent calls simultaneously in a single turn; it serializes. Background processes give OS-level concurrency with no LLM cooperation needed.                                                                   |
+| Reason | Detail |
+|--------|--------|
+| **Concurrency cannot be forced via Agent tool** | The LLM orchestrating with Agent tool cannot be made to issue multiple Agent calls simultaneously in a single turn; it serializes. Background processes give OS-level concurrency with no LLM cooperation needed. |
 | **Full sessions dodge two known headless bugs** | `--print` workers are full Claude Code sessions, not subagents. They avoid the subagent skill-preload bug **#25834** (skills frontmatter not reliably loaded for subagents) and cross-spawn rules degradation **#49106** (system-prompt rules eroding across nested subagent hops). |
 
 The practical consequence: concurrency, hook firing, and persona enforcement are all guaranteed at the process level and do not depend on model cooperation.
@@ -1970,10 +1935,10 @@ Before any parallel worker starts, a **single sequential `claude --print` sessio
 
 **Why this step eliminates the three deadliest parallel-build failure modes:**
 
-| Failure mode                | How stubs prevent it                                                                                                                                                              |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Contract drift**          | Workers cannot invent divergent signatures — the authoritative ones already exist and compile.                                                                                    |
-| **Hidden dependency**       | A worker consuming another task's type finds it present; no "type not found" at GREEN time.                                                                                       |
+| Failure mode | How stubs prevent it |
+|---|---|
+| **Contract drift** | Workers cannot invent divergent signatures — the authoritative ones already exist and compile. |
+| **Hidden dependency** | A worker consuming another task's type finds it present; no "type not found" at GREEN time. |
 | **Semantic merge conflict** | All workers share the same stub commit as their base, so cherry-pick operates on disjoint diffs of the shared ancestor — merge-then-break cannot happen at the cherry-pick layer. |
 
 The stub session runs under `CLAUDEHUT_SCAFFOLD=1`, which bypasses both the surgical-scope gate and the reuse-scan freshness gate in `hooks/pre-tool.sh`. This is intentional: the scaffold session legitimately writes files belonging to every task's scope simultaneously (no single task owns the whole skeleton). The real enforcement against semantic breaks is the per-group compile+test gate that runs after each group merges.
@@ -2047,17 +2012,17 @@ flowchart TD
 
 Each worker `claude --print` process is launched with a precisely composed set of flags and environment variables:
 
-| Mechanism                                       | Value / behaviour                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ------------------------------------------------------------------- |
-| `--agent claudehut:claudehut-builder`           | Loads the agent system-prompt body (Goals/Gates/Guardrails/Heuristics). **Conditional**: only added if `claude agents list` resolves `claudehut:claudehut-builder`; otherwise falls back to guardrails-only.                                                                                                  |
-| `--model "$WORKER_MODEL"`                       | Default `sonnet` (override via `CLAUDEHUT_WORKER_MODEL`). Pinned for cost.                                                                                                                                                                                                                                    |
-| `--append-system-prompt "$GUARDRAILS"`          | Inline non-negotiable TDD + scope rules injected verbatim. Survives even when `--agent` is not resolvable. Kept in sync with `agents/claudehut-builder.md Guardrails`.                                                                                                                                        |
-| `--settings "$MAIN_REPO/.claude/settings.json"` | Merges the project's committed settings so plugin enablement (and therefore the PreToolUse scope-check hook) is discovered from an out-of-tree worktree `cwd`. Best-effort (only added when the file exists).                                                                                                 |
-| `CLAUDE_PROJECT_DIR="$WT_PATH"`                 | Points Claude Code's project root to the worktree, so settings/hooks walk from the correct location.                                                                                                                                                                                                          |
-| `CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"`             | Explicit plugin root override, bypassing the upward walk for script utility functions.                                                                                                                                                                                                                        |
-| `CLAUDEHUT_TASK_ID="$TASK_ID"`                  | Overrides the branch-derived task ID so `claudehut-state` resolves the original feature task, not the worktree branch name.                                                                                                                                                                                   |
-| `CLAUDEHUT_WORKER=1`                            | Signals to the hook stack that this is a headless worker session. Three hooks early-exit under this flag: `prompt-router.sh` (skip-phrase block), `stop.sh` (learn-phase block), and `pre-tool.sh` reuse-scan freshness gate. The **surgical-scope gate is NOT bypassed** — off-plan writes are still denied. |
-| `.claudehut` symlink                            | `ln -s "$MAIN_REPO/.claudehut" "$WT_PATH/.claudehut"` — worktrees check out only committed files; `.claudehut` is typically untracked (gitignored). Without the symlink, in-worktree hooks see "uninitialized" state. The guard `[[-e "$WT_PATH/.claudehut"]]                                                 |     | ln -s ...`prevents nesting when the project does track`.claudehut`. |
+| Mechanism | Value / behaviour |
+|---|---|
+| `--agent claudehut:claudehut-builder` | Loads the agent system-prompt body (Goals/Gates/Guardrails/Heuristics). **Conditional**: only added if `claude agents list` resolves `claudehut:claudehut-builder`; otherwise falls back to guardrails-only. |
+| `--model "$WORKER_MODEL"` | Default `sonnet` (override via `CLAUDEHUT_WORKER_MODEL`). Pinned for cost. |
+| `--append-system-prompt "$GUARDRAILS"` | Inline non-negotiable TDD + scope rules injected verbatim. Survives even when `--agent` is not resolvable. Kept in sync with `agents/claudehut-builder.md Guardrails`. |
+| `--settings "$MAIN_REPO/.claude/settings.json"` | Merges the project's committed settings so plugin enablement (and therefore the PreToolUse scope-check hook) is discovered from an out-of-tree worktree `cwd`. Best-effort (only added when the file exists). |
+| `CLAUDE_PROJECT_DIR="$WT_PATH"` | Points Claude Code's project root to the worktree, so settings/hooks walk from the correct location. |
+| `CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"` | Explicit plugin root override, bypassing the upward walk for script utility functions. |
+| `CLAUDEHUT_TASK_ID="$TASK_ID"` | Overrides the branch-derived task ID so `claudehut-state` resolves the original feature task, not the worktree branch name. |
+| `CLAUDEHUT_WORKER=1` | Signals to the hook stack that this is a headless worker session. Three hooks early-exit under this flag: `prompt-router.sh` (skip-phrase block), `stop.sh` (learn-phase block), and `pre-tool.sh` reuse-scan freshness gate. The **surgical-scope gate is NOT bypassed** — off-plan writes are still denied. |
+| `.claudehut` symlink | `ln -s "$MAIN_REPO/.claudehut" "$WT_PATH/.claudehut"` — worktrees check out only committed files; `.claudehut` is typically untracked (gitignored). Without the symlink, in-worktree hooks see "uninitialized" state. The guard `[[ -e "$WT_PATH/.claudehut" ]] || ln -s ...` prevents nesting when the project does track `.claudehut`. |
 
 **Path canonicalization (`pwd -P`).** Worktrees live in `mktemp -d` dirs. On macOS, `/tmp` is a symlink to `/private/tmp` and `/var` to `/private/var`. Claude Code's tool subsystem delivers `file_path` in the canonical `/private/...` form, while `CLAUDE_PROJECT_DIR` retains the `/tmp/...` form the script set. The relative-path strip in `hooks/pre-tool.sh` then no-ops, causing every in-scope worker write to be denied as out-of-scope. Fixed in `hooks/pre-tool.sh` lines 20 and 51–52 by canonicalizing both sides with `pwd -P`:
 
@@ -2162,14 +2127,14 @@ The `EXIT` trap fires on **any** exit path — normal completion, `set -e` early
 
 Verified on Gradle 9.5.1 + JDK 21 with two independent tasks (`Calculator.add`, `Greeter.greet`) in group 1 with disjoint file sets, using real `claude` workers via `--plugin-dir`:
 
-| Step                             | Outcome                                                                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `scaffold-stubs.sh`              | Compiling stubs, attempt 1. Committed.                                                                                                |
+| Step | Outcome |
+|---|---|
+| `scaffold-stubs.sh` | Compiling stubs, attempt 1. Committed. |
 | 2 workers dispatched in parallel | `--agent claudehut:claudehut-builder` persona loaded. Each did real TDD: failing test → impl → green. Each committed in its worktree. |
-| `merge-parallel-group.sh`        | Both tasks cherry-picked. Both plan checkboxes ticked (plan gitignored — not committed to project history).                           |
-| Per-group gate                   | `./gradlew compileTestJava test` → BUILD SUCCESSFUL                                                                                   |
-| Worktree cleanup                 | Only main repo worktree remained. GROUP EXIT 0                                                                                        |
-| Final gate                       | `./gradlew test` → BUILD SUCCESSFUL                                                                                                   |
+| `merge-parallel-group.sh` | Both tasks cherry-picked. Both plan checkboxes ticked (plan gitignored — not committed to project history). |
+| Per-group gate | `./gradlew compileTestJava test` → BUILD SUCCESSFUL |
+| Worktree cleanup | Only main repo worktree remained. GROUP EXIT 0 |
+| Final gate | `./gradlew test` → BUILD SUCCESSFUL |
 
 The e2e also confirmed correct failure handling: a task that failed due to a `build.gradle` configuration gap caused group exit 1, surfaced the failure, and cleaned up worktrees — the "fail fast before next group" contract held.
 
@@ -2261,11 +2226,11 @@ The concrete consequence is the **scan-and-return pattern** used by the brainsto
 
 **What is injected automatically (harness-provided):**
 
-| Provided at dispatch                                                                               | Mechanism                                                                          |
-| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| CLAUDE.md hierarchy: `~/.claude/CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, managed policy | Claude Code harness                                                                |
-| Git status snapshot                                                                                | Claude Code harness                                                                |
-| `skills:` preloaded SKILL.md bodies                                                                | Harness reads `skills:` frontmatter from agent `.md` file and injects full content |
+| Provided at dispatch | Mechanism |
+|---|---|
+| CLAUDE.md hierarchy: `~/.claude/CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, managed policy | Claude Code harness |
+| Git status snapshot | Claude Code harness |
+| `skills:` preloaded SKILL.md bodies | Harness reads `skills:` frontmatter from agent `.md` file and injects full content |
 
 For example, `claudehut-builder.md` carries `skills: [claudehut:using-claudehut, claudehut:build, claudehut:tdd-cycle]` — those three SKILL.md bodies are present in the subagent's context at turn 0. Every dispatch-eligible agent preloads at minimum `claudehut:using-claudehut`.
 
@@ -2306,17 +2271,17 @@ Used by `PreToolUse` (the only hook that can emit `permissionDecision`) and by `
 **Schema C — `systemMessage` (advise-only):**  
 `stop.sh` default (non-enforcement) mode, `pre-compact.sh`, `file-changed.sh`, and `subagent-stop.sh` emit `systemMessage` only (or nothing). `SubagentStop` is a pure side-effect hook — it writes reviewer completion timestamps to `findings.json` but emits no response to Claude.
 
-| Hook                      | Event                   | Mechanism                                                                                         | Blocks or advises |
-| ------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------- | ----------------- |
-| `session-start.sh`        | SessionStart            | `hookSpecificOutput.additionalContext`                                                            | Advises           |
-| `prompt-router.sh`        | UserPromptSubmit        | `hookSpecificOutput.additionalContext` (phase hint) OR top-level `decision:"block"` (skip-phrase) | Both              |
-| `pre-tool.sh` (edit mode) | PreToolUse Write\|Edit  | `hookSpecificOutput.permissionDecision:"deny"`                                                    | Blocks            |
-| `pre-tool.sh` (bash mode) | PreToolUse Bash         | `hookSpecificOutput.permissionDecision:"deny"`                                                    | Blocks            |
-| `post-tool.sh`            | PostToolUse Write\|Edit | `async:true`, no JSON output                                                                      | Side-effect only  |
-| `subagent-stop.sh`        | SubagentStop            | `systemMessage` (findings.json write only)                                                        | Side-effect only  |
-| `stop.sh`                 | Stop                    | `systemMessage` (default) OR `decision:"block"` (opt-in)                                          | Both              |
-| `pre-compact.sh`          | PreCompact              | `systemMessage`                                                                                   | Advises           |
-| `file-changed.sh`         | FileChanged             | `systemMessage`                                                                                   | Advises           |
+| Hook | Event | Mechanism | Blocks or advises |
+|---|---|---|---|
+| `session-start.sh` | SessionStart | `hookSpecificOutput.additionalContext` | Advises |
+| `prompt-router.sh` | UserPromptSubmit | `hookSpecificOutput.additionalContext` (phase hint) OR top-level `decision:"block"` (skip-phrase) | Both |
+| `pre-tool.sh` (edit mode) | PreToolUse Write\|Edit | `hookSpecificOutput.permissionDecision:"deny"` | Blocks |
+| `pre-tool.sh` (bash mode) | PreToolUse Bash | `hookSpecificOutput.permissionDecision:"deny"` | Blocks |
+| `post-tool.sh` | PostToolUse Write\|Edit | `async:true`, no JSON output | Side-effect only |
+| `subagent-stop.sh` | SubagentStop | `systemMessage` (findings.json write only) | Side-effect only |
+| `stop.sh` | Stop | `systemMessage` (default) OR `decision:"block"` (opt-in) | Both |
+| `pre-compact.sh` | PreCompact | `systemMessage` | Advises |
+| `file-changed.sh` | FileChanged | `systemMessage` | Advises |
 
 **`PreToolUse` gate logic in `pre-tool.sh`:** Three checks in priority order:
 
@@ -2344,12 +2309,12 @@ Used by `PreToolUse` (the only hook that can emit `permissionDecision`) and by `
 
 Rules operate at three enforcement tiers:
 
-| Tier                        | Mechanism                                                                                                                                                                   | Examples                                      |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| **1 — Advisory**            | Loaded as context when `paths:` matches; subject to compaction (`PreCompact` hook)                                                                                          | All 35 universally-copied rules               |
-| **2 — Reinforced**          | Rule content baked into reviewer agent descriptions (e.g., `lombok-jpa-safety` reviewer block-list, `deserialization` patterns in `claudehut-reviewer-security` heuristics) | Critical rules for security/framework         |
-| **3 — Enforced write-time** | Migration-validator subagent invoked by `PreToolUse` on `**/db/migration/V*.sql`; `block` verdict → `permissionDecision:"deny"`                                             | `framework/migration-safety`, `flyway-naming` |
-| **3 — Enforced loop gate**  | Verifier decision rule (0 critical + 0 high → pass); JaCoCo coverage threshold; TDD via `watch-test-fail.sh`                                                                | Security criticals, coverage                  |
+| Tier | Mechanism | Examples |
+|---|---|---|
+| **1 — Advisory** | Loaded as context when `paths:` matches; subject to compaction (`PreCompact` hook) | All 35 universally-copied rules |
+| **2 — Reinforced** | Rule content baked into reviewer agent descriptions (e.g., `lombok-jpa-safety` reviewer block-list, `deserialization` patterns in `claudehut-reviewer-security` heuristics) | Critical rules for security/framework |
+| **3 — Enforced write-time** | Migration-validator subagent invoked by `PreToolUse` on `**/db/migration/V*.sql`; `block` verdict → `permissionDecision:"deny"` | `framework/migration-safety`, `flyway-naming` |
+| **3 — Enforced loop gate** | Verifier decision rule (0 critical + 0 high → pass); JaCoCo coverage threshold; TDD via `watch-test-fail.sh` | Security criticals, coverage |
 
 Migration rules are the only Tier-3 write-time denials because DDL violations are statically pattern-matchable and catastrophic. Security rules require contextual LLM reasoning and are routed through the reviewer subagent.
 
@@ -2372,20 +2337,20 @@ These are two architecturally distinct execution modes. The choice of Path-B for
 1. The LLM cannot be forced to batch `Agent` calls in parallel; OS-level `&` guarantees it.
 2. Full `claude --print` sessions dodge platform bugs #25834 (subagent skill-preload) and #49106 (cross-spawn rules degradation).
 
-| Dimension                                   | Agent-tool subagent (Path A)                                 | Path-B `--print` OS worker                                                                                                                                       |
-| ------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Dispatch**                                | `Task(subagent_type="...", prompt=...)` in-session           | `claude --print ... &` OS process from `run-parallel-group.sh`                                                                                                   |
-| **Concurrency**                             | LLM-dependent (only verifier fans out reviewers in parallel) | OS-guaranteed (`&` background processes)                                                                                                                         |
-| **Agent frontmatter** (`model:`, `skills:`) | Honored by harness at dispatch                               | `skills:` preload **UNCONFIRMED** under `--print` (model reported "none"); `model:` overridden by `--model` flag                                                 |
-| **Persona**                                 | Full Goals/Gates/Guardrails from agent `.md`                 | Conditional: `--agent claudehut:claudehut-builder` if `claude agents list` resolves the ref; otherwise fallback to `--append-system-prompt $GUARDRAILS` fragment |
-| **Skill preload**                           | Harness injects `skills:` frontmatter content at dispatch    | Unreliable; guardrails text substitutes for TDD discipline                                                                                                       |
-| **Hooks**                                   | All hooks fire in-session normally                           | Only hooks that the passed `--settings` file enables; `PreToolUse` scope-check requires `.claudehut` symlink in worktree                                         |
-| **`CLAUDEHUT_WORKER` effect**               | N/A                                                          | Bypasses `prompt-router.sh` (full exit 0), `stop.sh` (full exit 0), reuse-scan freshness in `pre-tool.sh`; phase gate and surgical scope stay active             |
-| **Result return**                           | In-transcript structured block, read by calling agent        | Fenced `claudehut-builder-result` block parsed by `merge-parallel-group.sh` from a `.claudehut/logs/group<N>-task<N>.log` file                                   |
-| **Task identity**                           | Inherits task_id from branch (via `state.sh`)                | `CLAUDEHUT_TASK_ID` env var set explicitly to override branch-derived id in the worktree                                                                         |
-| **Branch isolation**                        | Not applicable                                               | `claudehut/task-${TASK_ID}-${TNUM}` branch with `-B` force-reset on re-run; EXIT trap runs `git worktree remove --force`                                         |
-| **Integration gate**                        | Verifier runs gates at aggregate level                       | Per-group `./gradlew compileTestJava test` (Gradle) or `mvn -q test-compile test` (Maven) before next group starts                                               |
-| **Watchdog**                                | Session-level timeout                                        | `( sleep $TASK_TIMEOUT; kill -TERM $wpid ) &`; default 900s                                                                                                      |
+| Dimension | Agent-tool subagent (Path A) | Path-B `--print` OS worker |
+|---|---|---|
+| **Dispatch** | `Task(subagent_type="...", prompt=...)` in-session | `claude --print ... &` OS process from `run-parallel-group.sh` |
+| **Concurrency** | LLM-dependent (only verifier fans out reviewers in parallel) | OS-guaranteed (`&` background processes) |
+| **Agent frontmatter** (`model:`, `skills:`) | Honored by harness at dispatch | `skills:` preload **UNCONFIRMED** under `--print` (model reported "none"); `model:` overridden by `--model` flag |
+| **Persona** | Full Goals/Gates/Guardrails from agent `.md` | Conditional: `--agent claudehut:claudehut-builder` if `claude agents list` resolves the ref; otherwise fallback to `--append-system-prompt $GUARDRAILS` fragment |
+| **Skill preload** | Harness injects `skills:` frontmatter content at dispatch | Unreliable; guardrails text substitutes for TDD discipline |
+| **Hooks** | All hooks fire in-session normally | Only hooks that the passed `--settings` file enables; `PreToolUse` scope-check requires `.claudehut` symlink in worktree |
+| **`CLAUDEHUT_WORKER` effect** | N/A | Bypasses `prompt-router.sh` (full exit 0), `stop.sh` (full exit 0), reuse-scan freshness in `pre-tool.sh`; phase gate and surgical scope stay active |
+| **Result return** | In-transcript structured block, read by calling agent | Fenced `claudehut-builder-result` block parsed by `merge-parallel-group.sh` from a `.claudehut/logs/group<N>-task<N>.log` file |
+| **Task identity** | Inherits task_id from branch (via `state.sh`) | `CLAUDEHUT_TASK_ID` env var set explicitly to override branch-derived id in the worktree |
+| **Branch isolation** | Not applicable | `claudehut/task-${TASK_ID}-${TNUM}` branch with `-B` force-reset on re-run; EXIT trap runs `git worktree remove --force` |
+| **Integration gate** | Verifier runs gates at aggregate level | Per-group `./gradlew compileTestJava test` (Gradle) or `mvn -q test-compile test` (Maven) before next group starts |
+| **Watchdog** | Session-level timeout | `( sleep $TASK_TIMEOUT; kill -TERM $wpid ) &`; default 900s |
 
 **Path-B worker initialization sequence** (concrete, not abstract):
 
@@ -2441,13 +2406,13 @@ This makes the artifact store the single source of truth that all hooks, agents,
 
 ### Assumed context
 
-| Item              | Value                                                                                                                                         |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| User prompt       | `"add endpoint to fetch user purchase history"`                                                                                               |
-| Starting branch   | `main`                                                                                                                                        |
-| Stack signals     | `web=mvc`, `orm=jpa`                                                                                                                          |
-| `task_id` derived | `feature-user-purchase-history` (branch `feature/user-purchase-history`, slashes → dashes)                                                    |
-| Parallel plan     | Group 1: `PurchaseHistoryResponse` DTO + `PurchaseHistoryRepository`; Group 2: `PurchaseHistoryService`; Group 3: `PurchaseHistoryController` |
+| Item | Value |
+|---|---|
+| User prompt | `"add endpoint to fetch user purchase history"` |
+| Starting branch | `main` |
+| Stack signals | `web=mvc`, `orm=jpa` |
+| `task_id` derived | `feature-user-purchase-history` (branch `feature/user-purchase-history`, slashes → dashes) |
+| Parallel plan | Group 1: `PurchaseHistoryResponse` DTO + `PurchaseHistoryRepository`; Group 2: `PurchaseHistoryService`; Group 3: `PurchaseHistoryController` |
 
 ### Artifact-state machine
 
@@ -2471,20 +2436,20 @@ stateDiagram-v2
 
 ### Master step table
 
-| #   | Phase derived         | Hook that fires                               | Skill invoked                           | Agent dispatched                                                                                                                                                   | Artifact written                                                     | Gate checked                                                                                                               |
-| --- | --------------------- | --------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `none` (main)         | `UserPromptSubmit` → `prompt-router.sh`       | —                                       | —                                                                                                                                                                  | —                                                                    | Intent regex matches; `additionalContext` emitted advising branch creation                                                 |
-| 2   | `none` → `brainstorm` | `SessionStart` → `session-start.sh`           | —                                       | —                                                                                                                                                                  | `integrations.json` refreshed                                        | Phase recomputed from scratch; `NEXT="No active task"`                                                                     |
-| 3   | `brainstorm`          | `UserPromptSubmit` → `prompt-router.sh`       | `claudehut:brainstorm`                  | `claudehut-brainstormer` (opus)                                                                                                                                    | `.claudehut/specs/feature-user-purchase-history-design.md`           | Brainstorm G0–G3 gates; `MAIN_ASKS_USER` loop                                                                              |
-| 4   | `spec`                | `UserPromptSubmit` → `prompt-router.sh`       | `claudehut:spec`                        | `claudehut-spec-writer` (sonnet)                                                                                                                                   | `.claudehut/specs/feature-user-purchase-history-contract.md`         | Spec G1–G5 gates + user approval                                                                                           |
-| 5   | `plan`                | `UserPromptSubmit` → `prompt-router.sh`       | `claudehut:plan`                        | `claudehut-planner` (opus)                                                                                                                                         | `.claudehut/plans/feature-user-purchase-history-plan.md`             | Plan G0–G6 gates including `plan-parallel-group-scan.sh`                                                                   |
-| 6a  | `build`               | `PreToolUse` → `pre-tool.sh`                  | `claudehut:build` → `scaffold-stubs.sh` | No Task dispatch; headless `claude --print` session with `CLAUDEHUT_SCAFFOLD=1`                                                                                    | Commit `chore: scaffold stubs for feature-user-purchase-history`     | `./gradlew compileJava compileTestJava` exits 0                                                                            |
-| 6b  | `build`               | `PreToolUse` → `pre-tool.sh` (per file write) | `run-parallel-group.sh` (group 1)       | Two `claude --print` workers: `claudehut-builder` persona on `claudehut/task-feature-user-purchase-history-1` and `claudehut/task-feature-user-purchase-history-2` | One commit per worker (DTO on branch 1, Repository on branch 2)      | Per-group: `./gradlew compileTestJava test` after merge                                                                    |
-| 6c  | `build`               | `PreToolUse` → `pre-tool.sh`                  | `run-parallel-group.sh` (group 2)       | One builder worker (Service)                                                                                                                                       | Commit on `claudehut/task-feature-user-purchase-history-3`           | Per-group `./gradlew compileTestJava test`                                                                                 |
-| 6d  | `build`               | `PreToolUse` → `pre-tool.sh`                  | `run-parallel-group.sh` (group 3)       | One builder worker (Controller)                                                                                                                                    | Commit on `claudehut/task-feature-user-purchase-history-4`           | Per-group `./gradlew compileTestJava test`                                                                                 |
-| 7   | `loop` (fall-through) | `UserPromptSubmit` → `prompt-router.sh`       | `claudehut:verify-review`               | `claudehut-verifier` (sonnet) → fans out 5 reviewer agents in one parallel message                                                                                 | `.claudehut/findings/feature-user-purchase-history-findings.json`    | `aggregate-findings.sh`: `critical==0 AND high<3` → `decision=pass`                                                        |
-| 8   | `learn`               | `Stop` → `stop.sh`                            | `claudehut:learn`                       | `claudehut-learner` (haiku)                                                                                                                                        | `.claudehut/memory/learnings.jsonl` (append); `index.md` regenerated | G1 `secret-scan.sh`; G3 ≥1 entry with matching `task_id`                                                                   |
-| 9   | `done`                | `Stop` → `stop.sh`                            | —                                       | —                                                                                                                                                                  | —                                                                    | `stop.sh` emits non-blocking `systemMessage`; `claudehut-finish` archives to `_archive/feature-user-purchase-history-<ts>` |
+| # | Phase derived | Hook that fires | Skill invoked | Agent dispatched | Artifact written | Gate checked |
+|---|---|---|---|---|---|---|
+| 1 | `none` (main) | `UserPromptSubmit` → `prompt-router.sh` | — | — | — | Intent regex matches; `additionalContext` emitted advising branch creation |
+| 2 | `none` → `brainstorm` | `SessionStart` → `session-start.sh` | — | — | `integrations.json` refreshed | Phase recomputed from scratch; `NEXT="No active task"` |
+| 3 | `brainstorm` | `UserPromptSubmit` → `prompt-router.sh` | `claudehut:brainstorm` | `claudehut-brainstormer` (opus) | `.claudehut/specs/feature-user-purchase-history-design.md` | Brainstorm G0–G3 gates; `MAIN_ASKS_USER` loop |
+| 4 | `spec` | `UserPromptSubmit` → `prompt-router.sh` | `claudehut:spec` | `claudehut-spec-writer` (sonnet) | `.claudehut/specs/feature-user-purchase-history-contract.md` | Spec G1–G5 gates + user approval |
+| 5 | `plan` | `UserPromptSubmit` → `prompt-router.sh` | `claudehut:plan` | `claudehut-planner` (opus) | `.claudehut/plans/feature-user-purchase-history-plan.md` | Plan G0–G6 gates including `plan-parallel-group-scan.sh` |
+| 6a | `build` | `PreToolUse` → `pre-tool.sh` | `claudehut:build` → `scaffold-stubs.sh` | No Task dispatch; headless `claude --print` session with `CLAUDEHUT_SCAFFOLD=1` | Commit `chore: scaffold stubs for feature-user-purchase-history` | `./gradlew compileJava compileTestJava` exits 0 |
+| 6b | `build` | `PreToolUse` → `pre-tool.sh` (per file write) | `run-parallel-group.sh` (group 1) | Two `claude --print` workers: `claudehut-builder` persona on `claudehut/task-feature-user-purchase-history-1` and `claudehut/task-feature-user-purchase-history-2` | One commit per worker (DTO on branch 1, Repository on branch 2) | Per-group: `./gradlew compileTestJava test` after merge |
+| 6c | `build` | `PreToolUse` → `pre-tool.sh` | `run-parallel-group.sh` (group 2) | One builder worker (Service) | Commit on `claudehut/task-feature-user-purchase-history-3` | Per-group `./gradlew compileTestJava test` |
+| 6d | `build` | `PreToolUse` → `pre-tool.sh` | `run-parallel-group.sh` (group 3) | One builder worker (Controller) | Commit on `claudehut/task-feature-user-purchase-history-4` | Per-group `./gradlew compileTestJava test` |
+| 7 | `loop` (fall-through) | `UserPromptSubmit` → `prompt-router.sh` | `claudehut:verify-review` | `claudehut-verifier` (sonnet) → fans out 5 reviewer agents in one parallel message | `.claudehut/findings/feature-user-purchase-history-findings.json` | `aggregate-findings.sh`: `critical==0 AND high<3` → `decision=pass` |
+| 8 | `learn` | `Stop` → `stop.sh` | `claudehut:learn` | `claudehut-learner` (haiku) | `.claudehut/memory/learnings.jsonl` (append); `index.md` regenerated | G1 `secret-scan.sh`; G3 ≥1 entry with matching `task_id` |
+| 9 | `done` | `Stop` → `stop.sh` | — | — | — | `stop.sh` emits non-blocking `systemMessage`; `claudehut-finish` archives to `_archive/feature-user-purchase-history-<ts>` |
 
 ---
 
@@ -2497,12 +2462,8 @@ The user types `"add endpoint to fetch user purchase history"` while `HEAD` is `
 `UserPromptSubmit` fires `hooks/prompt-router.sh`. The script sources `hooks/lib/state.sh`, calls `claudehut_task_id()` (returns `"none"` because branch is `main`), calls `claudehut_phase("none")` (returns `"none"`). The phrase does not match the skip-phrase regex (`\b(just write the code|skip …|ignore phases?)\b`). It does match `INTENT_REGEX` (`\b(add|…) (endpoint|…)\b` — no intervening article because `"add endpoint"` is adjacent). The hook returns:
 
 ```json
-{
-  "hookSpecificOutput": {
-    "hookEventName": "UserPromptSubmit",
-    "additionalContext": "ClaudeHut: feature intent detected on default branch. Create a feature branch first:\n  git checkout -b feature/<slug>\nOR claudehut-worktree-create feature/<slug>…"
-  }
-}
+{ "hookSpecificOutput": { "hookEventName": "UserPromptSubmit",
+  "additionalContext": "ClaudeHut: feature intent detected on default branch. Create a feature branch first:\n  git checkout -b feature/<slug>\nOR claudehut-worktree-create feature/<slug>…" } }
 ```
 
 This is advisory (`additionalContext`), not a block. No phase skill is invoked yet.
@@ -2587,12 +2548,12 @@ Orchestrator dispatches `Task(subagent_type="claudehut-planner", prompt="$(dispa
 
 `claudehut-planner` (opus) preloads `claudehut:using-claudehut`, `claudehut:plan`, `claudehut:tdd-cycle`. It reads the contract, atomises into 4 tasks across 3 parallel groups (each 2–5 min, one test method each):
 
-| Task | File (create/modify)                                   | Parallel group |
-| ---- | ------------------------------------------------------ | -------------- |
-| 1    | `create: PurchaseHistoryResponse.java` (DTO record)    | 1              |
-| 2    | `create: PurchaseHistoryRepository.java` (JPA query)   | 1              |
-| 3    | `modify: PurchaseHistoryService.java` (service method) | 2              |
-| 4    | `modify: PurchaseHistoryController.java` (endpoint)    | 3              |
+| Task | File (create/modify) | Parallel group |
+|------|---|---|
+| 1 | `create: PurchaseHistoryResponse.java` (DTO record) | 1 |
+| 2 | `create: PurchaseHistoryRepository.java` (JPA query) | 1 |
+| 3 | `modify: PurchaseHistoryService.java` (service method) | 2 |
+| 4 | `modify: PurchaseHistoryController.java` (endpoint) | 3 |
 
 Tasks 1 and 2 are in group 1 because their file sets are disjoint and neither depends on the other. The planner runs:
 
@@ -2646,20 +2607,15 @@ Workers run concurrently at the OS level. Each worker:
 - `PreToolUse` still fires but partial: the reuse-scan freshness gate is skipped for workers (the scan is stale from brainstorm-time, and a headless session cannot re-run `/reuse-scan`). The surgical-scope gate (`grep -qE "(create|modify|test):.*<rel_path>"` on the plan file) remains active.
 
 Worker 1 (DTO) executes strict TDD:
-
 1. Writes `PurchaseHistoryResponseTest.java` — `PreToolUse` checks `create: PurchaseHistoryResponseTest.java` appears in Task 1's file list.
 2. Runs `./gradlew test --tests PurchaseHistoryResponseTest` → RED (stub throws `UnsupportedOperationException`).
 3. Implements `PurchaseHistoryResponse.java` (overrides stub body).
 4. Runs test again → GREEN. Commits `feat(api): add PurchaseHistoryResponse record` with `git add src/…/PurchaseHistoryResponse.java src/…/PurchaseHistoryResponseTest.java` (explicit paths, never `git add -A`).
 5. Emits:
-
-   ````
+   ```
    ```claudehut-builder-result
    {"task_id":"feature-user-purchase-history","task":1,"verify_status":"pass","commit_sha":"abc123"}
-   ````
-
    ```
-
    ```
 
 Worker 2 (Repository) runs in parallel with the same TDD cycle in its own worktree.
@@ -2700,14 +2656,14 @@ Task(subagent_type="claudehut-verifier", prompt="$(dispatch-prompt.sh …)")
 
 **Reviewer dispatch (G3: one message, multiple Task invocations).** Stack is `web=mvc, orm=jpa`; diff touches `PurchaseHistoryRepository.java` (JPA) and `PurchaseHistoryResponse.java` (DTO). No webflux → `reviewer-reactive` skipped. Roster:
 
-| Reviewer                      | Condition                           | Dispatched?             |
-| ----------------------------- | ----------------------------------- | ----------------------- |
-| `claudehut-reviewer-security` | always                              | yes                     |
-| `claudehut-reviewer-perf`     | always                              | yes                     |
-| `claudehut-reviewer-style`    | always                              | yes                     |
-| `claudehut-reviewer-db`       | diff touches `*Repository.java`     | yes                     |
-| `claudehut-reviewer-mapping`  | diff touches `*Response.java` (DTO) | yes                     |
-| `claudehut-reviewer-reactive` | `web_stack=webflux` only            | **skipped** (`web=mvc`) |
+| Reviewer | Condition | Dispatched? |
+|---|---|---|
+| `claudehut-reviewer-security` | always | yes |
+| `claudehut-reviewer-perf` | always | yes |
+| `claudehut-reviewer-style` | always | yes |
+| `claudehut-reviewer-db` | diff touches `*Repository.java` | yes |
+| `claudehut-reviewer-mapping` | diff touches `*Response.java` (DTO) | yes |
+| `claudehut-reviewer-reactive` | `web_stack=webflux` only | **skipped** (`web=mvc`) |
 
 All 5 are dispatched in a single orchestrator message. After each reviewer subagent stops, `SubagentStop` fires `hooks/subagent-stop.sh`. The script matches `claudehut-reviewer-*`, reads `.claudehut/findings/feature-user-purchase-history-findings.json`, and stamps `.reviewers["claudehut-reviewer-security"] = {completed_at: "…"}` — a completion audit entry only; the reviewer's actual finding content was already written by the verifier or the reviewer agent itself into the same file.
 
@@ -2741,9 +2697,7 @@ Phase derived: `learn`.
 `stop.sh` fires when the session ends, reads `phase.stop_enforcement_enabled` from `.claudehut/claudehut-config.json`. With default `false`, it emits:
 
 ```json
-{
-  "systemMessage": "ClaudeHut: Verify/Review gates are green but the Learn phase has not run. Invoke /claudehut:learn…"
-}
+{ "systemMessage": "ClaudeHut: Verify/Review gates are green but the Learn phase has not run. Invoke /claudehut:learn…" }
 ```
 
 User invokes `/claudehut:learn`. Orchestrator dispatches:
@@ -2787,13 +2741,13 @@ It removes the lockfile and `active-task.json` pointer, then prints suggested ne
 
 ### Notes for reviewers
 
-| Finding                                                                                                                                                                                                                                        | Location                                                                        |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `aggregate-findings.sh` decision rule is `high < 3` (1–2 High = pass), stricter prose in agent G5 says `high==0`. Script governs.                                                                                                              | `skills/verify-review/scripts/aggregate-findings.sh` line 7                     |
-| `loop_max_retries` config key (default 3 in `plugin.json`) is not wired to the hardcoded `3` threshold in retry logic. Config change has no effect at runtime.                                                                                 | `hooks/lib/state.sh` `claudehut_loop_retries()` vs `.claude-plugin/plugin.json` |
-| `SubagentStop` stamps only `{completed_at}` — it does not write reviewer finding content. The verifier agent writes findings; SubagentStop is audit-trail only.                                                                                | `hooks/subagent-stop.sh` vs FACTS claim                                         |
-| Authoritative findings path: `.claudehut/findings/<id>-findings.json` (read by `claudehut_findings_decision()`). `skills/verify-review/scripts/run-verify-parallel.sh` references `.claudehut/state/tasks/<id>/findings.json` — inconsistency. | `hooks/lib/state.sh:claudehut_findings_doc()`                                   |
-| Reuse-scan from brainstorm is stale by build time (>600 s). Workers bypass the freshness gate via `CLAUDEHUT_WORKER=1`; scaffolding bypasses via `CLAUDEHUT_SCAFFOLD=1`. No deadlock.                                                          | `hooks/pre-tool.sh` lines 91–105, 63                                            |
+| Finding | Location |
+|---|---|
+| `aggregate-findings.sh` decision rule is `high < 3` (1–2 High = pass), stricter prose in agent G5 says `high==0`. Script governs. | `skills/verify-review/scripts/aggregate-findings.sh` line 7 |
+| `loop_max_retries` config key (default 3 in `plugin.json`) is not wired to the hardcoded `3` threshold in retry logic. Config change has no effect at runtime. | `hooks/lib/state.sh` `claudehut_loop_retries()` vs `.claude-plugin/plugin.json` |
+| `SubagentStop` stamps only `{completed_at}` — it does not write reviewer finding content. The verifier agent writes findings; SubagentStop is audit-trail only. | `hooks/subagent-stop.sh` vs FACTS claim |
+| Authoritative findings path: `.claudehut/findings/<id>-findings.json` (read by `claudehut_findings_decision()`). `skills/verify-review/scripts/run-verify-parallel.sh` references `.claudehut/state/tasks/<id>/findings.json` — inconsistency. | `hooks/lib/state.sh:claudehut_findings_doc()` |
+| Reuse-scan from brainstorm is stale by build time (>600 s). Workers bypass the freshness gate via `CLAUDEHUT_WORKER=1`; scaffolding bypasses via `CLAUDEHUT_SCAFFOLD=1`. No deadlock. | `hooks/pre-tool.sh` lines 91–105, 63 |
 
 ---
 
@@ -2803,54 +2757,54 @@ ClaudeHut ships a single entry-point test runner, `tests/run-all.sh`, that orche
 
 ### Layer overview
 
-| Layer                                     | File(s)                                                              | What it guards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Assertions in `run-all.sh` |
-| ----------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
-| **L1.1** JSON validity                    | `run-all.sh`                                                         | `python3 json.load` on `plugin.json`, `hooks.json`, `.mcp.json`, `settings.json`, `claudehut-config.template.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 5                          |
-| **L1.2** Bash syntax                      | `run-all.sh`                                                         | `bash -n` on every `*.sh` under `scripts/`, `bin/`, `tests/fixtures/`, `skills/*/scripts/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 73                         |
-| **L1.3** Mermaid balance                  | `run-all.sh`                                                         | All `*.md` outside `tests/` and `.claude/`: opens == closes per `awk` fence counter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 8                          |
-| **L1.4** SKILL.md frontmatter             | `run-all.sh`                                                         | Every `skills/*/SKILL.md` must have `---` block with `name:` == folder name and non-empty `description:`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 30                         |
-| **L1.5** Agent frontmatter                | `run-all.sh`                                                         | Every `agents/*.md` must have `name:`, `description:`, `model:` (valid model token); non-orchestrator agents must carry a `skills:` preload list containing the required domain skills and `claudehut:using-claudehut` as first entry; every non-orchestrator must contain `## Skill Discipline` section                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 49                         |
-| **L1.6** SKILL.md reference links         | `run-all.sh`                                                         | All `references/X.md` citations inside `SKILL.md` files must resolve to existing files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 30                         |
-| **L1.7** Rule frontmatter                 | `run-all.sh`                                                         | Every `rules/**/*.md` must carry `paths:` frontmatter as a YAML list                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 2                          |
-| **L1.8** Plugin manifest spec             | `run-all.sh`                                                         | `plugin.json` `name` is kebab-case and `version` is semver                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 3                          |
-| **L2.1** `state.sh` phase derivation      | `run-all.sh`                                                         | Unit-tests all 8 phase transitions (`uninitialized → brainstorm → spec → plan → build → loop → learn → done`) plus `none` on `main` branch                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 9                          |
-| **L2.2** `validate-migration.sh`          | `run-all.sh`                                                         | Accepts `V*__name.sql` with safe DDL; rejects `ADD COLUMN NOT NULL` without DEFAULT; rejects `R__` with table DDL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 3                          |
-| **L2.3** `secret-scan.sh`                 | `run-all.sh`                                                         | No false-positive on clean text; detects `AKIA*` AWS key, `sk-` API key, `postgres://user:pass@` URL                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 4                          |
-| **L2.4** `design-doc-selfreview.sh`       | `run-all.sh`                                                         | Accepts complete design doc; rejects `TBD` placeholder; rejects doc missing required sections                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 3                          |
-| **L2.5** Plan validators                  | `run-all.sh`                                                         | `plan-placeholder-scan.sh` and `plan-spec-coverage.sh` accept clean/covering plans; reject TBD and uncovered ACs; `plan-parallel-group-scan.sh` rejects file conflicts in same group, deps in same group, and tasks missing the `Parallel group:` field                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 8                          |
-| **L2.6** `validate-skill.sh`              | `run-all.sh`                                                         | Runs skill validator against every `skills/*/` directory (30 skills)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 30                         |
-| **L2.7** `extract-nouns.sh`               | `run-all.sh`                                                         | Extracts `user`, `purchase`, `history` from sample sentence; returns empty on empty input                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 2                          |
-| **L3.1** `session-start.sh` uninitialized | `run-all.sh`                                                         | Hook stdout contains `"not initialized"` when `.claudehut/` is absent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 1                          |
-| **L3.2** `session-start.sh` initialized   | `run-all.sh`                                                         | Hook emits `"ClaudeHut active"`, derives `Phase: brainstorm`, and surfaces `webflux` stack signal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 3                          |
-| **L3.3** `prompt-router.sh`               | `run-all.sh`                                                         | Blocks skip-attempt prompt (`decision == "block"`); suggests feature branch on intent prompt on `main`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 2                          |
-| **L3.4** `pre-tool.sh` destructive bash   | `run-all.sh`                                                         | Denies `rm -rf /` and `git push --force origin main`; allows `./gradlew test`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 3                          |
-| **L3.5** `pre-tool.sh` phase-scope        | `run-all.sh`                                                         | Denies `src/` edits in `brainstorm` phase; allows `.claudehut/` writes at any phase                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | 2                          |
-| **L4** Coverage counts                    | `run-all.sh`                                                         | Asserts 45 rule files, 17 agents, 30 skill SKILL.md files, ≥7 hook events, ≥3 MCP servers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 6                          |
-| **L5** Enforcement simulation             | `run-all.sh`                                                         | All 17 agents have `Goals + Gates + Guardrails + Heuristics` sections; plan template has `Parallel group:` field; planner and builder agents document it; `merge-parallel-group.sh` and `plan-parallel-group-scan.sh` exist and are executable; 7 main agents have a Mermaid state diagram                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 8                          |
-| **L6** E2E simulated workflow             | `run-all.sh` (delegates to `tests/e2e/simulated/full-workflow.sh`)   | Walks all 6 phases via scripted artifacts; verifies phase transitions, hook outputs, validator calls, and artifact presence — 33 steps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | 1 (exit code)              |
-| **L7** Bash 3.2 compat                    | `run-all.sh` (delegates to `tests/static/bash-compat.sh`)            | No `mapfile`/`readarray`, `declare -A`, `declare -n`, `${var,,}`, `wait -n`, or gawk 3-arg `match()` across all scripts                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 1 (exit code)              |
-| **L8** Bidirectional reference integrity  | `run-all.sh` (delegates to `tests/static/ref-integrity.sh`)          | skill→rule, rule→skill, agent→skill, and agent→bin/ cross-references all resolve; 45 rule files carry `paths:` frontmatter                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 1 (exit code)              |
-| **L9** Snapshot tests                     | `run-all.sh` (delegates to `tests/snapshot/run-snapshots.sh`)        | 11 golden JSON files in `tests/snapshot/golden/` cover hook outputs for `session-start`, `prompt-router`, `pre-tool` (4 scenarios), `stop`, `pre-compact`, `file-changed`; normalized output must match golden                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 1 (exit code)              |
-| **L10** Perf budget                       | `run-all.sh` (delegates to `tests/perf/hook-benchmark.sh`)           | 9 hooks × 20 runs each; p95 latency must stay within design budgets: SessionStart ≤ 2000 ms, UserPromptSubmit/FileChanged ≤ 200 ms, PreToolUse ≤ 300 ms, Stop ≤ 1000 ms, PostToolUse/SubagentStop/PreCompact ≤ 500 ms                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 1 (exit code)              |
-| **L11** Reviewer dispatch                 | `run-all.sh` (delegates to `tests/integration/reviewer-dispatch.sh`) | Simulates 6 reviewer subagents writing via `subagent-stop.sh`; verifies `findings.json` totals and `aggregate-findings.sh` decision logic (`pass` when critical=0 and high<3; `fail` when critical≥1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | 1 (exit code)              |
-| **L12** Dispatch contract                 | `run-all.sh`                                                         | Each of 6 phase skills (`brainstorm`, `spec`, `plan`, `build`, `verify-review`, `learn`) must have `## Dispatch contract` section, correct `subagent_type=` value, and an executable `scripts/dispatch-prompt.sh`; `session-start.sh` output must contain "dispatch contract"; orchestrator must carry `DO NOT SPAWN as subagent` guard                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 8                          |
-| **L13** Hook schema conformance           | `run-all.sh`                                                         | All 9 hooks produce valid JSON or silence; emitted top-level keys must be within the documented allowlist; `hookSpecificOutput` is only permitted for `PreToolUse`, `UserPromptSubmit`, `PostToolUse`, `PostToolBatch`, `SessionStart`; `Stop` default mode emits `systemMessage` not `decision=block`; opt-in mode (`stop_enforcement_enabled:true`) emits `decision=block`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 11                         |
-| **L14** Bootstrap skill integrity         | `run-all.sh`                                                         | `skills/using-claudehut/SKILL.md` exists with `name: using-claudehut`, required body sections (`Non-negotiable invocation rule`, `Red flags`, `How dispatch maps to skill invocation`, `Catalog`), `"1% chance"` rule literal, catalog row count == skills directory count, and `scripts/regen-using-claudehut.sh` is idempotent (outputs `"no change"`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | 9                          |
-| **L15** Subagent UX contract              | `run-all.sh`                                                         | No non-orchestrator agent body contains a call-syntax reference to Anthropic runtime-blocked tools (`Agent(`, `AskUserQuestion(`, `EnterPlanMode(`, `ScheduleWakeup(`, `WaitForMcpServers(`); brainstormer body contains `scan-and-return`, `TERMINATE`, `claudehut-brainstorm-return`, `open_questions`; `skills/brainstorm/SKILL.md` documents `AskUserQuestion` and `next_action`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | 7                          |
-| **L16** Parallel build contracts          | `run-all.sh`                                                         | 50-assertion battery covering: `run-parallel-group.sh` (worktree isolation with `worktree add -B`, `.claudehut` symlink, `--agent claudehut:claudehut-builder`, `--settings` merge, `CLAUDEHUT_WORKER=1` export, `TASK_TIMEOUT` watchdog, per-group integration gate, `trap cleanup EXIT`, bash-3.2-safe empty-array expansion, symlink nesting guard, `claude agents list` probe); `scaffold-stubs.sh` (stub commit, `--resume` retry loop, empty `session_id` guard, `CLAUDEHUT_SCAFFOLD=1` bypass, `CLAUDEHUT_WORKER=1` export); `pre-tool.sh` honors both bypasses with behavioral tests including symlink/canonical path mismatch; `merge-parallel-group.sh` (cherry-pick, task:branch pair parsing, `check-ignore` guard); planner documents over-parallelization heuristic; builder has no `PickTask` loop; builder result block has `task`, `commit_sha`, `verify_status`, `task_id` fields | 50                         |
+| Layer | File(s) | What it guards | Assertions in `run-all.sh` |
+|---|---|---|---|
+| **L1.1** JSON validity | `run-all.sh` | `python3 json.load` on `plugin.json`, `hooks.json`, `.mcp.json`, `settings.json`, `claudehut-config.template.json` | 5 |
+| **L1.2** Bash syntax | `run-all.sh` | `bash -n` on every `*.sh` under `scripts/`, `bin/`, `tests/fixtures/`, `skills/*/scripts/` | 73 |
+| **L1.3** Mermaid balance | `run-all.sh` | All `*.md` outside `tests/` and `.claude/`: opens == closes per `awk` fence counter | 8 |
+| **L1.4** SKILL.md frontmatter | `run-all.sh` | Every `skills/*/SKILL.md` must have `---` block with `name:` == folder name and non-empty `description:` | 30 |
+| **L1.5** Agent frontmatter | `run-all.sh` | Every `agents/*.md` must have `name:`, `description:`, `model:` (valid model token); non-orchestrator agents must carry a `skills:` preload list containing the required domain skills and `claudehut:using-claudehut` as first entry; every non-orchestrator must contain `## Skill Discipline` section | 49 |
+| **L1.6** SKILL.md reference links | `run-all.sh` | All `references/X.md` citations inside `SKILL.md` files must resolve to existing files | 30 |
+| **L1.7** Rule frontmatter | `run-all.sh` | Every `rules/**/*.md` must carry `paths:` frontmatter as a YAML list | 2 |
+| **L1.8** Plugin manifest spec | `run-all.sh` | `plugin.json` `name` is kebab-case and `version` is semver | 3 |
+| **L2.1** `state.sh` phase derivation | `run-all.sh` | Unit-tests all 8 phase transitions (`uninitialized → brainstorm → spec → plan → build → loop → learn → done`) plus `none` on `main` branch | 9 |
+| **L2.2** `validate-migration.sh` | `run-all.sh` | Accepts `V*__name.sql` with safe DDL; rejects `ADD COLUMN NOT NULL` without DEFAULT; rejects `R__` with table DDL | 3 |
+| **L2.3** `secret-scan.sh` | `run-all.sh` | No false-positive on clean text; detects `AKIA*` AWS key, `sk-` API key, `postgres://user:pass@` URL | 4 |
+| **L2.4** `design-doc-selfreview.sh` | `run-all.sh` | Accepts complete design doc; rejects `TBD` placeholder; rejects doc missing required sections | 3 |
+| **L2.5** Plan validators | `run-all.sh` | `plan-placeholder-scan.sh` and `plan-spec-coverage.sh` accept clean/covering plans; reject TBD and uncovered ACs; `plan-parallel-group-scan.sh` rejects file conflicts in same group, deps in same group, and tasks missing the `Parallel group:` field | 8 |
+| **L2.6** `validate-skill.sh` | `run-all.sh` | Runs skill validator against every `skills/*/` directory (30 skills) | 30 |
+| **L2.7** `extract-nouns.sh` | `run-all.sh` | Extracts `user`, `purchase`, `history` from sample sentence; returns empty on empty input | 2 |
+| **L3.1** `session-start.sh` uninitialized | `run-all.sh` | Hook stdout contains `"not initialized"` when `.claudehut/` is absent | 1 |
+| **L3.2** `session-start.sh` initialized | `run-all.sh` | Hook emits `"ClaudeHut active"`, derives `Phase: brainstorm`, and surfaces `webflux` stack signal | 3 |
+| **L3.3** `prompt-router.sh` | `run-all.sh` | Blocks skip-attempt prompt (`decision == "block"`); suggests feature branch on intent prompt on `main` | 2 |
+| **L3.4** `pre-tool.sh` destructive bash | `run-all.sh` | Denies `rm -rf /` and `git push --force origin main`; allows `./gradlew test` | 3 |
+| **L3.5** `pre-tool.sh` phase-scope | `run-all.sh` | Denies `src/` edits in `brainstorm` phase; allows `.claudehut/` writes at any phase | 2 |
+| **L4** Coverage counts | `run-all.sh` | Asserts 45 rule files, 17 agents, 30 skill SKILL.md files, ≥7 hook events, ≥3 MCP servers | 6 |
+| **L5** Enforcement simulation | `run-all.sh` | All 17 agents have `Goals + Gates + Guardrails + Heuristics` sections; plan template has `Parallel group:` field; planner and builder agents document it; `merge-parallel-group.sh` and `plan-parallel-group-scan.sh` exist and are executable; 7 main agents have a Mermaid state diagram | 8 |
+| **L6** E2E simulated workflow | `run-all.sh` (delegates to `tests/e2e/simulated/full-workflow.sh`) | Walks all 6 phases via scripted artifacts; verifies phase transitions, hook outputs, validator calls, and artifact presence — 33 steps | 1 (exit code) |
+| **L7** Bash 3.2 compat | `run-all.sh` (delegates to `tests/static/bash-compat.sh`) | No `mapfile`/`readarray`, `declare -A`, `declare -n`, `${var,,}`, `wait -n`, or gawk 3-arg `match()` across all scripts | 1 (exit code) |
+| **L8** Bidirectional reference integrity | `run-all.sh` (delegates to `tests/static/ref-integrity.sh`) | skill→rule, rule→skill, agent→skill, and agent→bin/ cross-references all resolve; 45 rule files carry `paths:` frontmatter | 1 (exit code) |
+| **L9** Snapshot tests | `run-all.sh` (delegates to `tests/snapshot/run-snapshots.sh`) | 11 golden JSON files in `tests/snapshot/golden/` cover hook outputs for `session-start`, `prompt-router`, `pre-tool` (4 scenarios), `stop`, `pre-compact`, `file-changed`; normalized output must match golden | 1 (exit code) |
+| **L10** Perf budget | `run-all.sh` (delegates to `tests/perf/hook-benchmark.sh`) | 9 hooks × 20 runs each; p95 latency must stay within design budgets: SessionStart ≤ 2000 ms, UserPromptSubmit/FileChanged ≤ 200 ms, PreToolUse ≤ 300 ms, Stop ≤ 1000 ms, PostToolUse/SubagentStop/PreCompact ≤ 500 ms | 1 (exit code) |
+| **L11** Reviewer dispatch | `run-all.sh` (delegates to `tests/integration/reviewer-dispatch.sh`) | Simulates 6 reviewer subagents writing via `subagent-stop.sh`; verifies `findings.json` totals and `aggregate-findings.sh` decision logic (`pass` when critical=0 and high<3; `fail` when critical≥1) | 1 (exit code) |
+| **L12** Dispatch contract | `run-all.sh` | Each of 6 phase skills (`brainstorm`, `spec`, `plan`, `build`, `verify-review`, `learn`) must have `## Dispatch contract` section, correct `subagent_type=` value, and an executable `scripts/dispatch-prompt.sh`; `session-start.sh` output must contain "dispatch contract"; orchestrator must carry `DO NOT SPAWN as subagent` guard | 8 |
+| **L13** Hook schema conformance | `run-all.sh` | All 9 hooks produce valid JSON or silence; emitted top-level keys must be within the documented allowlist; `hookSpecificOutput` is only permitted for `PreToolUse`, `UserPromptSubmit`, `PostToolUse`, `PostToolBatch`, `SessionStart`; `Stop` default mode emits `systemMessage` not `decision=block`; opt-in mode (`stop_enforcement_enabled:true`) emits `decision=block` | 11 |
+| **L14** Bootstrap skill integrity | `run-all.sh` | `skills/using-claudehut/SKILL.md` exists with `name: using-claudehut`, required body sections (`Non-negotiable invocation rule`, `Red flags`, `How dispatch maps to skill invocation`, `Catalog`), `"1% chance"` rule literal, catalog row count == skills directory count, and `scripts/regen-using-claudehut.sh` is idempotent (outputs `"no change"`) | 9 |
+| **L15** Subagent UX contract | `run-all.sh` | No non-orchestrator agent body contains a call-syntax reference to Anthropic runtime-blocked tools (`Agent(`, `AskUserQuestion(`, `EnterPlanMode(`, `ScheduleWakeup(`, `WaitForMcpServers(`); brainstormer body contains `scan-and-return`, `TERMINATE`, `claudehut-brainstorm-return`, `open_questions`; `skills/brainstorm/SKILL.md` documents `AskUserQuestion` and `next_action` | 7 |
+| **L16** Parallel build contracts | `run-all.sh` | 50-assertion battery covering: `run-parallel-group.sh` (worktree isolation with `worktree add -B`, `.claudehut` symlink, `--agent claudehut:claudehut-builder`, `--settings` merge, `CLAUDEHUT_WORKER=1` export, `TASK_TIMEOUT` watchdog, per-group integration gate, `trap cleanup EXIT`, bash-3.2-safe empty-array expansion, symlink nesting guard, `claude agents list` probe); `scaffold-stubs.sh` (stub commit, `--resume` retry loop, empty `session_id` guard, `CLAUDEHUT_SCAFFOLD=1` bypass, `CLAUDEHUT_WORKER=1` export); `pre-tool.sh` honors both bypasses with behavioral tests including symlink/canonical path mismatch; `merge-parallel-group.sh` (cherry-pick, task:branch pair parsing, `check-ignore` guard); planner documents over-parallelization heuristic; builder has no `PickTask` loop; builder result block has `task`, `commit_sha`, `verify_status`, `task_id` fields | 50 |
 
 ### Standalone scripts
 
 The five standalone scripts are each invoked by `run-all.sh` (exit-code delegation) but can also be run independently:
 
-| Script                                   | Own assertions | Invoked from `run-all.sh` layer |
-| ---------------------------------------- | -------------- | ------------------------------- |
-| `tests/static/bash-compat.sh`            | 8              | L7                              |
-| `tests/static/ref-integrity.sh`          | 5              | L8                              |
-| `tests/snapshot/run-snapshots.sh`        | 11             | L9                              |
-| `tests/perf/hook-benchmark.sh`           | 9              | L10                             |
-| `tests/integration/reviewer-dispatch.sh` | 14             | L11                             |
-| `tests/e2e/simulated/full-workflow.sh`   | 33             | L6                              |
+| Script | Own assertions | Invoked from `run-all.sh` layer |
+|---|---|---|
+| `tests/static/bash-compat.sh` | 8 | L7 |
+| `tests/static/ref-integrity.sh` | 5 | L8 |
+| `tests/snapshot/run-snapshots.sh` | 11 | L9 |
+| `tests/perf/hook-benchmark.sh` | 9 | L10 |
+| `tests/integration/reviewer-dispatch.sh` | 14 | L11 |
+| `tests/e2e/simulated/full-workflow.sh` | 33 | L6 |
 
 ### Real-Claude E2E (`tests/e2e/run-real-claude.sh`)
 
@@ -2899,8 +2853,8 @@ All layers except the real-Claude E2E suite require only `bash`, `python3`, `jq`
 
 #### 1. Artifact-derived state vs. a JSON state file
 
-| Dimension                 | Decision                                                                       | Alternative rejected                            | Why chosen                                                                                                                       | Cost                                                                                                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Phase source-of-truth** | Phase derived at read-time from artifact presence on disk (`state.sh:114–142`) | Mutable `state.json` written on each transition | Eliminates write-then-read race; state is never stale after a crash or interrupted hook; git branch checkout naturally resets it | Phase derivation is a pure function of disk — adding a new phase requires a new artifact convention, not a new field; two unrelated phases that share the same artifact pattern could alias |
 
 The derivation priority is documented verbatim in `hooks/lib/state.sh:1–17`. Five ordered checks (design doc → contract doc → plan doc → unchecked tasks → findings decision) map cleanly to six phases. The "loop fall-through" at line 141 (`echo "loop"` when plan is complete but no findings exist) is not a transition artifact; it is a logical default, which means the phase is ambiguous between "build just finished and we haven't started verify" and "verify is running". This is intentional but is the single case where the derivation is not purely artifact-resolved.
@@ -2909,8 +2863,8 @@ The derivation priority is documented verbatim in `hooks/lib/state.sh:1–17`. F
 
 #### 2. Git branch = task identity
 
-| Dimension          | Decision                                                      | Alternative rejected                        | Why chosen                                                                                                                                                            | Cost                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Task namespace** | `TASK_ID = git branch → slashes to dashes` (`state.sh:31–51`) | UUID in config file; or `CLAUDE_SESSION_ID` | Zero new state: artifact paths (`specs/<id>-design.md`, `plans/<id>-plan.md`) are namespaced automatically; worktrees branch off the same id; rollback is `git reset` | Main/master/trunk/develop/dev all yield `"none"`, blocking any task on a protected branch; branch renames silently orphan all artifacts; the slug transform (`tr '/' '-' | tr -c '[:alnum:]-' '-'`) collapses distinct branches to the same id if they differ only in non-alphanumeric characters |
 
 `CLAUDEHUT_TASK_ID` env-var override is the escape hatch for worktree workers (`run-parallel-group.sh:173`) so each sub-process still resolves the parent task's artifacts despite being on a derived branch (`claudehut/task-<id>-<N>`).
@@ -2919,8 +2873,8 @@ The derivation priority is documented verbatim in `hooks/lib/state.sh:1–17`. F
 
 #### 3. External `claude --print` parallelism (Path B) vs. Agent-tool subagents for Build
 
-| Dimension          | Decision                                                                                     | Alternative rejected                        | Why chosen                                                                                                                                                                                                                                                                               | Cost                                                                                                                                                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Build executor** | One OS-level `claude --print` process per task, launched with `&` in `run-parallel-group.sh` | Agent-tool subagents inside the main thread | (1) LLM cooperation cannot be forced to batch Agent calls in parallel; (2) full sessions are immune to bug #25834 (subagent skill-preload silent drop) and #49106 (rules degradation across spawn boundary), documented in `skills/build/references/parallel-build-verification.md:7–10` | Each worker is a full Sonnet session: API cost is N × full-session cost; latency is bounded by TASK_TIMEOUT (default 900 s) per group; a single runaway worker blocks the group merge; per-group compile+test gate cost compounds linearly with groups |
 
 The mitigation for cost is `CLAUDEHUT_WORKER_MODEL` (default `sonnet`); the mitigation for the runaway case is the watchdog subshell (`run-parallel-group.sh:185`). The EXIT trap ensures worktrees are always cleaned (`run-parallel-group.sh:125–134`).
@@ -2929,20 +2883,20 @@ The mitigation for cost is `CLAUDEHUT_WORKER_MODEL` (default `sonnet`); the miti
 
 #### 4. Contract-first stub commit
 
-| Dimension                | Decision                                                                                                  | Alternative rejected                   | Why chosen                                                                                                                                                                                                                 | Cost                                                                                                                                                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Pre-parallelism step** | `scaffold-stubs.sh` generates compiling skeleton code from contract + plan, commits once before any group | Let each worker generate its own types | Three failure modes eliminated simultaneously (documented in `scaffold-stubs.sh:10–16`): contract drift, hidden dependency, semantic merge conflict — all three trace to concurrent workers inventing divergent signatures | Stub step is sequential, adding one Sonnet call to every Build phase; compile-retry loop (up to `CLAUDEHUT_SCAFFOLD_MAX_ATTEMPTS`, default 3) can fail hard; `CLAUDEHUT_SCAFFOLD=1` bypass must be kept in sync with any new edit-mode gates added later |
 
 ---
 
 #### 5. Rule tier taxonomy (advisory / reinforced / enforced)
 
-| Tier                             | Mechanism                                                                                                                                   | Example                                                                                                                                   | What it can/cannot catch                                                                                                                                                   |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Tier 1 — advisory**            | Claude Code native `paths:` loader injects rule markdown as context on file-glob match                                                      | All 35 universal rules                                                                                                                    | Catches any violation the LM can reason about in context; subject to compaction (`pre-compact.sh` preserves critical/high rules, evicts low)                               |
-| **Tier 2 — reinforced**          | Rule content baked into reviewer agent descriptions and heuristics                                                                          | `lombok-jpa-safety` `## Reviewer block-list` copied into `claudehut-reviewer-security`; `deserialization` patterns in reviewer heuristics | Survives context window eviction; fires in every Loop iteration independent of rule file load; cannot catch what the LM mis-classifies                                     |
-| **Tier 3 — enforced write-time** | `migration-safety` + `flyway-naming` → `claudehut-migration-validator` agent via PreToolUse; verdict `block` → `permissionDecision: "deny"` | DDL pattern match (`V*.sql`)                                                                                                              | Statically pattern-matchable; catastrophic if wrong; zero false-negative risk for the exact pattern set; cannot handle security rules that require contextual LM reasoning |
-| **Tier 3 — enforced loop gate**  | `aggregate-findings.sh` decision rule; `jacocoTestCoverageVerification`; `watch-test-fail.sh` TDD gate                                      | Security criticals from reviewer block Loop advance; coverage threshold blocks merge                                                      | Post-hoc (after build) rather than write-time; cannot stop the write, only stops the advance                                                                               |
+| Tier | Mechanism | Example | What it can/cannot catch |
+|---|---|---|---|
+| **Tier 1 — advisory** | Claude Code native `paths:` loader injects rule markdown as context on file-glob match | All 35 universal rules | Catches any violation the LM can reason about in context; subject to compaction (`pre-compact.sh` preserves critical/high rules, evicts low) |
+| **Tier 2 — reinforced** | Rule content baked into reviewer agent descriptions and heuristics | `lombok-jpa-safety` `## Reviewer block-list` copied into `claudehut-reviewer-security`; `deserialization` patterns in reviewer heuristics | Survives context window eviction; fires in every Loop iteration independent of rule file load; cannot catch what the LM mis-classifies |
+| **Tier 3 — enforced write-time** | `migration-safety` + `flyway-naming` → `claudehut-migration-validator` agent via PreToolUse; verdict `block` → `permissionDecision: "deny"` | DDL pattern match (`V*.sql`) | Statically pattern-matchable; catastrophic if wrong; zero false-negative risk for the exact pattern set; cannot handle security rules that require contextual LM reasoning |
+| **Tier 3 — enforced loop gate** | `aggregate-findings.sh` decision rule; `jacocoTestCoverageVerification`; `watch-test-fail.sh` TDD gate | Security criticals from reviewer block Loop advance; coverage threshold blocks merge | Post-hoc (after build) rather than write-time; cannot stop the write, only stops the advance |
 
 **Why hook-enforcement for critical rules, not natural language:** Natural-language rules in CLAUDE.md can be overridden by sufficiently forceful user prompts or compaction. `permissionDecision: "deny"` in a PreToolUse hook is a hard platform primitive that the LM cannot override. The design confines this to DDL writes because the pattern-match is precise (`V[0-9]+__*.sql` + column-drop regex); security rules such as `deserialization` require contextual reasoning about the surrounding code that a regex cannot provide, so they are routed through the reviewer subagent at Loop time instead.
 
@@ -2950,8 +2904,8 @@ The mitigation for cost is `CLAUDEHUT_WORKER_MODEL` (default `sonnet`); the miti
 
 #### 6. Bash 3.2 / POSIX-awk portability constraints
 
-| Dimension        | Decision                                                                                                                       | Alternative rejected   | Why chosen                                                                                                                                        | Cost                                                                                                                                                                                                                                                                                |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Shell target** | All `.sh` files run under `#!/usr/bin/env bash`; no `mapfile`, `declare -A/-n`, `${var,,}`, `wait -n`; no gawk 3-arg `match()` | Require bash 4+ or zsh | macOS ships bash 3.2 as system default; CI matrix includes `macos-latest`; a plugin that breaks on the developer's own machine is dead on arrival | `merge-parallel-group.sh:67–76` uses POSIX awk with `sub()` + arithmetic coercion rather than gawk `match(str,re,arr)` — the code is more verbose; `run-parallel-group.sh:175` uses `${arr[@]+"${arr[@]}"}` expansion guard for empty arrays under `set -u`, a known bash 3.2 idiom |
 
 Static enforcement lives in `tests/static/bash-compat.sh` (L7), which scans all `.sh` files for the forbidden features and fails CI if any are found.
@@ -2960,8 +2914,8 @@ Static enforcement lives in `tests/static/bash-compat.sh` (L7), which scans all 
 
 #### 7. Per-group gate vs. final-only gate
 
-| Dimension                     | Decision                                                                                               | Alternative rejected                 | Why chosen                                                                                                                                                                                               | Cost                                                                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dimension | Decision | Alternative rejected | Why chosen | Cost |
+|---|---|---|---|---|
 | **Integration check cadence** | `./gradlew compileTestJava test` (or `mvn -q test-compile test`) runs after each parallel group merges | Single gate at the end of all groups | Groups build on each other: group N+1 tasks import types introduced in group N; a final-only gate propagates a semantic break silently through all later groups, making the root cause harder to isolate | Each group gate is a full compile+test cycle; on a large codebase this is the dominant latency cost per group; the gate is explicitly labelled "load-bearing enforcement" (`run-parallel-group.sh:114`) while in-worktree hook scope-checks are "defense-in-depth" |
 
 ---
@@ -2990,11 +2944,9 @@ These are specification-vs-implementation mismatches that affect runtime correct
 
 **5. Decision rule split: `aggregate-findings.sh` vs. `claudehut-verifier.md` G5.**
 `skills/verify-review/scripts/aggregate-findings.sh:17` writes:
-
 ```
 .decision = (if (.totals.critical == 0 and .totals.high < 3) then "pass" else "fail" end)
 ```
-
 `agents/claudehut-verifier.md:50` states G5: "0 critical AND 0 high → pass; else fail." The verifier also states at line 103: "You do NOT decide whether to relax decision rule (binary: 0 critical + 0 high → pass)." A diff with `critical=0, high=2` will be stamped `decision=pass` by the shell script but should fail per the spec. Because phase advancement is driven by `claudehut_findings_decision()` reading that JSON file (`state.sh:97–102`), a build with 2 high findings would silently advance to Learn.
 
 **6. Findings path split between `run-verify-parallel.sh` and `state.sh`.**
