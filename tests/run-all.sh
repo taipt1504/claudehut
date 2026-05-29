@@ -1280,6 +1280,78 @@ else
   fail "L16 planner agent" "missing over-parallelization heuristic (trivial/few-task tasks)"
 fi
 
+# ── Doc-research-driven hardening (item 1/2/3 definitive solutions) ──────────
+
+# Item 1: workers load the real builder persona via --agent (proper TDD steering),
+# not just a prompt fragment. Probe + plugin-namespace ref.
+if grep -q -- '--agent' "$rpg_script" && grep -q 'claudehut:claudehut-builder' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh loads builder persona via --agent (plugin namespace)"
+else
+  fail "L16 run-parallel-group.sh" "missing --agent claudehut:claudehut-builder persona load"
+fi
+if grep -q 'claude agents list' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh probes agent resolvability (graceful fallback)"
+else
+  fail "L16 run-parallel-group.sh" "missing 'claude agents list' probe — --agent would hard-fail when unresolvable"
+fi
+
+# Item 3: --settings merge so plugin enablement (hooks) is found from out-of-tree cwd
+if grep -q -- '--settings' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh merges project --settings (plugin enablement from /tmp cwd)"
+else
+  fail "L16 run-parallel-group.sh" "missing --settings merge — project-scope plugin hooks won't load in worktree"
+fi
+# bash 3.2-safe empty-array expansion guard
+if grep -q 'AGENT_ARGS\[@\]+' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh uses bash-3.2-safe empty-array expansion"
+else
+  fail "L16 run-parallel-group.sh" "raw \${AGENT_ARGS[@]} aborts under set -u when empty (bash 3.2)"
+fi
+# symlink nesting guard
+if grep -q '\[\[ -e "\$WT_PATH/.claudehut" \]\] ||' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh guards .claudehut symlink against nesting"
+else
+  fail "L16 run-parallel-group.sh" "ungated symlink nests inside a tracked .claudehut dir"
+fi
+# leak-proof worktree cleanup via EXIT trap
+if grep -q 'trap cleanup EXIT' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh cleans worktrees via EXIT trap (no leak on error)"
+else
+  fail "L16 run-parallel-group.sh" "worktree cleanup not in EXIT trap — leaks on early/error exit"
+fi
+
+# Item 2: scaffold compile-fix retry loop via documented session resume
+if grep -q 'session_id' "$stub_script" && grep -q -- '--resume' "$stub_script"; then
+  pass "L16 scaffold-stubs.sh has compile-fix retry loop (--output-format json + --resume)"
+else
+  fail "L16 scaffold-stubs.sh" "missing resume-based compile-fix retry loop"
+fi
+# empty session_id guard (advisor #4)
+if grep -q 'could not capture scaffold session_id' "$stub_script"; then
+  pass "L16 scaffold-stubs.sh fails loudly on empty session_id"
+else
+  fail "L16 scaffold-stubs.sh" "no guard for empty session_id (--resume \"\" would misbehave)"
+fi
+# scaffold bypass exported + honored in the WIRED hook (pre-tool.sh, not dead script)
+if grep -q 'CLAUDEHUT_SCAFFOLD=1' "$stub_script"; then
+  pass "L16 scaffold-stubs.sh exports CLAUDEHUT_SCAFFOLD bypass"
+else
+  fail "L16 scaffold-stubs.sh" "missing CLAUDEHUT_SCAFFOLD — off-plan stub writes get scope-blocked"
+fi
+pre_tool="$PLUGIN_ROOT/hooks/pre-tool.sh"
+if grep -q 'CLAUDEHUT_SCAFFOLD' "$pre_tool"; then
+  pass "L16 pre-tool.sh (wired hook) honors CLAUDEHUT_SCAFFOLD bypass"
+else
+  fail "L16 pre-tool.sh" "scaffold bypass not in the WIRED PreToolUse hook"
+fi
+
+# gitignore-aware plan commit (don't abort when .claudehut is gitignored)
+if grep -q 'check-ignore' "$merge_script"; then
+  pass "L16 merge-parallel-group.sh respects gitignored .claudehut (no set -e abort)"
+else
+  fail "L16 merge-parallel-group.sh" "git add of gitignored plan aborts merge under set -e"
+fi
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================

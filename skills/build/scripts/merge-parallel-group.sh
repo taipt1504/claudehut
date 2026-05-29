@@ -85,11 +85,19 @@ for pair in "${PAIRS[@]}"; do
       continue
     fi
 
-    git add "$PLAN_FILE"
-    git commit -m "chore(plan): task $task_num complete [parallel-merge]" --no-edit 2>/dev/null || \
-      git commit -m "chore(plan): task $task_num complete [parallel-merge]" || true
-
-    echo "  Task $task_num: merged + checkbox ticked."
+    # Phase derivation reads the checkbox from the working tree (not git), so the
+    # tick above is already authoritative. Commit it only if .claudehut is tracked
+    # — projects commonly gitignore .claudehut (workflow state); force-committing
+    # it would pollute their history AND `git add` of an ignored path fails (would
+    # abort under set -e). Respect the user's gitignore.
+    if git check-ignore -q "$PLAN_FILE" 2>/dev/null; then
+      echo "  Task $task_num: merged + checkbox ticked (plan gitignored — not committed)."
+    elif git add "$PLAN_FILE" 2>/dev/null; then
+      git commit -m "chore(plan): task $task_num complete [parallel-merge]" 2>/dev/null || true
+      echo "  Task $task_num: merged + checkbox ticked."
+    else
+      echo "  Task $task_num: merged + checkbox ticked (plan not staged)."
+    fi
   fi
 done
 

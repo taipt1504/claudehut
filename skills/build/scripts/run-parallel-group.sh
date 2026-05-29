@@ -59,7 +59,9 @@ NON-NEGOTIABLE:
 - The types/interfaces for this task already exist as compiling stubs on this branch. Your test
   asserts BEHAVIOR (the stub returns null / throws), so RED fails correctly; GREEN fills it in.
 - SURGICAL SCOPE: edit ONLY files listed in this task Files list (create/modify/test). Never touch others.
-- ONE commit, Conventional Commits format. Do NOT tick plan checkboxes (orchestrator owns that).
+- ONE commit, Conventional Commits format. Stage ONLY your task files by explicit path
+  (git add <path>) — NEVER `git add -A`/`git add .` (that captures the .claudehut symlink
+  and pollutes the merge). Do NOT tick plan checkboxes (orchestrator owns that).
 - NEVER execute more than ONE task. Terminate after the single task commit.
 - You MUST end your output with a fenced code block tagged claudehut-builder-result, containing
   task_id, task, verify_status (pass|fail), commit_sha, error. The orchestrator cannot merge without it.
@@ -94,10 +96,42 @@ fi
 
 echo "Parallel group $GROUP_NUM: dispatching ${#TASK_NUMS[@]} task(s): ${TASK_NUMS[*]}"
 
+# Load the real builder persona when the plugin agent is resolvable — this brings
+# the full Goals/Gates/Guardrails + preloaded tdd-cycle skill (proper TDD steering),
+# strictly better than the --append-system-prompt fragment. Falls back gracefully
+# (e.g. plugin not installed in a dev/test env) to guardrails-only.
+AGENT_REF="claudehut:claudehut-builder"
+AGENT_ARGS=()
+if claude agents list 2>/dev/null | grep -q "$AGENT_REF"; then
+  AGENT_ARGS=(--agent "$AGENT_REF")
+  echo "  workers load persona via --agent $AGENT_REF"
+else
+  echo "  --agent $AGENT_REF not resolvable — workers rely on --append-system-prompt guardrails"
+fi
+
+# Merge the project's committed settings so plugin enablement (and therefore the
+# PreToolUse scope-check hook) is discovered even though each worker's cwd is an
+# out-of-tree worktree. Best-effort: the real enforcement is the per-group gate.
+SETTINGS_ARGS=()
+[[ -f "$MAIN_REPO/.claude/settings.json" ]] && SETTINGS_ARGS=(--settings "$MAIN_REPO/.claude/settings.json")
+
 TMP_DIR="$(mktemp -d)"
 LOG_DIR="$MAIN_REPO/.claudehut/logs"
 mkdir -p "$LOG_DIR"
-trap 'rm -rf "$TMP_DIR"' EXIT
+
+# Cleanup runs on ANY exit (including early/error exits under set -e) so worktrees
+# never leak. Remove each worktree via git (updates metadata), then drop TMP_DIR
+# and prune stale refs.
+cleanup() {
+  local t
+  for t in "${TASK_NUMS[@]}"; do
+    [[ -d "${TMP_DIR}/wt-${t}" ]] && \
+      git -C "$MAIN_REPO" worktree remove --force "${TMP_DIR}/wt-${t}" 2>/dev/null || true
+  done
+  rm -rf "$TMP_DIR"
+  git -C "$MAIN_REPO" worktree prune 2>/dev/null || true
+}
+trap cleanup EXIT
 
 PIDS=()
 WATCHDOGS=()
@@ -118,22 +152,27 @@ for TNUM in "${TASK_NUMS[@]}"; do
 
   # Symlink .claudehut into the worktree so the scope-check hook + claudehut-state
   # can read the plan/state. Worktree only checks out committed files; .claudehut
-  # is untracked, so without this the in-worktree hooks see "uninitialized".
-  ln -s "$MAIN_REPO/.claudehut" "$WT_PATH/.claudehut"
+  # is typically untracked, so without this the in-worktree hooks see
+  # "uninitialized". Guard: if the project DOES track .claudehut it already exists
+  # in the checkout — never nest a symlink inside it.
+  [[ -e "$WT_PATH/.claudehut" ]] || ln -s "$MAIN_REPO/.claudehut" "$WT_PATH/.claudehut"
 
   # Generate dispatch prompt in main repo context (correct branch for state.sh)
   "$SCRIPT_DIR/dispatch-prompt.sh" "$USER_INTENT" "$TNUM" > "$PROMPT_FILE"
 
   # Launch worker (full headless session). CLAUDEHUT_TASK_ID overrides the
   # branch-derived task id so state lookups resolve the original task.
+  # ${arr[@]+...} guards empty-array expansion under `set -u` on bash 3.2.
   (
     cd "$WT_PATH"
     CLAUDE_PROJECT_DIR="$WT_PATH" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
     CLAUDEHUT_TASK_ID="$TASK_ID" \
     claude --print \
+           ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"} \
            --model "$WORKER_MODEL" \
            --append-system-prompt "$GUARDRAILS" \
+           ${SETTINGS_ARGS[@]+"${SETTINGS_ARGS[@]}"} \
            "$(cat "$PROMPT_FILE")" > "$OUT_FILE" 2>&1
   ) &
   wpid=$!
@@ -195,20 +234,22 @@ for TNUM in "${TASK_NUMS[@]}"; do
 done
 
 # Merge passing tasks back before surfacing failures or gating.
+# Capture merge failure (|| MERGE_RC=) so set -e does not abort before the EXIT
+# trap's worktree cleanup — and so a merge error is surfaced as our own exit 1.
+MERGE_RC=0
 if [[ ${#PASS_PAIRS[@]} -gt 0 ]]; then
-  "$SCRIPT_DIR/merge-parallel-group.sh" "$TASK_ID" "$PLAN_FILE" "${PASS_PAIRS[@]}"
+  "$SCRIPT_DIR/merge-parallel-group.sh" "$TASK_ID" "$PLAN_FILE" "${PASS_PAIRS[@]}" || MERGE_RC=$?
 fi
-
-# Remove worktrees (best-effort). Symlink is removed with the worktree dir.
-for TNUM in "${TASK_NUMS[@]}"; do
-  WT_PATH="${TMP_DIR}/wt-${TNUM}"
-  [[ -d "$WT_PATH" ]] && git -C "$MAIN_REPO" worktree remove --force "$WT_PATH" 2>/dev/null || true
-done
+# (worktree cleanup happens in the EXIT trap — never leaks, even on early exit)
 
 if [[ "$ERRORS" -gt 0 ]]; then
   echo "" >&2
   echo "Group $GROUP_NUM: ${#FAIL_TASKS[@]} task(s) failed: ${FAIL_TASKS[*]}" >&2
   echo "Resolve failures before proceeding to next group." >&2
+  exit 1
+fi
+if [[ "$MERGE_RC" -ne 0 ]]; then
+  echo "Group $GROUP_NUM: merge step failed (rc=$MERGE_RC). Resolve before next group." >&2
   exit 1
 fi
 

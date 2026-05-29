@@ -15,7 +15,7 @@ Plus auto-allowed:
 
 ## Enforcement
 
-The PreToolUse hook on Write/Edit invokes `scripts/pre-write-scope-check.sh <file>`. If file ∉ scope → permission denied.
+The wired PreToolUse hook on Write/Edit (`hooks/pre-tool.sh`) checks the target file against the current task's plan scope inline. If file ∉ scope → permission denied. (Scaffold sessions set `CLAUDEHUT_SCAFFOLD=1` to bypass this, since they write whole-feature skeletons.)
 
 To intentionally expand scope:
 

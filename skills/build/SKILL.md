@@ -84,7 +84,7 @@ The PreToolUse hook auto-loads matching rules:
 - `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — dispatch all unchecked tasks in a parallel group as concurrent `claude --print` processes; merges passing branches and runs a per-group compile+test gate. Tunables: `CLAUDEHUT_WORKER_MODEL` (default sonnet), `CLAUDEHUT_TASK_TIMEOUT` (default 900s).
 - `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — generate a single-task builder prompt (task-num selects which plan task block to include).
 - `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each worktree branch onto main and tick plan checkboxes.
-- `scripts/pre-write-scope-check.sh <file>` — verify file is in current task's allowed scope (called by PreToolUse).
+- Surgical-scope enforcement is inline in the wired PreToolUse hook (`hooks/pre-tool.sh`); it denies Write/Edit of files not in the current task's plan. (`scripts/pre-write-scope-check.sh` is a legacy standalone of the same logic, not wired.)
 
 ## Exit criteria
 

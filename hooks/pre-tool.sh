@@ -44,6 +44,12 @@ case "$file_path" in
   "$PROJECT_ROOT/.claudehut/"*) exit 0 ;;
 esac
 
+# Stub-scaffold bypass: scaffold-stubs.sh runs a `claude -p` session at phase=build
+# to write the WHOLE feature skeleton in one pass — including legitimate files no
+# single task owns (shared enums, base types, package-info). Surgical scope +
+# reuse-scan freshness are per-task gates that must NOT apply to scaffolding.
+[[ -n "${CLAUDEHUT_SCAFFOLD:-}" ]] && exit 0
+
 TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
 

@@ -90,22 +90,74 @@ PROMPT_EOF
 
 echo "Scaffolding stubs for ${TASK_ID}... (log: $OUT_FILE)"
 
-CLAUDE_PROJECT_DIR="$MAIN_REPO" \
-CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
-CLAUDEHUT_TASK_ID="$TASK_ID" \
-claude --print --model "$WORKER_MODEL" "$PROMPT" > "$OUT_FILE" 2>&1 || {
-  echo "ERROR: stub scaffolding session failed — see $OUT_FILE" >&2
-  exit 1
+# Max compile-fix attempts. The scaffold session is resumed (same context) with
+# the compiler errors fed back each round — the documented headless retry pattern.
+MAX_ATTEMPTS="${CLAUDEHUT_SCAFFOLD_MAX_ATTEMPTS:-3}"
+
+# CLAUDEHUT_SCAFFOLD=1 bypasses the per-task surgical-scope + reuse-scan PreToolUse
+# gates: the stub session writes the whole skeleton, including files no single task
+# owns. The per-group gate (real enforcement) still runs later in run-parallel-group.
+run_claude() {  # $1 = prompt ; $2 = optional resume args (e.g. "--resume <id>")
+  local resume_args="${2:-}"
+  CLAUDE_PROJECT_DIR="$MAIN_REPO" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  CLAUDEHUT_TASK_ID="$TASK_ID" \
+  CLAUDEHUT_SCAFFOLD=1 \
+  claude --print --model "$WORKER_MODEL" --output-format json $resume_args "$1"
 }
 
-# Verify stubs compile (the worker should have, but gate it deterministically).
-if [[ -n "$COMPILE" ]]; then
-  echo "Verifying stubs compile ($COMPILE)..."
-  if ! ( cd "$MAIN_REPO" && eval "$COMPILE" ); then
-    echo "ERROR: stubs do not compile. Parallel build cannot proceed." >&2
+extract_session_id() { jq -r '.session_id // empty' 2>/dev/null; }
+
+compile_errors() {  # echoes errors to stdout, empty if compile clean
+  [[ -z "$COMPILE" ]] && return 0
+  ( cd "$MAIN_REPO" && eval "$COMPILE" ) 2>&1
+}
+
+# ── Attempt 1: generate ──────────────────────────────────────────────────────
+resp="$(run_claude "$PROMPT" 2>>"$OUT_FILE")" || {
+  echo "ERROR: stub scaffolding session failed — see $OUT_FILE" >&2
+  printf '%s\n' "$resp" >> "$OUT_FILE"
+  exit 1
+}
+printf '%s\n' "$resp" >> "$OUT_FILE"
+session_id="$(printf '%s' "$resp" | extract_session_id)"
+if [[ -z "$session_id" ]]; then
+  echo "ERROR: could not capture scaffold session_id (--output-format json gave no .session_id)." >&2
+  echo "       Response head:" >&2; printf '%s\n' "$resp" | head -5 >&2
+  exit 1
+fi
+
+# ── Compile-fix loop ─────────────────────────────────────────────────────────
+attempt=1
+while :; do
+  errors="$(compile_errors)"
+  if [[ -z "$COMPILE" ]]; then
+    echo "No build tool detected — skipping compile verification."
+    break
+  fi
+  if ( cd "$MAIN_REPO" && eval "$COMPILE" >/dev/null 2>&1 ); then
+    echo "Stubs compile (attempt $attempt)."
+    break
+  fi
+  if [[ "$attempt" -ge "$MAX_ATTEMPTS" ]]; then
+    echo "ERROR: stubs still do not compile after $MAX_ATTEMPTS attempt(s). Parallel build cannot proceed." >&2
+    echo "       Last errors (see $OUT_FILE):" >&2
+    printf '%s\n' "$errors" | tail -20 >&2
     exit 1
   fi
-fi
+  attempt=$((attempt+1))
+  echo "Stubs failed to compile — retry $attempt/$MAX_ATTEMPTS (feeding errors back)..."
+  fix_prompt="The stubs do not compile. Fix ONLY the compile errors below; keep signatures matching the contract. Re-run the compiler until green.
+
+$errors"
+  resp="$(run_claude "$fix_prompt" "--resume $session_id" 2>>"$OUT_FILE")" || {
+    echo "ERROR: scaffold retry session failed — see $OUT_FILE" >&2
+    exit 1
+  }
+  printf '%s\n' "$resp" >> "$OUT_FILE"
+  new_id="$(printf '%s' "$resp" | extract_session_id)"
+  [[ -n "$new_id" ]] && session_id="$new_id"
+done
 
 # Confirm a commit landed (worker may have skipped it).
 if ! git -C "$MAIN_REPO" diff --quiet || ! git -C "$MAIN_REPO" diff --cached --quiet; then
