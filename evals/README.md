@@ -22,8 +22,15 @@ evals/
 
 ## Metrics (per task row)
 
-`pass_at_1` (held-out oracle), `retries` (refactor(loop) commits), `findings`
-(by severity, from findings.json), `coverage_line`, `cost_usd`, `wall_ms`.
+`terminal_status` + `is_error` (did the run finish, or get killed —
+`error_max_budget_usd`/`error_max_turns`), `pass_at_1` (held-out oracle),
+`retries` (refactor(loop) commits), `findings` (by severity, from findings.json),
+`coverage_line`, `cost_usd`, `wall_ms`.
+
+**Read `pass_at_1` with `terminal_status`.** A killed run scores `pass_at_1=0`
+because the oracle grades an *unfinished* tree — that is "never finished", **not**
+"finished and got it wrong". The two fields together stop the row from lying by
+omission.
 
 **Cost** = main-session `total_cost_usd` (orchestrator + in-process Task
 subagents) + Σ `.claudehut/logs/*.cost` (Path-B build workers). Build workers do
@@ -53,6 +60,20 @@ most) and a large feature (full pipeline justified).
 ## Status
 
 Seed fixture: `trivial-sum-bug` (class: trivial). The scorer is CI-tested
-(deterministic). A real baseline row has been produced (see results/). The full
-Spring suite (Kafka+DLT, Flyway, reactive handler, larger feature) and real
-claudehut-mode rows are the next opt-in additions.
+(deterministic). Two real rows produced (see results/):
+
+| mode | terminal_status | pass@1 | cost | wall |
+|------|-----------------|--------|------|------|
+| baseline | success | 1 | $0.14 | 13s |
+| claudehut | **error_max_budget_usd** | 0\* | $1.24 | 288s |
+
+\* claudehut was **killed by the $1.00 budget cap mid-pipeline** (after
+brainstorm + reuse-scan, before Build) — `pass@1=0` grades an unfinished tree, so
+it is *not* a capability verdict. The real, uncontaminated finding: **full
+ceremony on a 1-line bug burned ~9× baseline's full-fix cost and never reached the
+fix.** That is the empirical case for **adaptive-depth routing (Phase 3)** — a
+trivial task should not pay the full 6-phase tax. Whether claudehut *completes and
+fixes* at a higher budget is an open, opt-in re-run (~$3–4).
+
+The full Spring suite (Kafka+DLT, Flyway, reactive handler, larger feature) and a
+higher-budget claudehut run are the next opt-in additions.

@@ -84,12 +84,25 @@ done
 COST="$(awk -v a="$MAIN_COST" -v b="$WORKER_COST" 'BEGIN{printf "%.6f", a+b}')"
 COST_NOTE="main-session + ${WORKER_N} worker cost-file(s); client-side estimate; Path-B workers undercounted until Phase-5 telemetry"
 
+# ---- terminal status: did the run COMPLETE, or was it killed (budget/turns/error)? ----
+# Without this, a budget-killed row (pass@1=0 + high cost on an UNFINISHED tree) is
+# indistinguishable from "ran to completion and produced a wrong fix". The eval would
+# lie by omission. `subtype` is "success" on a clean finish, else e.g.
+# "error_max_budget_usd"/"error_max_turns" (Anthropic --output-format json).
+TERMINAL="unknown"; IS_ERROR=false
+if [[ -n "$CLAUDE_JSON" && -f "$CLAUDE_JSON" ]]; then
+  TERMINAL="$(jq -r '.subtype // "unknown"' "$CLAUDE_JSON" 2>/dev/null || echo unknown)"
+  IS_ERROR="$(jq -r 'if .is_error == true then "true" else "false" end' "$CLAUDE_JSON" 2>/dev/null || echo false)"
+fi
+
 jq -n \
   --arg task "$TASK" --arg mode "$MODE" \
   --argjson pass1 "$PASS1" --argjson retries "$RETRIES" \
   --argjson findings "$FINDINGS" --argjson covline "$COVERAGE_LINE" \
   --argjson cost "$COST" --argjson wall "$WALL_MS" \
+  --arg term "$TERMINAL" --argjson err "$IS_ERROR" \
   --arg note "$COST_NOTE" \
-  '{task:$task, mode:$mode, pass_at_1:$pass1, retries:$retries,
+  '{task:$task, mode:$mode, terminal_status:$term, is_error:$err,
+    pass_at_1:$pass1, retries:$retries,
     findings:$findings, coverage_line:$covline,
     cost_usd:$cost, wall_ms:$wall, cost_note:$note}'

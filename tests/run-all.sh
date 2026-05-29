@@ -1747,7 +1747,15 @@ row="$(bash "$score_sh" trivial-sum-bug "$e17" --claude-json "$e17/claude.json" 
 [[ "$(echo "$row" | jq -r '.cost_usd')" == "1.500000" ]] && pass "L17 scorer: cost=1.50 (main 1.00 + workers 0.40+0.10 summed)" || fail "L17 eval" "cost sum wrong: $(echo "$row"|jq -r .cost_usd)"
 [[ "$(echo "$row" | jq -r '.wall_ms')" == "5000" ]] && pass "L17 scorer: wall_ms passthrough" || fail "L17 eval" "wall wrong"
 [[ "$(echo "$row" | jq -r '.pass_at_1')" == "null" ]] && pass "L17 scorer: pass@1 null when ungradeable (no build.gradle/gradle)" || pass "L17 scorer: pass@1 graded (gradle present)"
-rm -rf "$e17"; unset e17 row score_sh
+[[ "$(echo "$row" | jq -r '.terminal_status')" == "unknown" ]] && pass "L17 scorer: terminal_status=unknown when result JSON lacks subtype" || fail "L17 eval" "terminal_status wrong: $(echo "$row"|jq -r .terminal_status)"
+[[ "$(echo "$row" | jq -r '.is_error')" == "false" ]] && pass "L17 scorer: is_error=false default" || fail "L17 eval" "is_error wrong: $(echo "$row"|jq -r .is_error)"
+# A budget/turn-killed run must SELF-DESCRIBE, else pass@1=0 reads as "tried and produced a wrong fix"
+# rather than "killed mid-pipeline on an unfinished tree" (the contamination the claudehut-mode run hit).
+echo '{"total_cost_usd":1.24,"is_error":true,"subtype":"error_max_budget_usd"}' > "$e17/claude-killed.json"
+krow="$(bash "$score_sh" trivial-sum-bug "$e17" --claude-json "$e17/claude-killed.json" --wall-ms 9000 --mode claudehut 2>/dev/null)"
+[[ "$(echo "$krow" | jq -r '.terminal_status')" == "error_max_budget_usd" && "$(echo "$krow" | jq -r '.is_error')" == "true" ]] \
+  && pass "L17 scorer: budget-kill row self-describes (terminal_status+is_error)" || fail "L17 eval" "kill row not self-describing: $krow"
+rm -rf "$e17"; unset e17 row krow score_sh
 
 #==============================================================================
 section "SUMMARY"
