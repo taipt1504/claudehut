@@ -1717,6 +1717,39 @@ else
 fi
 
 #==============================================================================
+section "L17 Eval harness — deterministic scorer (no model calls)"
+#==============================================================================
+# Phase 2: score.sh must extract metrics correctly from a FINISHED run. Synthetic
+# fixture (no build.gradle → gradle/pass@1 skipped, so this stays CI-gradle-free);
+# asserts cost summing (main + worker .cost), findings, retries, wall extraction.
+score_sh="$PLUGIN_ROOT/evals/score.sh"
+if [[ -x "$score_sh" ]]; then pass "L17 evals/score.sh exists + executable"; else fail "L17 eval" "score.sh missing/not executable"; fi
+if [[ -d "$PLUGIN_ROOT/evals/tasks/trivial-sum-bug/oracle" ]]; then pass "L17 seed fixture has a held-out oracle/"; else fail "L17 eval" "trivial-sum-bug oracle missing"; fi
+# Oracle must NOT live in the fixture's repo/ tree (else pass@1 is self-graded).
+if ls "$PLUGIN_ROOT/evals/tasks/trivial-sum-bug/repo/"**/.*Oracle*.java >/dev/null 2>&1 || \
+   find "$PLUGIN_ROOT/evals/tasks/trivial-sum-bug/repo" -name '*Oracle*' 2>/dev/null | grep -q .; then
+  fail "L17 eval" "oracle test leaked into repo/ — pass@1 would be self-graded"
+else
+  pass "L17 oracle is held out of repo/ (pass@1 not self-graded)"
+fi
+e17="$(mktemp -d)"
+( cd "$e17" && git init -q && git config user.email t@t && git config user.name t \
+  && git commit -q --allow-empty -m base \
+  && git commit -q --allow-empty -m "refactor(loop): a" \
+  && git commit -q --allow-empty -m "refactor(loop): b" )
+mkdir -p "$e17/.claudehut/findings" "$e17/.claudehut/logs"
+printf '{"totals":{"critical":0,"high":2,"medium":1,"low":3}}\n' > "$e17/.claudehut/findings/x-findings.json"
+printf '0.40\n' > "$e17/.claudehut/logs/a.cost"; printf '0.10\n' > "$e17/.claudehut/logs/b.cost"
+echo '{"total_cost_usd":1.00}' > "$e17/claude.json"
+row="$(bash "$score_sh" trivial-sum-bug "$e17" --claude-json "$e17/claude.json" --wall-ms 5000 --mode claudehut 2>/dev/null)"
+[[ "$(echo "$row" | jq -r '.retries')" == "2" ]] && pass "L17 scorer: retries=2 (counts refactor(loop) commits)" || fail "L17 eval" "retries wrong: $(echo "$row"|jq -r .retries)"
+[[ "$(echo "$row" | jq -r '.findings.high')" == "2" ]] && pass "L17 scorer: findings.high=2 (from findings.json)" || fail "L17 eval" "findings wrong: $row"
+[[ "$(echo "$row" | jq -r '.cost_usd')" == "1.500000" ]] && pass "L17 scorer: cost=1.50 (main 1.00 + workers 0.40+0.10 summed)" || fail "L17 eval" "cost sum wrong: $(echo "$row"|jq -r .cost_usd)"
+[[ "$(echo "$row" | jq -r '.wall_ms')" == "5000" ]] && pass "L17 scorer: wall_ms passthrough" || fail "L17 eval" "wall wrong"
+[[ "$(echo "$row" | jq -r '.pass_at_1')" == "null" ]] && pass "L17 scorer: pass@1 null when ungradeable (no build.gradle/gradle)" || pass "L17 scorer: pass@1 graded (gradle present)"
+rm -rf "$e17"; unset e17 row score_sh
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
