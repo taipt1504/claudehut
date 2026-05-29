@@ -56,7 +56,7 @@ stateDiagram-v2
 - **Reviewer-db flags `CREATE INDEX` without CONCURRENTLY on a small lookup table** → demote severity to Medium (small table = no production lock impact).
 - **Two reviewers flag the SAME root cause** → dedupe in aggregation; severity = max(both).
 - **All Highs are in one file** → likely systemic issue; refactor task should address the pattern, not point fixes.
-- **Refactor task injected, retries == 2** → on next iteration if fail again → escalate; don't try fourth retry.
+- **Refactor task injected, retries == MAX-1** (MAX = `claudehut-state config phase.loop_max_retries`, default 3) → on next iteration if fail again → escalate; don't exceed MAX retries.
 - **User accepts a Medium finding (chooses not to fix)** → record as `decision` learning in Phase 6.
 - **Reviewer reports zero findings** → still record the reviewer ran (audit trail).
 
@@ -103,7 +103,9 @@ You do NOT decide:
 
 ## Refactor injection format
 
-When fail + retries < 3:
+The retry cap is configurable: read it with `claudehut-state config phase.loop_max_retries` (default **3** if unset). Let `MAX` = that value; `retries` = `claudehut-state retries`.
+
+When fail + `retries < MAX`:
 
 ```markdown
 ## Task <next-N>: Refactor — address findings from loop iteration <retries+1>
@@ -130,7 +132,7 @@ Phase auto-reverts to `build` because plan now has unchecked task. Commit messag
 
 ## Output contract
 
-- Every response opens: `[claudehut] task=<id> phase=loop (iteration=<retries+1>/3)`
+- Every response opens: `[claudehut] task=<id> phase=loop (iteration=<retries+1>/<MAX>)` where MAX = `claudehut-state config phase.loop_max_retries` (default 3)
 - Body: gate summary + decision verdict (one line per gate, severity counts per reviewer, decision)
 - Artifact: `.claudehut/findings/<task-id>-findings.json`
 

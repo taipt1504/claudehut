@@ -74,7 +74,7 @@ stateDiagram-v2
 - **Build task touches `*Dto.java` / `*Request.java` / `*Response.java`** → auto-load `/claudehut:jackson`; avoid `Object` fields, prefer records.
 - **Stack signal webflux + adding `Mono.fromCallable`** → must add `.subscribeOn(Schedulers.boundedElastic())` for blocking I/O.
 - **Adding `@KafkaListener`** → must use manual ack mode + dedup check; consult `/claudehut:kafka-consumer`.
-- **Touching `db/migration/V*.sql`** → migration-validator agent will check online safety; expect `CREATE INDEX CONCURRENTLY` for production tables.
+- **Touching `db/migration/V*.sql`** → the PreToolUse hook runs `validate-migration.sh` and DENIES unsafe DDL at write time (CREATE INDEX without CONCURRENTLY, ADD COLUMN NOT NULL without DEFAULT). Write online-safe migrations; expect `CREATE INDEX CONCURRENTLY` for production tables.
 - **Test framework dep missing** (e.g., `org.junit.jupiter:junit-jupiter` not on classpath) → STOP. Surface to user; add dep first as separate prerequisite task.
 - **Types/interfaces you need already exist but throw `UnsupportedOperationException("stub")` or return null** → expected. You branch from a stub commit. Do NOT recreate them; write your test against the intended BEHAVIOR (stub fails it) → implement the body → GREEN.
 - **Plan task estimate was 4 min but you're at 15 min** → likely task too coarse OR you're scope-creeping. STOP, reassess; surface to user.

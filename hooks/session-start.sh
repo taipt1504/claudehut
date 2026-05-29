@@ -30,6 +30,32 @@ PHASE="$(claudehut_phase "$TASK_ID")"
 BRANCH="$(claudehut_branch)"
 RETRIES="$(claudehut_loop_retries)"
 
+# Active-task pointer (1.7): give the readers (learn-extract/run-archunit/owasp-scan)
+# a real task pointer, and detect a branch rename that would orphan artifacts. The
+# slug is derived from the branch; if a rename changes the slug, prior artifacts
+# (specs/plans/findings under the old slug) become unreachable — warn loudly.
+# Idempotent + atomic; claudehut-finish removes the pointer at task end.
+STATE_DIR="$CLAUDEHUT_DIR/state"
+PTR="$STATE_DIR/active-task.json"
+TASK_WARN=""
+if [[ "$PHASE" != "none" && "$PHASE" != "uninitialized" ]]; then
+  if [[ -f "$PTR" ]]; then
+    prev_task="$(jq -r '.task_id // ""' "$PTR" 2>/dev/null || echo "")"
+    if [[ -n "$prev_task" && "$prev_task" != "$TASK_ID" ]] \
+       && [[ -f "$CLAUDEHUT_DIR/specs/${prev_task}-design.md" ]] \
+       && [[ ! -f "$CLAUDEHUT_DIR/specs/${TASK_ID}-design.md" ]]; then
+      # A pointer cannot distinguish a branch RENAME (artifacts now orphaned)
+      # from a normal SWITCH to a new task (artifacts safe on the old branch),
+      # so state the fact neutrally and let the user decide — never accuse.
+      TASK_WARN="Note: the previous active task was '$prev_task' (its artifacts live under that branch); you are now on '$TASK_ID', which has no artifacts yet. If '$TASK_ID' is a RENAME of '$prev_task', migrate specs/plans/findings to the new slug. If it is a separate task, ignore this."
+    fi
+  fi
+  mkdir -p "$STATE_DIR"
+  _ptr_tmp="$PTR.tmp.$$"
+  jq -n --arg t "$TASK_ID" --arg b "$BRANCH" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{task_id: $t, branch: $b, slug: $t, updated_at: $ts}' > "$_ptr_tmp" && mv "$_ptr_tmp" "$PTR"
+fi
+
 STACK_SUMMARY="not detected"
 if [[ -f "$MEMORY_DIR/stack-signals.md" ]]; then
   w=$(claudehut_stack_signal web)
@@ -53,6 +79,10 @@ command -v graphify >/dev/null 2>&1 && {
 [[ -f "$PROJECT_ROOT/graphify-out/graph.json" ]] && gf_path="graphify-out/graph.json"
 
 mkdir -p "$MEMORY_DIR"
+# Atomic write (same-dir tmp + mv) so two concurrent SessionStart hooks for the
+# same repo never leave a half-written / clobbered integrations.json. mv is only
+# atomic within one filesystem, so the tmp MUST be in the same dir as the target.
+_int_tmp="$MEMORY_DIR/integrations.json.tmp.$$"
 jq -n \
   --arg ua "$ua_avail" --arg uap "$ua_path" \
   --arg gf "$gf_avail" --arg gfp "$gf_path" --arg gfg "$gf_global" \
@@ -61,7 +91,7 @@ jq -n \
     understand_anything: {available: ($ua == "true"), graph_path: $uap},
     graphify: {available: ($gf == "true"), graph_path: $gfp, global_registry: ($gfg == "true")},
     detected_at: $ts
-  }' > "$MEMORY_DIR/integrations.json"
+  }' > "$_int_tmp" && mv "$_int_tmp" "$MEMORY_DIR/integrations.json"
 
 RECENT="no learnings yet"
 if [[ -f "$MEMORY_DIR/learnings.jsonl" ]]; then
@@ -133,6 +163,11 @@ Only exception: user explicitly says \`--inline\` or \"don't spawn a subagent\".
 $NEXT
 
 Run /claudehut:discover for full status."
+
+# Prepend the rename/orphan warning only when present (no blank-line drift otherwise).
+[[ -n "$TASK_WARN" ]] && CTX="$TASK_WARN
+
+$CTX"
 
 jq -n --arg c "$CTX" '{
   hookSpecificOutput: {

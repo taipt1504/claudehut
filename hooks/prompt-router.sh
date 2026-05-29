@@ -46,7 +46,19 @@ case "$PHASE" in
   spec)       HINT="Phase=spec. Use /claudehut:spec. Output: .claudehut/specs/${TASK_ID}-contract.md → phase advances automatically." ;;
   plan)       HINT="Phase=plan. Use /claudehut:plan. Output: .claudehut/plans/${TASK_ID}-plan.md with all tasks unchecked → phase advances." ;;
   build)      HINT="Phase=build. Per plan task: RED → GREEN → REFACTOR. Tick checkbox in plan when done. Surgical scope enforced." ;;
-  loop)       HINT="Phase=loop. Invoke /claudehut:verify-review. Writes .claudehut/findings/${TASK_ID}-findings.json (decision: pass|fail)." ;;
+  loop)
+    # Deterministically surface the configurable retry cap so the loop can't run
+    # forever: read loop_max_retries from config (default 3) and the git-derived
+    # retry count. At/over the cap, instruct escalation instead of another refactor.
+    _max="$(jq -r '.phase.loop_max_retries // empty' "$PROJECT_ROOT/.claudehut/claudehut-config.json" 2>/dev/null)"
+    [[ "$_max" =~ ^[0-9]+$ ]] || _max=3
+    _retries="$(claudehut_loop_retries 2>/dev/null || echo 0)"
+    if [[ "$_retries" -ge "$_max" ]]; then
+      HINT="Phase=loop — RETRY CAP REACHED ($_retries/$_max). Do NOT inject another refactor task. ESCALATE to the user with the full findings and let them decide (accept findings, change scope, or abandon). The retry cap (phase.loop_max_retries) is a hard stop."
+    else
+      HINT="Phase=loop (retry $_retries/$_max). Invoke /claudehut:verify-review. Writes .claudehut/findings/${TASK_ID}-findings.json (decision: pass|fail)."
+    fi
+    ;;
   learn)      HINT="Phase=learn. Invoke /claudehut:learn. Appends to .claudehut/memory/learnings.jsonl." ;;
   done)       HINT="Phase=done. Run claudehut-finish. Then merge branch." ;;
   *)          exit 0 ;;

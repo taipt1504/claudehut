@@ -6,6 +6,7 @@ set -euo pipefail
 
 # shellcheck source=lib/state.sh
 source "$(dirname "$0")/lib/state.sh"
+PLUGIN_ROOT_PT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}"
 
 input="$(cat)"
 
@@ -34,7 +35,7 @@ if [[ "$tool_mode" == "bash" ]]; then
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: "ClaudeHut: destructive command blocked: \($c). Add allowlist entry in claudehut-config.json#phase.destructive_command_allowlist if intentional."
+        permissionDecisionReason: "ClaudeHut: destructive command blocked (best-effort speed-bump, NOT a sandbox — a determined command can evade this regex): \($c). If intentional, re-run via Claude Code permissions or rephrase."
       }
     }'
     exit 0
@@ -54,6 +55,55 @@ file_path="$_fp_dir/$(basename "$file_path")"
 # Always allow writes inside .claudehut/
 case "$file_path" in
   "$PROJECT_ROOT/.claudehut/"*) exit 0 ;;
+esac
+
+# Migration safety gate (deterministic). A PreToolUse hook is a shell script and
+# CANNOT dispatch an agent (sub-agents.md / hooks-guide.md), so write-time DB
+# safety is a regex gate, not the orphan claudehut-migration-validator agent
+# (that runs at Loop time for contextual checks). The file isn't written yet, so
+# validate the tool_input.content via a temp file that keeps the real basename
+# (the naming check needs it). Deny only on exit 1 (real issues); on exit 2
+# (can't assess) allow — never block a write we cannot evaluate. Not bypassed for
+# workers: it is deterministic with no hang risk.
+case "$file_path" in
+  */db/migration/V*.sql|*/db/migration/R*.sql)
+    _mig_validator="$PLUGIN_ROOT_PT/skills/flyway-migration/scripts/validate-migration.sh"
+    if [[ -x "$_mig_validator" ]]; then
+      # Write tool carries .content; Edit carries .new_string (the text being
+      # introduced); MultiEdit carries .edits[].new_string. Validate whatever new
+      # SQL is being written so an Edit that introduces unsafe DDL is also caught
+      # (the on-disk file is only the pre-edit state). Fall back to the on-disk
+      # file only when no new text is available.
+      _mig_content="$(echo "$input" | jq -r '
+        .tool_input.content
+        // .tool_input.new_string
+        // ((.tool_input.edits // []) | map(.new_string) | join("\n"))
+        // ""' 2>/dev/null)"
+      _mig_target=""; _mig_tmp=""
+      if [[ -n "$_mig_content" ]]; then
+        _mig_tmp="$(mktemp -d)"; _mig_target="$_mig_tmp/$(basename "$file_path")"
+        printf '%s' "$_mig_content" > "$_mig_target"
+      elif [[ -f "$file_path" ]]; then
+        _mig_target="$file_path"
+      fi
+      if [[ -n "$_mig_target" ]]; then
+        # `if` exempts the capture from set -e (a failing validate-migration must
+        # not abort the hook — we need its exit code to decide deny vs allow).
+        if _mig_err="$(bash "$_mig_validator" "$_mig_target" 2>&1)"; then _mig_rc=0; else _mig_rc=$?; fi
+        [[ -n "$_mig_tmp" ]] && rm -rf "$_mig_tmp"
+        if [[ "$_mig_rc" -eq 1 ]]; then
+          jq -n --arg f "$(basename "$file_path")" --arg e "$_mig_err" '{
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: ("ClaudeHut migration gate: \($f) has online-safety issues:\n\($e)\nFix the migration or split into an expand-contract sequence, then retry.")
+            }
+          }'
+          exit 0
+        fi
+      fi
+    fi
+    ;;
 esac
 
 # Stub-scaffold bypass: scaffold-stubs.sh runs a `claude -p` session at phase=build

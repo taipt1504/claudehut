@@ -16,8 +16,8 @@ _find_plugin_root() {
   echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
 }
 PLUGIN_ROOT="$(_find_plugin_root)"
-# shellcheck source=../scripts/hooks/lib/state.sh
-source "$PLUGIN_ROOT/scripts/hooks/lib/state.sh"
+# shellcheck source=../hooks/lib/state.sh
+source "$PLUGIN_ROOT/hooks/lib/state.sh"
 
 TASK_ID="$(claudehut_active_task)"
 [[ "$TASK_ID" == "none" ]] && { echo "error: no active task" >&2; exit 1; }
@@ -34,7 +34,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
   exit 1
 fi
 
-echo "Will archive: state/tasks/$TASK_ID"
+echo "Will finish task: $TASK_ID"
 read -r -p "Confirm? [yes/NO] " ans
 [[ "$ans" == "yes" ]] || { echo "Aborted."; exit 0; }
 
@@ -42,14 +42,20 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 SRC="$(claudehut_state_dir)/tasks/$TASK_ID"
 DST="$(claudehut_state_dir)/tasks/_archive/${TASK_ID}-${TS}"
 
-mkdir -p "$(dirname "$DST")"
-mv "$SRC" "$DST"
+# Archive the mutable state dir IF it exists. The artifact-derived design keeps
+# task artifacts in specs/plans/findings/memory (not state/tasks), so SRC may be
+# absent — finishing must still succeed and clean up the pointer/lock.
+if [[ -d "$SRC" ]]; then
+  mkdir -p "$(dirname "$DST")"
+  mv "$SRC" "$DST"
+  echo "Task state archived: $TASK_ID → _archive/$(basename "$DST")"
+fi
 
-# Release lock + clear active pointer
+# Release lock + clear the active-task pointer (written by SessionStart, 1.7).
 rm -f "$(claudehut_state_dir)/lockfile.d/$TASK_ID"
 rm -f "$(claudehut_state_dir)/active-task.json"
 
-echo "Task archived: $TASK_ID → _archive/$(basename "$DST")"
+echo "Task finished: $TASK_ID"
 echo ""
 echo "Next steps:"
 echo "  - Push:    git push -u origin $(git symbolic-ref --short HEAD)"

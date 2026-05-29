@@ -280,6 +280,67 @@ rm -rf "$TMPDIR"
 unset CLAUDE_PROJECT_DIR
 
 #==============================================================================
+section "L2.1b bin/claudehut-state runs (was sourcing a nonexistent lib path)"
+#==============================================================================
+# The CLI sourced scripts/hooks/lib/state.sh (wrong) and exited 1 on every call,
+# silently breaking every `claudehut-state ...` agent-prose invocation. Run it for real.
+BIN="$PLUGIN_ROOT/bin/claudehut-state"
+BTMP=$(mktemp -d)
+( cd "$BTMP" && git init -q && git checkout -q -b feature/bin-test 2>/dev/null )
+mkdir -p "$BTMP/.claudehut/memory"
+printf -- '- web: webflux\n- orm: r2dbc\n' > "$BTMP/.claudehut/memory/stack-signals.md"
+printf '{"phase":{"loop_max_retries":5}}\n' > "$BTMP/.claudehut/claudehut-config.json"
+if CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" help >/dev/null 2>&1; then
+  pass "L2.1b claudehut-state runs (lib path resolves)"
+else
+  fail "L2.1b claudehut-state" "bin exits non-zero — lib path broken"
+fi
+out=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" stack web 2>/dev/null)
+[[ "$out" == "webflux" ]] && pass "L2.1b stack web → webflux (no dot-prefix bug)" || fail "L2.1b stack" "expected webflux, got '$out'"
+out=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" config phase.loop_max_retries 2>/dev/null)
+[[ "$out" == "5" ]] && pass "L2.1b config phase.loop_max_retries → 5 (wires 1.4)" || fail "L2.1b config" "expected 5, got '$out'"
+rm -rf "$BTMP"; unset out BIN BTMP
+
+# Regression guard for the bin-broken class: no bin may source the nonexistent
+# scripts/hooks/lib/ path (claudehut-state/finish/rollback all had this; it exits 1).
+if grep -rl 'scripts/hooks/lib/state.sh' "$PLUGIN_ROOT/bin/" >/dev/null 2>&1; then
+  fail "L2.1b bin lib path" "a bin sources the wrong scripts/hooks/lib/state.sh: $(grep -rl 'scripts/hooks/lib/state.sh' "$PLUGIN_ROOT/bin/")"
+else
+  pass "L2.1b no bin sources the wrong lib path"
+fi
+
+# state.sh helpers used by bins/discover/scope-check must be defined.
+for fn in claudehut_active_task claudehut_state_dir; do
+  if grep -q "^$fn()" "$PLUGIN_ROOT/hooks/lib/state.sh"; then
+    pass "L2.1b state.sh defines $fn"
+  else
+    fail "L2.1b state.sh" "$fn undefined — callers (finish/rollback/discover/scope-check) crash"
+  fi
+done
+
+# 1.7 end-to-end: claudehut-finish removes the active-task pointer (phase=learn,
+# clean tree, confirmed). Validates the pointer is cleanable, not just written.
+FTMP=$(mktemp -d)
+(
+  cd "$FTMP" && git init -q && git config user.email t@t && git config user.name t && git checkout -q -b feature/fin 2>/dev/null
+  mkdir -p .claudehut/{specs,plans,memory,findings,state}
+)
+FTID="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$FTMP' claudehut_task_id")"
+echo design > "$FTMP/.claudehut/specs/${FTID}-design.md"
+echo contract > "$FTMP/.claudehut/specs/${FTID}-contract.md"
+printf -- '- [x] done\n' > "$FTMP/.claudehut/plans/${FTID}-plan.md"
+echo '{"decision":"pass"}' > "$FTMP/.claudehut/findings/${FTID}-findings.json"
+printf '{"task_id":"%s"}\n' "$FTID" > "$FTMP/.claudehut/state/active-task.json"
+( cd "$FTMP" && git add -A && git commit -qm seed )   # clean tree for finish's git-diff check
+echo "yes" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$FTMP" bash "$PLUGIN_ROOT/bin/claudehut-finish" >/dev/null 2>&1
+if [[ ! -f "$FTMP/.claudehut/state/active-task.json" ]]; then
+  pass "L2.1b claudehut-finish removes active-task pointer (1.7 cleanup works)"
+else
+  fail "L2.1b finish" "active-task.json not removed — finish aborted before cleanup"
+fi
+rm -rf "$FTMP"; unset FTMP FTID fn
+
+#==============================================================================
 section "L2.2 validate-migration.sh"
 #==============================================================================
 script="$PLUGIN_ROOT/skills/flyway-migration/scripts/validate-migration.sh"
@@ -632,6 +693,57 @@ cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
 
 #==============================================================================
+section "L3.2b Hook: SessionStart active-task pointer + rename/orphan warning (1.7)"
+#==============================================================================
+PTMP=$(mktemp -d)
+cd "$PTMP"
+git init -q; git checkout -q -b feature/orig-task 2>/dev/null
+mkdir -p .claudehut/{specs,plans,memory}
+TID_ORIG="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$PTMP' claudehut_task_id")"
+echo "design" > ".claudehut/specs/${TID_ORIG}-design.md"
+export CLAUDE_PROJECT_DIR="$PTMP"
+# First session on the original branch → pointer written, no warning.
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o1.json" 2>&1
+if [[ -f "$PTMP/.claudehut/state/active-task.json" ]] && \
+   [[ "$(jq -r '.task_id' "$PTMP/.claudehut/state/active-task.json")" == "$TID_ORIG" ]]; then
+  pass "L3.2b active-task pointer written"
+else
+  fail "L3.2b pointer" "pointer not written or wrong task_id"
+fi
+if jq -e '.hookSpecificOutput.additionalContext | test("previous active task")' "$PTMP/o1.json" >/dev/null 2>&1; then
+  fail "L3.2b" "false task-change note on first session"
+else
+  pass "L3.2b no task-change note on first session"
+fi
+# Task change: a pointer cannot tell a RENAME from a SWITCH, so the note must be
+# neutral (state the fact, prescribe nothing) — and must NEVER falsely accuse of
+# orphaning. Same neutral note in both cases below.
+git branch -m feature/renamed-task 2>/dev/null
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o2.json" 2>&1
+if jq -e '.hookSpecificOutput.additionalContext | test("previous active task")' "$PTMP/o2.json" >/dev/null 2>&1; then
+  pass "L3.2b task change → neutral note surfaced"
+else
+  fail "L3.2b note" "expected neutral task-change note: $(jq -r '.hookSpecificOutput.additionalContext' "$PTMP/o2.json" 2>/dev/null | head -3)"
+fi
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o2.json" >/dev/null 2>&1; then
+  fail "L3.2b note" "must NOT accuse of orphaning (can't distinguish rename from switch)"
+else
+  pass "L3.2b note is non-accusatory (no false ORPHANED)"
+fi
+# Discriminating: a legitimate SWITCH to a separate new task must NOT be accused
+# of orphaning either (this is the common multi-task flow the old wording broke).
+git checkout -q -b feature/separate-task 2>/dev/null
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o3.json" 2>&1
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o3.json" >/dev/null 2>&1; then
+  fail "L3.2b switch" "legitimate branch switch wrongly accused of orphaning"
+else
+  pass "L3.2b switch → no false orphan accusation (common multi-task flow safe)"
+fi
+cd "$PLUGIN_ROOT"
+rm -rf "$PTMP"
+unset CLAUDE_PROJECT_DIR TID_ORIG
+
+#==============================================================================
 section "L3.3 Hook: prompt-router blocks skip-attempts"
 #==============================================================================
 TMPDIR=$(mktemp -d)
@@ -723,6 +835,73 @@ fi
 
 cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
+
+#==============================================================================
+section "L3.6 Hook: pre-tool migration safety gate (deterministic, write-time)"
+#==============================================================================
+MTMP=$(mktemp -d)
+cd "$MTMP"
+git init -q; git checkout -q -b feature/mig 2>/dev/null
+mkdir -p .claudehut/{specs,plans,memory} src/main/resources/db/migration
+export CLAUDE_PROJECT_DIR="$MTMP"
+
+# Unsafe: ADD COLUMN NOT NULL without DEFAULT (validate-migration exit 1) → deny
+# by the MIGRATION GATE specifically (it runs before the phase gate, so this is
+# phase-independent). Assert both deny AND the migration-gate reason.
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V1__add_col.sql\",\"content\":\"ALTER TABLE users ADD COLUMN tenant_id UUID NOT NULL;\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | test("migration gate"))' "$MTMP/out.json" >/dev/null 2>&1; then
+  pass "pre-tool: migration gate denies unsafe DDL (ADD COLUMN NOT NULL no DEFAULT)"
+else
+  fail "pre-tool migration" "should deny via migration gate: $(cat "$MTMP/out.json")"
+fi
+
+# Safe: CREATE TABLE → migration gate must NOT deny (a phase gate may deny for
+# other reasons in this brainstorm fixture; we assert only that the MIGRATION GATE
+# did not fire — phase-independent).
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V2__create.sql\",\"content\":\"CREATE TABLE orders (id UUID PRIMARY KEY);\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '(.hookSpecificOutput.permissionDecisionReason // "") | test("migration gate")' "$MTMP/out.json" >/dev/null 2>&1; then
+  fail "pre-tool migration" "false-positive migration-gate deny on safe CREATE TABLE: $(cat "$MTMP/out.json")"
+else
+  pass "pre-tool: migration gate allows safe DDL (CREATE TABLE)"
+fi
+
+# 1.3 Edit-path closure: an Edit that INTRODUCES unsafe DDL (new_string, no
+# .content) must also be denied (file isn't written yet; validate new_string).
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V3__alter.sql\",\"new_string\":\"ALTER TABLE users ADD COLUMN flag BOOLEAN NOT NULL;\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | test("migration gate"))' "$MTMP/out.json" >/dev/null 2>&1; then
+  pass "pre-tool: migration gate denies unsafe DDL via Edit new_string (1.3 closure)"
+else
+  fail "pre-tool migration edit" "Edit introducing unsafe DDL not denied: $(cat "$MTMP/out.json")"
+fi
+
+cd "$PLUGIN_ROOT"
+rm -rf "$MTMP"
+unset CLAUDE_PROJECT_DIR
+
+#==============================================================================
+section "L3.7 Hook: prompt-router surfaces loop retry cap (1.4 deterministic)"
+#==============================================================================
+RTMP=$(mktemp -d)
+(
+  cd "$RTMP" && git init -q && git config user.email t@t && git config user.name t && git checkout -q -b feature/loopcap 2>/dev/null
+  mkdir -p .claudehut/{specs,plans,memory,findings}
+)
+RTID="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$RTMP' claudehut_task_id")"
+echo design > "$RTMP/.claudehut/specs/${RTID}-design.md"
+echo contract > "$RTMP/.claudehut/specs/${RTID}-contract.md"
+printf -- '- [x] complete\n' > "$RTMP/.claudehut/plans/${RTID}-plan.md"   # plan done, no findings → phase=loop
+printf '{"phase":{"loop_max_retries":1}}\n' > "$RTMP/.claudehut/claudehut-config.json"
+( cd "$RTMP" && git add -A && git commit -qm seed && git commit -q --allow-empty -m "refactor(loop): attempt 1" )  # retries=1 >= max=1
+out="$(echo '{"prompt":"continue"}' | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$RTMP" bash "$PLUGIN_ROOT/hooks/prompt-router.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("RETRY CAP REACHED")' >/dev/null 2>&1; then
+  pass "L3.7 prompt-router surfaces RETRY CAP REACHED at retries>=loop_max_retries"
+else
+  fail "L3.7 loop cap" "expected cap surfacing, got: $(echo "$out" | jq -r '.hookSpecificOutput.additionalContext // .' 2>/dev/null | head -2)"
+fi
+rm -rf "$RTMP"; unset RTMP RTID out
 
 #==============================================================================
 section "L4 Coverage — rules + skills + agents"
@@ -1074,7 +1253,7 @@ echo "design"   > "$L13_TMPDIR/.claudehut/specs/${TID}-design.md"
 echo "contract" > "$L13_TMPDIR/.claudehut/specs/${TID}-contract.md"
 echo -e "- [x] task1\n  create: src/Foo.java" > "$L13_TMPDIR/.claudehut/plans/${TID}-plan.md"
 echo '{"decision":"pass"}' > "$L13_TMPDIR/.claudehut/findings/${TID}-findings.json"
-out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+out="$(echo '{}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
 if echo "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 \
    && ! echo "$out" | jq -e '.decision == "block"' >/dev/null 2>&1; then
   pass "L13 Stop default mode is non-blocking (systemMessage only)"
@@ -1082,15 +1261,25 @@ else
   fail "L13 Stop default" "expected systemMessage, got: $out"
 fi
 
-# Opt-in mode: enable enforcement, expect decision=block.
+# Opt-in mode: enable enforcement, first stop (no stop_hook_active) → decision=block.
 cat > "$L13_TMPDIR/.claudehut/claudehut-config.json" <<'CFG'
 {"phase":{"stop_enforcement_enabled":true}}
 CFG
-out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+out="$(echo '{}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
 if echo "$out" | jq -e '.decision == "block" and (.reason | type == "string")' >/dev/null 2>&1; then
   pass "L13 Stop opt-in mode blocks via decision=block"
 else
   fail "L13 Stop opt-in" "expected decision=block, got: $out"
+fi
+
+# Bounded escape (1.1): enforcement on BUT stop_hook_active=true (we already blocked)
+# → must NOT block again; downgrade to systemMessage so the platform stop-loop can't fire.
+out="$(echo '{"stop_hook_active":true}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 \
+   && ! echo "$out" | jq -e '.decision == "block"' >/dev/null 2>&1; then
+  pass "L13 Stop bounded escape: stop_hook_active → systemMessage, not block"
+else
+  fail "L13 Stop escape" "expected systemMessage on stop_hook_active, got: $out"
 fi
 
 popd >/dev/null

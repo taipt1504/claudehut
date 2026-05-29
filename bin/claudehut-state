@@ -22,7 +22,7 @@ _find_plugin_root() {
   done
   echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
 }
-CLAUDEHUT_LIB="$(_find_plugin_root)/scripts/hooks/lib/state.sh"
+CLAUDEHUT_LIB="$(_find_plugin_root)/hooks/lib/state.sh"
 if [[ -f "$CLAUDEHUT_LIB" ]]; then
   # shellcheck source=/dev/null
   source "$CLAUDEHUT_LIB"
@@ -40,8 +40,9 @@ case "$cmd" in
   branch)       claudehut_branch ;;
   retries)      claudehut_loop_retries ;;
   stack)
-    field="${1:-.web_stack}"
-    [[ "$field" != .* ]] && field=".$field"
+    # claudehut_stack_signal greps `^- <key>:` in stack-signals.md, so pass the
+    # BARE key (web, orm, db, messaging, mapper, serialization) — never dot-prefixed.
+    field="${1:-web}"
     claudehut_stack_signal "$field"
     ;;
   integrations)
@@ -78,7 +79,7 @@ COMMANDS:
   phase                Current phase (derived from artifact presence)
   branch               Current git branch
   retries              Loop retry count (number of refactor(loop) commits)
-  stack <field>        Read field from stack-signals.json
+  stack <field>        Read field (web|orm|db|messaging|mapper|serialization) from stack-signals.md
   integrations         Print memory/integrations.json
   config [key]         Read claudehut-config.json
   docs                 Show artifact paths for current task
@@ -87,7 +88,7 @@ COMMANDS:
 EXAMPLES:
   claudehut-state task-id
   claudehut-state phase
-  claudehut-state stack web_stack
+  claudehut-state stack web
   claudehut-state config phase.loop_max_retries
 EOF
     ;;

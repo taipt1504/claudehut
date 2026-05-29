@@ -33,7 +33,7 @@ Detailed: `references/naming-convention.md`, `references/safety-rules.md`, `refe
 
 ## Scripts
 
-- `scripts/validate-migration.sh` — runs naming + safety checks (used by claudehut-migration-validator).
+- `scripts/validate-migration.sh` — runs naming + online-safety checks. Wired as the deterministic write-time PreToolUse gate (hooks/pre-tool.sh) for `**/db/migration/V*.sql`; also used by claudehut-migration-validator for Loop-time contextual review.
 
 ## Assets
 

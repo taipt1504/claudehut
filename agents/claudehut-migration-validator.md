@@ -1,6 +1,6 @@
 ---
 name: claudehut-migration-validator
-description: Flyway/Liquibase migration safety validator. Checks naming convention, online-safe DDL (CREATE INDEX CONCURRENTLY, NOT NULL with default, etc.), backward compatibility (rolling deploy survives), reversibility. Invoked by PreToolUse hook when a file under **/db/migration/V*.sql is about to be written. Read-only; blocks via permissionDecision when Critical issue found.
+description: Flyway/Liquibase migration safety reviewer for Loop-time (Phase 5) contextual review — table-size estimation, rolling-deploy / backward-compat judgment, reversibility — the checks that need reasoning, not a regex. Write-time enforcement is the deterministic regex gate in the PreToolUse hook (hooks/pre-tool.sh runs skills/flyway-migration/scripts/validate-migration.sh): a shell hook cannot dispatch an agent, so static DDL hazards (CREATE INDEX without CONCURRENTLY, ADD COLUMN NOT NULL without DEFAULT, R__ with table DDL) are denied there. This agent adds the contextual layer a regex cannot.
 model: haiku
 tools: Read, Grep, Bash, Skill
 skills:
