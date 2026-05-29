@@ -710,18 +710,34 @@ if [[ -f "$PTMP/.claudehut/state/active-task.json" ]] && \
 else
   fail "L3.2b pointer" "pointer not written or wrong task_id"
 fi
-if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o1.json" >/dev/null 2>&1; then
-  fail "L3.2b" "false rename warning on first session"
+if jq -e '.hookSpecificOutput.additionalContext | test("previous active task")' "$PTMP/o1.json" >/dev/null 2>&1; then
+  fail "L3.2b" "false task-change note on first session"
 else
-  pass "L3.2b no warning on first session"
+  pass "L3.2b no task-change note on first session"
 fi
-# Rename the branch (artifacts stay under old slug) → next session warns + updates pointer.
+# Task change: a pointer cannot tell a RENAME from a SWITCH, so the note must be
+# neutral (state the fact, prescribe nothing) — and must NEVER falsely accuse of
+# orphaning. Same neutral note in both cases below.
 git branch -m feature/renamed-task 2>/dev/null
 echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o2.json" 2>&1
-if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o2.json" >/dev/null 2>&1; then
-  pass "L3.2b rename → ORPHANED warning surfaced"
+if jq -e '.hookSpecificOutput.additionalContext | test("previous active task")' "$PTMP/o2.json" >/dev/null 2>&1; then
+  pass "L3.2b task change → neutral note surfaced"
 else
-  fail "L3.2b rename" "expected ORPHANED warning after branch rename: $(jq -r '.hookSpecificOutput.additionalContext' "$PTMP/o2.json" 2>/dev/null | head -3)"
+  fail "L3.2b note" "expected neutral task-change note: $(jq -r '.hookSpecificOutput.additionalContext' "$PTMP/o2.json" 2>/dev/null | head -3)"
+fi
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o2.json" >/dev/null 2>&1; then
+  fail "L3.2b note" "must NOT accuse of orphaning (can't distinguish rename from switch)"
+else
+  pass "L3.2b note is non-accusatory (no false ORPHANED)"
+fi
+# Discriminating: a legitimate SWITCH to a separate new task must NOT be accused
+# of orphaning either (this is the common multi-task flow the old wording broke).
+git checkout -q -b feature/separate-task 2>/dev/null
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o3.json" 2>&1
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o3.json" >/dev/null 2>&1; then
+  fail "L3.2b switch" "legitimate branch switch wrongly accused of orphaning"
+else
+  pass "L3.2b switch → no false orphan accusation (common multi-task flow safe)"
 fi
 cd "$PLUGIN_ROOT"
 rm -rf "$PTMP"

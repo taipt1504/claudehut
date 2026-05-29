@@ -44,7 +44,10 @@ if [[ "$PHASE" != "none" && "$PHASE" != "uninitialized" ]]; then
     if [[ -n "$prev_task" && "$prev_task" != "$TASK_ID" ]] \
        && [[ -f "$CLAUDEHUT_DIR/specs/${prev_task}-design.md" ]] \
        && [[ ! -f "$CLAUDEHUT_DIR/specs/${TASK_ID}-design.md" ]]; then
-      TASK_WARN="⚠ Active task changed: '$prev_task' → '$TASK_ID'. Artifacts under '$prev_task' (specs/plans/findings) are now ORPHANED — likely a branch rename. Restore the original branch name, or migrate the artifacts to the new slug, before continuing."
+      # A pointer cannot distinguish a branch RENAME (artifacts now orphaned)
+      # from a normal SWITCH to a new task (artifacts safe on the old branch),
+      # so state the fact neutrally and let the user decide — never accuse.
+      TASK_WARN="Note: the previous active task was '$prev_task' (its artifacts live under that branch); you are now on '$TASK_ID', which has no artifacts yet. If '$TASK_ID' is a RENAME of '$prev_task', migrate specs/plans/findings to the new slug. If it is a separate task, ignore this."
     fi
   fi
   mkdir -p "$STATE_DIR"
