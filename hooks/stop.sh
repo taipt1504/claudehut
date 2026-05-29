@@ -19,6 +19,12 @@ source "$(dirname "$0")/lib/state.sh"
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || exit 0
 
+# Worker/scaffold sessions (headless `claude -p` from the Build phase) must never
+# be Stop-blocked — a non-interactive session cannot dispatch a missing phase and
+# would hang until its watchdog kills it. (Currently Stop blocks only at
+# phase=learn, which workers never reach; this is defensive against future rules.)
+[[ -n "${CLAUDEHUT_WORKER:-}" ]] && exit 0
+
 TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
 

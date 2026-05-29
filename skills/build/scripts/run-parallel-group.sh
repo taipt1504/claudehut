@@ -168,6 +168,7 @@ for TNUM in "${TASK_NUMS[@]}"; do
     CLAUDE_PROJECT_DIR="$WT_PATH" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
     CLAUDEHUT_TASK_ID="$TASK_ID" \
+    CLAUDEHUT_WORKER=1 \
     claude --print \
            ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"} \
            --model "$WORKER_MODEL" \

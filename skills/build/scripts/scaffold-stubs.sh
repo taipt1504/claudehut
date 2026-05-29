@@ -102,15 +102,19 @@ run_claude() {  # $1 = prompt ; $2 = optional resume args (e.g. "--resume <id>")
   CLAUDE_PROJECT_DIR="$MAIN_REPO" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
   CLAUDEHUT_TASK_ID="$TASK_ID" \
+  CLAUDEHUT_WORKER=1 \
   CLAUDEHUT_SCAFFOLD=1 \
   claude --print --model "$WORKER_MODEL" --output-format json $resume_args "$1"
 }
 
 extract_session_id() { jq -r '.session_id // empty' 2>/dev/null; }
 
-compile_errors() {  # echoes errors to stdout, empty if compile clean
-  [[ -z "$COMPILE" ]] && return 0
-  ( cd "$MAIN_REPO" && eval "$COMPILE" ) 2>&1
+# Compile once; set COMPILE_OUT (combined output) and return the build's exit code.
+# Single invocation per call — callers must NOT re-run the build for status.
+COMPILE_OUT=""
+do_compile() {
+  [[ -z "$COMPILE" ]] && { COMPILE_OUT=""; return 0; }
+  COMPILE_OUT="$( cd "$MAIN_REPO" && eval "$COMPILE" 2>&1 )"
 }
 
 # ── Attempt 1: generate ──────────────────────────────────────────────────────
@@ -128,17 +132,16 @@ if [[ -z "$session_id" ]]; then
 fi
 
 # ── Compile-fix loop ─────────────────────────────────────────────────────────
+if [[ -z "$COMPILE" ]]; then
+  echo "No build tool detected — skipping compile verification."
+fi
 attempt=1
-while :; do
-  errors="$(compile_errors)"
-  if [[ -z "$COMPILE" ]]; then
-    echo "No build tool detected — skipping compile verification."
-    break
-  fi
-  if ( cd "$MAIN_REPO" && eval "$COMPILE" >/dev/null 2>&1 ); then
+while [[ -n "$COMPILE" ]]; do
+  if do_compile; then
     echo "Stubs compile (attempt $attempt)."
     break
   fi
+  errors="$COMPILE_OUT"
   if [[ "$attempt" -ge "$MAX_ATTEMPTS" ]]; then
     echo "ERROR: stubs still do not compile after $MAX_ATTEMPTS attempt(s). Parallel build cannot proceed." >&2
     echo "       Last errors (see $OUT_FILE):" >&2

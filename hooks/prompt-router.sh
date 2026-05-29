@@ -8,6 +8,12 @@ source "$(dirname "$0")/lib/state.sh"
 input="$(cat)"
 prompt="$(echo "$input" | jq -r '.prompt // ""')"
 
+# Worker/scaffold sessions are headless `claude -p` sub-processes spawned by the
+# Build phase. They must NOT be phase-routed or skip-phrase-blocked: a block on a
+# non-interactive session can never be satisfied → the worker hangs until its
+# watchdog kills it. PreToolUse scope-check stays active (different hook).
+[[ -n "${CLAUDEHUT_WORKER:-}" ]] && exit 0
+
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || exit 0
 

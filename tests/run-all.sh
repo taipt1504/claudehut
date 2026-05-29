@@ -1352,6 +1352,40 @@ else
   fail "L16 merge-parallel-group.sh" "git add of gitignored plan aborts merge under set -e"
 fi
 
+# Worker-hang guard: a worker is a FULL session, so the whole hook stack fires.
+# Block-capable ambient hooks (prompt-router, stop) must early-exit under
+# CLAUDEHUT_WORKER, else a -p worker can never satisfy a block → hangs to watchdog.
+pr_hook="$PLUGIN_ROOT/hooks/prompt-router.sh"
+stop_hook="$PLUGIN_ROOT/hooks/stop.sh"
+if grep -q 'CLAUDEHUT_WORKER' "$pr_hook"; then
+  pass "L16 prompt-router.sh has CLAUDEHUT_WORKER bypass (no skip-phrase block on workers)"
+else
+  fail "L16 prompt-router.sh" "missing CLAUDEHUT_WORKER guard — user intent with skip-phrase hangs every worker"
+fi
+if grep -q 'CLAUDEHUT_WORKER' "$stop_hook"; then
+  pass "L16 stop.sh has CLAUDEHUT_WORKER bypass (no Stop-block on workers)"
+else
+  fail "L16 stop.sh" "missing CLAUDEHUT_WORKER guard — Stop-block would hang headless workers"
+fi
+if grep -q 'CLAUDEHUT_WORKER=1' "$rpg_script"; then
+  pass "L16 run-parallel-group.sh exports CLAUDEHUT_WORKER=1"
+else
+  fail "L16 run-parallel-group.sh" "workers not tagged CLAUDEHUT_WORKER — ambient hooks can block them"
+fi
+if grep -q 'CLAUDEHUT_WORKER=1' "$stub_script"; then
+  pass "L16 scaffold-stubs.sh exports CLAUDEHUT_WORKER=1"
+else
+  fail "L16 scaffold-stubs.sh" "scaffold session not tagged CLAUDEHUT_WORKER"
+fi
+# Behavioral: guard actually suppresses the block (not just present in source)
+_tmpg="$(mktemp -d)"; ( cd "$_tmpg" && git init -q && git checkout -q -b feature/g && mkdir -p .claudehut/{specs,plans,memory,findings} )
+if [[ -z "$(echo '{"prompt":"just write the code, skip the plan"}' | CLAUDE_PROJECT_DIR="$_tmpg" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDEHUT_WORKER=1 bash "$pr_hook" 2>/dev/null)" ]]; then
+  pass "L16 prompt-router.sh: CLAUDEHUT_WORKER suppresses skip-phrase block (behavioral)"
+else
+  fail "L16 prompt-router.sh" "CLAUDEHUT_WORKER did not suppress block at runtime"
+fi
+rm -rf "$_tmpg"
+
 #==============================================================================
 section "SUMMARY"
 #==============================================================================
