@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # tests/integration/reviewer-dispatch.sh
 #
-# Simulates verifier dispatching 6 reviewer subagents in parallel, each writing
-# findings via SubagentStop hook. Verifies aggregation produces correct totals + decision.
+# Phase-0 reviewer-shard + aggregate contract:
+#   - reviewers write standalone shards .claudehut/findings/<id>/reviewer-<short>.json
+#       shard shape: {"reviewer":"<full-agent-name>","completed_at":"...","findings":[ {severity,...} ]}
+#   - SubagentStop hook writes a completion MARKER into .reviewers[<full-name>].completed_at
+#   - aggregate-findings.sh <task-id> merges shards + verify stanza, computes totals,
+#       applies the high==0 rule, zero-shard => fail.
+# Catches gap-a (state.sh round-trip) + gap-c (high==0; old high<3 enshrined a bug).
 
 set -uo pipefail
 
@@ -13,7 +18,6 @@ declare -a FAIL_LIST=()
 pass() { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
 fail() { printf "  \033[31m✗\033[0m %s :: %s\n" "$1" "$2"; FAIL=$((FAIL+1)); FAIL_LIST+=("$1: $2"); }
 
-# Setup
 TMPDIR=$(mktemp -d)
 cd "$TMPDIR"
 git init -q
@@ -25,85 +29,99 @@ TASK_ID=feature-dispatch
 
 export CLAUDE_PROJECT_DIR="$TMPDIR"
 export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
+AGG="$PLUGIN_ROOT/skills/verify-review/scripts/aggregate-findings.sh"
+findings_file=".claudehut/findings/$TASK_ID-findings.json"
+shard_dir=".claudehut/findings/$TASK_ID"
+mkdir -p "$shard_dir"
 
-echo "===== REVIEWER PARALLEL DISPATCH SIMULATION ====="
+echo "===== REVIEWER SHARD + AGGREGATE CONTRACT ====="
 echo ""
 
-# Trigger SubagentStop for each reviewer in parallel — simulates verifier dispatch
-reviewers=(
-  claudehut-reviewer-security
-  claudehut-reviewer-perf
-  claudehut-reviewer-db
-  claudehut-reviewer-reactive
-  claudehut-reviewer-style
-  claudehut-reviewer-mapping
-)
+reviewers="claudehut-reviewer-security claudehut-reviewer-perf claudehut-reviewer-db claudehut-reviewer-reactive claudehut-reviewer-style claudehut-reviewer-mapping"
 
-# Fire SubagentStop for each (sequentially since hooks write to same file)
-for r in "${reviewers[@]}"; do
+# Seed a passing verify stanza (so decision is driven by findings, not verify).
+printf '{"verify":{"build":{"status":"pass"},"test":{"status":"pass"}},"reviewers":{}}\n' > "$findings_file"
+
+# SubagentStop fires a completion marker for each reviewer.
+for r in $reviewers; do
   echo "{\"agent_type\":\"$r\"}" | bash "$PLUGIN_ROOT/hooks/subagent-stop.sh" >/dev/null
 done
-
-# Verify findings.json has all 6 reviewers
-findings_file=".claudehut/findings/$TASK_ID-findings.json"
-[[ -f "$findings_file" ]] && pass "findings.json created" || fail "findings.json" "missing"
-
-for r in "${reviewers[@]}"; do
+[[ -f "$findings_file" ]] && pass "findings.json present" || fail "findings.json" "missing"
+for r in $reviewers; do
   if jq -e --arg r "$r" '.reviewers[$r].completed_at' "$findings_file" >/dev/null 2>&1; then
-    pass "reviewer recorded: $r"
-  else
-    fail "reviewer" "$r missing in findings"
-  fi
+    pass "marker recorded: $r"
+  else fail "marker" "$r missing in findings"; fi
 done
 
-# Now inject simulated finding payloads (would be added by reviewer's own write)
-tmp_file="${findings_file}.tmp"
-jq '
-  .reviewers["claudehut-reviewer-security"].findings = [
-    {"severity":"high","category":"security","file":"src/main/java/x/Y.java","line":10,"title":"auth missing","detail":"...","suggestion":"add @PreAuthorize"}
-  ]
-  | .reviewers["claudehut-reviewer-perf"].findings = [
-    {"severity":"medium","category":"perf","file":"src/main/java/x/Y.java","line":20,"title":"n+1","detail":"...","suggestion":"add @EntityGraph"}
-  ]
-  | .reviewers["claudehut-reviewer-style"].findings = [
-    {"severity":"low","category":"style","file":"src/main/java/x/Z.java","line":5,"title":"could be record","detail":"...","suggestion":"convert to record"}
-  ]
-' "$findings_file" > "$tmp_file" && mv "$tmp_file" "$findings_file"
+# gap-a: state.sh round-trip path equality.
+canonical="$(bash -c 'source "$1/hooks/lib/state.sh"; CLAUDE_PROJECT_DIR="$3" claudehut_findings_doc "$2"' _ "$PLUGIN_ROOT" "$TASK_ID" "$TMPDIR")"
+expected_abs="$TMPDIR/.claudehut/findings/$TASK_ID-findings.json"
+[[ "$canonical" == "$expected_abs" ]] && pass "gap-a: claudehut_findings_doc path round-trips" \
+  || fail "gap-a: claudehut_findings_doc" "expected '$expected_abs' got '$canonical'"
 
-# Run aggregator
-bash "$PLUGIN_ROOT/skills/verify-review/scripts/aggregate-findings.sh" "$findings_file" >/dev/null
-pass "aggregator ran"
+_decision() { bash -c 'source "$1/hooks/lib/state.sh"; CLAUDE_PROJECT_DIR="$3" claudehut_findings_decision "$2"' _ "$PLUGIN_ROOT" "$TASK_ID" "$TMPDIR"; }
 
-# Verify totals
-critical=$(jq -r '.totals.critical' "$findings_file")
-high=$(jq -r '.totals.high' "$findings_file")
-medium=$(jq -r '.totals.medium' "$findings_file")
-low=$(jq -r '.totals.low' "$findings_file")
+# ---- gap-c case 1: 1 High → fail (high==0 rule, NOT high<3) ----
+cat > "$shard_dir/reviewer-security.json" <<'S'
+{"reviewer":"claudehut-reviewer-security","completed_at":"t","findings":[{"severity":"high","category":"security","file":"A.java","line":10,"title":"auth missing","detail":"endpoint lacks auth","suggestion":"add @PreAuthorize"}]}
+S
+cat > "$shard_dir/reviewer-perf.json" <<'S'
+{"reviewer":"claudehut-reviewer-perf","completed_at":"t","findings":[{"severity":"medium","category":"perf","file":"A.java","line":20,"title":"n+1","detail":"lazy in loop","suggestion":"@EntityGraph"}]}
+S
+cat > "$shard_dir/reviewer-style.json" <<'S'
+{"reviewer":"claudehut-reviewer-style","completed_at":"t","findings":[{"severity":"low","category":"style","file":"Z.java","line":5,"title":"record","detail":"final fields","suggestion":"convert"}]}
+S
+bash "$AGG" "$TASK_ID" >/dev/null
+pass "aggregator ran (case 1: 1 High)"
+[[ "$(jq -r '.totals.critical' "$findings_file")" == "0" ]] && pass "case1 critical=0" || fail "case1 critical" "got $(jq -r '.totals.critical' "$findings_file")"
+[[ "$(jq -r '.totals.high'     "$findings_file")" == "1" ]] && pass "case1 high=1"     || fail "case1 high"     "got $(jq -r '.totals.high' "$findings_file")"
+[[ "$(jq -r '.totals.medium'   "$findings_file")" == "1" ]] && pass "case1 medium=1 (shard reader works)" || fail "case1 medium" "got $(jq -r '.totals.medium' "$findings_file")"
+[[ "$(jq -r '.totals.low'      "$findings_file")" == "1" ]] && pass "case1 low=1"       || fail "case1 low"      "got $(jq -r '.totals.low' "$findings_file")"
+[[ "$(jq -r '.decision' "$findings_file")" == "fail" ]] && pass "case1 decision=fail (1 high violates high==0)" || fail "case1 decision" "expected fail, got $(jq -r '.decision' "$findings_file")"
+[[ "$(_decision)" == "fail" ]] && pass "gap-a: claudehut_findings_decision round-trip=fail" || fail "gap-a decision" "got $(_decision)"
 
-[[ "$critical" == "0" ]] && pass "totals.critical = 0" || fail "totals.critical" "expected 0, got $critical"
-[[ "$high" == "1" ]] && pass "totals.high = 1" || fail "totals.high" "expected 1, got $high"
-[[ "$medium" == "1" ]] && pass "totals.medium = 1" || fail "totals.medium" "expected 1, got $medium"
-[[ "$low" == "1" ]] && pass "totals.low = 1" || fail "totals.low" "expected 1, got $low"
+# ---- gap-c case 2: 0 critical / 0 high → pass ----
+rm -f "$shard_dir"/reviewer-*.json
+cat > "$shard_dir/reviewer-perf.json" <<'S'
+{"reviewer":"claudehut-reviewer-perf","completed_at":"t","findings":[{"severity":"medium","category":"perf","file":"A.java","line":5,"title":"minor","detail":"low traffic","suggestion":"maybe"}]}
+S
+cat > "$shard_dir/reviewer-style.json" <<'S'
+{"reviewer":"claudehut-reviewer-style","completed_at":"t","findings":[{"severity":"low","category":"style","file":"B.java","line":8,"title":"naming","detail":"camelCase","suggestion":"rename"}]}
+S
+bash "$AGG" "$TASK_ID" >/dev/null
+pass "aggregator ran (case 2: 0 critical / 0 high)"
+[[ "$(jq -r '.totals.high' "$findings_file")" == "0" ]] && pass "case2 high=0" || fail "case2 high" "got $(jq -r '.totals.high' "$findings_file")"
+[[ "$(jq -r '.totals.medium' "$findings_file")" == "1" ]] && pass "case2 medium=1 (discriminating)" || fail "case2 medium" "got $(jq -r '.totals.medium' "$findings_file")"
+[[ "$(jq -r '.totals.low' "$findings_file")" == "1" ]] && pass "case2 low=1 (discriminating)" || fail "case2 low" "got $(jq -r '.totals.low' "$findings_file")"
+[[ "$(jq -r '.decision' "$findings_file")" == "pass" ]] && pass "case2 decision=pass (0 crit + 0 high)" || fail "case2 decision" "expected pass, got $(jq -r '.decision' "$findings_file")"
+[[ "$(_decision)" == "pass" ]] && pass "gap-a: round-trip decision=pass" || fail "gap-a decision2" "got $(_decision)"
 
-# Verify decision
-decision=$(jq -r '.decision' "$findings_file")
-# Per verifier rule: 0 critical AND 0 high → pass; ≥1 critical OR ≥3 high → fail
-# 1 high should NOT fail (threshold is ≥ 3 high) but aggregate-findings.sh uses simpler rule
-# Read actual rule from aggregator
-expected_decision="fail"  # because high == 1 with current aggregator (uses < 3 threshold; 1 < 3 so pass... let me check)
-# aggregator: critical==0 AND high<3 → pass
-# So 0 critical + 1 high → pass
-expected_decision="pass"
-[[ "$decision" == "$expected_decision" ]] && pass "decision = $expected_decision (0 crit + 1 high < 3)" || fail "decision" "expected $expected_decision, got $decision"
+# ---- zero-shard guard: no shards → fail (never a false pass) ----
+rm -f "$shard_dir"/reviewer-*.json
+bash "$AGG" "$TASK_ID" >/dev/null
+[[ "$(jq -r '.decision' "$findings_file")" == "fail" ]] && pass "zero-shard guard → decision=fail" || fail "zero-shard" "expected fail, got $(jq -r '.decision' "$findings_file")"
 
-# Test fail path: inject critical
-jq '.reviewers["claudehut-reviewer-security"].findings += [
-  {"severity":"critical","category":"security","file":"x","line":1,"title":"RCE","detail":"...","suggestion":"..."}
-]' "$findings_file" > "$tmp_file" && mv "$tmp_file" "$findings_file"
+# ---- critical → fail even with passing verify ----
+cat > "$shard_dir/reviewer-security.json" <<'S'
+{"reviewer":"claudehut-reviewer-security","completed_at":"t","findings":[{"severity":"critical","category":"security","file":"x","line":1,"title":"RCE","detail":"rce","suggestion":"fix"}]}
+S
+bash "$AGG" "$TASK_ID" >/dev/null
+[[ "$(jq -r '.decision' "$findings_file")" == "fail" ]] && pass "critical → decision=fail" || fail "critical" "expected fail, got $(jq -r '.decision' "$findings_file")"
 
-bash "$PLUGIN_ROOT/skills/verify-review/scripts/aggregate-findings.sh" "$findings_file" >/dev/null
-decision=$(jq -r '.decision' "$findings_file")
-[[ "$decision" == "fail" ]] && pass "decision = fail when critical added" || fail "decision" "expected fail, got $decision"
+# ---- stale-shard guard (Loop iteration N must not count iteration N-1 shards) ----
+# A prior iteration left a high shard. The verifier runs run-verify-parallel.sh
+# FIRST every iteration, which must reset the shard dir before fresh reviewers run.
+cat > "$shard_dir/reviewer-security.json" <<'S'
+{"reviewer":"claudehut-reviewer-security","completed_at":"old-iteration","findings":[{"severity":"high","category":"security","file":"x","line":1,"title":"stale","detail":"from a prior loop iteration","suggestion":"n/a"}]}
+S
+# run-verify-parallel exits non-zero here (no build tool in fixture) but the
+# shard-dir reset runs before build detection, so the stale shard is cleared.
+bash "$PLUGIN_ROOT/skills/verify-review/scripts/run-verify-parallel.sh" "$TMPDIR" >/dev/null 2>&1 || true
+if [[ ! -f "$shard_dir/reviewer-security.json" ]]; then
+  pass "stale-shard guard: verify run cleared the prior-iteration shard"
+else
+  fail "stale-shard guard" "stale reviewer shard survived the verify run → would be counted"
+fi
 
 cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
@@ -111,11 +129,8 @@ rm -rf "$TMPDIR"
 echo ""
 echo "===== SUMMARY ====="
 printf "Total: %d   \033[32mPass: %d\033[0m   \033[31mFail: %d\033[0m\n" $((PASS+FAIL)) "$PASS" "$FAIL"
-
 if [[ "$FAIL" -gt 0 ]]; then
-  echo ""
-  echo "FAILURES:"
-  for f in "${FAIL_LIST[@]}"; do echo "  - $f"; done
+  echo ""; echo "FAILURES:"; for f in "${FAIL_LIST[@]}"; do echo "  - $f"; done
   exit 1
 fi
 exit 0

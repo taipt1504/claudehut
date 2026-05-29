@@ -28,25 +28,33 @@ Read `claudehut-state stack web_stack` and `claudehut-state stack mapper`:
 
 ## Output contract per reviewer
 
-Each reviewer writes to `state/tasks/<id>/findings.json#reviewers.<reviewer-name>`:
+Each reviewer writes its own **shard** (via Bash, before returning) to
+`.claudehut/findings/<id>/reviewer-<name>.json` — a standalone file, so there are
+no shared-file writes and no race. The orchestrator dispatches reviewers (a
+subagent cannot); the verifier does not.
 
 ```json
 {
+  "reviewer": "claudehut-reviewer-<name>",
   "completed_at": "<ts>",
-  "model": "<model-id>",
   "findings": [
     {
       "severity": "critical|high|medium|low",
       "category": "security|perf|db|reactive|style|mapping",
+      "rule": "<rule-id>",
       "file": "src/main/java/com/x/Foo.java",
       "line": 42,
-      "title": "...",
-      "detail": "...",
-      "suggestion": "..."
+      "title": "<short>",
+      "detail": "<2-3 sentences — references only, never literal secret values>",
+      "suggestion": "<one-line fix>"
     }
   ]
 }
 ```
+
+A reviewer that finds nothing still writes a shard with `"findings": []` (audit trail).
+`aggregate-findings.sh <task-id>` merges all shards + the verify stanza into
+`.claudehut/findings/<id>-findings.json`.
 
 ## Aggregation (after all reviewers complete)
 

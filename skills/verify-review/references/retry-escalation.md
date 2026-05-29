@@ -2,13 +2,12 @@
 
 ## Retry counter
 
-Tracked in `state/tasks/<id>/loop-counters.json`:
-
-```json
-{ "loop_retries": 0, "last_iteration_at": "<ts>" }
-```
-
-Increment after each FAIL.
+Derived from the git log by `claudehut_loop_retries` (hooks/lib/state.sh): it
+counts commits whose message begins with `refactor(loop):` on the current branch.
+No counter file is written — the artifact-derived state machine reads the git log.
+`claudehut-state retries` returns the current count. When a refactor task is
+injected, its commit message MUST start with `refactor(loop):` so the count
+increments on the next verifier invocation.
 
 ## Refactor task injection
 
@@ -73,4 +72,4 @@ User responds with new plan or accepts findings → reset loop counter, phase ba
 
 - **Silent retry beyond 3**: never. Escalate visibly.
 - **Cosmetic refactor instead of root cause**: each refactor task MUST cite the finding it addresses.
-- **Reopening already-resolved findings**: track resolved findings in `state/tasks/<id>/resolved-findings.json`.
+- **Reopening already-resolved findings**: track resolved findings in `.claudehut/findings/<id>-resolved.json`.

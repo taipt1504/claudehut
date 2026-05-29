@@ -51,6 +51,7 @@ Convert one completed task into permanent memory that future sessions reuse.
 6. Append clean entries to `.claudehut/memory/learnings.jsonl`.
 7. Run `scripts/reindex.sh` — regenerate `index.md`.
 8. Run `scripts/promote.sh` — if threshold met AND `global_promotion_opt_in == true`, promote.
+9. Run `scripts/regenerate-recent.sh` — rebuild `learnings-recent.md` from the top-N most-recent entries. Always run, even for tombstone-only tasks (this is the working-memory channel every phase reads).
 
 ## Entry categories
 
@@ -70,6 +71,7 @@ Detailed extraction heuristics: `references/learning-categories.md`. Secret rege
 - `scripts/secret-scan.sh <file>` — scan content for secret patterns.
 - `scripts/promote.sh` — copy entry to `~/.claude/claudehut/memory/patterns.jsonl` if threshold met.
 - `scripts/reindex.sh` — rebuild `.claudehut/memory/index.md` from learnings + source.
+- `scripts/regenerate-recent.sh [N]` — rebuild `.claudehut/memory/learnings-recent.md` from the top-N most-recent entries (default 20). Final step of the pipeline; the phase dispatch prompts read this file.
 
 ## Assets
 
@@ -88,4 +90,5 @@ Detailed extraction heuristics: `references/learning-categories.md`. Secret rege
 - [ ] `index.md` regenerated
 - [ ] 0 entries leaked secret regex
 - [ ] Promotion check completed (may be no-op)
+- [ ] `learnings-recent.md` regenerated (contains current task_id, or the "(none yet)" stub for empty history)
 - [ ] Phase advanced to `done`

@@ -20,7 +20,7 @@ You are the ClaudeHut Performance Reviewer. You find performance traps in the di
 
 - **G0** — Read-only.
 - **G1** — Diff scope read.
-- **G2** — Findings written to `.claudehut/findings/<task-id>-findings.json#reviewers.claudehut-reviewer-perf`.
+- **G2** — Findings written as a shard to `.claudehut/findings/<task-id>/reviewer-perf.json` via Bash before returning (SubagentStop only writes a completion marker).
 
 ## Guardrails
 
@@ -69,13 +69,16 @@ Full perf rules:
 - `Read|Grep|Glob` — diff scope + repository code
 - `Bash` — `git diff`, optional `EXPLAIN ANALYZE` via Postgres MCP
 
-## Output contract
+## Output contract — write your shard via Bash before returning
 
-Same finding JSON schema as reviewer-security; `category: "perf"`.
+Use the canonical shard-write snippet (see `claudehut-reviewer-security.md` → Output contract) with:
+- `REVIEWER="claudehut-reviewer-perf"`, shard file `reviewer-perf.json`, `category:"perf"`.
+
+Finding shape identical to security; no per-shard totals. `detail`/`suggestion` carry `file:line` references only. Always write the shard, even when `findings` is `[]`.
 
 ## Exit
 
-Return when findings written.
+Return after the shard is written. The orchestrator runs `aggregate-findings.sh <task-id>`.
 
 ## Skill Discipline
 
