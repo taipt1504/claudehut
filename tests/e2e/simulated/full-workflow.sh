@@ -412,31 +412,49 @@ rm .claudehut/plans/${TASK_ID}-plan.md.bak2
 phase=$(claudehut_phase)
 [[ "$phase" == "loop" ]] && pass "phase auto-advanced to loop" || fail "phase" "expected loop, got $phase"
 
-#----- STEP 8: Verifier writes findings (pass) -----
-section "STEP 8 — Verify/Review gates green"
+#----- STEP 8: Verify/Review via the REAL shard+aggregate round-trip -----
+section "STEP 8 — Verify/Review gates green (real shard+aggregate round-trip)"
 
+# Verifier writes the verify stanza (per-gate status format).
 cat > .claudehut/findings/${TASK_ID}-findings.json <<'FINDINGS'
 {
-  "ts": "2025-05-27T11:00:00Z",
   "verify": {
-    "build": "pass",
-    "test": {"passed": 14, "failed": 0, "skipped": 0},
-    "coverage": {"line": 0.85, "branch": 0.78},
-    "lint": "pass",
-    "static": "pass",
-    "security": "pass"
+    "build":    {"status": "pass"},
+    "test":     {"status": "pass", "passed": 14, "failed": 0, "skipped": 0},
+    "coverage": {"status": "pass", "line": 0.85, "branch": 0.78},
+    "lint":     {"status": "pass"},
+    "static":   {"status": "pass"}
   },
-  "reviewers": {
-    "claudehut-reviewer-security": {"findings": [], "completed_at": "2025-05-27T11:00:00Z"},
-    "claudehut-reviewer-perf": {"findings": [], "completed_at": "2025-05-27T11:00:00Z"},
-    "claudehut-reviewer-reactive": {"findings": [], "completed_at": "2025-05-27T11:00:00Z"},
-    "claudehut-reviewer-style": {"findings": [], "completed_at": "2025-05-27T11:00:00Z"},
-    "claudehut-reviewer-mapping": {"findings": [], "completed_at": "2025-05-27T11:00:00Z"}
-  },
-  "totals": {"critical": 0, "high": 0, "medium": 0, "low": 0},
-  "decision": "pass"
+  "reviewers": {}
 }
 FINDINGS
+
+# Orchestrator fires SubagentStop markers for each dispatched reviewer.
+for r in claudehut-reviewer-security claudehut-reviewer-perf claudehut-reviewer-reactive claudehut-reviewer-style claudehut-reviewer-mapping; do
+  echo "{\"agent_type\":\"$r\"}" | bash "$PLUGIN_ROOT/hooks/subagent-stop.sh" >/dev/null
+done
+pass "SubagentStop markers written (step 8)"
+
+# Reviewers write their shards (medium + low only → 0 critical/high → pass).
+e2e_shard_dir=".claudehut/findings/$TASK_ID"; mkdir -p "$e2e_shard_dir"
+cat > "$e2e_shard_dir/reviewer-perf.json" <<'S'
+{"reviewer":"claudehut-reviewer-perf","completed_at":"t","findings":[{"severity":"medium","category":"perf","file":"src/main/java/com/x/user/UserPurchaseHandler.java","line":42,"title":"minor n+1 risk","detail":"low-traffic path","suggestion":"consider @EntityGraph"}]}
+S
+cat > "$e2e_shard_dir/reviewer-style.json" <<'S'
+{"reviewer":"claudehut-reviewer-style","completed_at":"t","findings":[{"severity":"low","category":"style","file":"src/main/java/com/x/user/PurchaseResponse.java","line":3,"title":"missing javadoc","detail":"record lacks @param docs","suggestion":"add javadoc"}]}
+S
+
+# Real aggregate (single reader, merges shards + verify stanza).
+bash "$PLUGIN_ROOT/skills/verify-review/scripts/aggregate-findings.sh" "$TASK_ID" >/dev/null
+pass "aggregate-findings.sh ran (step 8 real round-trip)"
+
+# Discriminating: old code (no shard reader) → totals all 0; new code → medium=1 low=1.
+[[ "$(jq -r '.totals.medium' .claudehut/findings/${TASK_ID}-findings.json)" == "1" ]] \
+  && pass "step8 totals.medium=1 (discriminating: old code → 0)" || fail "step8 medium" "expected 1, got $(jq -r '.totals.medium' .claudehut/findings/${TASK_ID}-findings.json)"
+[[ "$(jq -r '.totals.low' .claudehut/findings/${TASK_ID}-findings.json)" == "1" ]] \
+  && pass "step8 totals.low=1 (discriminating: old code → 0)" || fail "step8 low" "expected 1, got $(jq -r '.totals.low' .claudehut/findings/${TASK_ID}-findings.json)"
+[[ "$(jq -r '.decision' .claudehut/findings/${TASK_ID}-findings.json)" == "pass" ]] \
+  && pass "step8 decision=pass (0 crit + 0 high)" || fail "step8 decision" "expected pass, got $(jq -r '.decision' .claudehut/findings/${TASK_ID}-findings.json)"
 
 phase=$(claudehut_phase)
 [[ "$phase" == "learn" ]] && pass "phase auto-advanced to learn" || fail "phase" "expected learn, got $phase"

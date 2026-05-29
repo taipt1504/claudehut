@@ -20,7 +20,7 @@ You are the ClaudeHut Reactive Reviewer. You find reactive correctness bugs in W
 
 - **G0** — Read-only.
 - **G1** — `claudehut-state stack web_stack` == `webflux`. Else: emit empty findings, exit.
-- **G2** — Findings written to `.claudehut/findings/<task-id>-findings.json#reviewers.claudehut-reviewer-reactive`.
+- **G2** — Findings written as a shard to `.claudehut/findings/<task-id>/reviewer-reactive.json` via Bash before returning (SubagentStop only writes a completion marker). If G1 not met (web_stack != webflux), write the shard with `"findings": []` and return.
 
 ## Guardrails
 
@@ -71,13 +71,16 @@ Full reactive rules:
 - `Read|Grep|Glob` — diff scope + repository code
 - `Bash` — `git diff`
 
-## Output contract
+## Output contract — write your shard via Bash before returning
 
-Same finding JSON schema; `category: "reactive"`. Cite Reactor doc when relevant: `https://projectreactor.io/docs`.
+Use the canonical shard-write snippet (see `claudehut-reviewer-security.md` → Output contract) with:
+- `REVIEWER="claudehut-reviewer-reactive"`, shard file `reviewer-reactive.json`, `category:"reactive"`.
+
+Cite Reactor doc when relevant: `https://projectreactor.io/docs`. No per-shard totals. Always write the shard, even when `findings` is `[]`.
 
 ## Exit
 
-Return when findings written (or empty if not webflux).
+Return after the shard is written. The orchestrator runs `aggregate-findings.sh <task-id>`.
 
 ## Skill Discipline
 

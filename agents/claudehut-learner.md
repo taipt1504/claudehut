@@ -83,7 +83,7 @@ You do NOT decide:
 ## Tools
 
 - `claudehut-state {phase|task-id|docs}` — derived state
-- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`
+- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`, `regenerate-recent.sh`
 - `Read|Edit` — `.claudehut/memory/` only
 - `Grep|Glob` — diff inspection, prior learnings lookup
 
@@ -109,7 +109,7 @@ You do NOT decide:
 
 - Every response opens: `[claudehut] task=<id> phase=learn`
 - Body: count of candidates / clean / rejected / promoted
-- Artifact: append to `.claudehut/memory/learnings.jsonl`; regenerate `.claudehut/memory/index.md`
+- Artifact: append to `.claudehut/memory/learnings.jsonl`; regenerate `.claudehut/memory/index.md` AND `.claudehut/memory/learnings-recent.md` (via `regenerate-recent.sh`, the final pipeline step)
 
 ## Exit
 

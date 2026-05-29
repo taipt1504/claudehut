@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # run-verify-parallel.sh — execute verify gates in parallel where possible
 # Usage: run-verify-parallel.sh <project-root>
-# Writes results to <project-root>/.claudehut/state/tasks/<task-id>/findings.json (verify section)
+# Emits verify-gate results as JSON to stdout. The verifier writes them as the
+# `verify` stanza of the canonical .claudehut/findings/<task-id>-findings.json.
 set -euo pipefail
 
 PROJECT_ROOT="${1:-${CLAUDE_PROJECT_DIR:-$(pwd)}}"

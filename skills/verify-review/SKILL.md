@@ -1,15 +1,13 @@
 ---
 name: verify-review
-description: Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) then dispatch reviewer subagents in parallel; aggregate findings; pass-or-refactor decision; bounded retry (max 3) then escalate. Use after Build phase completes. Triggers when phase=loop.
+description: Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) via a gate-runner subagent, then the orchestrator fans out reviewer subagents in parallel, aggregates shards, and decides pass-or-refactor; bounded retry (max 3) then escalate. Use after Build phase completes. Triggers when phase=loop.
 ---
 
 ## Dispatch contract (read this FIRST)
 
-This phase runs as a **subagent**, not inline in the main thread.
-Main thread = orchestrator (context, memory, advisor, task tracking, user
-dialog). Phase work = subagent (isolated context, per-phase model).
+This phase runs in **two sub-steps from the main thread**. Nested subagent dispatch is unsupported (a subagent cannot spawn subagents), so the reviewer fan-out is always **main-thread** — the verifier is only a gate-runner.
 
-When you read this skill, you **MUST** invoke the Task tool:
+### Step 1 — Gate runner (verifier subagent)
 
 ```
 Task(
@@ -18,20 +16,38 @@ Task(
 )
 ```
 
-Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/verify-review/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt` argument. The script composes user intent + stack signals + conventions + recent learnings + prior-phase artifacts deterministically.
+Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/verify-review/scripts/dispatch-prompt.sh "$ARGUMENTS"` and pass the stdout verbatim as the Task `prompt`. The verifier runs build/test/coverage/lint/static gates, writes the `verify` stanza to `.claudehut/findings/<task-id>-findings.json`, and returns a gate summary.
 
-Do **not** execute the phase steps yourself in the main thread.
-Await the subagent's return, review the artifact it wrote, surface a
-concise status back to the user.
+### Step 2 — Reviewer fan-out (main thread, only when all verify gates pass)
 
-**Red flags that say "skip dispatch"** (counter each, do not give in):
+Read the gate summary. If a gate failed, skip to Step 3 (the zero-shard / verify-fail guard yields `fail`). When gates pass, dispatch the reviewer roster in **ONE message** (multiple Task invocations — they run concurrently in isolated contexts):
+
+```
+Task: claudehut-reviewer-security   (always)
+Task: claudehut-reviewer-perf       (always)
+Task: claudehut-reviewer-style      (always)
+Task: claudehut-reviewer-db         (only if diff touches db/migration/, *Repository.java, *Entity.java, or pool config)
+Task: claudehut-reviewer-reactive   (only if web_stack == webflux)
+Task: claudehut-reviewer-mapping    (only if diff touches *Mapper.java/*Dto.java/*Request.java/*Response.java/*ObjectMapper*.java/*JsonConfig*.java)
+```
+
+Each reviewer writes its own shard at `.claudehut/findings/<task-id>/reviewer-<name>.json` via Bash before returning. Dispatching a reviewer whose condition does not apply is safe — it writes an empty `[]` shard.
+
+### Step 3 — Aggregate + decide (main thread, always)
+
+```bash
+$CLAUDE_PLUGIN_ROOT/skills/verify-review/scripts/aggregate-findings.sh <task-id>
+```
+
+Then read the decision via `claudehut_findings_decision <task-id>` (state.sh). `pass` → phase advances to learn; `fail` → inject a refactor task (verifier's "Refactor injection format") or escalate per retry count.
+
+**Red flags** (counter each, do not give in):
 
 | Rationalization | Reality |
 |---|---|
-| "This task is small — I'll inline it." | Inline = no isolated context + wrong model + breaks workflow gate. **Dispatch.** |
-| "Subagent context is overkill." | This phase intentionally runs on `sonnet`. Main thread may be a different model — wrong tool. **Dispatch.** |
-| "Tests pass — skip reviewers." | Verifier dispatches 6 reviewer subagents in parallel; that is the gate. **Dispatch.** |
+| "Tests pass — skip reviewers." | Reviewers run in Step 2; that IS the gate. **Dispatch them.** |
 | "I'll review the diff myself." | Loop phase = independent eyes; main-thread self-review fails the gate. **Dispatch.** |
+| "Let the verifier handle the reviewers." | The verifier is a gate-runner only; it cannot spawn subagents. Fan-out is YOUR job in Step 2. **Do not re-nest.** |
 
 **Only exception**: user explicitly types `--inline` or "don't spawn a subagent". Then proceed inline and log the deviation in `.claudehut/findings/`.
 
@@ -43,12 +59,12 @@ Quality gate that may iterate. Each iteration either passes (→ Learn) or injec
 
 ## Quick start
 
-1. **Verify stage** (parallel where possible) — `scripts/run-verify-parallel.sh`.
-2. **Review stage** — dispatch 5–6 reviewer subagents in parallel (one message, multiple Task invocations).
-3. **Aggregate** — `scripts/aggregate-findings.sh` writes `state/tasks/<id>/findings.json`.
+1. **Verify stage** — Step 1 dispatch the `claudehut-verifier` gate-runner; it runs `scripts/run-verify-parallel.sh` and writes the `verify` stanza.
+2. **Review stage** — Step 2 (main thread): dispatch the reviewer roster in ONE message; each writes a shard to `.claudehut/findings/<id>/reviewer-<name>.json`.
+3. **Aggregate** — Step 3: `scripts/aggregate-findings.sh <task-id>` merges reviewer shards from `.claudehut/findings/<id>/reviewer-*.json` into `.claudehut/findings/<id>-findings.json` with totals + decision.
 4. **Decide:**
-   - 0 Critical AND 0 High → PASS. Advance to Learn.
-   - ≥ 1 Critical OR ≥ 3 High → FAIL. Inject refactor task. Retry++.
+   - verify pass AND 0 Critical AND 0 High → PASS. Advance to Learn.
+   - any verify gate fail OR ≥ 1 Critical OR ≥ 1 High → FAIL. Inject refactor task. Retry++.
    - Retry == 3 → ESCALATE to user.
 
 ## Verify gates
@@ -76,15 +92,15 @@ Detailed reviewer roster: `references/reviewer-dispatch.md`.
 - `claudehut-reviewer-style`
 - `claudehut-reviewer-mapping` (skip if no MapStruct/Jackson involved)
 
-Spawn in ONE message with multiple subagent invocations — never serialize.
+Dispatched by the **orchestrator (main thread)** in ONE message with multiple Task invocations — never serialize, and never via the verifier (it cannot spawn subagents).
 
 ## Decision logic
 
 Detailed retry/escalation: `references/retry-escalation.md`.
 
 ```
-verify_pass = all gates green
-review_clean = critical == 0 AND high < 3
+verify_pass  = all gates green
+review_clean = critical == 0 AND high == 0
 if verify_pass AND review_clean:
     advance to "learn"
 else:
@@ -98,8 +114,8 @@ else:
 
 ## Scripts
 
-- `scripts/run-verify-parallel.sh` — invokes Gradle/Maven gates in parallel.
-- `scripts/aggregate-findings.sh` — merges reviewer findings into single JSON.
+- `scripts/run-verify-parallel.sh` — invokes Gradle/Maven verify gates; emits gate JSON.
+- `scripts/aggregate-findings.sh <task-id>` — merges reviewer shards (`.claudehut/findings/<id>/reviewer-*.json`) + the verify stanza into `.claudehut/findings/<id>-findings.json` with totals + decision (`high==0` rule; zero shards → fail).
 
 ## Assets
 
@@ -108,6 +124,6 @@ else:
 ## Exit criteria
 
 - [ ] All verify gates green
-- [ ] 0 Critical + < 3 High findings
+- [ ] 0 Critical + 0 High findings
 - [ ] findings.json persisted
 - [ ] Phase advanced to `learn`

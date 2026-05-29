@@ -508,6 +508,57 @@ if bash "$script3" "$tmp" >/dev/null 2>&1; then fail "plan-pg-scan" "accepted ta
 rm "$tmp"
 
 #==============================================================================
+section "L2.8 regenerate-recent.sh"
+#==============================================================================
+script="$PLUGIN_ROOT/skills/learn/scripts/regenerate-recent.sh"
+rr_tmp=$(mktemp -d)
+mkdir -p "$rr_tmp/.claudehut/memory"
+
+# Case 1: absent learnings.jsonl → stub
+CLAUDE_PROJECT_DIR="$rr_tmp" bash "$script" >/dev/null 2>&1
+if grep -q '(none yet' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null; then
+  pass "L2.8 regenerate-recent: absent JSONL → stub"
+else fail "L2.8 regenerate-recent" "absent JSONL did not produce stub"; fi
+
+# Case 2: empty learnings.jsonl → stub
+: > "$rr_tmp/.claudehut/memory/learnings.jsonl"
+CLAUDE_PROJECT_DIR="$rr_tmp" bash "$script" >/dev/null 2>&1
+if grep -q '(none yet' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null; then
+  pass "L2.8 regenerate-recent: empty JSONL → stub"
+else fail "L2.8 regenerate-recent" "empty JSONL did not produce stub"; fi
+
+# Case 3: one entry → task_id present, stub gone
+echo '{"task_id":"feat-xyz-001","category":"pattern","title":"Use jq -s slurp","tags":["jq","bash"],"ts":"2026-05-29T10:00:00Z"}' \
+  >> "$rr_tmp/.claudehut/memory/learnings.jsonl"
+CLAUDE_PROJECT_DIR="$rr_tmp" bash "$script" >/dev/null 2>&1
+if grep -q 'feat-xyz-001' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null; then
+  pass "L2.8 regenerate-recent: entry → task_id present"
+else fail "L2.8 regenerate-recent" "entry not found in learnings-recent.md"; fi
+if ! grep -q '(none yet' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null; then
+  pass "L2.8 regenerate-recent: stub absent after real entry"
+else fail "L2.8 regenerate-recent" "stub still present after real entry"; fi
+
+# Case 4: N cap (25 entries, default 20)
+for i in $(seq 1 24); do
+  printf '{"task_id":"task-%02d","category":"pattern","title":"entry %d","ts":"2026-05-29T10:%02d:00Z"}\n' \
+    "$i" "$i" "$i" >> "$rr_tmp/.claudehut/memory/learnings.jsonl"
+done
+CLAUDE_PROJECT_DIR="$rr_tmp" bash "$script" >/dev/null 2>&1
+bullet_count=$(grep -c '^- \*\*' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null || echo 0)
+if [[ "$bullet_count" -eq 20 ]]; then
+  pass "L2.8 regenerate-recent: N=20 cap respected (25 entries → 20 bullets)"
+else fail "L2.8 regenerate-recent" "expected 20 bullets, got $bullet_count"; fi
+
+# Case 5: explicit N=5
+CLAUDE_PROJECT_DIR="$rr_tmp" bash "$script" 5 >/dev/null 2>&1
+bullet_count5=$(grep -c '^- \*\*' "$rr_tmp/.claudehut/memory/learnings-recent.md" 2>/dev/null || echo 0)
+if [[ "$bullet_count5" -eq 5 ]]; then
+  pass "L2.8 regenerate-recent: explicit N=5 respected"
+else fail "L2.8 regenerate-recent" "expected 5 bullets with N=5, got $bullet_count5"; fi
+
+rm -rf "$rr_tmp"; unset rr_tmp bullet_count bullet_count5
+
+#==============================================================================
 section "L2.6 validate-skill.sh"
 #==============================================================================
 script="$PLUGIN_ROOT/skills/write-skill/scripts/validate-skill.sh"
@@ -1057,7 +1108,10 @@ section "L15 Subagent UX contract — runtime-blocked tools + brainstormer shape
 # documentation context (e.g. "AskUserQuestion is not available here") are
 # explicitly allowed.
 
-BLOCKED_TOOLS='Agent AskUserQuestion EnterPlanMode ScheduleWakeup WaitForMcpServers'
+# Task was renamed Agent (v2.1.63) but both aliases are stripped in nested
+# contexts; a subagent must never call OR declare either.
+BLOCKED_TOOLS='Task Agent AskUserQuestion EnterPlanMode ScheduleWakeup WaitForMcpServers'
+L15_body_fail=0
 for f in $(find agents -name '*.md'); do
   # Skip the orchestrator marker (main-thread role doc, may legitimately
   # reference these tools in its narrative).
@@ -1066,21 +1120,40 @@ for f in $(find agents -name '*.md'); do
   esac
   body="$(awk '/^---$/{c++; if(c==2){flag=1;next}} flag' "$f")"
   for t in $BLOCKED_TOOLS; do
-    # We only flag direct call syntax `Tool(...`. Imperative-prose mentions of
-    # the tool (e.g. "the main thread invokes AskUserQuestion", "calling
-    # AskUserQuestion from a subagent fails") are documentation, not a call
-    # instruction; whether the subagent would actually issue the call depends
-    # on model reasoning over the body, not on the prose itself. The runtime
-    # already strips the tool — what we are guarding against here is *example
-    # code* that demonstrates the wrong pattern.
+    # Flag direct call syntax `Tool(`. Lines describing how the MAIN THREAD
+    # dispatches THIS agent (e.g. "The main thread invokes you via `Task(...")
+    # are documentation, not imperative subagent instructions — exclude them.
     call_pattern="${t}\("
-    if grep -nE "$call_pattern" <<<"$body" >/dev/null 2>&1; then
+    matches="$(grep -nE "$call_pattern" <<<"$body" 2>/dev/null \
+               | grep -vE 'main thread invokes.*via|dispatches you via|dispatched via|invoke[sd]? you via' \
+               || true)"
+    if [[ -n "$matches" ]]; then
       fail "L15 $f" "subagent body contains a call to blocked tool $t"
-      grep -nE "$call_pattern" <<<"$body" | head -2
+      echo "$matches" | head -2
+      L15_body_fail=$((L15_body_fail+1))
     fi
   done
 done
-pass "L15 no subagent body issues a call to a runtime-blocked tool"
+[[ "$L15_body_fail" -eq 0 ]] && pass "L15 no subagent body issues a call to a runtime-blocked tool"
+
+# L15 gap-b: no non-orchestrator agent may DECLARE Task or Agent in its
+# frontmatter tools: line. The runtime strips them (nested dispatch unsupported);
+# declaring them is a latent hazard. Catches a verifier that lists Task.
+for f in $(find agents -name '*.md'); do
+  case "$(basename "$f")" in
+    claudehut-orchestrator.md) continue ;;
+  esac
+  head -1 "$f" | grep -q '^---$' || continue
+  fm_block="$(awk '/^---$/{c++; if(c==2)exit} c==1' "$f")"
+  tools_line="$(awk -F: '/^tools:/{sub(/^tools:[[:space:]]*/,""); print; exit}' <<<"$fm_block")"
+  [[ -z "$tools_line" ]] && continue
+  for bad_tool in Task Agent; do
+    if echo "$tools_line" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -qx "$bad_tool"; then
+      fail "L15 frontmatter $f" "tools: lists '$bad_tool' — nested subagent dispatch unsupported; remove it"
+    fi
+  done
+done
+pass "L15 no non-orchestrator agent declares Task or Agent in frontmatter tools:"
 
 # Brainstormer-specific: must contain scan-and-return + structured return token.
 br="agents/claudehut-brainstormer.md"

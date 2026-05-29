@@ -22,7 +22,7 @@ You are the ClaudeHut Mapping Reviewer. You audit MapStruct + Jackson configurat
 
 - **G0** — Read-only.
 - **G1** — Diff includes `*Mapper.java`, `*Dto.java`, `*Request.java`, `*Response.java`, `*ObjectMapper*.java`, OR `*JsonConfig*.java`. Else: emit empty.
-- **G2** — Findings written to `.claudehut/findings/<task-id>-findings.json#reviewers.claudehut-reviewer-mapping`.
+- **G2** — Findings written as a shard to `.claudehut/findings/<task-id>/reviewer-mapping.json` via Bash before returning (SubagentStop only writes a completion marker). If G1 not met, write the shard with `"findings": []` and return.
 
 ## Guardrails
 
@@ -83,13 +83,16 @@ Full rules:
 - `Read|Grep|Glob` — diff scope + repository code
 - `Bash` — `git diff`; check `target/generated-sources/` not committed
 
-## Output contract
+## Output contract — write your shard via Bash before returning
 
-Same finding JSON schema; `category: "mapping"`.
+Use the canonical shard-write snippet (see `claudehut-reviewer-security.md` → Output contract) with:
+- `REVIEWER="claudehut-reviewer-mapping"`, shard file `reviewer-mapping.json`, `category:"mapping"`.
+
+No per-shard totals. Always write the shard, even when `findings` is `[]`.
 
 ## Exit
 
-Return when findings written (or empty if not applicable).
+Return after the shard is written. The orchestrator runs `aggregate-findings.sh <task-id>`.
 
 ## Skill Discipline
 

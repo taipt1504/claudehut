@@ -135,7 +135,7 @@ a single turn — that pattern reaches a runtime that cannot relay it.
 | `claudehut:systematic-debug` | Structured debugging protocol — reproduce → isolate (bisect) → root cause → test → fix. Used on-demand when a bug appears outside Phase Loop (e.g., user reports a failing |
 | `claudehut:tdd-cycle` | Enforce strict RED → GREEN → REFACTOR test-driven cycle for Java/Spring code. Required for every Build phase task. Detects and rejects common anti-patterns (prod-before-test, t |
 | `claudehut:testcontainers` | Testcontainers for Java integration tests — singleton vs per-class lifecycle, reuse flag, network sharing, Postgres/Kafka/Redis containers, dynamic Spring properties. Auto-loads  |
-| `claudehut:verify-review` | Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) then dispatch reviewer subagents in parallel; aggregate findings; pass-or-refactor |
+| `claudehut:verify-review` | Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) via a gate-runner subagent, then the orchestrator fans out reviewer subagents in p |
 | `claudehut:wiremock-stub` | WireMock stub conventions for HTTP integration tests. Stub mapping JSON format, scenario-based stateful stubs, request matching strategies, fault injection. Auto-loads when editing |
 | `claudehut:write-skill` | Scaffold a new ClaudeHut skill using the 3-bucket layout (SKILL.md + references/ + scripts/ + assets/). Validates frontmatter contract, applies naming conventions, generates skelet |
 
