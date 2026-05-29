@@ -51,7 +51,7 @@ else
   ( cd "$WORK" && git add -A && git commit -qm base )
   CH_PROMPT="$PROMPT
 
-Follow the ClaudeHut 6-phase workflow end to end (brainstorm → spec → plan → build → loop → learn), dispatching each phase per the SessionStart dispatch contract. Complete the task."
+Follow the ClaudeHut workflow per the SessionStart dispatch contract. FIRST triage the task depth via /claudehut:route (it picks quick or full); then drive ONLY the phases the recorded route declares, through to done. Do not force phases the route did not select. Complete the task."
   ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
       claude --print --plugin-dir "$PLUGIN_ROOT" --output-format json --model "$MODEL" \
       --max-budget-usd "$BUDGET" --permission-mode acceptEdits "$CH_PROMPT" ) \
