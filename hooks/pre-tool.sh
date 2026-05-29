@@ -116,8 +116,17 @@ TASK_ID="$(claudehut_task_id)"
 PHASE="$(claudehut_phase "$TASK_ID")"
 PROFILE_PT="$(claudehut_route_profile "$TASK_ID")"
 
-# Source-code edits blocked outside build phase
-if [[ "$PHASE" != "build" ]]; then
+# Source-code edits are allowed only in the EDITABLE window:
+#   - build (every profile), AND
+#   - loop in the QUICK profile. Quick has no plan, so a verify-fail cannot
+#     re-open a build phase via refactor-injection the way full does — its
+#     post-route window (build+loop) is therefore ONE editable phase: the
+#     orchestrator fixes findings inline and re-verifies. Full stays locked at
+#     loop and re-enters build by injecting a refactor task into the plan.
+_editable=""
+[[ "$PHASE" == "build" ]] && _editable=1
+[[ "$PROFILE_PT" == "quick" && "$PHASE" == "loop" ]] && _editable=1
+if [[ -z "$_editable" ]]; then
   case "$file_path" in
     *.java|*.kt|*.kts|*.sql|src/*)
       jq -n --arg p "$PHASE" --arg f "$file_path" '{

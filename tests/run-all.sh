@@ -1829,7 +1829,7 @@ unset CLAUDEHUT_TASK_ID; rm -rf "$D18"; unset CLAUDE_PROJECT_DIR
 
 # --- D. gate (pre-tool) respects the route, no pre-tool phase-name coupling ---
 G18="$(mktemp -d)"; ( cd "$G18" && git init -q && git checkout -q -b feature/g18 2>/dev/null )
-mkdir -p "$G18/.claudehut/state" "$G18/src/main/java"
+mkdir -p "$G18/.claudehut/state" "$G18/.claudehut/findings" "$G18/src/main/java"
 export CLAUDE_PROJECT_DIR="$G18"
 echo "{\"tool_input\":{\"file_path\":\"$G18/src/main/java/A.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$G18/o.json" 2>&1
 jq -e '.hookSpecificOutput.permissionDecision=="deny"' "$G18/o.json" >/dev/null 2>&1 \
@@ -1840,6 +1840,16 @@ if jq -e '.hookSpecificOutput.permissionDecision=="deny"' "$G18/o2.json" >/dev/n
   fail "L18 route" "quick build wrongly blocked a NEW src file (reuse-scan gate should self-disable): $(cat "$G18/o2.json")"
 else
   pass "L18 gate: quick route → build allows new src/ (plan-scope + reuse-scan gates self-disable)"
+fi
+# quick + verify FAIL → phase=loop. Quick has NO plan to re-open build (as full
+# does via refactor-injection), so the editable window must include loop — else
+# the "fix the finding inline" instruction is un-followable (the gate would lock src).
+printf '{"decision":"fail"}\n' > "$G18/.claudehut/findings/feature-g18-findings.json"
+echo "{\"tool_input\":{\"file_path\":\"$G18/src/main/java/A.java\"}}" | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$G18/o3.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision=="deny"' "$G18/o3.json" >/dev/null 2>&1; then
+  fail "L18 route" "quick+loop (verify-fail) wrongly blocked the inline fix — quick failure path is gated shut: $(cat "$G18/o3.json")"
+else
+  pass "L18 gate: quick + verify-fail (loop) allows inline src fix (post-route window build+loop is one editable phase)"
 fi
 cd "$PLUGIN_ROOT"; rm -rf "$G18"; unset CLAUDE_PROJECT_DIR CL WR mig rj
 

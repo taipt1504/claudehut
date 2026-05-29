@@ -114,13 +114,21 @@ else:
 
 **Route-aware (adaptive depth):** the `advance to "learn"` / `inject refactor
 task into plan` steps assume the **full** profile. In the **quick** profile
-there is no plan and no Learn phase, so:
+there is no plan and no Learn phase, and its post-route window (`build`+`loop`)
+is ONE editable phase (the PreToolUse gate allows inline src edits at `loop`
+under quick), so:
 - pass → the state machine advances straight to `done` (quick consolidates no
   learnings); just suggest `claudehut-finish`.
-- fail (retry < cap) → there is no plan to inject into. Address the finding
-  **inline** with TDD discipline, commit `refactor(loop): …` (the retry counter
-  is git-derived, so the commit prefix is what matters), then re-invoke
-  verify-review. Escalation at the cap is identical.
+- fail (retry < cap) → there is no plan to inject into. Pick the tier (the one
+  authoritative statement of the quick-fail split):
+  - **localized fix** → address the finding **inline** with TDD discipline,
+    commit `refactor(loop): …` (the retry counter is git-derived, so the commit
+    prefix is what matters), then re-invoke verify-review.
+  - **finding reveals the task was NOT trivial** (needs real design/spec, or
+    touches more than a one-liner) → **re-route to `full`** (rewrite the route
+    artifact) and let the standard pipeline take over. Do not keep patching a
+    mis-routed task inline.
+  Escalation at the cap is identical to full.
 
 ## Scripts
 
