@@ -69,7 +69,16 @@ case "$file_path" in
   */db/migration/V*.sql|*/db/migration/R*.sql)
     _mig_validator="$PLUGIN_ROOT_PT/skills/flyway-migration/scripts/validate-migration.sh"
     if [[ -x "$_mig_validator" ]]; then
-      _mig_content="$(echo "$input" | jq -r '.tool_input.content // ""')"
+      # Write tool carries .content; Edit carries .new_string (the text being
+      # introduced); MultiEdit carries .edits[].new_string. Validate whatever new
+      # SQL is being written so an Edit that introduces unsafe DDL is also caught
+      # (the on-disk file is only the pre-edit state). Fall back to the on-disk
+      # file only when no new text is available.
+      _mig_content="$(echo "$input" | jq -r '
+        .tool_input.content
+        // .tool_input.new_string
+        // ((.tool_input.edits // []) | map(.new_string) | join("\n"))
+        // ""' 2>/dev/null)"
       _mig_target=""; _mig_tmp=""
       if [[ -n "$_mig_content" ]]; then
         _mig_tmp="$(mktemp -d)"; _mig_target="$_mig_tmp/$(basename "$file_path")"

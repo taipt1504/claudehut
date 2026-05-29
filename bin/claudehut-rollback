@@ -16,8 +16,8 @@ _find_plugin_root() {
   echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
 }
 PLUGIN_ROOT="$(_find_plugin_root)"
-# shellcheck source=../scripts/hooks/lib/state.sh
-source "$PLUGIN_ROOT/scripts/hooks/lib/state.sh"
+# shellcheck source=../hooks/lib/state.sh
+source "$PLUGIN_ROOT/hooks/lib/state.sh"
 
 TASK_ID="$(claudehut_active_task)"
 [[ "$TASK_ID" == "none" ]] && { echo "error: no active task" >&2; exit 1; }

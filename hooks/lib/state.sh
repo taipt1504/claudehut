@@ -26,6 +26,20 @@ claudehut_claudehut_dir() {
   echo "$(claudehut_project_root)/.claudehut"
 }
 
+# Mutable state dir (active-task pointer, lockfiles, task archive). Distinct from
+# the artifact dirs (specs/plans/findings/memory).
+claudehut_state_dir() {
+  echo "$(claudehut_claudehut_dir)/state"
+}
+
+# Active task = the current branch-derived task id. (Alias kept because several
+# callers — finish, rollback, discover, scope-check — use this name. The
+# active-task.json pointer is for rename detection, not the id source of truth:
+# the id is always branch-derived per the artifact-derived design.)
+claudehut_active_task() {
+  claudehut_task_id "$@"
+}
+
 # Task id = git branch name, slashes → dashes for filesystem safety
 # CLAUDEHUT_TASK_ID env var overrides derivation (used by worktree-launched builders).
 claudehut_task_id() {

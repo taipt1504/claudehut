@@ -30,6 +30,29 @@ PHASE="$(claudehut_phase "$TASK_ID")"
 BRANCH="$(claudehut_branch)"
 RETRIES="$(claudehut_loop_retries)"
 
+# Active-task pointer (1.7): give the readers (learn-extract/run-archunit/owasp-scan)
+# a real task pointer, and detect a branch rename that would orphan artifacts. The
+# slug is derived from the branch; if a rename changes the slug, prior artifacts
+# (specs/plans/findings under the old slug) become unreachable — warn loudly.
+# Idempotent + atomic; claudehut-finish removes the pointer at task end.
+STATE_DIR="$CLAUDEHUT_DIR/state"
+PTR="$STATE_DIR/active-task.json"
+TASK_WARN=""
+if [[ "$PHASE" != "none" && "$PHASE" != "uninitialized" ]]; then
+  if [[ -f "$PTR" ]]; then
+    prev_task="$(jq -r '.task_id // ""' "$PTR" 2>/dev/null || echo "")"
+    if [[ -n "$prev_task" && "$prev_task" != "$TASK_ID" ]] \
+       && [[ -f "$CLAUDEHUT_DIR/specs/${prev_task}-design.md" ]] \
+       && [[ ! -f "$CLAUDEHUT_DIR/specs/${TASK_ID}-design.md" ]]; then
+      TASK_WARN="⚠ Active task changed: '$prev_task' → '$TASK_ID'. Artifacts under '$prev_task' (specs/plans/findings) are now ORPHANED — likely a branch rename. Restore the original branch name, or migrate the artifacts to the new slug, before continuing."
+    fi
+  fi
+  mkdir -p "$STATE_DIR"
+  _ptr_tmp="$PTR.tmp.$$"
+  jq -n --arg t "$TASK_ID" --arg b "$BRANCH" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{task_id: $t, branch: $b, slug: $t, updated_at: $ts}' > "$_ptr_tmp" && mv "$_ptr_tmp" "$PTR"
+fi
+
 STACK_SUMMARY="not detected"
 if [[ -f "$MEMORY_DIR/stack-signals.md" ]]; then
   w=$(claudehut_stack_signal web)
@@ -137,6 +160,11 @@ Only exception: user explicitly says \`--inline\` or \"don't spawn a subagent\".
 $NEXT
 
 Run /claudehut:discover for full status."
+
+# Prepend the rename/orphan warning only when present (no blank-line drift otherwise).
+[[ -n "$TASK_WARN" ]] && CTX="$TASK_WARN
+
+$CTX"
 
 jq -n --arg c "$CTX" '{
   hookSpecificOutput: {

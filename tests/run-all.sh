@@ -301,6 +301,45 @@ out=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" c
 [[ "$out" == "5" ]] && pass "L2.1b config phase.loop_max_retries → 5 (wires 1.4)" || fail "L2.1b config" "expected 5, got '$out'"
 rm -rf "$BTMP"; unset out BIN BTMP
 
+# Regression guard for the bin-broken class: no bin may source the nonexistent
+# scripts/hooks/lib/ path (claudehut-state/finish/rollback all had this; it exits 1).
+if grep -rl 'scripts/hooks/lib/state.sh' "$PLUGIN_ROOT/bin/" >/dev/null 2>&1; then
+  fail "L2.1b bin lib path" "a bin sources the wrong scripts/hooks/lib/state.sh: $(grep -rl 'scripts/hooks/lib/state.sh' "$PLUGIN_ROOT/bin/")"
+else
+  pass "L2.1b no bin sources the wrong lib path"
+fi
+
+# state.sh helpers used by bins/discover/scope-check must be defined.
+for fn in claudehut_active_task claudehut_state_dir; do
+  if grep -q "^$fn()" "$PLUGIN_ROOT/hooks/lib/state.sh"; then
+    pass "L2.1b state.sh defines $fn"
+  else
+    fail "L2.1b state.sh" "$fn undefined — callers (finish/rollback/discover/scope-check) crash"
+  fi
+done
+
+# 1.7 end-to-end: claudehut-finish removes the active-task pointer (phase=learn,
+# clean tree, confirmed). Validates the pointer is cleanable, not just written.
+FTMP=$(mktemp -d)
+(
+  cd "$FTMP" && git init -q && git config user.email t@t && git config user.name t && git checkout -q -b feature/fin 2>/dev/null
+  mkdir -p .claudehut/{specs,plans,memory,findings,state}
+)
+FTID="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$FTMP' claudehut_task_id")"
+echo design > "$FTMP/.claudehut/specs/${FTID}-design.md"
+echo contract > "$FTMP/.claudehut/specs/${FTID}-contract.md"
+printf -- '- [x] done\n' > "$FTMP/.claudehut/plans/${FTID}-plan.md"
+echo '{"decision":"pass"}' > "$FTMP/.claudehut/findings/${FTID}-findings.json"
+printf '{"task_id":"%s"}\n' "$FTID" > "$FTMP/.claudehut/state/active-task.json"
+( cd "$FTMP" && git add -A && git commit -qm seed )   # clean tree for finish's git-diff check
+echo "yes" | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$FTMP" bash "$PLUGIN_ROOT/bin/claudehut-finish" >/dev/null 2>&1
+if [[ ! -f "$FTMP/.claudehut/state/active-task.json" ]]; then
+  pass "L2.1b claudehut-finish removes active-task pointer (1.7 cleanup works)"
+else
+  fail "L2.1b finish" "active-task.json not removed — finish aborted before cleanup"
+fi
+rm -rf "$FTMP"; unset FTMP FTID fn
+
 #==============================================================================
 section "L2.2 validate-migration.sh"
 #==============================================================================
@@ -654,6 +693,41 @@ cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
 
 #==============================================================================
+section "L3.2b Hook: SessionStart active-task pointer + rename/orphan warning (1.7)"
+#==============================================================================
+PTMP=$(mktemp -d)
+cd "$PTMP"
+git init -q; git checkout -q -b feature/orig-task 2>/dev/null
+mkdir -p .claudehut/{specs,plans,memory}
+TID_ORIG="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$PTMP' claudehut_task_id")"
+echo "design" > ".claudehut/specs/${TID_ORIG}-design.md"
+export CLAUDE_PROJECT_DIR="$PTMP"
+# First session on the original branch → pointer written, no warning.
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o1.json" 2>&1
+if [[ -f "$PTMP/.claudehut/state/active-task.json" ]] && \
+   [[ "$(jq -r '.task_id' "$PTMP/.claudehut/state/active-task.json")" == "$TID_ORIG" ]]; then
+  pass "L3.2b active-task pointer written"
+else
+  fail "L3.2b pointer" "pointer not written or wrong task_id"
+fi
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o1.json" >/dev/null 2>&1; then
+  fail "L3.2b" "false rename warning on first session"
+else
+  pass "L3.2b no warning on first session"
+fi
+# Rename the branch (artifacts stay under old slug) → next session warns + updates pointer.
+git branch -m feature/renamed-task 2>/dev/null
+echo '{}' | bash "$PLUGIN_ROOT/hooks/session-start.sh" > "$PTMP/o2.json" 2>&1
+if jq -e '.hookSpecificOutput.additionalContext | test("ORPHANED")' "$PTMP/o2.json" >/dev/null 2>&1; then
+  pass "L3.2b rename → ORPHANED warning surfaced"
+else
+  fail "L3.2b rename" "expected ORPHANED warning after branch rename: $(jq -r '.hookSpecificOutput.additionalContext' "$PTMP/o2.json" 2>/dev/null | head -3)"
+fi
+cd "$PLUGIN_ROOT"
+rm -rf "$PTMP"
+unset CLAUDE_PROJECT_DIR TID_ORIG
+
+#==============================================================================
 section "L3.3 Hook: prompt-router blocks skip-attempts"
 #==============================================================================
 TMPDIR=$(mktemp -d)
@@ -777,9 +851,41 @@ else
   pass "pre-tool: migration gate allows safe DDL (CREATE TABLE)"
 fi
 
+# 1.3 Edit-path closure: an Edit that INTRODUCES unsafe DDL (new_string, no
+# .content) must also be denied (file isn't written yet; validate new_string).
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V3__alter.sql\",\"new_string\":\"ALTER TABLE users ADD COLUMN flag BOOLEAN NOT NULL;\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | test("migration gate"))' "$MTMP/out.json" >/dev/null 2>&1; then
+  pass "pre-tool: migration gate denies unsafe DDL via Edit new_string (1.3 closure)"
+else
+  fail "pre-tool migration edit" "Edit introducing unsafe DDL not denied: $(cat "$MTMP/out.json")"
+fi
+
 cd "$PLUGIN_ROOT"
 rm -rf "$MTMP"
 unset CLAUDE_PROJECT_DIR
+
+#==============================================================================
+section "L3.7 Hook: prompt-router surfaces loop retry cap (1.4 deterministic)"
+#==============================================================================
+RTMP=$(mktemp -d)
+(
+  cd "$RTMP" && git init -q && git config user.email t@t && git config user.name t && git checkout -q -b feature/loopcap 2>/dev/null
+  mkdir -p .claudehut/{specs,plans,memory,findings}
+)
+RTID="$(bash -c "source $PLUGIN_ROOT/hooks/lib/state.sh; CLAUDE_PROJECT_DIR='$RTMP' claudehut_task_id")"
+echo design > "$RTMP/.claudehut/specs/${RTID}-design.md"
+echo contract > "$RTMP/.claudehut/specs/${RTID}-contract.md"
+printf -- '- [x] complete\n' > "$RTMP/.claudehut/plans/${RTID}-plan.md"   # plan done, no findings → phase=loop
+printf '{"phase":{"loop_max_retries":1}}\n' > "$RTMP/.claudehut/claudehut-config.json"
+( cd "$RTMP" && git add -A && git commit -qm seed && git commit -q --allow-empty -m "refactor(loop): attempt 1" )  # retries=1 >= max=1
+out="$(echo '{"prompt":"continue"}' | CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$RTMP" bash "$PLUGIN_ROOT/hooks/prompt-router.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.hookSpecificOutput.additionalContext | test("RETRY CAP REACHED")' >/dev/null 2>&1; then
+  pass "L3.7 prompt-router surfaces RETRY CAP REACHED at retries>=loop_max_retries"
+else
+  fail "L3.7 loop cap" "expected cap surfacing, got: $(echo "$out" | jq -r '.hookSpecificOutput.additionalContext // .' 2>/dev/null | head -2)"
+fi
+rm -rf "$RTMP"; unset RTMP RTID out
 
 #==============================================================================
 section "L4 Coverage — rules + skills + agents"
