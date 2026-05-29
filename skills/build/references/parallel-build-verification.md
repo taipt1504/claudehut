@@ -62,9 +62,30 @@ The per-group compile+test gate runs in the main repo (normal tooling) after eac
 group merges. It — not the worker scope-check — is the load-bearing enforcement
 against semantic merge breaks. Worker hooks are defense-in-depth.
 
-## Residual (one real run still recommended at scale)
+## Full real Gradle end-to-end (CLOSED — green 2/2)
 
-The real runs above used a contained empty/synthetic project. A full end-to-end on a
-real Gradle/Maven project (stub scaffold that actually compiles → parallel group →
-gate green) is the remaining at-scale confidence check; the orchestration plumbing is
-smoke-verified across happy/gitignored/failure paths.
+Ran the whole chain on a real Gradle 9.5.1 + JDK 21 project (two independent tasks:
+`Calculator.add`, `Greeter.greet`; group 1; disjoint files), with real `claude`
+workers via `--plugin-dir`:
+
+- scaffold → compiling stubs (attempt 1), committed
+- 2 workers dispatched in parallel, `--agent claudehut:claudehut-builder` persona
+- each did real TDD (failing test → impl → green) and committed in its worktree
+- both merged via cherry-pick; both plan checkboxes ticked (plan gitignored → not committed)
+- per-group gate `./gradlew compileTestJava test` → BUILD SUCCESSFUL
+- worktrees cleaned (only main remained); GROUP EXIT 0
+- final full `./gradlew test` → BUILD SUCCESSFUL
+
+Two real bugs the fakes could not surface (only real `claude` exposed them), found
+and fixed during this e2e:
+
+1. **Scope-check broken in worktrees (path canonicalization).** Worktrees live in
+   temp dirs; macOS `/tmp`→`/private/tmp` and `/var`→`/private/var` symlinks made the
+   tool's canonical `file_path` mismatch the `/tmp`-form `CLAUDE_PROJECT_DIR`, so the
+   prefix-strip no-op'd and every in-scope worker write was denied. Fixed by
+   canonicalizing both sides with `pwd -P` in `pre-tool.sh`.
+2. **Group re-run branch collision.** `worktree add -b` fails if the branch exists;
+   a group retry after a failure hit "branch already exists". Fixed with `-B`.
+
+The first e2e attempt also confirmed correct failure handling (one task failed on a
+build.gradle config gap → group stopped, surfaced, exited 1, cleaned up).
