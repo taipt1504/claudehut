@@ -53,6 +53,10 @@ command -v graphify >/dev/null 2>&1 && {
 [[ -f "$PROJECT_ROOT/graphify-out/graph.json" ]] && gf_path="graphify-out/graph.json"
 
 mkdir -p "$MEMORY_DIR"
+# Atomic write (same-dir tmp + mv) so two concurrent SessionStart hooks for the
+# same repo never leave a half-written / clobbered integrations.json. mv is only
+# atomic within one filesystem, so the tmp MUST be in the same dir as the target.
+_int_tmp="$MEMORY_DIR/integrations.json.tmp.$$"
 jq -n \
   --arg ua "$ua_avail" --arg uap "$ua_path" \
   --arg gf "$gf_avail" --arg gfp "$gf_path" --arg gfg "$gf_global" \
@@ -61,7 +65,7 @@ jq -n \
     understand_anything: {available: ($ua == "true"), graph_path: $uap},
     graphify: {available: ($gf == "true"), graph_path: $gfp, global_registry: ($gfg == "true")},
     detected_at: $ts
-  }' > "$MEMORY_DIR/integrations.json"
+  }' > "$_int_tmp" && mv "$_int_tmp" "$MEMORY_DIR/integrations.json"
 
 RECENT="no learnings yet"
 if [[ -f "$MEMORY_DIR/learnings.jsonl" ]]; then

@@ -280,6 +280,28 @@ rm -rf "$TMPDIR"
 unset CLAUDE_PROJECT_DIR
 
 #==============================================================================
+section "L2.1b bin/claudehut-state runs (was sourcing a nonexistent lib path)"
+#==============================================================================
+# The CLI sourced scripts/hooks/lib/state.sh (wrong) and exited 1 on every call,
+# silently breaking every `claudehut-state ...` agent-prose invocation. Run it for real.
+BIN="$PLUGIN_ROOT/bin/claudehut-state"
+BTMP=$(mktemp -d)
+( cd "$BTMP" && git init -q && git checkout -q -b feature/bin-test 2>/dev/null )
+mkdir -p "$BTMP/.claudehut/memory"
+printf -- '- web: webflux\n- orm: r2dbc\n' > "$BTMP/.claudehut/memory/stack-signals.md"
+printf '{"phase":{"loop_max_retries":5}}\n' > "$BTMP/.claudehut/claudehut-config.json"
+if CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" help >/dev/null 2>&1; then
+  pass "L2.1b claudehut-state runs (lib path resolves)"
+else
+  fail "L2.1b claudehut-state" "bin exits non-zero — lib path broken"
+fi
+out=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" stack web 2>/dev/null)
+[[ "$out" == "webflux" ]] && pass "L2.1b stack web → webflux (no dot-prefix bug)" || fail "L2.1b stack" "expected webflux, got '$out'"
+out=$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$BTMP" bash "$BIN" config phase.loop_max_retries 2>/dev/null)
+[[ "$out" == "5" ]] && pass "L2.1b config phase.loop_max_retries → 5 (wires 1.4)" || fail "L2.1b config" "expected 5, got '$out'"
+rm -rf "$BTMP"; unset out BIN BTMP
+
+#==============================================================================
 section "L2.2 validate-migration.sh"
 #==============================================================================
 script="$PLUGIN_ROOT/skills/flyway-migration/scripts/validate-migration.sh"
@@ -725,6 +747,41 @@ cd "$PLUGIN_ROOT"
 rm -rf "$TMPDIR"
 
 #==============================================================================
+section "L3.6 Hook: pre-tool migration safety gate (deterministic, write-time)"
+#==============================================================================
+MTMP=$(mktemp -d)
+cd "$MTMP"
+git init -q; git checkout -q -b feature/mig 2>/dev/null
+mkdir -p .claudehut/{specs,plans,memory} src/main/resources/db/migration
+export CLAUDE_PROJECT_DIR="$MTMP"
+
+# Unsafe: ADD COLUMN NOT NULL without DEFAULT (validate-migration exit 1) → deny
+# by the MIGRATION GATE specifically (it runs before the phase gate, so this is
+# phase-independent). Assert both deny AND the migration-gate reason.
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V1__add_col.sql\",\"content\":\"ALTER TABLE users ADD COLUMN tenant_id UUID NOT NULL;\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.hookSpecificOutput.permissionDecisionReason | test("migration gate"))' "$MTMP/out.json" >/dev/null 2>&1; then
+  pass "pre-tool: migration gate denies unsafe DDL (ADD COLUMN NOT NULL no DEFAULT)"
+else
+  fail "pre-tool migration" "should deny via migration gate: $(cat "$MTMP/out.json")"
+fi
+
+# Safe: CREATE TABLE → migration gate must NOT deny (a phase gate may deny for
+# other reasons in this brainstorm fixture; we assert only that the MIGRATION GATE
+# did not fire — phase-independent).
+echo "{\"tool_input\":{\"file_path\":\"$MTMP/src/main/resources/db/migration/V2__create.sql\",\"content\":\"CREATE TABLE orders (id UUID PRIMARY KEY);\"}}" \
+  | bash "$PLUGIN_ROOT/hooks/pre-tool.sh" --tool edit > "$MTMP/out.json" 2>&1
+if jq -e '(.hookSpecificOutput.permissionDecisionReason // "") | test("migration gate")' "$MTMP/out.json" >/dev/null 2>&1; then
+  fail "pre-tool migration" "false-positive migration-gate deny on safe CREATE TABLE: $(cat "$MTMP/out.json")"
+else
+  pass "pre-tool: migration gate allows safe DDL (CREATE TABLE)"
+fi
+
+cd "$PLUGIN_ROOT"
+rm -rf "$MTMP"
+unset CLAUDE_PROJECT_DIR
+
+#==============================================================================
 section "L4 Coverage — rules + skills + agents"
 #==============================================================================
 n_rules=$(find rules -name '*.md' | wc -l | tr -d ' ')
@@ -1074,7 +1131,7 @@ echo "design"   > "$L13_TMPDIR/.claudehut/specs/${TID}-design.md"
 echo "contract" > "$L13_TMPDIR/.claudehut/specs/${TID}-contract.md"
 echo -e "- [x] task1\n  create: src/Foo.java" > "$L13_TMPDIR/.claudehut/plans/${TID}-plan.md"
 echo '{"decision":"pass"}' > "$L13_TMPDIR/.claudehut/findings/${TID}-findings.json"
-out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+out="$(echo '{}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
 if echo "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 \
    && ! echo "$out" | jq -e '.decision == "block"' >/dev/null 2>&1; then
   pass "L13 Stop default mode is non-blocking (systemMessage only)"
@@ -1082,15 +1139,25 @@ else
   fail "L13 Stop default" "expected systemMessage, got: $out"
 fi
 
-# Opt-in mode: enable enforcement, expect decision=block.
+# Opt-in mode: enable enforcement, first stop (no stop_hook_active) → decision=block.
 cat > "$L13_TMPDIR/.claudehut/claudehut-config.json" <<'CFG'
 {"phase":{"stop_enforcement_enabled":true}}
 CFG
-out="$(bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+out="$(echo '{}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
 if echo "$out" | jq -e '.decision == "block" and (.reason | type == "string")' >/dev/null 2>&1; then
   pass "L13 Stop opt-in mode blocks via decision=block"
 else
   fail "L13 Stop opt-in" "expected decision=block, got: $out"
+fi
+
+# Bounded escape (1.1): enforcement on BUT stop_hook_active=true (we already blocked)
+# → must NOT block again; downgrade to systemMessage so the platform stop-loop can't fire.
+out="$(echo '{"stop_hook_active":true}' | bash "$PLUGIN_ROOT/hooks/stop.sh" 2>/dev/null)"
+if echo "$out" | jq -e '.systemMessage | type == "string"' >/dev/null 2>&1 \
+   && ! echo "$out" | jq -e '.decision == "block"' >/dev/null 2>&1; then
+  pass "L13 Stop bounded escape: stop_hook_active → systemMessage, not block"
+else
+  fail "L13 Stop escape" "expected systemMessage on stop_hook_active, got: $out"
 fi
 
 popd >/dev/null

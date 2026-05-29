@@ -2,6 +2,6 @@
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "deny",
-    "permissionDecisionReason": "ClaudeHut: destructive command blocked: rm -rf /. Add allowlist entry in claudehut-config.json#phase.destructive_command_allowlist if intentional."
+    "permissionDecisionReason": "ClaudeHut: destructive command blocked (best-effort speed-bump, NOT a sandbox — a determined command can evade this regex): rm -rf /. If intentional, re-run via Claude Code permissions or rephrase."
   }
 }

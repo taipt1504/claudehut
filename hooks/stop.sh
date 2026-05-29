@@ -16,8 +16,17 @@ set -euo pipefail
 # shellcheck source=lib/state.sh
 source "$(dirname "$0")/lib/state.sh"
 
+input="$(cat 2>/dev/null || true)"
+
 PROJECT_ROOT="$(claudehut_project_root)"
 [[ -d "$PROJECT_ROOT/.claudehut" ]] || exit 0
+
+# Bounded escape: if we have already blocked at least once this stop cycle
+# (the platform sets stop_hook_active=true), do NOT block again. An unsatisfiable
+# gate (learner crash, billing-tier mismatch, malformed learnings.jsonl) would
+# otherwise drive the platform's 3/8-block stop-loop. Downgrade to a non-blocking
+# message with a manual escape hatch instead.
+STOP_ACTIVE="$(printf '%s' "$input" | jq -r '.stop_hook_active // false' 2>/dev/null || echo false)"
 
 # Worker/scaffold sessions (headless `claude -p` from the Build phase) must never
 # be Stop-blocked — a non-interactive session cannot dispatch a missing phase and
@@ -37,10 +46,13 @@ fi
 case "$PHASE" in
   learn)
     msg="ClaudeHut: Verify/Review gates are green but the Learn phase has not run. Invoke /claudehut:learn (dispatches claudehut-learner) to persist patterns to .claudehut/memory/learnings.jsonl."
-    if [[ "$ENFORCE" == "true" ]]; then
+    if [[ "$ENFORCE" == "true" && "$STOP_ACTIVE" != "true" ]]; then
       jq -n --arg r "$msg" '{ decision: "block", reason: $r }'
     else
-      jq -n --arg m "$msg" '{ systemMessage: $m }'
+      # Either enforcement is off, or we already blocked once (stop_hook_active) —
+      # do not hard-block again; surface a manual escape so the user can exit.
+      esc="$msg Could not complete automatically? Run /claudehut:learn manually, or claudehut-finish --skip-learn to exit."
+      [[ "$STOP_ACTIVE" == "true" ]] && jq -n --arg m "$esc" '{ systemMessage: $m }' || jq -n --arg m "$msg" '{ systemMessage: $m }'
     fi
     ;;
   done)

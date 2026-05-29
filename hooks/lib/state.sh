@@ -107,7 +107,10 @@ claudehut_has_learnings() {
   local f
   f="$(claudehut_claudehut_dir)/memory/learnings.jsonl"
   [[ -f "$f" ]] || return 1
-  grep -qF "\"task_id\":\"$task_id\"" "$f"
+  # Parse with jq so a pretty-printed entry (space after colon) is matched too —
+  # a literal grep only matched compact JSONL and could strand phase at `learn`.
+  # Slurp + any(): robust to formatting; a malformed file safely returns "not found".
+  jq -se --arg id "$task_id" 'any(.[]?; .task_id == $id)' "$f" >/dev/null 2>&1
 }
 
 # Main: derive phase from artifacts
