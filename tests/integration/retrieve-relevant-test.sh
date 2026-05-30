@@ -7,6 +7,8 @@ set -uo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd -P)"
 RETR="$PLUGIN_ROOT/skills/learn/scripts/retrieve-relevant.sh"
 UPD="$PLUGIN_ROOT/skills/learn/scripts/update-usefulness.sh"
+PROP="$PLUGIN_ROOT/skills/learn/scripts/propose-rules.sh"
+FIN="$PLUGIN_ROOT/bin/claudehut-finish"
 FIX="$PLUGIN_ROOT/tests/fixtures"
 PASS=0; FAIL=0; declare -a FAIL_LIST=()
 pass() { printf "  \033[32m✓\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
@@ -137,6 +139,56 @@ credited="$(jq -r '."mapstruct mapper added: ordermapper:pattern".useful' "$d/.c
 { [[ -z "$miss" ]] && [[ "$credited" == "1" ]]; } \
   && pass "L19.12 round-trip: every retrieved sig credited (writer key == reader key — 4.3 loop real)" \
   || fail "L19.12" "key drift — unmatched sig '$miss' / credited=$credited"
+rm -rf "$d"
+
+# --- Case 13: 4.2 MCP ingestion — an MCP-only entity is retrieved (model-free) ---
+d="$(mk no)"
+printf '{"category":"pattern","title":"Unrelated local note","files_touched":[],"tags":["zzz"],"ts":"2026-01-01T00:00:00Z","task_id":"loc"}\n' > "$d/.claudehut/memory/learnings.jsonl"
+printf '{"type":"entity","name":"MapStruct null gotcha","entityType":"gotcha","observations":["content:x","tag:mapstruct","tag:mapping","file:src/main/java/com/example/mapper/X.java","ts:2026-02-01T00:00:00Z"]}\n' > "$d/.claudehut/memory/mcp-graph.json"
+printf '%s' "$(bash "$RETR" "$d" "Add a MapStruct mapper" t-mcp 5)" | grep -qi 'MapStruct null gotcha' \
+  && pass "L19.13 4.2 MCP-only entity retrieved (model-free mcp-graph.json read)" || fail "L19.13" "MCP entity not surfaced"
+rm -rf "$d"
+
+# --- Case 14: 4.2 dedup — same key in JSONL + MCP → counted ONCE, JSONL wins ---
+d="$(mk no)"
+printf '{"category":"pattern","title":"Dup Mapper","files_touched":["src/main/java/com/example/mapper/D.java"],"tags":["mapstruct"],"ts":"2026-01-01T00:00:00Z","task_id":"jsonl-copy"}\n' > "$d/.claudehut/memory/learnings.jsonl"
+printf '{"type":"entity","name":"Dup Mapper","entityType":"pattern","observations":["tag:mapstruct","file:src/main/java/com/example/mapper/D.java","ts:2026-02-01T00:00:00Z"]}\n' > "$d/.claudehut/memory/mcp-graph.json"
+n="$(bash "$RETR" "$d" "mapstruct mapper" t-dup 5 | grep -c 'Dup Mapper')"
+win="$(bash "$RETR" "$d" "mapstruct mapper" t-dup 5 | grep 'Dup Mapper' | grep -oE 'jsonl-copy|`mcp`' | head -1)"
+{ [[ "$n" == "1" ]] && [[ "$win" == "jsonl-copy" ]]; } && pass "L19.14 4.2 dedup: shared key counted once, learnings.jsonl wins over MCP mirror" || fail "L19.14" "n=$n win=$win"
+rm -rf "$d"
+
+# --- Cases 15-17: 4.5 meta-learning proposals (dedup on signature) ---
+d="$(mktemp -d)"; mkdir -p "$d/.claudehut/memory"
+cat > "$d/.claudehut/memory/learnings.jsonl" <<'J'
+{"category":"anti-pattern","title":"Blocking in reactive","content":"no blocking in webflux","signature":"sha256:aaa","tags":["webflux"],"task_id":"t1"}
+{"category":"anti-pattern","title":"Blocking in reactive","content":"no blocking in webflux","signature":"sha256:aaa","tags":["webflux"],"task_id":"t2"}
+{"category":"anti-pattern","title":"Blocking in reactive","content":"no blocking in webflux","signature":"sha256:aaa","tags":["webflux"],"task_id":"t3"}
+{"category":"pattern","title":"Fine pattern","content":"ok","signature":"sha256:bbb","task_id":"t4"}
+J
+CLAUDE_PROJECT_DIR="$d" bash "$PROP" 3 >/dev/null
+[[ "$(ls "$d/.claudehut/proposals/" 2>/dev/null | wc -l | tr -d ' ')" == "1" ]] && pass "L19.15 4.5 recurring anti-pattern (>=3) -> 1 proposal" || fail "L19.15" "proposals=$(ls "$d/.claudehut/proposals/" 2>/dev/null|wc -l)"
+CLAUDE_PROJECT_DIR="$d" bash "$PROP" 3 >/dev/null
+[[ "$(ls "$d/.claudehut/proposals/" 2>/dev/null | wc -l | tr -d ' ')" == "1" ]] && pass "L19.16 4.5 idempotent rerun (dedup on signature -> no duplicate)" || fail "L19.16" "after rerun=$(ls "$d/.claudehut/proposals/" 2>/dev/null|wc -l)"
+d2="$(mktemp -d)"; mkdir -p "$d2/.claudehut/memory"
+printf '{"category":"anti-pattern","title":"Rare","content":"x","signature":"sha256:ccc","task_id":"t1"}\n' > "$d2/.claudehut/memory/learnings.jsonl"
+CLAUDE_PROJECT_DIR="$d2" bash "$PROP" 3 >/dev/null
+[[ "$(ls "$d2/.claudehut/proposals/" 2>/dev/null | wc -l | tr -d ' ')" == "0" ]] && pass "L19.17 4.5 below-threshold anti-pattern -> no proposal" || fail "L19.17" "proposals created below K"
+rm -rf "$d" "$d2"
+
+# --- Case 18: 4.4 finish --abandon records the fail signal + prunes the retrieval log ---
+d="$(mktemp -d)"; ( cd "$d" && git init -q && git config user.email t@t && git config user.name t && git checkout -q -b feature/ab 2>/dev/null )
+mkdir -p "$d/.claudehut/memory" "$d/.claudehut/findings" "$d/.claudehut/state"
+cp "$FIX/learnings-sample.jsonl" "$d/.claudehut/memory/learnings.jsonl"
+printf '{"task_id":"feature-ab","ts":"t","sigs":["mapstruct mapper added: ordermapper:pattern"]}\n' > "$d/.claudehut/state/retrieval-feature-ab.json"
+printf '{"decision":"fail"}\n' > "$d/.claudehut/findings/feature-ab-findings.json"
+( cd "$d" && git add -A && git commit -qm base >/dev/null 2>&1 )
+echo yes | CLAUDE_PROJECT_DIR="$d" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" bash "$FIN" --abandon >/dev/null 2>&1
+uf="$(jq -r '."mapstruct mapper added: ordermapper:pattern".useful' "$d/.claudehut/memory/usefulness.json" 2>/dev/null)"
+ud="$(jq -r '."mapstruct mapper added: ordermapper:pattern".used' "$d/.claudehut/memory/usefulness.json" 2>/dev/null)"
+{ [[ "$ud" == "1" && "$uf" == "0" ]] && [[ ! -f "$d/.claudehut/state/retrieval-feature-ab.json" ]]; } \
+  && pass "L19.18 4.4 finish --abandon: fail signal recorded (used++,useful+0) + retrieval log pruned" \
+  || fail "L19.18" "used=$ud useful=$uf logExists=$([[ -f "$d/.claudehut/state/retrieval-feature-ab.json" ]] && echo yes || echo no)"
 rm -rf "$d"
 
 echo ""

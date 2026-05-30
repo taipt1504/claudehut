@@ -2,7 +2,7 @@
 name: claudehut-learner
 description: Phase 6 driver. Extracts patterns, anti-patterns, decisions, and reusable snippets from the completed task, appends to project memory (learnings.jsonl + index.md). Promotes recurring signatures to global tier if threshold met and opt-in enabled. Runs after verify/review gates are green.
 model: haiku
-tools: Read, Bash, Edit, Grep, Glob, Skill
+tools: Read, Bash, Edit, Grep, Glob, Skill, mcp__memory__create_entities, mcp__memory__add_observations
 skills:
   - claudehut:using-claudehut
   - claudehut:learn
@@ -83,7 +83,8 @@ You do NOT decide:
 ## Tools
 
 - `claudehut-state {phase|task-id|docs}` — derived state
-- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`, `regenerate-recent.sh`, `update-usefulness.sh`
+- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`, `regenerate-recent.sh`, `update-usefulness.sh`, `propose-rules.sh`
+- `mcp__memory__*` — mirror learnings into the memory MCP graph (4.2; best-effort, skip if the server is unavailable)
 - `Read|Edit` — `.claudehut/memory/` only
 - `Grep|Glob` — diff inspection, prior learnings lookup
 
@@ -110,7 +111,10 @@ You do NOT decide:
 - Every response opens: `[claudehut] task=<id> phase=learn`
 - Body: count of candidates / clean / rejected / promoted
 - Artifact: append to `.claudehut/memory/learnings.jsonl`; regenerate `.claudehut/memory/index.md` AND `.claudehut/memory/learnings-recent.md` (via `regenerate-recent.sh`)
-- **FINAL pipeline step (Phase 4.3):** run `update-usefulness.sh <task-id>` — credits the learnings that were JIT-retrieved into this (passing) task by bumping their `used`/`useful` counters in `.claudehut/memory/usefulness.json`. This is the success-recurrence prior that ranks future retrieval; it is idempotent (a per-task marker prevents double-credit). Run it AFTER `regenerate-recent.sh`.
+- **Pipeline tail (Phase 4), in order after `regenerate-recent.sh`:**
+  1. **4.3 usefulness** — `update-usefulness.sh <task-id>`: credits the learnings JIT-retrieved into this (passing) task by bumping `used`/`useful` in `.claudehut/memory/usefulness.json` (success-recurrence prior; idempotent per-task marker).
+  2. **4.2 MCP mirror** — for each NEW learning, mirror it into the memory MCP via `mcp__memory__create_entities` as `{name: <title>, entityType: <category>, observations: ["content:<content>", "tag:<t>"…, "file:<path>"…, "ts:<iso>"]}` (the exact `tag:`/`file:`/`ts:`/`content:` prefixes `retrieve-relevant.sh` parses). Best-effort: if the memory MCP is unavailable, skip — the JSONL store is the source of truth and retrieval degrades cleanly.
+  3. **4.5 meta-learning** — `propose-rules.sh`: if an anti-pattern signature has recurred ≥ threshold, it writes a `.claudehut/proposals/` artifact for HUMAN approval. NEVER auto-edit `rules/`; just surface "we keep seeing X".
 
 ## Exit
 

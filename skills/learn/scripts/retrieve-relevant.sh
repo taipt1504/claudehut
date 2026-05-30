@@ -92,7 +92,11 @@ def jaccard(\$a;\$b): (inter(\$a;\$b)|length) as \$i | ((\$a+\$b)|unique|length)
 def recall(\$a;\$b): (inter(\$a;\$b)|length) as \$i | (\$a|length) as \$d | (if \$d==0 then 0 else \$i/\$d end);
 def terms(\$t): (\$t // \"\") | ascii_downcase | [scan(\"[a-z0-9]+\")] | map(select((. as \$w | \$stop | index(\$w)) | not)) | map(select(length>1)) | unique;
 
-[ .[]
+# 4.2: dedup the merged candidate pool by learning_key. learnings.jsonl entries
+# come FIRST in the stream, so //= keeps the learner-authored copy over an MCP
+# mirror of the same key (MCP-only entities survive and become retrievable).
+(reduce .[] as \$e ({}; .[(\$e | learning_key)] //= \$e) | [ .[] ]) as \$cands
+| [ \$cands[]
   | select((.category // \"\") != \"tombstone\" and (.deprecated != true))
   | ((.files_touched // []) | map(ascii_downcase) | map(sub(\"/[^/]+\$\";\"\")) | unique) as \$epkg
   | (norm(.tags)) as \$etags
@@ -114,14 +118,34 @@ def terms(\$t): (\$t // \"\") | ascii_downcase | [scan(\"[a-z0-9]+\")] | map(sel
 | .[0:\$K]
 | .[] | [.category, .title, .task_id, (.tags|join(\",\")), .sig] | @tsv"
 
-SEL="$(jq -s -r \
+# 4.2: ingest the memory MCP store (mcp-graph.json) as ADDITIONAL candidates,
+# model-free — we read the server's own JSON store via jq, no live-model call in
+# this bash hot path. Entities are learnings the learner mirrored via the MCP
+# tools; tags/files/ts/content ride in observations as "tag:"/"file:"/"ts:"/
+# "content:" prefixes. Absent/malformed graph contributes nothing (degrades clean).
+MCP_GRAPH="$PROJECT_ROOT/.claudehut/memory/mcp-graph.json"
+MCP_MAPPED=""
+if [[ -s "$MCP_GRAPH" ]]; then
+  MCP_MAPPED="$(jq -c 'select(.type=="entity") | {
+      category: (.entityType // "pattern"),
+      title: (.name // ""),
+      content: ([.observations[]? | select(startswith("content:")) | sub("^content:";"")] | (.[0] // "")),
+      tags: [.observations[]? | select(startswith("tag:")) | sub("^tag:";"")],
+      files_touched: [.observations[]? | select(startswith("file:")) | sub("^file:";"")],
+      ts: ([.observations[]? | select(startswith("ts:")) | sub("^ts:";"")] | (.[0] // "")),
+      task_id: "mcp" }' "$MCP_GRAPH" 2>/dev/null || true)"
+fi
+# learnings.jsonl FIRST so it wins dedup over an MCP mirror of the same key.
+CANDIDATES="$(printf '%s\n%s\n' "$(cat "$LEARNINGS" 2>/dev/null || true)" "$MCP_MAPPED")"
+
+SEL="$(printf '%s\n' "$CANDIDATES" | jq -s -r \
   --argjson plan_pkgs "$plan_pkgs_json" \
   --argjson q_tags "$q_tags_json" \
   --argjson q_title "$q_title_json" \
   --argjson stop "$stop_json" \
   --argjson use "$USE_JSON" \
   --argjson K "$K" \
-  "$JQ_PROG" "$LEARNINGS" 2>/dev/null || true)"
+  "$JQ_PROG" 2>/dev/null || true)"
 
 [[ -n "$SEL" ]] || _stub
 
