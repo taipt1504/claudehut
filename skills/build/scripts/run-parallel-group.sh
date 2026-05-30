@@ -30,7 +30,7 @@ GROUP_NUM="${4:-}"
 # Per-task wall-clock budget (seconds). Watchdog kills a hung worker so a single
 # stuck task cannot block the whole group indefinitely.
 TASK_TIMEOUT="${CLAUDEHUT_TASK_TIMEOUT:-900}"
-WORKER_MODEL="${CLAUDEHUT_WORKER_MODEL:-sonnet}"
+# WORKER_MODEL resolved below (5.3) — needs PLUGIN_ROOT + MAIN_REPO.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 # MAIN_REPO is the USER'S PROJECT repo (where worktrees/commits/gate happen) —
@@ -47,6 +47,10 @@ _find_plugin_root() {
   echo "error: plugin root not found" >&2; exit 1
 }
 PLUGIN_ROOT="$(_find_plugin_root)"
+
+# 5.3: three-tier worker model — CLAUDEHUT_WORKER_MODEL env > config
+# agents.builder_model > sonnet (with a bad-id guard). Replaces the old env-only default.
+WORKER_MODEL="$(bash "$SCRIPT_DIR/resolve-worker-model.sh" "$PLUGIN_ROOT" "$MAIN_REPO")"
 
 # Critical builder guardrails — injected into every worker via --append-system-prompt.
 # These survive even when the claudehut plugin (and its agent frontmatter) is not
@@ -119,6 +123,30 @@ TMP_DIR="$(mktemp -d)"
 LOG_DIR="$MAIN_REPO/.claudehut/logs"
 mkdir -p "$LOG_DIR"
 
+# 5.1: worker-pool budget gate. Group boundary, no workers in flight → race-free.
+# Sum prior worker spend (*.cost), ask budget-gate.sh if this group's N tasks can
+# be funded. Breach → record budget-breach.json + exit 3 (build/SKILL.md surfaces
+# it). Governs the WORKER POOL only; main-session ceremony spend is capped by the
+# top-level claude --max-budget-usd (evals/run.sh), which this cannot see.
+BUDGET_ARGS=()
+_cfg() { CLAUDE_PROJECT_DIR="$MAIN_REPO" "$PLUGIN_ROOT/bin/claudehut-state" config "$1" 2>/dev/null || true; }
+MAX_POOL="$(_cfg budget.max_worker_pool_usd)"
+MAX_WORKER="$(_cfg budget.max_worker_usd)"
+FLOOR="$(_cfg budget.worker_budget_floor)"; FLOOR="${FLOOR:-0.50}"
+SPENT="$(awk '{s+=$1} END{printf "%.6f", s+0}' "$LOG_DIR"/*.cost 2>/dev/null || echo 0)"
+GATE_OUT="$(bash "$SCRIPT_DIR/budget-gate.sh" "$SPENT" "${#TASK_NUMS[@]}" "$MAX_POOL" "$MAX_WORKER" "$FLOOR")"
+if [[ "$GATE_OUT" == skip* ]]; then
+  mkdir -p "$MAIN_REPO/.claudehut/state"
+  jq -n --argjson g "$GROUP_NUM" --argjson s "$SPENT" --arg c "${MAX_POOL:-}" --argjson n "${#TASK_NUMS[@]}" \
+    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{phase:"build",group_num:$g,spend_usd:$s,cap_usd:($c|tonumber?),tasks_unstarted:$n,reason:"worker-pool budget breach",ts:$ts}' \
+    > "$MAIN_REPO/.claudehut/state/budget-breach.json" 2>/dev/null || true
+  echo "BUDGET HALT (group $GROUP_NUM): spent \$$SPENT of worker pool \$${MAX_POOL:-?}; ${#TASK_NUMS[@]} task(s) need ~\$$FLOOR each. Committed work preserved; resolve or raise budget.max_worker_pool_usd." >&2
+  exit 3
+fi
+WORKER_BUDGET_USD="${GATE_OUT#launch }"   # empty ⇒ unlimited (no per-worker cap)
+[[ -n "$WORKER_BUDGET_USD" ]] && BUDGET_ARGS=(--max-budget-usd "$WORKER_BUDGET_USD")
+
 # Cleanup runs on ANY exit (including early/error exits under set -e) so worktrees
 # never leak. Remove each worktree via git (updates metadata), then drop TMP_DIR
 # and prune stale refs.
@@ -139,7 +167,7 @@ WATCHDOGS=()
 for TNUM in "${TASK_NUMS[@]}"; do
   BRANCH="claudehut/task-${TASK_ID}-${TNUM}"
   WT_PATH="${TMP_DIR}/wt-${TNUM}"
-  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}.log"
+  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}"   # worker stdout→.json, stderr→.log
   PROMPT_FILE="${TMP_DIR}/prompt-${TNUM}.txt"
 
   # Create isolated worktree on a fresh branch (branches from HEAD = stub commit).
@@ -147,7 +175,7 @@ for TNUM in "${TASK_NUMS[@]}"; do
   # of a group after a failure does not collide with the prior attempt's branch.
   if ! git -C "$MAIN_REPO" worktree add -B "$BRANCH" "$WT_PATH" HEAD 2>&1; then
     echo "ERROR: worktree add failed for task $TNUM" >&2
-    echo 'worktree-fail' > "$OUT_FILE"
+    echo 'worktree-fail' > "$OUT_FILE.log"
     PIDS+=(-1); WATCHDOGS+=(-1)
     continue
   fi
@@ -174,9 +202,11 @@ for TNUM in "${TASK_NUMS[@]}"; do
     claude --print \
            ${AGENT_ARGS[@]+"${AGENT_ARGS[@]}"} \
            --model "$WORKER_MODEL" \
+           --output-format json \
+           ${BUDGET_ARGS[@]+"${BUDGET_ARGS[@]}"} \
            --append-system-prompt "$GUARDRAILS" \
            ${SETTINGS_ARGS[@]+"${SETTINGS_ARGS[@]}"} \
-           "$(cat "$PROMPT_FILE")" > "$OUT_FILE" 2>&1
+           "$(cat "$PROMPT_FILE")" > "$OUT_FILE.json" 2>"$OUT_FILE.log"
   ) &
   wpid=$!
   PIDS+=("$wpid")
@@ -209,12 +239,16 @@ FAIL_TASKS=()
 ERRORS=0
 
 for TNUM in "${TASK_NUMS[@]}"; do
-  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}.log"
+  OUT_FILE="${LOG_DIR}/group${GROUP_NUM}-task${TNUM}"   # worker stdout→.json, stderr→.log
   BRANCH="claudehut/task-${TASK_ID}-${TNUM}"
 
-  STATUS=""
-  if [[ -f "$OUT_FILE" ]]; then
-    STATUS="$(awk '
+  # 5.2: recover the worker transcript from the JSON envelope (.result is an
+  # escaped string) BEFORE the awk. Adding --output-format json WITHOUT this jq
+  # step makes the ```claudehut-builder-result anchor never match a line-start →
+  # every task silently reads FAIL. These two changes are atomic (see L22.7).
+  RESULT_TEXT=""
+  [[ -f "$OUT_FILE.json" ]] && RESULT_TEXT="$(jq -r '.result // empty' "$OUT_FILE.json" 2>/dev/null || true)"
+  STATUS="$(printf '%s' "$RESULT_TEXT" | awk '
       /^```claudehut-builder-result/{in_block=1; next}
       in_block && /^```/{in_block=0; next}
       in_block && /"verify_status"/{
@@ -223,14 +257,22 @@ for TNUM in "${TASK_NUMS[@]}"; do
         sub(/".*$/, "", line)
         if (line == "pass" || line == "fail") print line
       }
-    ' "$OUT_FILE")"
-  fi
+    ')"
+
+  # 5.2: per-worker telemetry → .cost (score.sh sums it) + run-summary.jsonl row.
+  # Single-threaded post-wait → race-free; nonce=$$ (per-invocation) so a loop-retry
+  # (fresh process) never overwrites. Killed worker → jq // 0 guards → cost 0.
+  "$SCRIPT_DIR/capture-telemetry.sh" "$OUT_FILE.json" build "g${GROUP_NUM}t${TNUM}" "$WORKER_MODEL" "$LOG_DIR" "$$" >/dev/null 2>&1 || true
+
+  # 5.1: flag a budget-kill distinctly (still FAIL → not merged, worktree dropped).
+  WSUB="$(jq -r '.subtype // ""' "$OUT_FILE.json" 2>/dev/null || echo "")"
+  [[ "$WSUB" == "error_max_budget_usd" ]] && echo "  Task $TNUM: BUDGET-KILLED (subtype=$WSUB) — branch NOT merged" >&2
 
   if [[ "$STATUS" == "pass" ]]; then
     PASS_PAIRS+=("${TNUM}:${BRANCH}")
     echo "  Task $TNUM: PASS"
   else
-    echo "  Task $TNUM: FAIL (status=${STATUS:-missing-result-block}) — see $OUT_FILE" >&2
+    echo "  Task $TNUM: FAIL (status=${STATUS:-missing-result-block}) — see $OUT_FILE.log" >&2
     FAIL_TASKS+=("$TNUM")
     ERRORS=$((ERRORS+1))
   fi

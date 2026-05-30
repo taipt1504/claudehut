@@ -21,7 +21,7 @@ set -euo pipefail
 
 USER_INTENT="${1:-}"
 TASK_ID="${2:-}"
-WORKER_MODEL="${CLAUDEHUT_WORKER_MODEL:-sonnet}"
+# WORKER_MODEL resolved below (5.3) — needs PLUGIN_ROOT + MAIN_REPO.
 
 [[ -n "$USER_INTENT" ]] || { echo "error: user-intent required" >&2; exit 1; }
 [[ -n "$TASK_ID"     ]] || { echo "error: task-id required" >&2; exit 1; }
@@ -41,6 +41,8 @@ _find_plugin_root() {
 }
 PLUGIN_ROOT="$(_find_plugin_root)"
 source "$PLUGIN_ROOT/hooks/lib/state.sh"
+# 5.3: same three-tier worker-model resolution as run-parallel-group.sh.
+WORKER_MODEL="$(bash "$SCRIPT_DIR/resolve-worker-model.sh" "$PLUGIN_ROOT" "$MAIN_REPO")"
 
 PROJECT_ROOT="$(claudehut_project_root)"
 CONTRACT="$PROJECT_ROOT/.claudehut/specs/${TASK_ID}-contract.md"

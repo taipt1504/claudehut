@@ -29,6 +29,10 @@ for G in GROUPS:
   # script merges passing branches, then runs a per-group compile+test gate
   Exit 0 → proceed to next group
   Exit 1 → surface failures (worker fail OR gate fail) to user; await decision
+  Exit 3 → BUDGET HALT (worker pool, Phase 5.1): read .claudehut/state/budget-breach.json
+           and surface spend_usd / cap_usd / tasks_unstarted to the user; do NOT retry the
+           group. Committed work from prior groups is preserved. Raising
+           budget.max_worker_pool_usd (or routing quick) is the remedy.
 
 After last group:
   ./gradlew check  (or mvn verify)

@@ -30,5 +30,10 @@
       "style": "claude-haiku-4-5",
       "mapping": "claude-haiku-4-5"
     }
+  },
+  "budget": {
+    "max_worker_pool_usd": 8.00,
+    "max_worker_usd": 4.00,
+    "worker_budget_floor": 0.50
   }
 }

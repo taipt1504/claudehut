@@ -98,6 +98,19 @@ printf '%s' "$FIX" | bash "$CAP" /dev/stdin build scaffold sonnet "$d/logs" 5 >/
   && ok "L22.9 scaffold telemetry via /dev/stdin (task=scaffold)" || no "L22.9" "$(cat "$d/logs/run-summary.jsonl" 2>/dev/null)"
 rm -rf "$d"
 
+# --- L22.7 atomic coupling: jq-before-awk recovers pass; raw awk on JSON → empty ---
+# Proves --output-format json + the jq-before-awk migration MUST ship together: the
+# builder-result block lives inside .result as an escaped string, so the raw awk
+# anchor only matches once jq recovers the transcript. (run-parallel-group.sh:209/250.)
+d="$(mktemp -d)"
+printf '%s\n' '{"result":"```claudehut-builder-result\n{\"verify_status\":\"pass\"}\n```","subtype":"success"}' > "$d/o.json"
+via="$(jq -r '.result // empty' "$d/o.json" | awk '/^```claudehut-builder-result/{b=1;next} b&&/^```/{b=0;next} b&&/verify_status/{l=$0;sub(/.*"verify_status"[^"]*"/,"",l);sub(/".*/,"",l);print l}')"
+raw="$(awk '/^```claudehut-builder-result/{print "MATCH"}' "$d/o.json")"
+{ [[ "$via" == "pass" ]] && [[ -z "$raw" ]]; } \
+  && ok "L22.7 atomic coupling: jq-before-awk recovers verify_status=pass; raw awk on JSON → empty" \
+  || no "L22.7" "via='$via' raw='$raw'"
+rm -rf "$d"
+
 echo ""
 echo "phase5-telemetry: Pass=$PASS Fail=$FAIL"
 [[ "$FAIL" -gt 0 ]] && { printf '  - %s\n' "${FL[@]}"; exit 1; } || exit 0

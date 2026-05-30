@@ -1937,6 +1937,22 @@ if bash "$PLUGIN_ROOT/tests/integration/phase5-telemetry-test.sh" >/tmp/p5.log 2
 else
   fail "L22 Phase 5" "see /tmp/p5.log"; sed -n '1,40p' /tmp/p5.log
 fi
+# Static wiring guards (the helpers are dead code unless actually called):
+rpg="$PLUGIN_ROOT/skills/build/scripts/run-parallel-group.sh"
+_have() { grep -qF -- "$1" "$2"; }
+if _have '--output-format json' "$rpg" && _have "jq -r '.result // empty'" "$rpg" \
+   && _have 'capture-telemetry.sh' "$rpg" && _have 'budget-gate.sh' "$rpg" \
+   && _have 'resolve-worker-model.sh' "$rpg" && _have '2>"$OUT_FILE.log"' "$rpg"; then
+  pass "L22 run-parallel-group wires telemetry+gate+model+stream-split (atomic pieces coexist)"
+else
+  fail "L22 wiring" "run-parallel-group.sh missing one of: --output-format json / jq result-recover / capture-telemetry / budget-gate / resolve-model / stream-split"
+fi
+grep -q 'Exit 3' "$PLUGIN_ROOT/skills/build/SKILL.md" && grep -q 'budget-breach.json' "$PLUGIN_ROOT/skills/build/SKILL.md" \
+  && pass "L22 build/SKILL.md surfaces Exit 3 budget halt (consumer wired)" || fail "L22 wiring" "SKILL.md does not surface Exit 3"
+grep -q 'undercounted' "$PLUGIN_ROOT/evals/score.sh" \
+  && fail "L22 wiring" "score.sh still carries the stale 'undercounted' disclaimer" \
+  || pass "L22 score.sh disclaimer dropped (build workers now emit .cost)"
+unset rpg
 
 #==============================================================================
 section "SUMMARY"

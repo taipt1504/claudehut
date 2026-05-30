@@ -12,10 +12,11 @@
 # null (extraction metrics still computed).
 #
 # Cost = main-session total_cost_usd (covers the orchestrator + in-process Task
-# subagents) + Σ(.claudehut/logs/*.cost) for Path-B build workers. NOTE: build
-# workers do not yet emit .cost (Phase 5 telemetry), so claudehut-mode cost is
-# UNDERCOUNTED by the build-worker spend; baseline mode (no workers) is exact.
-# `total_cost_usd` is a client-side estimate (per Anthropic SDK docs).
+# subagents) + Σ(.claudehut/logs/*.cost) for Path-B build workers. As of Phase 5.2
+# the build workers DO emit .cost (written by skills/build/scripts/capture-telemetry.sh),
+# so the build-worker spend is now counted. `total_cost_usd` is a client-side
+# estimate (per Anthropic SDK docs). Scaffold-worker .cost is deferred (its
+# --resume cost semantics are unresolved — see docs/PHASE5_DESIGN.md).
 set -euo pipefail
 
 TASK="${1:?usage: score.sh <task> <run-dir> [opts]}"
@@ -82,7 +83,7 @@ for c in "$RUN_DIR"/.claudehut/logs/*.cost; do
   WORKER_COST="$(awk -v a="$WORKER_COST" -v b="$(cat "$c" 2>/dev/null || echo 0)" 'BEGIN{printf "%.6f", a+b}')"
 done
 COST="$(awk -v a="$MAIN_COST" -v b="$WORKER_COST" 'BEGIN{printf "%.6f", a+b}')"
-COST_NOTE="main-session + ${WORKER_N} worker cost-file(s); client-side estimate; Path-B workers undercounted until Phase-5 telemetry"
+COST_NOTE="main-session (orchestrator + in-process Task subagents) + ${WORKER_N} build-worker .cost file(s) (capture-telemetry.sh, Phase-5.2); client-side estimate; scaffold-worker .cost deferred (--resume semantics)"
 
 # ---- terminal status: did the run COMPLETE, or was it killed (budget/turns/error)? ----
 # Without this, a budget-killed row (pass@1=0 + high cost on an UNFINISHED tree) is
