@@ -1,0 +1,6 @@
+{"category":"pattern","title":"MapStruct mapper added: OrderMapper","files_touched":["src/main/java/com/example/mapper/OrderMapper.java"],"tags":["mapstruct","mapping"],"ts":"2026-01-01T00:00:00Z","task_id":"t-m1","hits":1}
+{"category":"pattern","title":"MapStruct mapper added: UserMapper","files_touched":["src/main/java/com/example/mapper/UserMapper.java"],"tags":["mapstruct","mapping"],"ts":"2026-01-02T00:00:00Z","task_id":"t-m2","hits":1}
+{"category":"pattern","title":"MapStruct mapper added: ProductMapper","files_touched":["src/main/java/com/example/mapper/ProductMapper.java"],"tags":["mapstruct","mapping"],"ts":"2026-01-03T00:00:00Z","task_id":"t-m3","hits":1}
+{"category":"pattern","title":"Migration added: V1 orders","files_touched":["src/main/resources/db/migration/V1__orders.sql"],"tags":["migration","flyway"],"ts":"2026-01-04T00:00:00Z","task_id":"t-f1","hits":1}
+{"category":"pattern","title":"Generic note about nothing in particular","files_touched":[],"tags":[],"ts":"2026-01-05T00:00:00Z","task_id":"t-g1","hits":1}
+{"category":"tombstone","title":"Old removed mapper pattern","files_touched":["src/main/java/com/example/mapper/DeadMapper.java"],"tags":["mapstruct","mapping"],"ts":"2026-01-06T00:00:00Z","task_id":"t-tomb","hits":1}

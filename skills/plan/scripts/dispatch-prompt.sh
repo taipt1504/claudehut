@@ -57,7 +57,11 @@ HDR
 
 emit_section "Stack signals"      "$PROJECT_ROOT/.claudehut/memory/stack-signals.md"   60
 emit_section "Project conventions" "$PROJECT_ROOT/.claudehut/memory/conventions.md"    300
-emit_section "Recent learnings"    "$PROJECT_ROOT/.claudehut/memory/learnings-recent.md" 200
+# Phase 4: JIT relevance retrieval of the top-k learnings RELEVANT to this task
+# (replaces the head-200 recency dump). The ranker is self-degrading and never
+# exits non-zero; the `|| true` is belt-and-suspenders so it can never abort this
+# `set -euo pipefail` dispatch or truncate the prompt.
+bash "$PLUGIN_ROOT/skills/learn/scripts/retrieve-relevant.sh" "$PROJECT_ROOT" "$USER_PROMPT" "$TASK_ID" || true
 
 # Prior-phase artifacts
 emit_section "Design doc"   "$PROJECT_ROOT/.claudehut/specs/${TASK_ID}-design.md"      500

@@ -1854,6 +1854,19 @@ fi
 cd "$PLUGIN_ROOT"; rm -rf "$G18"; unset CLAUDE_PROJECT_DIR CL WR mig rj
 
 #==============================================================================
+section "L19 JIT relevance retrieval + usefulness prior (Phase 4)"
+#==============================================================================
+# Phase 4: dispatch prompts retrieve the top-k RELEVANT learnings (not head-200
+# recency) ranked by relevance × an outcome-signal usefulness prior. The proving
+# suite is deterministic (no model calls) — run it and surface its result.
+if bash "$PLUGIN_ROOT/tests/integration/retrieve-relevant-test.sh" >/tmp/p4.log 2>&1; then
+  p4_pass=$(grep -oE 'Pass=[0-9]+' /tmp/p4.log | head -1 | cut -d= -f2)
+  pass "L19 Phase 4 proving tests: ${p4_pass:-?} assertions green (retrieval ranking + usefulness round-trip, no model calls)"
+else
+  fail "L19 Phase 4" "see /tmp/p4.log"; sed -n '1,40p' /tmp/p4.log
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))

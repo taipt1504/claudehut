@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/badges/core-memory.svg" alt="Memory: project-aware, reinforcement learning"/>
+  <img src=".github/badges/core-memory.svg" alt="Memory: project-aware, retrieval reinforcement"/>
   <img src=".github/badges/core-domain.svg" alt="Domain: Java backend, Spring Boot 3.x"/>
 </p>
 
@@ -37,7 +37,7 @@
   - [Phase Enforcement](#1-phase-enforcement)
   - [Reuse-Detection](#2-reuse-detection)
   - [Stack-Aware Rule Auto-Loading](#3-stack-aware-rule-auto-loading)
-  - [Project-Scoped Memory + Reinforcement Learning](#4-project-scoped-memory--reinforcement-learning)
+  - [Project-Scoped Memory + Retrieval Reinforcement](#4-project-scoped-memory--retrieval-reinforcement)
   - [Parallel Reviewer Subagents](#5-parallel-reviewer-subagents)
   - [Strict TDD](#6-strict-tdd)
 - [Architecture](#architecture)
@@ -217,7 +217,7 @@ stack: "web=webflux"      # init copies this rule only when web=webflux is detec
 
 42 rules total in 6 categories: coding, architecture, testing, security, performance, framework. Override any rule by editing the file directly inside `.claude/rules/` — init records SHA256s in `.claude/rules/.checksums.json` so `claudehut:init --refresh` leaves your edits alone (use `--force` to overwrite).
 
-### 4. Project-Scoped Memory + Reinforcement Learning
+### 4. Project-Scoped Memory + Retrieval Reinforcement
 
 Four memory tiers:
 

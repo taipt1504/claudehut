@@ -24,7 +24,7 @@ Counts are authoritative as of the build above: **17 agents, 30 skills, 45 rules
 - [5. Skill system (30 skills)](#5-skill-system-30-skills)
 - [6. Rules system (45 rules)](#6-rules-system-45-rules)
 - [7. Hook System (8 Hooks)](#7-hook-system-8-hooks)
-- [8. Memory & Reinforcement Learning](#8-memory--reinforcement-learning)
+- [8. Memory & Retrieval Reinforcement](#8-memory--retrieval-reinforcement)
 - [9. Parallel build deep-dive (Path B)](#9-parallel-build-deep-dive-path-b)
 - [10. Runtime Interaction Model — How Agents, Skills, Rules, and Hooks Actually Compose](#10-runtime-interaction-model--how-agents-skills-rules-and-hooks-actually-compose)
 - [11. End-to-end walkthrough — "add endpoint to fetch user purchase history"](#11-end-to-end-walkthrough--add-endpoint-to-fetch-user-purchase-history)
@@ -1630,7 +1630,7 @@ The shared rationale for both variables: a `claude -p` non-interactive session c
 
 ---
 
-## 8. Memory & Reinforcement Learning
+## 8. Memory & Retrieval Reinforcement
 
 ClaudeHut implements a four-tier, append-only memory system that converts completed task artifacts into persistent patterns. Memory feeds back into every phase's subagent via deterministic prompt assembly.
 

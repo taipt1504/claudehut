@@ -3,7 +3,7 @@
   "name": "claudehut",
   "displayName": "ClaudeHut",
   "version": "0.1.0",
-  "description": "Agentic AI workflow plugin for Java backend engineers (Spring MVC/WebFlux, JPA/R2DBC, MapStruct, Jackson, Kafka/RabbitMQ/NATS, Redis, Testcontainers). Enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory and reinforcement learning.",
+  "description": "Agentic AI workflow plugin for Java backend engineers (Spring MVC/WebFlux, JPA/R2DBC, MapStruct, Jackson, Kafka/RabbitMQ/NATS, Redis, Testcontainers). Enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory & retrieval reinforcement (JIT relevance retrieval + outcome-signal usefulness prior).",
   "author": {
     "name": "Phan Tài",
     "url": "https://github.com/taipt1504"

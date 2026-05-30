@@ -10,7 +10,7 @@
     {
       "name": "claudehut",
       "source": "./",
-      "description": "Agentic AI workflow plugin for Java backend engineers — enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory, reinforcement learning, hook-gated phase enforcement, and strict TDD discipline.",
+      "description": "Agentic AI workflow plugin for Java backend engineers — enforces 6-phase pipeline (Brainstorm → Spec → Plan → Build → Loop → Learn) with project-aware memory & retrieval reinforcement, hook-gated phase enforcement, and strict TDD discipline.",
       "version": "0.1.0",
       "category": "workflow",
       "tags": ["java", "spring", "spring-boot", "webflux", "backend", "agentic", "tdd", "workflow", "memory", "reuse-detection"],

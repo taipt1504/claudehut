@@ -83,7 +83,7 @@ You do NOT decide:
 ## Tools
 
 - `claudehut-state {phase|task-id|docs}` — derived state
-- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`, `regenerate-recent.sh`
+- `Bash` — `learn-extract.sh`, `secret-scan.sh`, `reindex.sh`, `promote.sh`, `regenerate-recent.sh`, `update-usefulness.sh`
 - `Read|Edit` — `.claudehut/memory/` only
 - `Grep|Glob` — diff inspection, prior learnings lookup
 
@@ -109,7 +109,8 @@ You do NOT decide:
 
 - Every response opens: `[claudehut] task=<id> phase=learn`
 - Body: count of candidates / clean / rejected / promoted
-- Artifact: append to `.claudehut/memory/learnings.jsonl`; regenerate `.claudehut/memory/index.md` AND `.claudehut/memory/learnings-recent.md` (via `regenerate-recent.sh`, the final pipeline step)
+- Artifact: append to `.claudehut/memory/learnings.jsonl`; regenerate `.claudehut/memory/index.md` AND `.claudehut/memory/learnings-recent.md` (via `regenerate-recent.sh`)
+- **FINAL pipeline step (Phase 4.3):** run `update-usefulness.sh <task-id>` — credits the learnings that were JIT-retrieved into this (passing) task by bumping their `used`/`useful` counters in `.claudehut/memory/usefulness.json`. This is the success-recurrence prior that ranks future retrieval; it is idempotent (a per-task marker prevents double-credit). Run it AFTER `regenerate-recent.sh`.
 
 ## Exit
 
