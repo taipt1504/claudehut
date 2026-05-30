@@ -928,6 +928,16 @@ n_hooks=$(jq -r '.hooks | keys[]' hooks/hooks.json | wc -l | tr -d ' ')
 # MCP servers
 n_mcp=$(jq -r '.mcpServers | keys[]' .mcp.json | wc -l | tr -d ' ')
 [[ "$n_mcp" -ge 3 ]] && pass "MCP servers: $n_mcp configured" || fail "mcp" "only $n_mcp servers"
+# 4.2: the memory MCP file path MUST reference the project dir (not a bare/relative
+# path that resolves under the npx dist dir → ENOENT). Plugin .mcp.json substitutes
+# ${CLAUDE_PROJECT_DIR}; the :-. default keeps it safe if copied to a project/user
+# config. Guard against regressing to a bare path (the in-session ENOENT bug).
+_mempath="$(jq -r '.mcpServers.memory.env.MEMORY_FILE_PATH // ""' .mcp.json)"
+case "$_mempath" in
+  '${CLAUDE_PROJECT_DIR'*'/.claudehut/memory/'*) pass "memory MCP path anchored to \${CLAUDE_PROJECT_DIR} (.claudehut/memory/)" ;;
+  *) fail "mcp memory path" "MEMORY_FILE_PATH must start with \${CLAUDE_PROJECT_DIR...}: '$_mempath'" ;;
+esac
+unset _mempath
 
 #==============================================================================
 section "L5 Enforcement simulation — agent pattern compliance"
