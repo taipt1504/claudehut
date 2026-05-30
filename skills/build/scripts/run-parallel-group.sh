@@ -133,7 +133,7 @@ _cfg() { CLAUDE_PROJECT_DIR="$MAIN_REPO" "$PLUGIN_ROOT/bin/claudehut-state" conf
 MAX_POOL="$(_cfg budget.max_worker_pool_usd)"
 MAX_WORKER="$(_cfg budget.max_worker_usd)"
 FLOOR="$(_cfg budget.worker_budget_floor)"; FLOOR="${FLOOR:-0.50}"
-SPENT="$(awk '{s+=$1} END{printf "%.6f", s+0}' "$LOG_DIR"/*.cost 2>/dev/null || echo 0)"
+SPENT="$(bash "$SCRIPT_DIR/sum-worker-cost.sh" "$LOG_DIR")"   # cumulative real worker spend this run
 GATE_OUT="$(bash "$SCRIPT_DIR/budget-gate.sh" "$SPENT" "${#TASK_NUMS[@]}" "$MAX_POOL" "$MAX_WORKER" "$FLOOR")"
 if [[ "$GATE_OUT" == skip* ]]; then
   mkdir -p "$MAIN_REPO/.claudehut/state"

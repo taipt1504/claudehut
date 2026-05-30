@@ -111,6 +111,16 @@ raw="$(awk '/^```claudehut-builder-result/{print "MATCH"}' "$d/o.json")"
   || no "L22.7" "via='$via' raw='$raw'"
 rm -rf "$d"
 
+# --- L22.12 SPENT accounting (the REAL sum, 3 LOG_DIR states; defines retry semantics) ---
+SUM="$PLUGIN_ROOT/skills/build/scripts/sum-worker-cost.sh"
+d="$(mktemp -d)"; mkdir -p "$d/logs"
+[[ "$(bash "$SUM" "$d/logs")" == "0.000000" ]] && ok "L22.12a empty LOG_DIR → SPENT=0 (clean first group launches; no glob-nomatch corruption)" || no "L22.12a" "got '$(bash "$SUM" "$d/logs")'"
+printf '0.400000\n' > "$d/logs/build-g1t1-p1.cost"
+[[ "$(bash "$SUM" "$d/logs")" == "0.400000" ]] && ok "L22.12b one .cost → SPENT=0.40" || no "L22.12b" "got $(bash "$SUM" "$d/logs")"
+printf '0.400000\n' > "$d/logs/build-g1t1-p2.cost"
+[[ "$(bash "$SUM" "$d/logs")" == "0.800000" ]] && ok "L22.12c retry/2nd .cost counted → SPENT=0.80 (cumulative real spend — documented semantics)" || no "L22.12c" "got $(bash "$SUM" "$d/logs")"
+rm -rf "$d"; unset SUM
+
 echo ""
 echo "phase5-telemetry: Pass=$PASS Fail=$FAIL"
 [[ "$FAIL" -gt 0 ]] && { printf '  - %s\n' "${FL[@]}"; exit 1; } || exit 0
