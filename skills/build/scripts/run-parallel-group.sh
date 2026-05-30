@@ -54,7 +54,8 @@ WORKER_MODEL="$(bash "$SCRIPT_DIR/resolve-worker-model.sh" "$PLUGIN_ROOT" "$MAIN
 
 # Critical builder guardrails — injected into every worker via --append-system-prompt.
 # These survive even when the claudehut plugin (and its agent frontmatter) is not
-# resolvable by name. Keep in sync with agents/claudehut-builder.md Guardrails.
+# resolvable by name. Not byte-equal to the persona by design; the load-bearing
+# phrases are floor-checked against agents/claudehut-builder.md by run-all.sh L23.
 GUARDRAILS="$(cat <<'GUARD'
 You are the ClaudeHut Builder executing EXACTLY ONE plan task in an isolated git worktree.
 NON-NEGOTIABLE:

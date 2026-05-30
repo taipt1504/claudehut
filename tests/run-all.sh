@@ -214,6 +214,45 @@ ver=$(jq -r '.version' $manifest)
 [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]] && pass "manifest has semver" || fail "manifest" "invalid version"
 
 #==============================================================================
+section "L1.9 Path -> rule resolver (globs match realistic paths; Phase 6.1d)"
+#==============================================================================
+# Stronger than L1.7 (paths: present) + L4 (count): proves each glob MATCHES a
+# realistic file path, catching a typo'd glob that presence/count miss.
+if bash "$PLUGIN_ROOT/tests/static/path-skill-map.sh" >/tmp/pathmap.log 2>&1; then
+  pass "L1.9 path resolver: rule globs resolve realistic paths (nats/rabbitmq gap closed, selective)"
+else
+  fail "L1.9 path resolver" "see /tmp/pathmap.log :: $(tail -2 /tmp/pathmap.log | tr '\n' ' ')"
+fi
+
+#==============================================================================
+section "L1.10 Stack-conditional rule SELECTION (init reaches a project; Phase 6.1 producer)"
+#==============================================================================
+# L1.9 proves a glob MATCHES (the parser). This proves the PRODUCER: init-project.sh
+# actually COPIES a stack-conditional rule into a project iff stack-signals.md
+# declares its stack. Closes the "prove the producer, not the parser" gap — a
+# well-formed rule that never reaches a project is inert (the Phase-0 no-op class).
+# Selection must DISCRIMINATE: messaging=nats copies nats.md but NOT kafka/rabbitmq.
+_init_proj() {  # $1 = messaging value -> echoes the temp project root
+  local mv="$1" p; p="$(mktemp -d)"; mkdir -p "$p/.claudehut/memory"
+  printf -- '- messaging: %s\n' "$mv" > "$p/.claudehut/memory/stack-signals.md"
+  CLAUDE_PROJECT_DIR="$p" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+    bash "$PLUGIN_ROOT/skills/init/scripts/init-project.sh" >/dev/null 2>&1
+  echo "$p"
+}
+_has_rule() { [[ "$(find "$1/.claude/rules" -name "$2" 2>/dev/null | wc -l | tr -d ' ')" == "1" ]]; }
+pn="$(_init_proj nats)"; pk="$(_init_proj kafka)"; pr="$(_init_proj rabbitmq)"
+{ _has_rule "$pn" nats.md && ! _has_rule "$pn" kafka-consumer.md && ! _has_rule "$pn" rabbitmq.md; } \
+  && pass "L1.10 messaging=nats -> init copies nats.md, skips kafka + rabbitmq (rule reaches the project, selective)" \
+  || fail "L1.10 selection" "nats-proj wrong: nats=$(_has_rule "$pn" nats.md && echo 1 || echo 0) kafka=$(_has_rule "$pn" kafka-consumer.md && echo 1 || echo 0) rabbit=$(_has_rule "$pn" rabbitmq.md && echo 1 || echo 0)"
+{ _has_rule "$pr" rabbitmq.md && ! _has_rule "$pr" nats.md; } \
+  && pass "L1.10 messaging=rabbitmq -> init copies rabbitmq.md, skips nats.md" \
+  || fail "L1.10 selection" "rabbitmq-proj wrong"
+{ _has_rule "$pk" kafka-consumer.md && ! _has_rule "$pk" nats.md && ! _has_rule "$pk" rabbitmq.md; } \
+  && pass "L1.10 messaging=kafka -> kafka rule in, nats/rabbitmq out (symmetric; new rules not universally copied)" \
+  || fail "L1.10 selection" "kafka-proj wrong"
+rm -rf "$pn" "$pk" "$pr"; unset pn pk pr
+
+#==============================================================================
 section "L2.1 state.sh phase derivation"
 #==============================================================================
 TMPDIR=$(mktemp -d)
@@ -907,7 +946,7 @@ rm -rf "$RTMP"; unset RTMP RTID out
 section "L4 Coverage — rules + skills + agents"
 #==============================================================================
 n_rules=$(find rules -name '*.md' | wc -l | tr -d ' ')
-[[ "$n_rules" -eq 45 ]] && pass "rules: $n_rules files (42 baseline + 3 Lombok)" || fail "coverage" "expected 45 rule files, found $n_rules"
+[[ "$n_rules" -eq 47 ]] && pass "rules: $n_rules files (42 baseline + 3 Lombok + 2 messaging: nats, rabbitmq)" || fail "coverage" "expected 47 rule files, found $n_rules"
 
 # Stack-conditional rules (frontmatter `stack:` key) — informational
 stack_count=$(grep -l '^stack:' rules/**/*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -1775,6 +1814,32 @@ krow="$(bash "$score_sh" trivial-sum-bug "$e17" --claude-json "$e17/claude-kille
   && pass "L17 scorer: budget-kill row self-describes (terminal_status+is_error)" || fail "L17 eval" "kill row not self-describing: $krow"
 rm -rf "$e17"; unset e17 row krow score_sh
 
+# --- L17b compare.sh --variance: pass@k stability gate (Phase 7.1-now) ---
+# Synthetic k=3 run (pass [1,0,1], cost [1.0,1.5,2.0]) → mean_pass=0.6667,
+# var_cost>0. Makes the "parity at LOWER variance" SDK-replatform precondition
+# executable. Deterministic — no model calls. Columns are |-delimited:
+#   $1 task+mode | $2 n | $3 mean_pass var_pass | $4 mean_cost var_cost | $5 wall
+cmp_sh="$PLUGIN_ROOT/evals/compare.sh"
+vf="$(mktemp)"
+{
+  printf '{"task":"vfix","mode":"claudehut","pass_at_1":1,"cost_usd":1.0,"wall_ms":1000}\n'
+  printf '{"task":"vfix","mode":"claudehut","pass_at_1":0,"cost_usd":1.5,"wall_ms":1000}\n'
+  printf '{"task":"vfix","mode":"claudehut","pass_at_1":1,"cost_usd":2.0,"wall_ms":1000}\n'
+} > "$vf"
+vrow="$(bash "$cmp_sh" --variance "$vf" | awk 'NR==2')"
+v_n="$(echo "$vrow"  | awk -F'|' '{print $2}' | tr -d ' ')"
+v_mp="$(echo "$vrow" | awk -F'|' '{print $3}' | awk '{print $1}')"
+v_vc="$(echo "$vrow" | awk -F'|' '{print $4}' | awk '{print $2}')"
+{ [[ "$v_n" == "3" ]] \
+  && awk -v x="$v_mp" 'BEGIN{exit !(x>0.66 && x<0.67)}' \
+  && awk -v x="$v_vc" 'BEGIN{exit !(x>0)}'; } \
+  && pass "L17 compare.sh --variance: k=3 → n=3, mean_pass≈0.667, var_cost>0 (pass@k gate executable)" \
+  || fail "L17 variance" "n=$v_n mean_pass=$v_mp var_cost=$v_vc"
+bash "$cmp_sh" --variance /no/such.jsonl >/dev/null 2>&1 && vrc=0 || vrc=$?
+[[ "$vrc" -eq 2 ]] && pass "L17 compare.sh --variance: missing file → exit 2 (usage contract under set -e)" \
+  || fail "L17 variance" "missing-file exit=$vrc (want 2)"
+rm -f "$vf"; unset cmp_sh vf vrow v_n v_mp v_vc vrc
+
 #==============================================================================
 section "L18 Adaptive-depth routing (Phase 3)"
 #==============================================================================
@@ -1954,6 +2019,28 @@ grep -q 'undercounted' "$PLUGIN_ROOT/evals/score.sh" \
   && fail "L22 wiring" "score.sh still carries the stale 'undercounted' disclaimer" \
   || pass "L22 score.sh disclaimer dropped (build workers now emit .cost)"
 unset rpg
+
+#==============================================================================
+section "L23 Builder-guardrail floor invariant (Phase 6.2a — DRY without byte-equality)"
+#==============================================================================
+# The builder guardrails live in TWO places: the always-on safety floor in
+# run-parallel-group.sh's GUARDRAILS heredoc (injected via --append-system-prompt,
+# survives when --agent name resolution is unavailable) AND the richer
+# agents/claudehut-builder.md persona. They are INTENTIONALLY not byte-equal, so
+# byte-equality is the wrong invariant — and deriving the heredoc from the persona
+# would let a persona heading rename silently drop the safety floor. Instead assert
+# a FLOOR SUBSET: load-bearing phrases must appear verbatim in BOTH. A trim of
+# either copy turns this RED (catches drift in both directions).
+rpg="$PLUGIN_ROOT/skills/build/scripts/run-parallel-group.sh"
+bld="$PLUGIN_ROOT/agents/claudehut-builder.md"
+floor_ok=1
+for phrase in "NEVER execute more than ONE task" "claudehut-builder-result" "failing test"; do
+  grep -Fq "$phrase" "$rpg" || { floor_ok=0; echo "    floor phrase missing in run-parallel-group.sh: $phrase"; }
+  grep -Fq "$phrase" "$bld" || { floor_ok=0; echo "    floor phrase missing in claudehut-builder.md: $phrase"; }
+done
+[[ "$floor_ok" -eq 1 ]] && pass "L23 builder-guardrail floor present in BOTH heredoc and persona (no silent drift)" \
+  || fail "L23 guardrail floor" "a load-bearing guardrail phrase dropped from one copy"
+unset rpg bld floor_ok
 
 #==============================================================================
 section "SUMMARY"
