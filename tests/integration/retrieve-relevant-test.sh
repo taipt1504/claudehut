@@ -232,6 +232,22 @@ printf '%s' "$out" | grep -q 'none yet' \
   || fail "L19.21" "surfaced learnings for an unrelated diff: $out"
 rm -rf "$d"
 
+# --- Case 23: early-phase dispatch-prompt WITH intent → non-stub (the full-route path) ---
+# The brainstorm/spec/plan/build dispatch-prompts pass the USER INTENT as "$ARGUMENTS".
+# This is the PRIMARY retrieval path (intent-driven, before any plan/diff exists).
+# Proves it deterministically — so a paid full-route run is NOT needed to show
+# "retrieval fires with intent"; it would only test whether the headless orchestrator
+# actually invokes dispatch-prompt.sh with the intent (a seam question, not this).
+d="$(mktemp -d)"; mkdir -p "$d/.claudehut/memory"
+cp "$FIX/learnings-sample.jsonl" "$d/.claudehut/memory/learnings.jsonl"
+printf -- '- web: mvc\n' > "$d/.claudehut/memory/stack-signals.md"
+out="$(CLAUDE_PROJECT_DIR="$d" CLAUDEHUT_TASK_ID=t-bs CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash "$PLUGIN_ROOT/skills/brainstorm/scripts/dispatch-prompt.sh" "Add a MapStruct mapper for OrderDto" 2>/dev/null)"
+printf '%s' "$out" | grep -A4 'Relevant learnings' | grep -qiE 'mapstruct' \
+  && pass "L19.23 early-phase (brainstorm) dispatch-prompt with intent → non-stub (mapstruct surfaced)" \
+  || fail "L19.23" "brainstorm dispatch-prompt stubbed despite intent+corpus: $(printf '%s' "$out" | grep -A2 'Relevant learnings')"
+rm -rf "$d"
+
 echo ""
 echo "retrieve-relevant: Pass=$PASS Fail=$FAIL"
 [[ "$FAIL" -gt 0 ]] && { printf '  - %s\n' "${FAIL_LIST[@]}"; exit 1; } || exit 0
