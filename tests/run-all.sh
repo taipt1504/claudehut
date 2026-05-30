@@ -1891,6 +1891,33 @@ else
 fi
 
 #==============================================================================
+section "L21 Capability fixture (slugify-convention) — free validity guards"
+#==============================================================================
+# The vehicle for the Phase-4 CAPABILITY A/B: a task whose correct answer depends
+# on an arbitrary project convention the base model can't guess. Gradle-verified
+# once (standard '-' impl FAILS the oracle, '__' impl PASSES → it discriminates);
+# the free, fast guards below keep it honest in CI. The paid 2-run A/B itself
+# (seeded vs unseeded) is opt-in.
+slug="$PLUGIN_ROOT/evals/tasks/slugify-convention"
+if find "$slug/repo" -name '*Oracle*' 2>/dev/null | grep -q .; then
+  fail "L21 capability" "slugify oracle leaked into repo/ — agent could read the '__' convention"
+else
+  pass "L21 slugify oracle held out of repo/ (convention not visible to the agent)"
+fi
+grep -q '__' "$slug/oracle/SlugifyOracleTest.java" 2>/dev/null \
+  && pass "L21 oracle pins the '__' convention (a standard '-' impl fails it)" || fail "L21 capability" "oracle does not assert the '__' convention"
+# the seeded convention must be retrievable from the task intent (else the A/B is moot)
+_cap="$(mktemp -d)"; mkdir -p "$_cap/.claudehut/memory"
+cp "$slug/seed-learnings.jsonl" "$_cap/.claudehut/memory/learnings.jsonl"
+printf -- '- web: mvc\n' > "$_cap/.claudehut/memory/stack-signals.md"
+if bash "$PLUGIN_ROOT/skills/learn/scripts/retrieve-relevant.sh" "$_cap" "$(cat "$slug/task.md")" t-cap 5 | grep -qi 'double underscore'; then
+  pass "L21 task intent retrieves the seeded slug convention (capability A/B is wired)"
+else
+  fail "L21 capability" "task intent does not surface the seeded convention"
+fi
+rm -rf "$_cap"; unset slug _cap
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
