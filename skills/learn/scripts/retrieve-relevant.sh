@@ -74,6 +74,25 @@ if [[ -f "$PLAN_FILE" ]]; then
     }' "$PLAN_FILE" 2>/dev/null | sort -u || true)"
 fi
 
+# Diff fallback for the no-plan case (quick profile + the verify dispatch, which is
+# invoked with an EMPTY intent). A real eval proved retrieval stubbed there: no
+# plan → S_path=0, no intent → no tag/title signal → nothing clears the floor. So
+# when there is no plan, query by the branch's CHANGED FILES — for a verify/post-
+# build dispatch this is the actual diff, the strongest "learnings about what we
+# just changed" signal. Deterministic; only fires when a plan is absent, so it
+# never alters full-profile behaviour. (Quick BUILD stays retrieval-free by design
+# — a one-liner is self-evident; retrieval engages at verify via this diff.)
+if [[ -z "$plan_pkgs_list" ]] && git -C "$PROJECT_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  _diff="$( { git -C "$PROJECT_ROOT" diff --name-only HEAD~1..HEAD 2>/dev/null;
+              git -C "$PROJECT_ROOT" diff --name-only HEAD 2>/dev/null; } | sort -u || true )"
+  if [[ -n "$_diff" ]]; then
+    plan_pkgs_list="$(printf '%s\n' "$_diff" | awk 'NF{p=$0; sub(/\/[^\/]+$/,"",p); if(p!="")print tolower(p)}' | sort -u)"
+    base_terms_list="$(printf '%s\n%s\n' "$base_terms_list" \
+      "$(printf '%s\n' "$_diff" | awk 'NF{b=$0; sub(/.*\//,"",b); sub(/\.[^.]+$/,"",b); if(b!="")print tolower(b)}')" \
+      | sed '/^$/d' | sort -u)"
+  fi
+fi
+
 # Turn a newline list into a compact JSON array (empty list -> []).
 _to_json_array() { printf '%s\n' "$1" | jq -R . 2>/dev/null | jq -s 'map(select(length>0))' 2>/dev/null || echo '[]'; }
 plan_pkgs_json="$(_to_json_array "$plan_pkgs_list")"

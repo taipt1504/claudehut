@@ -201,6 +201,37 @@ printf '%s' "$(bash "$RETR" "$d" "Add a Flyway migration" t-mem 5)" | grep -qi '
   && pass "L19.19 4.2 reader falls back to the server default name memory.jsonl" || fail "L19.19" "memory.jsonl fallback not read"
 rm -rf "$d"
 
+# --- Case 20: verify-retrieval via the git-diff fallback (empty intent + NO plan) ---
+# This is the exact real-run failure the seeded $ A/B surfaced: the verify dispatch
+# passes "" intent and quick mode has no plan → retrieval stubbed. The diff fallback
+# must query by the branch's changed files so a verify dispatch still retrieves.
+d="$(mktemp -d)"; ( cd "$d" && git init -q && git config user.email t@t && git config user.name t )
+mkdir -p "$d/.claudehut/memory" "$d/src/main/java/com/example/mapper"
+cp "$FIX/learnings-sample.jsonl" "$d/.claudehut/memory/learnings.jsonl"
+printf 'A\n' > "$d/src/main/java/com/example/mapper/NewMapper.java"
+( cd "$d" && git add -A && git commit -qm base >/dev/null 2>&1 )
+printf 'B\n' > "$d/src/main/java/com/example/mapper/NewMapper.java"
+( cd "$d" && git add -A && git commit -qm "build: touch mapper package" >/dev/null 2>&1 )
+out="$(bash "$RETR" "$d" "" t-diff 5)"
+printf '%s' "$out" | grep -q 'none yet' \
+  && fail "L19.20" "diff-fallback stubbed despite a package-matching diff: $out" \
+  || pass "L19.20 verify-retrieval: empty intent + no plan -> git-diff query surfaces package-matched learnings"
+rm -rf "$d"
+
+# --- Case 21: guard — an unrelated diff must NOT surface anything (no false positives) ---
+d="$(mktemp -d)"; ( cd "$d" && git init -q && git config user.email t@t && git config user.name t )
+mkdir -p "$d/.claudehut/memory" "$d/totally/unrelated/place"
+cp "$FIX/learnings-sample.jsonl" "$d/.claudehut/memory/learnings.jsonl"
+printf 'A\n' > "$d/totally/unrelated/place/Z.txt"
+( cd "$d" && git add -A && git commit -qm base >/dev/null 2>&1 )
+printf 'B\n' > "$d/totally/unrelated/place/Z.txt"
+( cd "$d" && git add -A && git commit -qm "touch unrelated path" >/dev/null 2>&1 )
+out="$(bash "$RETR" "$d" "" t-none 5)"
+printf '%s' "$out" | grep -q 'none yet' \
+  && pass "L19.21 verify-retrieval guard: empty intent + no plan + no package match -> stub (no false positives)" \
+  || fail "L19.21" "surfaced learnings for an unrelated diff: $out"
+rm -rf "$d"
+
 echo ""
 echo "retrieve-relevant: Pass=$PASS Fail=$FAIL"
 [[ "$FAIL" -gt 0 ]] && { printf '  - %s\n' "${FAIL_LIST[@]}"; exit 1; } || exit 0
