@@ -123,9 +123,17 @@ def terms(\$t): (\$t // \"\") | ascii_downcase | [scan(\"[a-z0-9]+\")] | map(sel
 # this bash hot path. Entities are learnings the learner mirrored via the MCP
 # tools; tags/files/ts/content ride in observations as "tag:"/"file:"/"ts:"/
 # "content:" prefixes. Absent/malformed graph contributes nothing (degrades clean).
-MCP_GRAPH="$PROJECT_ROOT/.claudehut/memory/mcp-graph.json"
+# Format VERIFIED against @modelcontextprotocol/server-memory saveGraph: NDJSON,
+# one {"type":"entity"|"relation",...} per line; entity = {type,name,entityType,
+# observations[]}. We filter type=="entity" (relation lines ignored). The plugin
+# .mcp.json sets MEMORY_FILE_PATH=...mcp-graph.json, but the server's DEFAULT name
+# is memory.jsonl — accept either, so retrieval works whichever resolved.
+MCP_GRAPH=""
+for _cand in "$PROJECT_ROOT/.claudehut/memory/mcp-graph.json" "$PROJECT_ROOT/.claudehut/memory/memory.jsonl"; do
+  [[ -s "$_cand" ]] && { MCP_GRAPH="$_cand"; break; }
+done
 MCP_MAPPED=""
-if [[ -s "$MCP_GRAPH" ]]; then
+if [[ -n "$MCP_GRAPH" ]]; then
   MCP_MAPPED="$(jq -c 'select(.type=="entity") | {
       category: (.entityType // "pattern"),
       title: (.name // ""),

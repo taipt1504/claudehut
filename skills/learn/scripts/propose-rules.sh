@@ -10,6 +10,9 @@
 # key the rest of the memory subsystem uses — never a freshly re-derived hash
 # (key drift is how these subsystems silently die; see learnings-key.sh). Falls
 # back to lower(title):category only when an entry predates signatures.
+# (Edge: an anti-pattern arriving BOTH via learn-extract — no signature — and via
+# the learner — signature present — would split into two keys and undercount toward
+# K. Anti-patterns flow through the learner in practice, so noted, not guarded.)
 set -uo pipefail
 
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"

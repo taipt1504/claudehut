@@ -144,9 +144,11 @@ rm -rf "$d"
 # --- Case 13: 4.2 MCP ingestion — an MCP-only entity is retrieved (model-free) ---
 d="$(mk no)"
 printf '{"category":"pattern","title":"Unrelated local note","files_touched":[],"tags":["zzz"],"ts":"2026-01-01T00:00:00Z","task_id":"loc"}\n' > "$d/.claudehut/memory/learnings.jsonl"
-printf '{"type":"entity","name":"MapStruct null gotcha","entityType":"gotcha","observations":["content:x","tag:mapstruct","tag:mapping","file:src/main/java/com/example/mapper/X.java","ts:2026-02-01T00:00:00Z"]}\n' > "$d/.claudehut/memory/mcp-graph.json"
+# Real server format (verified vs saveGraph): NDJSON of entity + relation lines.
+{ printf '{"type":"entity","name":"MapStruct null gotcha","entityType":"gotcha","observations":["content:x","tag:mapstruct","tag:mapping","file:src/main/java/com/example/mapper/X.java","ts:2026-02-01T00:00:00Z"]}\n';
+  printf '{"type":"relation","from":"MapStruct null gotcha","to":"X","relationType":"touches"}\n'; } > "$d/.claudehut/memory/mcp-graph.json"
 printf '%s' "$(bash "$RETR" "$d" "Add a MapStruct mapper" t-mcp 5)" | grep -qi 'MapStruct null gotcha' \
-  && pass "L19.13 4.2 MCP-only entity retrieved (model-free mcp-graph.json read)" || fail "L19.13" "MCP entity not surfaced"
+  && pass "L19.13 4.2 MCP entity retrieved; relation line ignored (model-free read, real saveGraph format)" || fail "L19.13" "MCP entity not surfaced"
 rm -rf "$d"
 
 # --- Case 14: 4.2 dedup — same key in JSONL + MCP → counted ONCE, JSONL wins ---
@@ -189,6 +191,14 @@ ud="$(jq -r '."mapstruct mapper added: ordermapper:pattern".used' "$d/.claudehut
 { [[ "$ud" == "1" && "$uf" == "0" ]] && [[ ! -f "$d/.claudehut/state/retrieval-feature-ab.json" ]]; } \
   && pass "L19.18 4.4 finish --abandon: fail signal recorded (used++,useful+0) + retrieval log pruned" \
   || fail "L19.18" "used=$ud useful=$uf logExists=$([[ -f "$d/.claudehut/state/retrieval-feature-ab.json" ]] && echo yes || echo no)"
+rm -rf "$d"
+
+# --- Case 19: 4.2 reader accepts the server's DEFAULT filename (memory.jsonl) ---
+d="$(mk no)"
+printf '{"category":"pattern","title":"Unrelated","files_touched":[],"tags":["zzz"],"ts":"2026-01-01T00:00:00Z","task_id":"loc"}\n' > "$d/.claudehut/memory/learnings.jsonl"
+printf '{"type":"entity","name":"Flyway concurrent index gotcha","entityType":"gotcha","observations":["content:y","tag:flyway","tag:migration","file:src/main/resources/db/migration/V9__x.sql","ts:2026-02-02T00:00:00Z"]}\n' > "$d/.claudehut/memory/memory.jsonl"
+printf '%s' "$(bash "$RETR" "$d" "Add a Flyway migration" t-mem 5)" | grep -qi 'Flyway concurrent index gotcha' \
+  && pass "L19.19 4.2 reader falls back to the server default name memory.jsonl" || fail "L19.19" "memory.jsonl fallback not read"
 rm -rf "$d"
 
 echo ""
