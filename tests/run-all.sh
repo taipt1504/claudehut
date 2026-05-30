@@ -1926,6 +1926,19 @@ fi
 rm -rf "$_cap"; unset slug _cap
 
 #==============================================================================
+section "L22 Cost telemetry + budget gate + model-tier (Phase 5)"
+#==============================================================================
+# Phase 5: per-worker cost/token telemetry (.cost + run-summary.jsonl), a
+# worker-pool budget gate, and three-tier model resolution. Deterministic, no
+# model calls (static fixtures).
+if bash "$PLUGIN_ROOT/tests/integration/phase5-telemetry-test.sh" >/tmp/p5.log 2>&1; then
+  p5_pass=$(grep -oE 'Pass=[0-9]+' /tmp/p5.log | head -1 | cut -d= -f2)
+  pass "L22 Phase 5 telemetry/budget/model tests: ${p5_pass:-?} assertions green (no model calls)"
+else
+  fail "L22 Phase 5" "see /tmp/p5.log"; sed -n '1,40p' /tmp/p5.log
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
