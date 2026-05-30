@@ -1742,6 +1742,14 @@ if ls "$PLUGIN_ROOT/evals/tasks/trivial-sum-bug/repo/"**/.*Oracle*.java >/dev/nu
 else
   pass "L17 oracle is held out of repo/ (pass@1 not self-graded)"
 fi
+# Eval-integrity: "held out of repo/" is not enough — a claudehut `--print` agent
+# reads $CLAUDE_PLUGIN_ROOT and can `cat` the oracle from the plugin repo. run.sh
+# MUST point --plugin-dir at a sanitized copy with evals/ stripped (observed leak).
+if grep -q 'PLUGIN_SANITIZED/evals' "$PLUGIN_ROOT/evals/run.sh" && grep -q 'plugin-dir "\$PLUGIN_SANITIZED"' "$PLUGIN_ROOT/evals/run.sh"; then
+  pass "L17 run.sh sanitizes --plugin-dir (strips evals/ → agent can't read the held-out oracle)"
+else
+  fail "L17 eval" "run.sh exposes the real plugin repo via --plugin-dir → answer-key leak"
+fi
 e17="$(mktemp -d)"
 ( cd "$e17" && git init -q && git config user.email t@t && git config user.name t \
   && git commit -q --allow-empty -m base \

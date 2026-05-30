@@ -56,11 +56,21 @@ else
   printf '{"enabledPlugins":{"claudehut":true}}\n' > "$WORK/.claude/settings.json"
   printf '.claudehut/\n' > "$WORK/.gitignore"
   ( cd "$WORK" && git add -A && git commit -qm base )
+  # EVAL-INTEGRITY (answer-key leak): the agent runs `--print` with Bash and reads
+  # $CLAUDE_PLUGIN_ROOT. If that's the real repo, it can `cat` the HELD-OUT oracle,
+  # meta.json, and tests/run-all.sh — i.e. the answer key — confounding pass@1.
+  # (Observed: an unseeded slugify run read the oracle from $CLAUDE_PLUGIN_ROOT and
+  # used the convention with no seed.) So point --plugin-dir + CLAUDE_PLUGIN_ROOT at
+  # a SANITIZED copy with evals/tests/docs/.git stripped. The plugin RUNTIME needs
+  # only .claude-plugin/, hooks/, skills/, agents/, bin/, .mcp.json — all kept.
+  PLUGIN_SANITIZED="$(mktemp -d)/plugin"
+  cp -R "$PLUGIN_ROOT" "$PLUGIN_SANITIZED"
+  rm -rf "$PLUGIN_SANITIZED/evals" "$PLUGIN_SANITIZED/tests" "$PLUGIN_SANITIZED/docs" "$PLUGIN_SANITIZED/.git"
   CH_PROMPT="$PROMPT
 
 Follow the ClaudeHut workflow per the SessionStart dispatch contract. FIRST triage the task depth via /claudehut:route (it picks quick or full); then drive ONLY the phases the recorded route declares, through to done. Do not force phases the route did not select. Complete the task."
-  ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
-      claude --print --plugin-dir "$PLUGIN_ROOT" --output-format json --model "$MODEL" \
+  ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_SANITIZED" \
+      claude --print --plugin-dir "$PLUGIN_SANITIZED" --output-format json --model "$MODEL" \
       --max-budget-usd "$BUDGET" --permission-mode acceptEdits "$CH_PROMPT" ) \
       > "$JSON_OUT" 2>"$WORK/.eval-err.txt" || true
 fi
