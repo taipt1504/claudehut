@@ -11,7 +11,7 @@ This phase runs in **two sub-steps from the main thread**. Nested subagent dispa
 
 ```
 Task(
-  subagent_type = "claudehut-verifier",
+  subagent_type = "claudehut:claudehut-verifier",
   prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
 )
 ```
@@ -23,12 +23,12 @@ Render the prompt by running `$CLAUDE_PLUGIN_ROOT/skills/verify-review/scripts/d
 Read the gate summary. If a gate failed, skip to Step 3 (the zero-shard / verify-fail guard yields `fail`). When gates pass, dispatch the reviewer roster in **ONE message** (multiple Task invocations — they run concurrently in isolated contexts):
 
 ```
-Task: claudehut-reviewer-security   (always)
-Task: claudehut-reviewer-perf       (always)
-Task: claudehut-reviewer-style      (always)
-Task: claudehut-reviewer-db         (only if diff touches db/migration/, *Repository.java, *Entity.java, or pool config)
-Task: claudehut-reviewer-reactive   (only if web_stack == webflux)
-Task: claudehut-reviewer-mapping    (only if diff touches *Mapper.java/*Dto.java/*Request.java/*Response.java/*ObjectMapper*.java/*JsonConfig*.java)
+Task: claudehut:claudehut-reviewer-security   (always)
+Task: claudehut:claudehut-reviewer-perf       (always)
+Task: claudehut:claudehut-reviewer-style      (always)
+Task: claudehut:claudehut-reviewer-db         (only if diff touches db/migration/, *Repository.java, *Entity.java, or pool config)
+Task: claudehut:claudehut-reviewer-reactive   (only if web_stack == webflux)
+Task: claudehut:claudehut-reviewer-mapping    (only if diff touches *Mapper.java/*Dto.java/*Request.java/*Response.java/*ObjectMapper*.java/*JsonConfig*.java)
 ```
 
 Each reviewer writes its own shard at `.claudehut/findings/<task-id>/reviewer-<name>.json` via Bash before returning. Dispatching a reviewer whose condition does not apply is safe — it writes an empty `[]` shard.
@@ -59,7 +59,7 @@ Quality gate that may iterate. Each iteration either passes (→ Learn) or injec
 
 ## Quick start
 
-1. **Verify stage** — Step 1 dispatch the `claudehut-verifier` gate-runner; it runs `scripts/run-verify-parallel.sh` and writes the `verify` stanza.
+1. **Verify stage** — Step 1 dispatch the `claudehut:claudehut-verifier` gate-runner; it runs `scripts/run-verify-parallel.sh` and writes the `verify` stanza.
 2. **Review stage** — Step 2 (main thread): dispatch the reviewer roster in ONE message; each writes a shard to `.claudehut/findings/<id>/reviewer-<name>.json`.
 3. **Aggregate** — Step 3: `scripts/aggregate-findings.sh <task-id>` merges reviewer shards from `.claudehut/findings/<id>/reviewer-*.json` into `.claudehut/findings/<id>-findings.json` with totals + decision.
 4. **Decide:**

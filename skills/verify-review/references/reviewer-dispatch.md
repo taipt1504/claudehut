@@ -7,12 +7,12 @@ In a SINGLE message, invoke multiple reviewer subagents via the Task tool. They 
 Example (pseudocode):
 
 ```
-Task: claudehut-reviewer-security, args: {task_id: <id>}
-Task: claudehut-reviewer-perf, args: {task_id: <id>}
-Task: claudehut-reviewer-db, args: {task_id: <id>}
-Task: claudehut-reviewer-reactive, args: {task_id: <id>}    # only if web_stack=webflux
-Task: claudehut-reviewer-style, args: {task_id: <id>}
-Task: claudehut-reviewer-mapping, args: {task_id: <id>}     # only if mapper=mapstruct or Jackson DTO involved
+Task: claudehut:claudehut-reviewer-security, args: {task_id: <id>}
+Task: claudehut:claudehut-reviewer-perf, args: {task_id: <id>}
+Task: claudehut:claudehut-reviewer-db, args: {task_id: <id>}
+Task: claudehut:claudehut-reviewer-reactive, args: {task_id: <id>}    # only if web_stack=webflux
+Task: claudehut:claudehut-reviewer-style, args: {task_id: <id>}
+Task: claudehut:claudehut-reviewer-mapping, args: {task_id: <id>}     # only if mapper=mapstruct or Jackson DTO involved
 ```
 
 ## Conditional inclusion

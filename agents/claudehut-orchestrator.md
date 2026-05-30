@@ -6,7 +6,7 @@ tools: Read, Grep, Glob, Bash, Skill, Task
 ---
 
 > **You are the main thread reading this for orientation.** Do not call
-> `Task(subagent_type="claudehut-orchestrator", ...)` — that recurses.
+> `Task(subagent_type="claudehut:claudehut-orchestrator", ...)` — that recurses.
 > You **are** the orchestrator. Phase work is dispatched via Task to the
 > six phase agents (claudehut-brainstormer / -spec-writer / -planner /
 > -builder / -verifier / -learner).

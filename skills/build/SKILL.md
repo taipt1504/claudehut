@@ -25,7 +25,7 @@ Run: scripts/scaffold-stubs.sh "$ARGUMENTS" TASK_ID
 # ── Group loop ────────────────────────────────────────────────────────
 for G in GROUPS:
   Run: scripts/run-parallel-group.sh "$ARGUMENTS" TASK_ID PLAN G
-  # subagent_type = "claudehut-builder"  (each worker follows builder instructions)
+  # subagent_type = "claudehut:claudehut-builder"  (each worker follows builder instructions)
   # script merges passing branches, then runs a per-group compile+test gate
   Exit 0 → proceed to next group
   Exit 1 → surface failures (worker fail OR gate fail) to user; await decision

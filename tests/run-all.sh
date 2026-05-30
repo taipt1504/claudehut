@@ -1065,16 +1065,16 @@ section "L12 Phase skill → subagent dispatch contract"
 # Each workflow phase skill must (a) contain a Dispatch contract section,
 # (b) reference the correct subagent_type, (c) ship a dispatch-prompt.sh script.
 declare -a phases=(
-  "brainstorm:claudehut-brainstormer"
-  "spec:claudehut-spec-writer"
-  "plan:claudehut-planner"
-  "build:claudehut-builder"
-  "verify-review:claudehut-verifier"
-  "learn:claudehut-learner"
+  "brainstorm|claudehut:claudehut-brainstormer"
+  "spec|claudehut:claudehut-spec-writer"
+  "plan|claudehut:claudehut-planner"
+  "build|claudehut:claudehut-builder"
+  "verify-review|claudehut:claudehut-verifier"
+  "learn|claudehut:claudehut-learner"
 )
 for entry in "${phases[@]}"; do
-  skill="${entry%%:*}"
-  agent="${entry##*:}"
+  skill="${entry%%|*}"
+  agent="${entry##*|}"
   md="skills/$skill/SKILL.md"
   sh="skills/$skill/scripts/dispatch-prompt.sh"
   if ! grep -q '^## Dispatch contract' "$md"; then

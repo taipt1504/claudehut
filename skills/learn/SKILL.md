@@ -13,7 +13,7 @@ When you read this skill, you **MUST** invoke the Task tool:
 
 ```
 Task(
-  subagent_type = "claudehut-learner",
+  subagent_type = "claudehut:claudehut-learner",
   prompt        = <output of scripts/dispatch-prompt.sh "$ARGUMENTS">
 )
 ```

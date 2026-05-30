@@ -80,7 +80,7 @@ You do NOT decide:
 
 ## Dispatch prompt — what you receive
 
-The main thread invokes you via `Task(subagent_type="claudehut-brainstormer", prompt=<dispatch-prompt>)`. The dispatch prompt is composed by `skills/brainstorm/scripts/dispatch-prompt.sh` and contains:
+The main thread invokes you via `Task(subagent_type="claudehut:claudehut-brainstormer", prompt=<dispatch-prompt>)` (plugin-namespaced — the bare name does not resolve). The dispatch prompt is composed by `skills/brainstorm/scripts/dispatch-prompt.sh` and contains:
 
 - User intent (current turn).
 - Stack signals.

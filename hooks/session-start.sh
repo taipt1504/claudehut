@@ -141,15 +141,19 @@ Main thread = ORCHESTRATOR. Your responsibilities:
 
 Phase → subagent_type (set deliberately per phase model fit):
   route          → (INLINE main thread — cheap deterministic classify, NO subagent)
-  brainstorm     → claudehut-brainstormer    (opus,   Socratic + reuse-scan)
-  spec           → claudehut-spec-writer     (sonnet, contract drafting)
-  plan           → claudehut-planner         (opus,   task decomposition)
-  build          → claudehut-builder         (sonnet, TDD execution)
-  verify-review  → claudehut-verifier        (sonnet, fans out 6 reviewers)
-  learn          → claudehut-learner         (haiku,  memory consolidation)
+  brainstorm     → claudehut:claudehut-brainstormer    (opus,   Socratic + reuse-scan)
+  spec           → claudehut:claudehut-spec-writer     (sonnet, contract drafting)
+  plan           → claudehut:claudehut-planner         (opus,   task decomposition)
+  build          → claudehut:claudehut-builder         (sonnet, TDD execution)
+  verify-review  → claudehut:claudehut-verifier        (sonnet, fans out 6 reviewers)
+  learn          → claudehut:claudehut-learner         (haiku,  memory consolidation)
 
-When a workflow skill is invoked, the skill body instructs you to call
-\`Task(subagent_type=..., prompt=<output of skill/scripts/dispatch-prompt.sh>)\`.
+Subagent names are PLUGIN-NAMESPACED: dispatch with the fully-qualified
+\`claudehut:claudehut-<agent>\` form above. The bare \`claudehut-<agent>\` does NOT
+resolve — the runtime reports it as not found, costing a failed call + retry every phase.
+When a workflow skill is invoked, dispatch via your runtime's subagent tool
+(\`Task\`, or \`Agent\` in some runtimes) with that namespaced \`subagent_type\` and
+\`prompt=<output of skill/scripts/dispatch-prompt.sh>\`.
 Do NOT execute phase steps inline in the main thread.
 
 Context contract — per Anthropic Claude Code docs:

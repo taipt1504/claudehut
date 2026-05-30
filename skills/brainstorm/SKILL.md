@@ -26,7 +26,7 @@ have reported.
 ```
 1. main thread runs:
      PROMPT=$( "$CLAUDE_PLUGIN_ROOT/skills/brainstorm/scripts/dispatch-prompt.sh" "$ARGUMENTS" )
-     Task(subagent_type="claudehut-brainstormer", prompt="$PROMPT")
+     Task(subagent_type="claudehut:claudehut-brainstormer", prompt="$PROMPT")
 
 2. subagent scans + reuse-scans + drafts → saves .claudehut/specs/<id>-design.md
    subagent terminates with a fenced ```claudehut-brainstorm-return JSON block
