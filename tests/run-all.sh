@@ -1867,6 +1867,20 @@ else
 fi
 
 #==============================================================================
+section "L20 Seeded-learnings retrieval eval (relevance > recency, deterministic)"
+#==============================================================================
+# Phase-4 eval at corpus scale: a seeded 14-entry corpus whose relevant entries
+# are the OLDEST proves the ranker discriminates by RELEVANCE not recency
+# (precision/recall + no-padding + anti-circular package-vs-tag discriminators).
+# Deterministic, no model calls. Proves the MECHANISM, not "improves real runs".
+if bash "$PLUGIN_ROOT/evals/retrieval/run-retrieval-eval.sh" >/tmp/p4eval.log 2>&1; then
+  e_pass=$(grep -oE 'Pass=[0-9]+' /tmp/p4eval.log | head -1 | cut -d= -f2)
+  pass "L20 retrieval eval: ${e_pass:-?} assertions green (relevance 100% vs recency 0% on the seeded corpus)"
+else
+  fail "L20 retrieval eval" "see /tmp/p4eval.log"; sed -n '1,40p' /tmp/p4eval.log
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))

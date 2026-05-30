@@ -1,0 +1,32 @@
+[
+  {
+    "name": "mapper",
+    "intent": "Add a MapStruct mapper for OrderDto",
+    "stack": ["mvc", "jpa", "mapstruct"],
+    "plan_files": ["src/main/java/com/example/order/OrderMapper.java"],
+    "relevant": ["L01", "L02", "L03"],
+    "why": "L01/L02 are order-domain mapping learnings (tag + package). L03 is the order-aggregate invariant in the SAME package with NO shared tag — semantically relevant to anyone editing the order domain; only S_path (not tag-equality) catches it. Distractor D01 shares the 'jpa' tag (via stack) but is off-domain in the report package; D07 is a tombstone that shares tag+package and must be filtered.",
+    "discriminator_in": "L03",
+    "discriminator_out": ["D01", "D07"]
+  },
+  {
+    "name": "migration",
+    "intent": "Add a Flyway migration to add a status column to orders",
+    "stack": ["mvc", "jpa", "postgresql"],
+    "plan_files": ["src/main/resources/db/migration/V6__status.sql"],
+    "relevant": ["L04", "L05", "L06"],
+    "why": "L04/L05 are flyway online-safety learnings. L06 (backfill-in-its-own-migration) shares NO flyway tag but lives in the same migration directory — relevant via package, missed by tag-equality.",
+    "discriminator_in": "L06",
+    "discriminator_out": []
+  },
+  {
+    "name": "reactive",
+    "intent": "Add a WebFlux handler for user lookup",
+    "stack": ["webflux", "r2dbc"],
+    "plan_files": ["src/main/java/com/example/user/UserHandler.java"],
+    "relevant": ["L07", "L08"],
+    "why": "Reactive blocking-offload (L07) + StepVerifier testing (L08), both in the user package. Everything else is off-domain and recency-newer.",
+    "discriminator_in": "L07",
+    "discriminator_out": []
+  }
+]
