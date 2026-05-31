@@ -2072,6 +2072,32 @@ done
 unset onepct overdesc f d
 
 #==============================================================================
+section "L25 Phase dispatch stays bespoke (Phase 6.4 — EVALUATED, won't adopt context:fork)"
+#==============================================================================
+# 6.4 evaluated `context: fork` + `agent:` for phase dispatch. Verdict WON'T-ADOPT
+# (a real evaluation outcome, not a defer): a forked skill runs the STATIC SKILL.md
+# body as the subagent prompt, but ClaudeHut's dispatch-prompt.sh builds a DYNAMIC
+# per-task prompt — JIT-retrieved learnings (Phase 4, retrieve-relevant.sh) + prior-
+# phase artifacts + retry count — which a static body cannot carry. Adopting it
+# would regress Phase-4 retrieval; the bespoke dispatch is already tested (L12/L16)
+# and working. These assertions LOCK the decision and its premise so neither drifts
+# silently: (1) the dynamic enrichment the glue carries still exists (the reason);
+# (2) phase skills do NOT declare context:fork (the decision).
+dyn=0
+for s in brainstorm spec plan build verify-review learn; do
+  grep -q 'retrieve-relevant' "skills/$s/scripts/dispatch-prompt.sh" 2>/dev/null && dyn=$((dyn+1))
+done
+[[ "$dyn" -eq 6 ]] && pass "L25 all 6 phase dispatch-prompt.sh inject dynamic JIT retrieval (context:fork can't carry this) — 6.4 premise holds" \
+  || fail "L25 6.4" "only $dyn/6 phase dispatchers inject retrieval — re-evaluate context:fork if the glue stopped enriching"
+ff=0
+for s in route brainstorm spec plan build verify-review learn; do
+  awk '/^---[[:space:]]*$/{c++} c==1 && /^context:[[:space:]]*fork/{f=1} END{exit !f}' "skills/$s/SKILL.md" 2>/dev/null && { ff=$((ff+1)); echo "    context:fork crept into skills/$s"; }
+done
+[[ "$ff" -eq 0 ]] && pass "L25 phase skills keep bespoke dispatch (no context:fork declared) — 6.4 decision locked" \
+  || fail "L25 6.4" "$ff phase skill(s) added context:fork without re-evaluating dynamic enrichment"
+unset dyn ff s
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
