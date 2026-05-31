@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { phasePersona, resolveAgent, shouldRetry, budgetOk } from "./lib/control-flow.mjs";
+import { phasePersona, phaseSkillDir, resolveAgent, shouldRetry, budgetOk } from "./lib/control-flow.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONFIG = JSON.parse(readFileSync(join(PLUGIN_ROOT, "sdk/agent-config.json"), "utf8"));
@@ -33,7 +33,7 @@ const sh = (cmd, args, opts = {}) =>
 const derivePhase = () => sh("bin/claudehut-state", ["phase"]);
 const loopRetries = () => Number(sh("bin/claudehut-state", ["retries"]) || 0);
 const dispatchPrompt = (phase, userPrompt) =>
-  sh(join(PLUGIN_ROOT, `skills/${phase}/scripts/dispatch-prompt.sh`), [userPrompt], { maxBuffer: 1 << 24 });
+  sh(join(PLUGIN_ROOT, `skills/${phaseSkillDir(phase)}/scripts/dispatch-prompt.sh`), [userPrompt], { maxBuffer: 1 << 24 });
 
 // Build the SDK agent definition for one persona from the generated manifest.
 function sdkAgent(persona) {
@@ -89,7 +89,7 @@ async function main() {
 
     const persona = phasePersona(phase);
     if (!persona) { // route / inline-orchestrator phase: run the phase skill's script directly
-      sh(join(PLUGIN_ROOT, `skills/${phase}/scripts/classify.sh`), [userPrompt], { stdio: "inherit" });
+      sh(join(PLUGIN_ROOT, `skills/${phaseSkillDir(phase)}/scripts/classify.sh`), [userPrompt], { stdio: "inherit" });
       continue;
     }
     if (phase === "build") {

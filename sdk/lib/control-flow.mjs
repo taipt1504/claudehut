@@ -24,6 +24,16 @@ export function phasePersona(phase) {
   return PHASE_PERSONA[phase] ?? null; // null => orchestrator handles inline (route) or terminal (done)
 }
 
+// Map a phase to its SKILL DIRECTORY. The phase name == skill dir for every phase
+// EXCEPT `loop`, whose skill is `verify-review` (it "Triggers when phase=loop").
+// orchestrator.mjs resolves skills/<dir>/scripts/dispatch-prompt.sh from this — a
+// bare `skills/loop/...` would ENOENT-crash the loop phase. (Producer-tested: the
+// resolved path must exist on disk — sdk/test/control-flow.test.mjs.)
+const PHASE_SKILL_DIR = { loop: "verify-review" };
+export function phaseSkillDir(phase) {
+  return PHASE_SKILL_DIR[phase] ?? phase;
+}
+
 // Resolve an SDK agent definition from the generated manifest. Throws on an
 // unknown persona so a typo fails loud instead of dispatching with no tools.
 export function resolveAgent(persona, config) {

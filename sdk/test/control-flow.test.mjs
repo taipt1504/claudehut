@@ -4,10 +4,10 @@
 // portable while still exercising the JS control flow where node exists).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { phasePersona, resolveAgent, shouldRetry, budgetOk, FULL_PHASE_SEQUENCE } from "../lib/control-flow.mjs";
+import { phasePersona, phaseSkillDir, resolveAgent, shouldRetry, budgetOk, FULL_PHASE_SEQUENCE } from "../lib/control-flow.mjs";
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const CONFIG = JSON.parse(readFileSync(join(ROOT, "sdk/agent-config.json"), "utf8"));
@@ -19,6 +19,18 @@ test("phasePersona maps each executing phase to its subagent; route/done have no
   assert.equal(phasePersona("learn"), "claudehut-learner");
   assert.equal(phasePersona("route"), null);   // main-thread triage
   assert.equal(phasePersona("done"), null);     // terminal
+});
+
+test("phaseSkillDir maps loop->verify-review; every dispatched phase resolves to a REAL script (producer, catches ENOENT)", () => {
+  assert.equal(phaseSkillDir("loop"), "verify-review"); // the one phase name != skill dir
+  assert.equal(phaseSkillDir("build"), "build");
+  // phases dispatched via dispatch-prompt.sh (build uses run-parallel-group, route uses classify)
+  for (const ph of ["brainstorm", "spec", "plan", "loop", "learn"]) {
+    const p = join(ROOT, `skills/${phaseSkillDir(ph)}/scripts/dispatch-prompt.sh`);
+    assert.ok(existsSync(p), `phase ${ph} -> ${p} must exist on disk (else execFileSync ENOENT at runtime)`);
+  }
+  assert.ok(existsSync(join(ROOT, `skills/${phaseSkillDir("route")}/scripts/classify.sh`)), "route -> classify.sh exists");
+  assert.ok(existsSync(join(ROOT, "skills/build/scripts/run-parallel-group.sh")), "build -> run-parallel-group.sh exists");
 });
 
 test("every phase persona resolves to a real subagent in the manifest", () => {
