@@ -1,71 +1,105 @@
 #!/usr/bin/env node
 // sdk/orchestrator.mjs — Phase 7.1: a programmatic ClaudeHut orchestrator on the
-// Claude Agent SDK. The control loop (phase sequencing, retry cap, budget gate) is
-// deterministic JS instead of model-interpreted prose — control flow no longer
-// depends on the model cooperating with SKILL.md.
+// Claude Agent SDK. Deterministic control flow instead of model-interpreted prose.
+//
+// It WALKS THE ROUTE'S DECLARED PHASE SEQUENCE (route artifact `.phases`, e.g.
+// quick=[build,loop] or full=[brainstorm,spec,plan,build,loop,learn]) rather than
+// re-deriving the phase each tick: in quick mode the artifact state machine returns
+// "build" both before AND after the builder runs (the build->done transition needs a
+// findings.json that only the loop/verify phase writes), so a re-derive loop would
+// re-dispatch build forever. Walking the sequence + using findings (pass|fail) to
+// decide done-vs-retry is the correct deterministic model. (This is why the live
+// smoke matters — the unit test's scripted-advancing derivePhase masked it.)
 //
 // WRAP model (not replace): reuses the existing runtime behind the SDK —
-//   - phase DERIVATION: bin/claudehut-state phase (the one artifact-state machine)
-//   - phase PROMPT: skills/<dir>/scripts/dispatch-prompt.sh (keeps Phase-4 JIT
-//     retrieval + artifact injection — what context:fork couldn't carry, see 6.4)
-//   - build workers: skills/build/scripts/run-parallel-group.sh (bash behind SDK)
-//   - subagent tools/perms: sdk/agent-config.json (the SDK ignores filesystem
-//     allowed-tools, so they are declared programmatically)
+//   - route: skills/route/scripts/{classify,write-route}.sh (classify + persist)
+//   - phase PROMPT: skills/<dir>/scripts/dispatch-prompt.sh (Phase-4 enrichment)
+//   - full-mode parallel build: skills/build/scripts/run-parallel-group.sh (bash
+//     workers behind the SDK) when a plan exists; quick build = a single SDK builder
+//   - subagent tools/perms: sdk/agent-config.json
 //
-// runLoop() takes its dependencies as parameters, so the full control flow (routing,
-// build, loop, retry cap, budget halt, termination) is unit-tested with NO SDK, NO
-// model, NO $ (sdk/test/orchestrator.test.mjs). main() injects the real deps. The
-// ONLY part that needs spend is the live model call inside the real dispatchPhase —
-// and the live "parity at lower variance" comparison (sdk/README.md "$ boundary").
-// Run live: node sdk/orchestrator.mjs "<task>"  (after `cd sdk && npm install`).
-import { readFileSync, writeFileSync } from "node:fs";
+// runLoop(deps) is unit-tested with NO SDK/model/$ (sdk/test/orchestrator.test.mjs).
+// Live run: node sdk/orchestrator.mjs "<task>"  (cd sdk && npm install).
+import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { phasePersona, phaseSkillDir, resolveAgent, shouldRetry, budgetOk } from "./lib/control-flow.mjs";
+import { phasePersona, phaseSkillDir, resolveAgent, budgetOk } from "./lib/control-flow.mjs";
 
 const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const CONFIG = JSON.parse(readFileSync(join(PLUGIN_ROOT, "sdk/agent-config.json"), "utf8"));
 
-// ---- the control loop — dependencies injected so it is unit-testable sans SDK/$/bash ----
+// ---- the control loop — deps injected so it is unit-testable sans SDK/$/bash ----
 export async function runLoop(deps) {
-  const { derivePhase, loopRetries, runInline, runBuild, dispatchPhase, dispatchPrompt,
-          log, retryCap, budgetCap, maxSteps = 32 } = deps;
-  let spent = 0, lastOutput = "", steps = 0;
+  const { derivePhase, runRoute, routePhases, hasPlan, runBuild, dispatchPhase, dispatchPrompt,
+          findingsDecision, log, retryCap, budgetCap, maxSteps = 40 } = deps;
+  let spent = 0, lastOutput = "", steps = 0, retries = 0;
   const trace = [];
-  for (let step = 0; step < maxSteps; step++) {
-    const phase = derivePhase();
+  const account = (r) => { spent += Number(r?.costUsd || 0); if (r?.result) lastOutput = r.result; };
+
+  if (derivePhase() === "route") runRoute();           // triage first if not yet routed
+  const phases = routePhases();                         // the ordered required phases
+  if (!phases.length) return { trace, halted: "no-route", spent, steps, lastOutput };
+  const buildIdx = phases.indexOf("build");
+
+  for (let pi = 0; pi < phases.length && steps < maxSteps; pi++) {
+    const phase = phases[pi];
     trace.push(phase);
-    log(`phase=${phase} retries=${loopRetries()} spent=$${spent.toFixed(2)}`);
-    if (phase === "done" || phase === "uninitialized") break;
+    log(`phase=${phase} (${pi + 1}/${phases.length}) retries=${retries} spent=$${spent.toFixed(2)}`);
     if (!budgetOk(spent, budgetCap)) return { trace, halted: "budget", spent, steps, lastOutput };
-    if (phase === "loop" && !shouldRetry(loopRetries(), retryCap))
-      return { trace, halted: "retry-cap", spent, steps, lastOutput };
-    const persona = phasePersona(phase);
     steps++;
-    if (!persona) { runInline(phase); continue; }       // route: main-thread classify
-    if (phase === "build") { runBuild(); continue; }     // bash workers behind the SDK
-    const r = await dispatchPhase(persona, dispatchPrompt(phase));
-    spent += Number(r?.costUsd || 0);
-    if (r?.result) lastOutput = r.result;
+
+    if (phase === "build") {
+      if (hasPlan()) runBuild();                        // full-mode: bash parallel workers
+      else account(await dispatchPhase("claudehut-builder", dispatchPrompt("build")));
+    } else if (phase === "loop") {
+      account(await dispatchPhase("claudehut-verifier", dispatchPrompt("loop"))); // writes findings.json
+      const decision = findingsDecision();              // pass | fail | ""
+      if (decision === "fail") {
+        if (retries >= retryCap) return { trace, halted: "retry-cap", spent, steps, lastOutput };
+        retries++; pi = (buildIdx >= 0 ? buildIdx : pi) - 1; continue; // retry from build
+      }
+      // pass / no-decision → advance
+    } else {
+      const persona = phasePersona(phase);              // brainstorm/spec/plan/learn
+      if (persona) account(await dispatchPhase(persona, dispatchPrompt(phase)));
+    }
   }
   return { trace, halted: null, spent, steps, lastOutput };
 }
 
 // ---- real dependency wiring (used by main; NOT exercised by the unit tests) ----
-const sh = (cmd, args, opts = {}) =>
-  execFileSync(cmd, args, { cwd: PLUGIN_ROOT, encoding: "utf8", ...opts }).trim();
+const sh = (cmd, args, opts = {}) => {
+  const r = execFileSync(cmd, args, { cwd: PLUGIN_ROOT, encoding: "utf8", ...opts });
+  return r == null ? "" : r.trim(); // stdio:"inherit" makes execFileSync return null
+};
+const projectRoot = () => process.env.CLAUDE_PROJECT_DIR || ".";
+const _readJsonIn = (subdir, suffix) => {
+  try {
+    const dir = join(projectRoot(), subdir);
+    const f = readdirSync(dir).find((x) => x.endsWith(suffix));
+    return f ? JSON.parse(readFileSync(join(dir, f), "utf8")) : null;
+  } catch { return null; }
+};
 
 function realDeps(userPrompt) {
+  const stateBin = join(PLUGIN_ROOT, "bin/claudehut-state");
   return {
-    derivePhase: () => sh("bin/claudehut-state", ["phase"]),
-    loopRetries: () => Number(sh("bin/claudehut-state", ["retries"]) || 0),
+    derivePhase: () => sh(stateBin, ["phase"]),
+    routePhases: () => _readJsonIn(".claudehut/state", "route-")?.phases
+                       ?? (() => { const j = _readJsonIn(".claudehut/state", ".json"); return j?.phases || []; })(),
+    findingsDecision: () => _readJsonIn(".claudehut/findings", "-findings.json")?.decision || "",
+    hasPlan: () => { try { return readdirSync(join(projectRoot(), ".claudehut/plans")).some((f) => f.endsWith("-plan.md")); } catch { return false; } },
     dispatchPrompt: (phase) =>
       sh(join(PLUGIN_ROOT, `skills/${phaseSkillDir(phase)}/scripts/dispatch-prompt.sh`),
          [userPrompt], { maxBuffer: 1 << 24 }),
-    runInline: (phase) =>
-      sh(join(PLUGIN_ROOT, `skills/${phaseSkillDir(phase)}/scripts/classify.sh`),
-         [userPrompt], { stdio: "inherit" }),
+    runRoute: () => {
+      const out = sh(join(PLUGIN_ROOT, "skills/route/scripts/classify.sh"), [userPrompt]);
+      let profile = "full", db = false;
+      try { const j = JSON.parse(out); profile = j.profile || "full"; db = !!j.db_review; } catch { /* default full */ }
+      const args = [profile]; if (db) args.push("--db-review");
+      sh(join(PLUGIN_ROOT, "skills/route/scripts/write-route.sh"), args);
+    },
     runBuild: () =>
       sh(join(PLUGIN_ROOT, "skills/build/scripts/run-parallel-group.sh"), [], { stdio: "inherit" }),
     dispatchPhase: async (persona, prompt) => {
@@ -100,8 +134,8 @@ async function main() {
   const userPrompt = process.argv.slice(2).join(" ").trim();
   if (!userPrompt) { console.error('usage: node sdk/orchestrator.mjs "<task description>"'); process.exit(2); }
   const r = await runLoop(realDeps(userPrompt));
-  // Emit a `claude --print --output-format json`-shaped envelope so evals/score.sh
-  // grades the SDK arm identically to the bash arms (run.sh sdk mode + --variance parity).
+  // `claude --print --output-format json`-shaped envelope so evals/score.sh grades
+  // the SDK arm identically to the bash arms (run.sh sdk mode + --variance parity).
   const envelope = {
     total_cost_usd: r.spent,
     num_turns: r.steps,

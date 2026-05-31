@@ -1,11 +1,10 @@
 // sdk/test/orchestrator.test.mjs — end-to-end control-loop smoke for the Phase 7.1
-// orchestrator with ALL dependencies stubbed: no SDK, no model, no $, no bash. Proves
-// the loop routes phases correctly, runs bash-worker / inline / dispatch branches in
-// the right place, accumulates cost, and halts on budget + retry cap. This is the
-// "integration verified except the live model call" guarantee — the live call + the
-// parity comparison are the only $-gated pieces. Importing orchestrator.mjs here must
-// NOT run main() (guarded) and must NOT load the SDK (its import is lazy, inside the
-// real dispatchPhase we never call).
+// orchestrator with ALL dependencies stubbed: no SDK, no model, no $, no bash. The
+// loop is SEQUENCE-driven (walks the route's `.phases`) with a findings-based
+// loop/retry, so these stubs model exactly what the live run does — unlike a scripted
+// derivePhase, which would mask the "build re-dispatches forever" bug the live smoke
+// caught. Importing orchestrator.mjs must NOT run main() (guarded) or load the SDK
+// (its import is lazy, inside the real dispatchPhase we never call).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runLoop } from "../orchestrator.mjs";
@@ -13,62 +12,67 @@ import { runLoop } from "../orchestrator.mjs";
 function harness(overrides = {}) {
   const calls = [];
   const deps = {
-    loopRetries: () => 0,
+    derivePhase: () => "build",            // already routed (not "route") => skip runRoute
+    runRoute: () => calls.push("route"),
+    routePhases: () => ["build", "loop"],  // quick profile by default
+    hasPlan: () => false,                  // quick: dispatch a single builder
+    runBuild: () => calls.push("build"),   // full: bash parallel workers
+    findingsDecision: () => "pass",        // verify passes by default
     dispatchPrompt: (p) => `prompt:${p}`,
-    runInline: (p) => calls.push(`inline:${p}`),
-    runBuild: () => calls.push("build"),
     dispatchPhase: async (persona) => { calls.push(`dispatch:${persona}`); return { result: `r:${persona}`, costUsd: 0.5 }; },
     log: () => {},
     retryCap: 3,
     budgetCap: 0,
     ...overrides,
   };
-  return { deps, calls };
+  return { deps, calls, n: (s) => calls.filter((c) => c === s).length };
 }
 
-test("runLoop drives a full pipeline route->...->done with correct per-phase routing", async () => {
-  const seq = ["route", "brainstorm", "spec", "plan", "build", "loop", "learn", "done"];
-  let i = 0;
-  const { deps, calls } = harness({ derivePhase: () => seq[Math.min(i, seq.length - 1)] });
-  // each consumed phase advances the scripted sequence (simulates artifacts appearing)
-  const inl = deps.runInline, bld = deps.runBuild, dsp = deps.dispatchPhase;
-  deps.runInline = (p) => { inl(p); i++; };
-  deps.runBuild = () => { bld(); i++; };
-  deps.dispatchPhase = async (p) => { const r = await dsp(p); i++; return r; };
-
+test("quick route [build,loop] + findings pass: builder then verifier, ends clean", async () => {
+  const { deps, calls } = harness();
   const r = await runLoop(deps);
   assert.equal(r.halted, null);
-  assert.equal(r.trace[r.trace.length - 1], "done");
-  assert.ok(calls.includes("inline:route"), "route runs inline (main-thread classify)");
-  assert.ok(calls.includes("dispatch:claudehut-brainstormer"));
-  assert.ok(calls.includes("dispatch:claudehut-spec-writer"));
-  assert.ok(calls.includes("dispatch:claudehut-planner"));
-  assert.ok(calls.includes("build"), "build runs the bash parallel-group worker");
+  assert.deepEqual(r.trace, ["build", "loop"]);
+  assert.ok(calls.includes("dispatch:claudehut-builder"), "quick build dispatches a single builder");
   assert.ok(calls.includes("dispatch:claudehut-verifier"), "loop dispatches the verifier (loop->verify-review)");
-  assert.ok(calls.includes("dispatch:claudehut-learner"));
-  assert.ok(r.spent > 0, "cost accumulates across dispatched phases");
+  assert.ok(!calls.includes("build"), "no parallel-group worker in quick mode (no plan)");
 });
 
-test("runLoop halts (exit-3 path) on budget breach", async () => {
-  const { deps } = harness({
-    derivePhase: () => "brainstorm",                 // never advances -> would loop forever
-    budgetCap: 1,
-    dispatchPhase: async () => ({ result: "", costUsd: 5 }), // one dispatch blows the $1 cap
+test("route phase triggers classify+persist (runRoute) when not yet routed", async () => {
+  const { deps, calls } = harness({ derivePhase: () => "route" });
+  await runLoop(deps);
+  assert.ok(calls.includes("route"), "runRoute persists the route artifact before walking phases");
+});
+
+test("full route walks brainstorm->spec->plan->build(plan)->loop->learn", async () => {
+  const { deps, calls } = harness({
+    routePhases: () => ["brainstorm", "spec", "plan", "build", "loop", "learn"],
+    hasPlan: () => true,   // full has a plan -> build uses bash parallel workers
   });
+  const r = await runLoop(deps);
+  assert.equal(r.halted, null);
+  for (const p of ["claudehut-brainstormer", "claudehut-spec-writer", "claudehut-planner", "claudehut-verifier", "claudehut-learner"])
+    assert.ok(calls.includes(`dispatch:${p}`), `dispatched ${p}`);
+  assert.ok(calls.includes("build"), "full build runs the bash parallel-group worker (plan present)");
+});
+
+test("loop findings=fail retries from build up to the cap, then halts retry-cap", async () => {
+  const { deps, n } = harness({ findingsDecision: () => "fail", retryCap: 3 });
+  const r = await runLoop(deps);
+  assert.equal(r.halted, "retry-cap");
+  assert.equal(n("dispatch:claudehut-builder"), 4, "build runs cap+1 times (initial + 3 retries)");
+});
+
+test("budget breach halts (exit-3 path)", async () => {
+  const { deps } = harness({ budgetCap: 1, dispatchPhase: async () => ({ result: "", costUsd: 5 }) });
   const r = await runLoop(deps);
   assert.equal(r.halted, "budget");
   assert.ok(r.spent >= 5);
 });
 
-test("runLoop halts at the retry cap on the loop phase", async () => {
-  const { deps } = harness({ derivePhase: () => "loop", loopRetries: () => 3, retryCap: 3 });
+test("no route artifact -> halted no-route (never dispatches blind)", async () => {
+  const { deps, calls } = harness({ derivePhase: () => "build", routePhases: () => [] });
   const r = await runLoop(deps);
-  assert.equal(r.halted, "retry-cap");
-});
-
-test("runLoop terminates immediately on done / uninitialized (no dispatch)", async () => {
-  const a = await runLoop(harness({ derivePhase: () => "done" }).deps);
-  assert.equal(a.steps, 0);
-  const b = await runLoop(harness({ derivePhase: () => "uninitialized" }).deps);
-  assert.equal(b.steps, 0);
+  assert.equal(r.halted, "no-route");
+  assert.equal(calls.length, 0);
 });
