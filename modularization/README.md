@@ -1,5 +1,11 @@
 # ClaudeHut modularization (Phase 6.3)
 
+> **Disposition (2026-05-31): RESOLVED — single-plugin distribution is the intent.**
+> A 4-plugin split is *not* a user requirement, so this partition ships as the
+> maintainability / release-readiness substrate (and the proof that the taxonomy
+> partitions cleanly), not as a pending split. If separate distribution is ever
+> wanted, the split is blocked on CC #9444 and is mechanical from `modules.json`.
+
 ## What ships here
 
 `modules.json` — a **logical partition** assigning every skill (31) and rule (47)

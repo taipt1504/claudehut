@@ -2140,15 +2140,36 @@ if grep -q 'claude-agent-sdk' "$orch" && grep -q 'dispatch-prompt.sh' "$orch" \
 else
   fail "L26 7.1" "orchestrator.mjs does not reuse the bash runtime"
 fi
-# (f) pure control-flow unit tests (node) — run if node present, else SKIP (keeps bash suite portable)
+# (f) sdk unit tests (node) — control flow + the stub-deps loop smoke. Run if node
+# present, else SKIP (keeps the bash suite portable).
 if command -v node >/dev/null 2>&1; then
   if node --test "$PLUGIN_ROOT/sdk/test/" >/tmp/sdk-test.log 2>&1; then
-    pass "L26 control-flow.mjs unit tests pass ($(grep -oE '# pass [0-9]+' /tmp/sdk-test.log | head -1 | tr -d '#'))"
+    pass "L26 sdk unit tests pass ($(grep -oE '# pass [0-9]+' /tmp/sdk-test.log | head -1 | tr -d '#') — control flow + stub-deps loop smoke)"
   else
-    fail "L26 7.1" "control-flow node tests failed (see /tmp/sdk-test.log)"
+    fail "L26 7.1" "sdk node tests failed (see /tmp/sdk-test.log)"
   fi
+  # (g) NO-$ end-to-end envelope smoke: against an UNINITIALIZED project the loop
+  # breaks before any dispatch (no SDK import, no model, no npm install) yet still
+  # exercises main() + bin/claudehut-state + the score.sh-compatible envelope emit.
+  esmoke="$(mktemp -d)"
+  CLAUDE_PROJECT_DIR="$esmoke" CLAUDEHUT_ORCH_JSON_OUT="$esmoke/env.json" \
+    node "$PLUGIN_ROOT/sdk/orchestrator.mjs" "noop probe" >/dev/null 2>&1 || true
+  if [[ -f "$esmoke/env.json" ]] \
+     && [[ "$(jq -r '.total_cost_usd' "$esmoke/env.json" 2>/dev/null)" == "0" ]] \
+     && jq -e 'has("result") and has("subtype") and has("total_cost_usd")' "$esmoke/env.json" >/dev/null 2>&1; then
+    pass "L26 orchestrator main() emits a score-compatible envelope end-to-end (uninitialized project; no model call, \$-free)"
+  else
+    fail "L26 7.1" "orchestrator envelope not emitted/parseable: $(cat "$esmoke/env.json" 2>/dev/null)"
+  fi
+  rm -rf "$esmoke"; unset esmoke
 else
-  skip "L26 control-flow node tests" "node not on PATH"
+  skip "L26 sdk node tests + envelope smoke" "node not on PATH"
+fi
+# (h) run.sh wires the sdk arm (scoreable parity arm — the $-gated live run)
+if grep -q 'orchestrator.mjs' "$PLUGIN_ROOT/evals/run.sh" && grep -q 'baseline|claudehut|sdk' "$PLUGIN_ROOT/evals/run.sh"; then
+  pass "L26 run.sh wires the sdk parity arm (orchestrator emits envelope -> score.sh grades it like the bash arms)"
+else
+  fail "L26 7.1" "run.sh sdk arm not wired"
 fi
 unset cfg gen orch genout n_dir n_cfg bad p nt ps
 

@@ -13,7 +13,7 @@ set -uo pipefail
 
 TASK="${1:?usage: run.sh <task-name> <baseline|claudehut>}"
 MODE="${2:?usage: run.sh <task-name> <baseline|claudehut>}"
-case "$MODE" in baseline|claudehut) ;; *) echo "mode must be baseline|claudehut" >&2; exit 2 ;; esac
+case "$MODE" in baseline|claudehut|sdk) ;; *) echo "mode must be baseline|claudehut|sdk" >&2; exit 2 ;; esac
 
 EVALS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
 PLUGIN_ROOT="$(cd "$EVALS_DIR/.." && pwd -P)"
@@ -69,10 +69,23 @@ else
   CH_PROMPT="$PROMPT
 
 Follow the ClaudeHut workflow per the SessionStart dispatch contract. FIRST triage the task depth via /claudehut:route (it picks quick or full); then drive ONLY the phases the recorded route declares, through to done. Do not force phases the route did not select. Complete the task."
-  ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_SANITIZED" \
-      claude --print --plugin-dir "$PLUGIN_SANITIZED" --output-format json --model "$MODEL" \
-      --max-budget-usd "$BUDGET" --permission-mode acceptEdits "$CH_PROMPT" ) \
-      > "$JSON_OUT" 2>"$WORK/.eval-err.txt" || true
+  if [[ "$MODE" == "claudehut" ]]; then
+    ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_SANITIZED" \
+        claude --print --plugin-dir "$PLUGIN_SANITIZED" --output-format json --model "$MODEL" \
+        --max-budget-usd "$BUDGET" --permission-mode acceptEdits "$CH_PROMPT" ) \
+        > "$JSON_OUT" 2>"$WORK/.eval-err.txt" || true
+  else
+    # sdk arm (Phase 7.1): the programmatic orchestrator drives the SAME scaffolded
+    # phases and emits a `claude --print`-shaped envelope to CLAUDEHUT_ORCH_JSON_OUT,
+    # so score.sh grades it identically to the bash arms. Needs node + a one-time
+    # `cd sdk && npm install`. The agent's CLAUDE_PLUGIN_ROOT is the sanitized copy
+    # (same answer-key-leak guard as claudehut mode).
+    command -v node >/dev/null || { echo "node not in PATH (sdk arm)" >&2; exit 2; }
+    [[ -d "$PLUGIN_ROOT/sdk/node_modules" ]] || { echo "sdk deps missing — run: (cd '$PLUGIN_ROOT/sdk' && npm install)" >&2; exit 2; }
+    ( cd "$WORK" && CLAUDE_PROJECT_DIR="$WORK" CLAUDE_PLUGIN_ROOT="$PLUGIN_SANITIZED" \
+        CLAUDEHUT_ORCH_JSON_OUT="$JSON_OUT" CLAUDEHUT_MAX_POOL_USD="$BUDGET" \
+        node "$PLUGIN_ROOT/sdk/orchestrator.mjs" "$CH_PROMPT" ) > "$WORK/.orch.log" 2>&1 || true
+  fi
 fi
 _end="$(date +%s)"
 WALL_MS=$(( (_end - _start) * 1000 ))

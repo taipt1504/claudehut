@@ -43,14 +43,27 @@ exit 3 on breach).
 ## What is verified — and the one $ boundary
 
 **Verified deterministically, no spend** (CI, `tests/run-all.sh` L26 + `npm test`):
-the translation layer (every persona maps to a valid SDK agent def; least-privilege
-tools; `Task`→`Agent`; only the driver dispatches) and the pure control flow (phase
-table, retry cap, budget gate).
+the translation layer (every persona → a valid SDK agent def; least-privilege tools;
+`Task`→`Agent`; only the driver dispatches); the pure control flow (phase table, retry
+cap, budget gate); a **stub-deps loop smoke** that drives route→…→build→loop→learn→done
+with correct per-phase routing + budget/retry halts (no SDK/model/$); and an
+**end-to-end envelope smoke** where `main()` runs against an uninitialized project and
+emits a `score.sh`-gradeable envelope with no model call. The parity *harness* is wired
+and verified $-free: `run.sh sdk` → orchestrator → envelope → `score.sh` → `compare.sh
+--variance`.
 
-**Blocked on authorized spend** (NOT deferred — the capability is built and unit-tested;
-only its *quality measurement* needs money): 7.1's acceptance test is
-*"≥ parity at lower variance"* vs the current bash orchestration. That comparison
-requires **k ≥ 3 paid runs of the eval set per arm** (`evals/run.sh` + `evals/compare.sh
---variance`, already shipped). Estimated cost ≈ a few $ per arm depending on task mix.
-Authorize the eval budget to run the parity gate; until then the orchestrator is
-*built, wired, and unit-tested*, with live parity unmeasured.
+**Blocked on authorized spend** (NOT deferred — the capability is built, wired, and
+unit-tested; only its *quality measurement* needs money). The live run is one command
+per arm:
+
+```sh
+cd sdk && npm install                                  # one-time
+CLAUDEHUT_EVAL_BUDGET=2 evals/run.sh trivial-sum-bug sdk        # ×k (repeat to accumulate rows)
+CLAUDEHUT_EVAL_BUDGET=2 evals/run.sh trivial-sum-bug claudehut  # ×k  (the bash baseline arm)
+evals/compare.sh --variance evals/results/sdk.jsonl            # mean + variance per (task,mode)
+```
+
+7.1's acceptance test is *"≥ parity at lower variance"* vs the bash orchestration:
+k ≥ 3 runs per arm. Cost ≈ $15–25 (2 eval tasks × 2 arms × k3 ≈ 12 runs at ~$1–2).
+Until authorized, the orchestrator is *built, wired, and unit-tested*, with live
+parity unmeasured.
