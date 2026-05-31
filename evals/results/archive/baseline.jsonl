@@ -1,0 +1,1 @@
+{"task":"trivial-sum-bug","mode":"baseline","pass_at_1":1,"retries":0,"findings":{"critical":0,"high":0,"medium":0,"low":0},"coverage_line":null,"cost_usd":0.142282,"wall_ms":13000,"cost_note":"main-session + 0 worker cost-file(s); client-side estimate; Path-B workers undercounted until Phase-5 telemetry","ts":"2026-05-29T10:52:26Z","terminal_status":"success","is_error":false}
