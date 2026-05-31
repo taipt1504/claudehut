@@ -945,11 +945,11 @@ Every spawned agent carries an identical **"Skill Discipline"** section (introdu
 
 1. **Isolated context.** A subagent starts with only: (a) the `CLAUDE.md` hierarchy, (b) a git status snapshot, (c) skills listed in its own `skills:` frontmatter, and (d) the dispatch prompt. No conversation history, no main-thread file reads, no other loaded skills are visible.
 
-2. **The 1% rule (non-negotiable).** Quoted verbatim from every agent:
+2. **The skill-invocation rule (Phase 6.1 relaxed it from the old "1% rule").** Quoted verbatim from every agent:
 
-   > *"Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check."*
+   > *"When the work clearly falls within the domain of a skill, you MUST invoke that skill rather than reinvent what it covers. Tangential or remote matches need not trigger it, and path-specific rules auto-load via the rules layer."*
 
-   The rule explicitly lists domain-specific skills (e.g., `jpa-hibernate`, `spring-webflux`, `mapstruct`, `kafka-*`), safety skills (`owasp-scan`, `flyway-migration`, `secret-scan`), and workflow skills (`tdd-cycle`, `reuse-scan`). Skipping is framed as "guessing in your own head where authoritative content already exists." The justification: "Skill invocation cost is small. Skipping cost is silent drift from project conventions and missed safety gates."
+   The rule explicitly lists domain-specific skills (e.g., `jpa-hibernate`, `spring-webflux`, `mapstruct`, `kafka-*`), safety skills (`owasp-scan`, `flyway-migration`, `secret-scan`), and workflow skills (`tdd-cycle`, `reuse-scan`). The earlier "even a 1% chance" mandate over-invoked (a Controller-only task could fire `kafka-consumer`); the relaxed form invokes on a clear domain match while leaning on the rules layer for path-specific activation. Justification unchanged: invocation cost is small; skipping a clear match risks silent drift from project conventions and missed safety gates.
 
 ---
 
@@ -1173,9 +1173,9 @@ skills:
 
 Its body establishes three contracts:
 
-1. **The 1% rule (non-negotiable invocation rule)**
-   > *Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check.*
-   The rule is stated as a hard constraint, not a heuristic. Six named rationalizations ("I already know this pattern", "Task is small", etc.) are explicitly listed and rebutted in a red-flags table.
+1. **The skill-invocation rule (relaxed from the old "1% rule" in Phase 6.1)**
+   > *When the work clearly falls within a skill's domain, you MUST invoke that skill before acting — don't reinvent what it covers.*
+   A clear domain (or sub-domain) match requires invocation; a remote, tangential association does not, and path-specific guidance auto-loads via the rules layer. Six named rationalizations ("I already know this pattern", "Task is small", etc.) for skipping a *clear* match are listed and rebutted in a red-flags table.
 
 2. **Dispatch-to-skill mapping table** — A lookup table maps each `subagent_type` × file pattern to the required skill. Example: `claudehut-builder` touching `*KafkaListener.java` → must invoke `claudehut:kafka-consumer`. This mapping is human-authored and lives in the skill body, not in a hook.
 
@@ -1218,7 +1218,7 @@ Run after any skill add, remove, or description edit.
 | `claudehut:testcontainers` | Domain — testing | Singleton vs per-class lifecycle, reuse flag, network sharing, Postgres/Kafka/Redis containers, dynamic Spring properties | Auto: editing `**/*IT.java` or `src/integrationTest/**/*.java` |
 | `claudehut:wiremock-stub` | Domain — testing | Stub mapping JSON format, scenario-based stateful stubs, request matching strategies, fault injection for HTTP integration tests | Auto: editing `src/test/**/*Wiremock*.java` or `**/__stubs/*.json` |
 | `claudehut:flyway-migration` | Domain — schema | Naming conventions, online-safe DDL (`CREATE INDEX CONCURRENTLY`, expand-contract for renames), idempotency, backfill patterns for PostgreSQL/MySQL | Auto: editing `**/db/migration/V*.sql` or `R*.sql` |
-| `claudehut:lombok` | Domain — code generation | Safe-annotation matrix, JPA-entity / Jackson / MapStruct interop traps, builder patterns with inheritance and defaults, recommended `lombok.config` | Auto: any `.java` file with Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import — even a one-line `@Slf4j` edit triggers via the 1% rule |
+| `claudehut:lombok` | Domain — code generation | Safe-annotation matrix, JPA-entity / Jackson / MapStruct interop traps, builder patterns with inheritance and defaults, recommended `lombok.config` | Auto: any `.java` file with Lombok annotation (`@Data`, `@Value`, `@Builder`, `@SuperBuilder`, `@Slf4j`, `@RequiredArgsConstructor`, …) or `lombok.*` import — a clear Lombok domain match |
 | `claudehut:owasp-scan` | Domain — security | OWASP dependency-check + Spring Security misconfig regex scans; structured findings; fails build on High/Critical CVEs | Used in Phase 5 verify stage; `/claudehut:owasp-scan` for on-demand |
 | `claudehut:arch-unit-check` | Domain — architecture | Runs ArchUnit tests to enforce package-layout / hexagonal / DDD rules; optional (skips if ArchUnit not on classpath) | Used in Phase 5 verify stage; `/claudehut:arch-unit-check` for ad-hoc |
 | `claudehut:tdd-cycle` | Workflow discipline | Enforces RED → GREEN → REFACTOR; detects and rejects anti-patterns (prod-before-test, test-after, manual-test rationalization) | Required every Build phase task; auto: test files in scope; preloaded into `claudehut-builder` |
@@ -2196,7 +2196,7 @@ This section describes what happens at runtime, not what the catalog lists. The 
 │  Layer 4: Rules (native loader) + Skills (preload / Skill-tool) │
 │  Rules: .claude/rules/*.md loaded on file-read by CC loader     │
 │  Skills: injected at dispatch via skills: frontmatter OR        │
-│          invoked on-demand via Skill tool (1% rule)             │
+│      invoked on-demand via Skill tool (clear-domain match)      │
 └──────────────────────────────┬──────────────────────────────────┘
                                │ all write to
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -2254,7 +2254,7 @@ In parallel mode, the script emits only the plan header and the single assigned 
 
 **What the subagent must discover via Skill-tool invocation:**
 
-All domain skills that are not listed in the agent's `skills:` frontmatter are absent from context. The `using-claudehut` bootstrap skill encodes the "1% rule": if any catalog skill plausibly matches the work, the subagent MUST invoke it. The builder's heuristics make this concrete: `*Mapper.java` → auto-load `/claudehut:mapstruct`; `db/migration/V*.sql` → auto-load `/claudehut:flyway-migration`; new Java file → auto-load `/claudehut:reuse-scan`.
+All domain skills that are not listed in the agent's `skills:` frontmatter are absent from context. The `using-claudehut` bootstrap skill encodes the skill-invocation rule: if a catalog skill clearly matches the work, the subagent MUST invoke it. The builder's heuristics make this concrete: `*Mapper.java` → auto-load `/claudehut:mapstruct`; `db/migration/V*.sql` → auto-load `/claudehut:flyway-migration`; new Java file → auto-load `/claudehut:reuse-scan`.
 
 ---
 
@@ -2324,7 +2324,7 @@ Stack-conditional rules (10 of 45) are only copied during `init` when `stack-sig
 
 1. **Preload at dispatch** — The harness reads the `skills:` frontmatter list from the agent `.md` file at dispatch time and injects the full SKILL.md content into the subagent's initial context. These skills are present at turn 0 with no tool call required. Example: `claudehut-builder.md` preloads `using-claudehut`, `build`, and `tdd-cycle`.
 
-2. **Skill-tool invocation** — Any skill not in `skills:` frontmatter must be invoked via `Skill("claudehut:<name>")` at runtime. The `using-claudehut` bootstrap encodes the "1% rule" (non-negotiable: even 1% match probability requires invocation). Skills have `disable-model-invocation: true` on `systematic-debug` and `write-skill` — these are slash-command-only.
+2. **Skill-tool invocation** — Any skill not in `skills:` frontmatter must be invoked via `Skill("claudehut:<name>")` at runtime. The `using-claudehut` bootstrap encodes the skill-invocation rule (a clear domain match requires invocation; tangential matches do not). Skills have `disable-model-invocation: true` on `systematic-debug` and `write-skill` — these are slash-command-only.
 
 The `FileChanged` hook watches `.claude/rules/*.md` for external edits and emits `systemMessage` only — it does not re-inject rules. Rules updated outside `init --refresh` are not automatically re-read mid-session.
 
@@ -2789,7 +2789,7 @@ ClaudeHut ships a single entry-point test runner, `tests/run-all.sh`, that orche
 | **L11** Reviewer dispatch | `run-all.sh` (delegates to `tests/integration/reviewer-dispatch.sh`) | Simulates 6 reviewer subagents writing via `subagent-stop.sh`; verifies `findings.json` totals and `aggregate-findings.sh` decision logic (`pass` when critical=0 and high<3; `fail` when critical≥1) | 1 (exit code) |
 | **L12** Dispatch contract | `run-all.sh` | Each of 6 phase skills (`brainstorm`, `spec`, `plan`, `build`, `verify-review`, `learn`) must have `## Dispatch contract` section, correct `subagent_type=` value, and an executable `scripts/dispatch-prompt.sh`; `session-start.sh` output must contain "dispatch contract"; orchestrator must carry `DO NOT SPAWN as subagent` guard | 8 |
 | **L13** Hook schema conformance | `run-all.sh` | All 9 hooks produce valid JSON or silence; emitted top-level keys must be within the documented allowlist; `hookSpecificOutput` is only permitted for `PreToolUse`, `UserPromptSubmit`, `PostToolUse`, `PostToolBatch`, `SessionStart`; `Stop` default mode emits `systemMessage` not `decision=block`; opt-in mode (`stop_enforcement_enabled:true`) emits `decision=block` | 11 |
-| **L14** Bootstrap skill integrity | `run-all.sh` | `skills/using-claudehut/SKILL.md` exists with `name: using-claudehut`, required body sections (`Non-negotiable invocation rule`, `Red flags`, `How dispatch maps to skill invocation`, `Catalog`), `"1% chance"` rule literal, catalog row count == skills directory count, and `scripts/regen-using-claudehut.sh` is idempotent (outputs `"no change"`) | 9 |
+| **L14** Bootstrap skill integrity | `run-all.sh` | `skills/using-claudehut/SKILL.md` exists with `name: using-claudehut`, required body sections (`Skill invocation rule`, `Red flags`, `How dispatch maps to skill invocation`, `Catalog`), the relaxed clear-domain-match rule present with no `"1% chance"` mandate (Phase 6.1), catalog row count == skills directory count, and `scripts/regen-using-claudehut.sh` is idempotent (outputs `"no change"`) | 9 |
 | **L15** Subagent UX contract | `run-all.sh` | No non-orchestrator agent body contains a call-syntax reference to Anthropic runtime-blocked tools (`Agent(`, `AskUserQuestion(`, `EnterPlanMode(`, `ScheduleWakeup(`, `WaitForMcpServers(`); brainstormer body contains `scan-and-return`, `TERMINATE`, `claudehut-brainstorm-return`, `open_questions`; `skills/brainstorm/SKILL.md` documents `AskUserQuestion` and `next_action` | 7 |
 | **L16** Parallel build contracts | `run-all.sh` | 50-assertion battery covering: `run-parallel-group.sh` (worktree isolation with `worktree add -B`, `.claudehut` symlink, `--agent claudehut:claudehut-builder`, `--settings` merge, `CLAUDEHUT_WORKER=1` export, `TASK_TIMEOUT` watchdog, per-group integration gate, `trap cleanup EXIT`, bash-3.2-safe empty-array expansion, symlink nesting guard, `claude agents list` probe); `scaffold-stubs.sh` (stub commit, `--resume` retry loop, empty `session_id` guard, `CLAUDEHUT_SCAFFOLD=1` bypass, `CLAUDEHUT_WORKER=1` export); `pre-tool.sh` honors both bypasses with behavioral tests including symlink/canonical path mismatch; `merge-parallel-group.sh` (cherry-pick, task:branch pair parsing, `check-ignore` guard); planner documents over-parallelization heuristic; builder has no `PickTask` loop; builder result block has `task`, `commit_sha`, `verify_status`, `task_id` fields | 50 |
 

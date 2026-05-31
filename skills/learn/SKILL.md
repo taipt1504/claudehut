@@ -1,6 +1,6 @@
 ---
 name: learn
-description: Phase 6 of ClaudeHut workflow — extract patterns, anti-patterns, decisions, and reusable snippets from the completed task, persist as memory in `.claudehut/memory/learnings.jsonl`, update `index.md`, optionally promote to global tier when threshold met. Use after Verify-Review passes. Triggers when phase=learn.
+description: Phase 6 of ClaudeHut — extract patterns, anti-patterns, decisions, and reusable snippets from the completed task; persist to .claudehut/memory/learnings.jsonl, update index.md, optionally promote to global tier. Triggers when phase=learn.
 ---
 
 ## Dispatch contract (read this FIRST)

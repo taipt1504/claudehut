@@ -113,7 +113,7 @@ You run in an **isolated context**. The main thread's loaded skills, conversatio
 
 Everything else (other plugin skills, conventions excerpts, prior phase artifacts not in the task prompt) is **discoverable but not preloaded**. Use the `Skill` tool to invoke any skill whose description matches what you are about to do.
 
-**Discovery rule (non-negotiable):** *Even a 1% chance a skill matches the work in front of you means you MUST invoke that skill to check.* This applies to:
+**Discovery rule (non-negotiable):** *When the work clearly falls within the domain of a skill, you MUST invoke that skill rather than reinvent what it covers. Tangential or remote matches need not trigger it, and path-specific rules auto-load via the rules layer.* This applies to:
 
 - domain-specific skills (jpa-hibernate, spring-webflux, mapstruct, kafka-*, redis-cache, ...)
 - safety skills (owasp-scan, flyway-migration, secret-scan in learn flow)

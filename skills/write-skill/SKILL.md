@@ -1,6 +1,6 @@
 ---
 name: write-skill
-description: Scaffold a new ClaudeHut skill using the 3-bucket layout (SKILL.md + references/ + scripts/ + assets/). Validates frontmatter contract, applies naming conventions, generates skeleton with placeholders. Run via /claudehut:write-skill <skill-name>. Use when extending ClaudeHut with new domain expertise.
+description: Scaffold a new ClaudeHut skill in the 3-bucket layout (SKILL.md + references/ + scripts/ + assets/): validates the frontmatter contract, applies naming conventions, generates a skeleton. Run via /claudehut:write-skill <name>.
 ---
 
 # Write-Skill

@@ -1174,7 +1174,7 @@ else
 fi
 
 # Required body sections.
-for section in '^## Non-negotiable invocation rule' \
+for section in '^## Skill invocation rule' \
                '^## Red flags' \
                '^## How dispatch maps to skill invocation' \
                '^## Catalog'; do
@@ -1185,11 +1185,12 @@ for section in '^## Non-negotiable invocation rule' \
   fi
 done
 
-# 1% rule must be quoted literally.
-if grep -q '1% chance' "$boot" 2>/dev/null; then
-  pass "L14 bootstrap states 1% rule"
+# Invocation rule must state the RELAXED clear-domain-match contract (6.1):
+# the absolute "1% chance ... MUST invoke" mandate is gone (caused over-invocation).
+if grep -q 'clearly falls within' "$boot" 2>/dev/null && ! grep -q '1% chance' "$boot" 2>/dev/null; then
+  pass "L14 bootstrap states relaxed invocation rule (clear-domain-match, no 1% mandate)"
 else
-  fail "L14 bootstrap" "missing the '1% chance' invocation rule"
+  fail "L14 bootstrap" "invocation rule not relaxed (want 'clearly falls within' present, '1% chance' absent)"
 fi
 
 # (b) Catalog block must list every non-bootstrap skill exactly once.
@@ -2041,6 +2042,34 @@ done
 [[ "$floor_ok" -eq 1 ]] && pass "L23 builder-guardrail floor present in BOTH heredoc and persona (no silent drift)" \
   || fail "L23 guardrail floor" "a load-bearing guardrail phrase dropped from one copy"
 unset rpg bld floor_ok
+
+#==============================================================================
+section "L24 1%-rule relaxation + description budget (Phase 6.1)"
+#==============================================================================
+# 6.1: the absolute "Even a 1% chance ... you MUST invoke" mandate caused
+# over-invocation (a Controller task firing kafka-consumer). Relaxed to a
+# clear-domain-match MUST-invoke across every agent + the bootstrap skill, and
+# skill descriptions trimmed trigger-first under a budget. These lock the change:
+# the old mandate is GONE everywhere, the relaxed rule is PRESENT (not just deleted).
+onepct=0
+for f in agents/*.md skills/*/SKILL.md; do
+  grep -Fq '1% chance' "$f" 2>/dev/null && { onepct=$((onepct+1)); echo "    still carries 1% mandate: $f"; }
+done
+[[ "$onepct" -eq 0 ]] && pass "L24 no agent/skill carries the absolute '1% chance' mandate (relaxed to clear-domain-match)" \
+  || fail "L24 1% rule" "$onepct file(s) still carry the 1% mandate"
+if grep -rlq 'clearly falls within' agents/ skills/using-claudehut/SKILL.md 2>/dev/null; then
+  pass "L24 relaxed invocation rule PRESENT (clear-domain-match MUST-invoke retained, not deleted)"
+else
+  fail "L24 1% rule" "relaxed rule phrasing missing — relaxation must soften the rule, not remove it"
+fi
+overdesc=0
+for f in skills/*/SKILL.md; do
+  d="$(awk '/^description:/{sub(/^description:[[:space:]]*/,"");print;exit}' "$f")"
+  [[ "${#d}" -gt 300 ]] && { overdesc=$((overdesc+1)); echo "    description over budget (${#d}): $f"; }
+done
+[[ "$overdesc" -eq 0 ]] && pass "L24 all skill descriptions <= 300 chars (trimmed trigger-first; budget enforced)" \
+  || fail "L24 description budget" "$overdesc description(s) exceed 300 chars"
+unset onepct overdesc f d
 
 #==============================================================================
 section "SUMMARY"

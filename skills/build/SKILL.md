@@ -1,6 +1,6 @@
 ---
 name: build
-description: Phase 4 of ClaudeHut workflow — execute the approved plan by dispatching each parallel group of tasks as concurrent builder subagents (each in its own git worktree), then merging results. Tasks within the same Parallel group run simultaneously; groups run in order. Strict TDD enforced per task. Use after Plan phase approval. Triggers when phase=build.
+description: Phase 4 of ClaudeHut — execute the approved plan by dispatching each parallel group as concurrent builder subagents (each in its own git worktree), then merging. Groups run in order; tasks within a group run simultaneously. Strict TDD per task. Triggers when phase=build.
 ---
 
 ## Dispatch contract (read this FIRST)

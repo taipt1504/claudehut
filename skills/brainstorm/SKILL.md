@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Phase 1 of ClaudeHut workflow — scan codebase + reuse-detection, draft a design document, run main-thread AskUserQuestion exchanges for any open decisions, converge on an approved design. Use when the user requests new functionality AND no task is active (phase=none), OR when explicitly invoked via /claudehut:brainstorm. Triggers on natural-language "add|implement|build|design|refactor|fix bug" with a noun (feature/endpoint/service/class/module/api).
+description: Phase 1 of ClaudeHut — scan the codebase + reuse-detection, draft a design doc, resolve open decisions via AskUserQuestion, converge on an approved design. Use when the user requests new functionality and no task is active (phase=none), or via /claudehut:brainstorm.
 ---
 
 ## Dispatch contract (read this FIRST)

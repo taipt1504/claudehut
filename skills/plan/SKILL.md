@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Phase 3 of ClaudeHut workflow — break an approved contract into a file-level task list with 2–5 minute chunks, exact paths, RED test commands, GREEN implementation steps, DAG dependencies, and risk callouts. Use immediately after Spec phase approval. Produces `.claudehut/plans/<id>-plan.md`. Triggers when phase=plan.
+description: Phase 3 of ClaudeHut — break an approved contract into a file-level task list: 2-5 min chunks, exact paths, RED test commands, GREEN steps, DAG dependencies, risk callouts. Produces .claudehut/plans/<id>-plan.md. Triggers when phase=plan.
 ---
 
 ## Dispatch contract (read this FIRST)

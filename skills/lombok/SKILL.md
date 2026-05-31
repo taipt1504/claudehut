@@ -1,6 +1,6 @@
 ---
 name: lombok
-description: Project Lombok conventions for Java/Spring Boot 3.x. Auto-loads when a file uses Lombok annotations (@Data, @Value, @Builder, @SuperBuilder, @Slf4j, @RequiredArgsConstructor, etc.) or matches `**/*.java` in projects with lombok on the build classpath. Covers the safe-annotation matrix, the JPA-entity / Jackson / MapStruct interop traps, builder patterns with inheritance and defaults, and the recommended lombok.config. Invoke whenever Java source uses any `lombok.*` import or carries a Lombok annotation — even a one-line @Slf4j edit triggers this skill per the plugin's 1% rule.
+description: Project Lombok conventions for Java/Spring Boot 3.x — safe-annotation matrix, JPA-entity/Jackson/MapStruct interop traps, builder patterns with inheritance, recommended lombok.config. Invoke when editing Java that uses Lombok annotations (@Data, @Builder, @Slf4j) or a lombok.* import.
 ---
 
 # Lombok — annotation discipline + interop traps

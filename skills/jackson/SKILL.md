@@ -1,6 +1,6 @@
 ---
 name: jackson
-description: Jackson serialization/deserialization conventions for Spring Boot 3.x. Auto-loads when editing `**/*Dto.java`, `**/*Request.java`, `**/*Response.java`, `**/ObjectMapper*.java`, `**/JsonConfig*.java`. Covers ObjectMapper config, polymorphic deserialization (subtype whitelist), JavaTimeModule, mixins, mass-assignment prevention.
+description: Jackson serialization conventions for Spring Boot 3.x: ObjectMapper config, polymorphic deserialization (subtype whitelist), JavaTimeModule, mixins, mass-assignment prevention. Invoke when editing DTOs, request/response types, or ObjectMapper/JSON config.
 ---
 
 # Jackson

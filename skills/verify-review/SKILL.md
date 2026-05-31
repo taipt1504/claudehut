@@ -1,6 +1,6 @@
 ---
 name: verify-review
-description: Phase 5 of ClaudeHut workflow — run verify pipeline (build/tests/coverage/lint/static/security) via a gate-runner subagent, then the orchestrator fans out reviewer subagents in parallel, aggregates shards, and decides pass-or-refactor; bounded retry (max 3) then escalate. Use after Build phase completes. Triggers when phase=loop.
+description: Phase 5 of ClaudeHut — run the verify pipeline (build/tests/coverage/lint/static/security) via a gate-runner subagent, then fan out reviewer subagents in parallel, aggregate shards, and decide pass-or-refactor; bounded retry (max 3) then escalate. Triggers when phase=loop.
 ---
 
 ## Dispatch contract (read this FIRST)

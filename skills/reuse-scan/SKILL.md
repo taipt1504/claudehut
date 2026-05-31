@@ -1,6 +1,6 @@
 ---
 name: reuse-scan
-description: Quét codebase tìm impl tái sử dụng được trước khi tạo mới (Java backend). Detect plugin reuse ngoài đã cài (Understand-Anything, Graphify) rồi invoke trực tiếp slash command native + normalize output. Fallback grep + heuristic khi không plugin nào khả dụng. Auto-trigger Phase Brainstorm step 2 + `PreToolUse(Write)` cho file Java mới. Slash `/claudehut:reuse-scan <topic>`. Always invoke before allowing new class creation.
+description: Quet codebase tim impl tai su dung duoc truoc khi tao class moi (Java backend). Uu tien plugin da cai (Understand-Anything, Graphify) qua slash command native; fallback grep + heuristic. Auto-trigger o Brainstorm step 2 va PreToolUse(Write) cho file Java moi. Slash: /claudehut:reuse-scan <topic>.
 ---
 
 # Reuse-Scan

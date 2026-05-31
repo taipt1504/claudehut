@@ -1,6 +1,6 @@
 ---
 name: route
-description: Phase 0.5 of ClaudeHut workflow — triage the task's intent and choose the pipeline DEPTH (the Routing pattern). Classifies the request into a profile (quick = build+verify only, or full = the 6-phase pipeline) and records it as `.claudehut/state/route-<id>.json`. Use as the FIRST step of any new task, before Brainstorm. Triggers when phase=route.
+description: Phase 0.5 of ClaudeHut — triage task intent and choose pipeline DEPTH (the Routing pattern): quick (build+verify) or full (6-phase), recorded as .claudehut/state/route-<id>.json. Use as the FIRST step of any new task, before Brainstorm. Triggers when phase=route.
 ---
 
 ## Dispatch contract (read this FIRST)

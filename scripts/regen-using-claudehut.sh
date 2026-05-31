@@ -59,7 +59,7 @@ NEW_FILE="$(mktemp)"
 cat > "$NEW_FILE" <<'HEAD_EOF'
 ---
 name: using-claudehut
-description: ClaudeHut workflow + plugin-skill discovery contract for subagents. Preloaded into every dispatch-eligible agent via `skills:` frontmatter so the subagent receives, at startup, (a) the non-negotiable skill-invocation discipline and (b) the catalog of all plugin skills with trigger excerpts. Lets the subagent decide — natively, no hook injection — which skill(s) to invoke when its task touches a domain its preloaded skills do not cover (e.g. builder hitting Kafka, mapping, JPA, WebFlux, ...).
+description: ClaudeHut skill-discovery contract, preloaded into every dispatch-eligible subagent via `skills:` frontmatter. Supplies the skill-invocation discipline plus the catalog of plugin skills with trigger excerpts, so a subagent decides which skills to invoke when its task touches an uncovered domain.
 ---
 
 # Using ClaudeHut — subagent skill discipline
@@ -69,17 +69,19 @@ and isolated from the main thread. The plugin skills are reachable
 through the `Skill` tool; the catalog at the bottom of this file is the
 authoritative list of what is available.
 
-## Non-negotiable invocation rule
+## Skill invocation rule
 
-> **Even a 1% chance a skill matches the work in front of you means
-> you MUST invoke that skill to check.**
+> **When the work clearly falls within a skill's domain, you MUST
+> invoke that skill before acting — don't reinvent what it covers.**
 
 Before you write code, edit a config, draft an artifact, or answer a
-domain question, scan the catalog. If any row plausibly matches the
+domain question, scan the catalog. If a row clearly matches the
 work — invoke that skill via the `Skill` tool **first**, then continue.
 
-This is not optional. It is not "use judgment". It is not "if you
-think it helps". Match in catalog → invoke. Read the skill body. Apply
+Use judgment on the threshold: a clear domain (or sub-domain) match →
+invoke; a remote, tangential association → don't force it. Path-specific
+guidance auto-loads via the rules layer, so an open file alone is not a
+reason to invoke. Match in catalog → invoke. Read the skill body. Apply
 the conventions. Then act.
 
 ## Red flags (rationalizations that mean "invoke the skill")

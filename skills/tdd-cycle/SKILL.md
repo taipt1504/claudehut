@@ -1,6 +1,6 @@
 ---
 name: tdd-cycle
-description: Enforce strict RED → GREEN → REFACTOR test-driven cycle for Java/Spring code. Required for every Build phase task. Detects and rejects common anti-patterns (prod-before-test, test-after, manual-test rationalization). Use during Phase 4 Build or whenever writing new logic. Auto-loads when test files in scope.
+description: Enforce strict RED -> GREEN -> REFACTOR for Java/Spring code; required for every Build task. Detects and rejects anti-patterns (prod-before-test, test-after, manual-test rationalization). Invoke during Phase 4 Build or whenever writing new logic.
 ---
 
 # TDD Cycle
