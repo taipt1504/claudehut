@@ -62,10 +62,17 @@ else
   # (Observed: an unseeded slugify run read the oracle from $CLAUDE_PLUGIN_ROOT and
   # used the convention with no seed.) So point --plugin-dir + CLAUDE_PLUGIN_ROOT at
   # a SANITIZED copy with evals/tests/docs/.git stripped. The plugin RUNTIME needs
-  # only .claude-plugin/, hooks/, skills/, agents/, bin/, .mcp.json — all kept.
+  # only .claude-plugin/, hooks/, skills/, agents/, bin/ — all kept.
   PLUGIN_SANITIZED="$(mktemp -d)/plugin"
   cp -R "$PLUGIN_ROOT" "$PLUGIN_SANITIZED"
-  rm -rf "$PLUGIN_SANITIZED/evals" "$PLUGIN_SANITIZED/tests" "$PLUGIN_SANITIZED/docs" "$PLUGIN_SANITIZED/.git"
+  rm -rf "$PLUGIN_SANITIZED/evals" "$PLUGIN_SANITIZED/tests" "$PLUGIN_SANITIZED/docs" \
+         "$PLUGIN_SANITIZED/.git" "$PLUGIN_SANITIZED/sdk/node_modules"
+  # MCP servers (context7/github/memory/postgres/sequential-thinking) BLOCK on startup
+  # in this headless, key-less, non-interactive harness — observed: claude --print
+  # hangs ~80min then is_error=true, $0, pass@1=0. They are optional enrichment, not
+  # needed for the eval tasks, and the sdk arm runs without them — so neutralize MCP
+  # for BOTH arms (fair, headless-safe comparison; MCP behavior is out of eval scope).
+  printf '{"mcpServers":{}}\n' > "$PLUGIN_SANITIZED/.mcp.json"
   CH_PROMPT="$PROMPT
 
 Follow the ClaudeHut workflow per the SessionStart dispatch contract. FIRST triage the task depth via /claudehut:route (it picks quick or full); then drive ONLY the phases the recorded route declares, through to done. Do not force phases the route did not select. Complete the task."
