@@ -2153,6 +2153,21 @@ fi
 unset cfg gen orch genout n_dir n_cfg bad p nt ps
 
 #==============================================================================
+section "L27 Modularization partition + coupling (Phase 6.3)"
+#==============================================================================
+# 6.3: a physical 4-plugin split is BLOCKED-ON-PLATFORM — CC plugins are independent
+# units with no cross-plugin refs / dependency resolution (#9444); a split would
+# duplicate the engine 4x or break the 180 claudehut: refs. The achievable deliverable
+# ships now: a partition manifest (modularization/modules.json) + proof the taxonomy
+# partitions cleanly (complete+disjoint, NO pack->pack edge) — the substrate a
+# post-#9444 split consumes. Settles the design "doesn't partition" objection with data.
+if bash "$PLUGIN_ROOT/tests/static/module-coupling.sh" >/tmp/modcoup.log 2>&1; then
+  pass "L27 module partition complete+disjoint; no pack->pack edge (taxonomy partitions; split-ready)"
+else
+  fail "L27 6.3" "see /tmp/modcoup.log :: $(tail -3 /tmp/modcoup.log | tr '\n' ' ')"
+fi
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
