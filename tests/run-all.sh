@@ -2098,6 +2098,61 @@ done
 unset dyn ff s
 
 #==============================================================================
+section "L26 Agent-SDK orchestrator: translation layer + control flow (Phase 7.1)"
+#==============================================================================
+# 7.1 builds a programmatic SDK orchestrator (deterministic control flow instead of
+# model-interpreted prose). The DELIVERABLE/unit-testable layer is verified here for
+# free; the live "parity at lower variance" gate needs paid k-runs (sdk/README.md
+# "$ boundary") and is NOT a CI test.
+cfg="$PLUGIN_ROOT/sdk/agent-config.json"
+gen="$PLUGIN_ROOT/sdk/gen-agent-config.sh"
+orch="$PLUGIN_ROOT/sdk/orchestrator.mjs"
+# (a) committed manifest is fresh (generator idempotent — reports "no change")
+genout="$(bash "$gen" 2>&1 || true)"
+[[ "$genout" == *"no change"* ]] && pass "L26 agent-config.json is freshly generated (gen-agent-config.sh idempotent)" \
+  || fail "L26 7.1" "agent-config.json stale — re-run sdk/gen-agent-config.sh ($genout)"
+# (b) manifest covers all subagents (agents/ minus the orchestrator driver)
+n_dir=$(( $(ls "$PLUGIN_ROOT"/agents/*.md | wc -l | tr -d ' ') - 1 ))
+n_cfg=$(jq '.agents|length' "$cfg")
+[[ "$n_cfg" -eq "$n_dir" ]] && pass "L26 manifest covers all $n_cfg subagents (= agents/ minus orchestrator)" \
+  || fail "L26 7.1" "manifest $n_cfg != $n_dir personas"
+# (c) every subagent has a non-empty allowedTools list + an existing promptSource
+bad=0
+for p in $(jq -r '.agents|keys[]' "$cfg"); do
+  nt=$(jq --arg p "$p" '.agents[$p].tools|length' "$cfg")
+  ps=$(jq -r --arg p "$p" '.agents[$p].promptSource' "$cfg")
+  { [[ "$nt" -gt 0 ]] && [[ -f "$PLUGIN_ROOT/$ps" ]]; } || { bad=$((bad+1)); echo "    $p: tools=$nt promptSource=$ps"; }
+done
+[[ "$bad" -eq 0 ]] && pass "L26 every subagent has allowedTools + an existing promptSource (least-privilege mapping)" \
+  || fail "L26 7.1" "$bad subagent(s) malformed"
+# (d) SDK ignores filesystem allowed-tools -> Task translated to Agent; only the driver dispatches
+if jq -e '.orchestratorAllowedTools|index("Agent")' "$cfg" >/dev/null \
+   && ! jq -e '[.agents[].tools[]]|index("Task")' "$cfg" >/dev/null \
+   && ! jq -e '[.agents[].tools[]]|index("Agent")' "$cfg" >/dev/null; then
+  pass "L26 Task->Agent translated; no subagent carries Task/Agent (only the SDK driver dispatches)"
+else
+  fail "L26 7.1" "subagent-dispatch tool translation wrong"
+fi
+# (e) orchestrator.mjs WRAPS the bash runtime (reuse, not reimplement)
+if grep -q 'claude-agent-sdk' "$orch" && grep -q 'dispatch-prompt.sh' "$orch" \
+   && grep -q 'run-parallel-group.sh' "$orch" && grep -q 'claudehut-state' "$orch"; then
+  pass "L26 orchestrator.mjs wraps bash runtime (state machine + dispatch-prompt enrichment + parallel build workers)"
+else
+  fail "L26 7.1" "orchestrator.mjs does not reuse the bash runtime"
+fi
+# (f) pure control-flow unit tests (node) — run if node present, else SKIP (keeps bash suite portable)
+if command -v node >/dev/null 2>&1; then
+  if node --test "$PLUGIN_ROOT/sdk/test/" >/tmp/sdk-test.log 2>&1; then
+    pass "L26 control-flow.mjs unit tests pass ($(grep -oE '# pass [0-9]+' /tmp/sdk-test.log | head -1 | tr -d '#'))"
+  else
+    fail "L26 7.1" "control-flow node tests failed (see /tmp/sdk-test.log)"
+  fi
+else
+  skip "L26 control-flow node tests" "node not on PATH"
+fi
+unset cfg gen orch genout n_dir n_cfg bad p nt ps
+
+#==============================================================================
 section "SUMMARY"
 #==============================================================================
 TOTAL=$((PASS+FAIL+SKIP))
