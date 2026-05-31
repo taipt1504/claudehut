@@ -13,12 +13,13 @@
 </p>
 
 <p align="center">
-  <strong>ClaudeHut</strong> is a Claude Code plugin that turns AI-assisted Java backend development into a deterministic, auditable, six-phase workflow.<br>
-  Built for senior engineers who want <em>workflow discipline</em>, <em>project-aware context</em>, and <em>provable code quality</em> — without manual policing.
+  <strong>ClaudeHut</strong> is a Claude Code plugin that turns AI-assisted Java backend development into a deterministic, auditable, <strong>adaptive-depth</strong> agentic workflow — a triage step routes each task to <code>quick</code> (build + verify) or <code>full</code> (six phases), so ceremony is matched to risk, never silently skipped.<br>
+  Built for senior engineers who want <em>workflow discipline</em>, <em>project-aware context + retrieval</em>, <em>cost/budget control</em>, and <em>provable code quality</em> — without manual policing.
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
+  <a href="docs/GUIDE.md">Detailed Guide</a> ·
   <a href="#how-it-works">How It Works</a> ·
   <a href="#features">Features</a> ·
   <a href="#performance">Performance</a> ·
@@ -38,8 +39,11 @@
   - [Reuse-Detection](#2-reuse-detection)
   - [Stack-Aware Rule Auto-Loading](#3-stack-aware-rule-auto-loading)
   - [Project-Scoped Memory + Retrieval Reinforcement](#4-project-scoped-memory--retrieval-reinforcement)
-  - [Parallel Reviewer Subagents](#5-parallel-reviewer-subagents)
+  - [Subagent-Driven Workflow](#5-subagent-driven-workflow-per-phase-model-fit--isolated-context)
   - [Strict TDD](#6-strict-tdd)
+  - [Adaptive-Depth Routing](#7-adaptive-depth-routing)
+  - [Cost Telemetry + Budget Gate](#8-cost-telemetry--budget-gate)
+  - [Programmatic Orchestrator (Agent SDK)](#9-programmatic-orchestrator--agent-sdk-optional-experimental)
 - [Architecture](#architecture)
 - [Installation](#installation)
 - [Project Layout](#project-layout)
@@ -65,10 +69,11 @@ Generic AI coding assistants generate plausible-looking code that ignores your p
 |---|---|
 | Generates code without project context | Stack signals + project memory injected at every session |
 | Repeats implementations already in codebase | Mandatory reuse-scan; new file write blocked without it |
-| Skips spec / planning for "small" tasks | Hooks enforce phase gates; cannot reach `build` without `design.md` + `contract.md` + `plan.md` |
-| Ignores team conventions | 42 rules auto-load per file pattern (Spring MVC vs WebFlux, JPA vs R2DBC, MapStruct, Jackson) |
-| Each session starts from scratch | Append-only `learnings.jsonl`; signatures recurring ≥3 projects promoted to global tier |
+| Skips spec / planning for "small" tasks **or** over-ceremonies a one-liner | **Adaptive routing**: a deterministic triage step picks `quick` (build + verify) for trivial fixes and `full` (6-phase, gated on `design.md` + `contract.md` + `plan.md`) for real features — ceremony matched to risk, conservatively (ambiguous → full) |
+| Ignores team conventions | 47 rules auto-load per file pattern (Spring MVC vs WebFlux, JPA vs R2DBC, MapStruct, Jackson, Kafka/RabbitMQ/NATS) |
+| Each session starts from scratch | Append-only `learnings.jsonl` + **JIT relevance retrieval** (top-K most relevant past learnings injected per task) + outcome-signal usefulness prior; signatures recurring ≥3 projects promoted to global tier |
 | No quality gate before declaring done | Loop phase: 6 reviewer subagents in parallel; bounded 3-retry; can refuse the AI's own output |
+| Runaway token spend on parallel workers | **Cost telemetry + a worker-pool budget gate** (skip-not-kill, exit 3) cap real `$` spend per run |
 | Surreptitious scope creep | Surgical scope enforced — file must be in current plan task or hook denies write |
 | Hard to audit AI's reasoning | Every phase produces a markdown artifact committed to git |
 
@@ -131,30 +136,36 @@ The plugin will refuse to write production code until you have approved `design.
 ### 4. Inspect plugin state anytime
 
 ```bash
-claudehut-state phase           # which of the 6 phases you're in
+claudehut-state phase           # current phase (route|brainstorm|…|build|loop|learn|done)
 claudehut-state task-id         # current branch's task id
 claudehut-state docs            # paths to current artifacts
-claudehut-state stack web_stack # detected stack signals
+claudehut-state stack web       # a detected stack field (web|orm|db|messaging|mapper|serialization)
 ```
 
 ---
 
 ## How It Works
 
-ClaudeHut decomposes every backend task into six artifact-driven phases. The phase is **derived** from which artifacts exist on disk — there is no mutable state file, no race condition, no manual phase transition.
+Every task first hits a **triage** step (`/claudehut:route`, Phase 0.5) that classifies intent and records a *route* in `.claudehut/state/route-<task>.json`: **`quick`** (just `build` + `loop`) for trivial fixes, or **`full`** (all six phases) for real features. The classifier is conservative by construction — anything ambiguous routes `full`, so it can never silently strip the design gate from a real feature. ClaudeHut then walks **only the phases the route declares**. The phase is **derived** from the artifacts on disk + the route — no mutable state file, no race condition, no manual transition.
 
 ```
-┌──────────────┐   ┌──────┐   ┌──────┐   ┌──────┐   ┌────────────────────┐   ┌───────┐
-│  Brainstorm  │──▶│ Spec │──▶│ Plan │──▶│ Build│──▶│ Loop(Verify↔Review │──▶│ Learn │
-│  +reuse-scan │   │      │   │      │   │ TDD  │   │    ↔Refactor)      │   │       │
-└──────────────┘   └──────┘   └──────┘   └──────┘   └────────────────────┘   └───────┘
-   design.md       contract     plan      code         findings.json       learnings.jsonl
+                          ┌─ quick ─────────────────────────────┐
+                          │                                     ▼
+┌───────┐   ┌──────────┐  │ ┌──────┐  ┌──────┐  ┌──────┐  ┌────────────────────┐  ┌───────┐
+│ Route │──▶│Brainstorm│──┼▶│ Spec │─▶│ Plan │─▶│ Build│─▶│ Loop(Verify↔Review │─▶│ Learn │
+│triage │   │+reuse-scan│ full │      │  │      │  │ TDD  │  │    ↔Refactor)      │  │       │
+└───────┘   └──────────┘    └──────┘  └──────┘  └──────┘  └────────────────────┘  └───────┘
+route.json    design.md     contract    plan     code        findings.json      learnings.jsonl
 ```
+
+> **`quick` route** skips brainstorm/spec/plan/learn and goes straight to `build` → `loop` (verify). A trivial one-line fix no longer pays the full 6-phase tax (the empirical motivation: an early eval showed full ceremony on a 1-line bug burned ~9× a baseline fix and never reached the fix). **`full` route** is the original waterfall, byte-for-byte.
 
 | Artifact present in `.claudehut/` | Phase | Hook behavior |
 |------------------------------------|-------|---------------|
-| (none) | `brainstorm` | Source edits in `src/` blocked. Brainstormer agent asks one Socratic question per turn. |
-| `specs/<task>-design.md` | `spec` | Source edits still blocked. Spec writer agent fills binary Given/When/Then. |
+| (fresh task, no route) | `route` | Triage first. `src/` edits blocked until the route is recorded. |
+| `state/route-<task>.json` = `quick` | `build` | Skips brainstorm/spec/plan. `src/` edits allowed for the task; TDD strict. Verify runs at `loop`; pass → done (no learn). |
+| `route` = `full`, no `design.md` | `brainstorm` | Source edits in `src/` blocked. Brainstormer agent asks one Socratic question per turn. |
+| `+ specs/<task>-design.md` | `spec` | Source edits still blocked. Spec writer agent fills binary Given/When/Then. |
 | `+ specs/<task>-contract.md` | `plan` | Source edits still blocked. Planner agent decomposes contract into 2–5 min tasks. |
 | `+ plans/<task>-plan.md` with `- [ ]` items | `build` | Source edits allowed for files listed in current task only. TDD strict. |
 | All plan items `- [x]` | `loop` | Verifier dispatches 6 reviewers in parallel. |
@@ -202,7 +213,7 @@ ClaudeHut does **not** wrap or re-implement the backends. It detects, invokes th
 
 ### 3. Stack-Aware Rule Auto-Loading (native `.claude/rules/`)
 
-ClaudeHut detects your stack at `SessionStart` (Spring MVC vs WebFlux, JPA vs R2DBC, MapStruct vs manual, Jackson, Kafka/RabbitMQ/NATS) and persists to `.claudehut/memory/stack-signals.md`. `/claudehut:init` then copies the plugin's 42 rule files into the project's `.claude/rules/`, where Claude Code's **native loader** picks them up. Each rule carries a `paths:` frontmatter and is auto-loaded only when Claude reads a matching file — no custom hook injection:
+ClaudeHut detects your stack at `SessionStart` (Spring MVC vs WebFlux, JPA vs R2DBC, MapStruct vs manual, Jackson, Kafka/RabbitMQ/NATS) and persists to `.claudehut/memory/stack-signals.md`. `/claudehut:init` then copies the plugin's 47 rule files into the project's `.claude/rules/`, where Claude Code's **native loader** picks them up. Each rule carries a `paths:` frontmatter and is auto-loaded only when Claude reads a matching file — no custom hook injection:
 
 ```yaml
 ---
@@ -215,7 +226,7 @@ stack: "web=webflux"      # init copies this rule only when web=webflux is detec
 …
 ```
 
-42 rules total in 6 categories: coding, architecture, testing, security, performance, framework. Override any rule by editing the file directly inside `.claude/rules/` — init records SHA256s in `.claude/rules/.checksums.json` so `claudehut:init --refresh` leaves your edits alone (use `--force` to overwrite).
+47 rules total in 6 categories: coding, architecture, testing, security, performance, framework. Override any rule by editing the file directly inside `.claude/rules/` — init records SHA256s in `.claude/rules/.checksums.json` so `claudehut:init --refresh` leaves your edits alone (use `--force` to overwrite).
 
 ### 4. Project-Scoped Memory + Retrieval Reinforcement
 
@@ -241,6 +252,8 @@ Four memory tiers:
 ```
 
 After every successful task, the Learner agent extracts patterns / anti-patterns / decisions / gotchas / commands and appends them to `learnings.jsonl`. When a signature appears in ≥3 distinct projects (configurable threshold + opt-in), it's promoted to the global tier.
+
+**JIT relevance retrieval (not a static dump).** Instead of pasting the latest N learnings into every dispatch, each phase prompt retrieves the **top-K most relevant** past learnings for *this* task: `score = 0.45·path + 0.30·tag + 0.10·title + 0.15·prior` (intrinsic-Jaccard similarity, a relevance floor before the prior, K=5, deterministic tiebreak). The `prior` is an **outcome-signal usefulness** term — a learning that was retrieved and the task *passed* gains weight `(useful+1)/(used+2)` (Laplace); one retrieved before a *failed/abandoned* task loses weight. So memory gets *more relevant with use*, not just larger. When no plan exists (e.g. a `quick` verify), the query falls back to the files touched in `git diff`. Optionally mirrors to the **memory MCP** graph (read path is deterministic + CI-tested; accepts the server's `memory.jsonl` or a configured `mcp-graph.json`).
 
 Privacy: every entry passes through a secret-scan (AWS keys, OpenAI/Anthropic keys, PEM blocks, JWTs, DB connection strings) before append. No personally identifiable information.
 
@@ -280,6 +293,31 @@ The Builder agent enforces RED → GREEN → REFACTOR per plan task with the `wa
 
 This makes the canonical anti-pattern ("write the code, then write a test that happens to pass") provably impossible.
 
+### 7. Adaptive-Depth Routing
+
+Not every task deserves six phases. A triage step (`/claudehut:route`, the first thing on any new task) classifies intent with a **deterministic, conservative classifier** and records a profile in `.claudehut/state/route-<task>.json`:
+
+| Profile | Phases walked | When |
+|---------|---------------|------|
+| `quick` | `build` → `loop` | An explicit trivial signal (typo, off-by-one, rename) AND no complexity/migration signal |
+| `full`  | all six | Features, migrations, anything ambiguous (conservative default — never silently strips the design gate) |
+
+The phase gate is route-aware: in `quick` the build+loop window is the one editable phase (fix inline at verify-fail); `full` is the original waterfall byte-for-byte. This is the concrete answer to "stop paying a 15× ceremony tax on a one-line fix" — measured motivation, not a guess.
+
+### 8. Cost Telemetry + Budget Gate
+
+Parallel build workers spend real money. ClaudeHut instruments and caps it:
+
+- Every headless build/scaffold worker writes a `.cost` (`total_cost_usd`) sidecar; in-process Task subagents are already in `total_cost_usd`. A per-run **run-summary** row records cost + tokens + `terminal_status` + `is_error`.
+- A **worker-pool budget gate** sums cumulative real spend before each launch and computes a per-worker cap = `min(max_worker, remaining/n)`. On breach it **skips remaining workers (exit 3) — never kills mid-write** — and drops a `budget-breach.json`. Configurable in `claudehut-config.json` (`budget.{max_worker_pool_usd, max_worker_usd, worker_budget_floor}`; `0` = unlimited).
+- **Model-tier per role**: `agents.builder_model` + `agents.reviewer_models` (e.g. cheap Haiku for style/mapping reviewers) — `env > config > sonnet` with a bad-id fallback.
+
+### 9. Programmatic Orchestrator — Agent SDK *(optional, experimental)*
+
+Beyond the Claude Code plugin, ClaudeHut ships an **optional** programmatic orchestrator on the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/typescript) (`sdk/orchestrator.mjs`). It replaces model-interpreted prose orchestration with a **deterministic JS control loop** (walks the route's phase sequence; retry cap; budget gate) and **wraps** the existing runtime — same state machine, `dispatch-prompt.sh` enrichment, and bash build workers behind it. Subagent tools/permissions are declared programmatically in `sdk/agent-config.json` (the SDK ignores filesystem `allowed-tools`).
+
+> **Measured parity** (trivial-sum-bug, k=3, MCP-neutralized): the SDK orchestrator matched the bash pipeline on **pass@1 (1.0/1.0)** at **~half the cost** ($0.88 vs $1.68 mean) and **~half the wall** (208s vs 391s), with **0/3 budget breaches vs 1/3**. Small sample (1 task, n=3) — directional, not a benchmark. The CC plugin path remains primary; this is for headless/programmatic use. See `sdk/README.md`.
+
 ---
 
 ## Architecture
@@ -306,20 +344,20 @@ flowchart TB
         Rev[6 reviewers]
     end
 
-    subgraph Skills["Skill layer (28 skills)"]
-        PS[6 phase skills]
+    subgraph Skills["Skill layer (31 skills)"]
+        PS[7 phase skills + route]
         QS[4 quality]
-        TS[14 tech-stack]
+        TS[16 tech-stack]
         MS[4 meta]
     end
 
-    subgraph Rules["Rule layer (42 rules)"]
+    subgraph Rules["Rule layer (47 rules)"]
         R1[7 coding]
         R2[5 architecture]
         R3[8 testing]
         R4[6 security]
         R5[5 performance]
-        R6[11 framework]
+        R6[16 framework]
     end
 
     subgraph State["State (artifact-derived)"]
@@ -341,7 +379,7 @@ flowchart TB
     Hooks -.inject ctx.-> Orch
 ```
 
-Run `bash tests/run-all.sh` for a full self-test (222 assertions across 11 layers).
+Run `bash tests/run-all.sh` for a full self-test (479 assertions across 27 layers).
 
 ---
 
@@ -442,10 +480,12 @@ your-project/
 │   │   ├── stack-signals.md         ← detected stack (markdown, @imported by CLAUDE.md)
 │   │   ├── learnings.jsonl           ← append-only reinforcement log
 │   │   └── integrations.json         ← UA/Graphify detection cache
-│   ├── specs/<task>-design.md        ← Phase 1 artifact
-│   ├── specs/<task>-contract.md      ← Phase 2 artifact
-│   ├── plans/<task>-plan.md          ← Phase 3 artifact
-│   ├── findings/<task>-findings.json ← Phase 5 artifact
+│   ├── state/route-<task>.json       ← Phase 0.5 route (quick|full + phase list)
+│   ├── specs/<task>-design.md        ← Brainstorm artifact (full route)
+│   ├── specs/<task>-contract.md      ← Spec artifact (full route)
+│   ├── plans/<task>-plan.md          ← Plan artifact (full route)
+│   ├── findings/<task>-findings.json ← Loop/verify artifact (decision pass|fail)
+│   ├── logs/{run-summary.jsonl,*.cost} ← Phase-5 cost telemetry (gitignored)
 │   └── reuse-scans/<task>.json       ← cache (gitignored)
 └── .gitignore                        ← ephemeral patterns appended
 ```
@@ -499,7 +539,7 @@ Found a security issue? Email maintainer directly — do not file a public issue
 
 | Component | Minimum | Tested |
 |-----------|---------|--------|
-| Claude Code | 2.1.126 | 2.1.126 |
+| Claude Code | 2.1.126 | 2.1.156 |
 | Java | 17 | 17, 21 |
 | Spring Boot | 3.x | 3.3.4 |
 | Gradle | 8.x | 8.10 |
@@ -519,14 +559,17 @@ Source is self-describing. Read the in-repo files to learn each layer:
 | Path | Content |
 |------|---------|
 | `agents/*.md` | 17 agent system prompts (orchestrator + 6 phase drivers + 4 specialists + 6 reviewers) |
-| `skills/*/SKILL.md` | 28 skills, each in 3-bucket layout (SKILL.md + references/ + scripts/ + assets/) |
-| `rules/{coding,architecture,testing,security,performance,framework}/*.md` | 42 rules with DO/DON'T + examples |
+| `skills/*/SKILL.md` | 31 skills, each in 3-bucket layout (SKILL.md + references/ + scripts/ + assets/) |
+| `rules/{coding,architecture,testing,security,performance,framework}/*.md` | 47 rules with DO/DON'T + examples |
 | `hooks/hooks.json` + `hooks/*.sh` | 8 hook events + Bash handlers |
 | `.mcp.json` | 5 MCP server configurations (Postgres, GitHub, Context7, Memory, Sequential-Thinking) |
 | `.claude-plugin/plugin.json` | Plugin manifest (name, version, userConfig) |
-| `bin/claudehut-state` | Read-only CLI for inspecting plugin state |
+| `bin/claudehut-state` / `bin/claudehut-finish` | Read-only state CLI; finish/`--abandon` task closer |
+| `skills/route/`, `skills/build/scripts/{run-parallel-group,budget-gate,…}.sh` | Routing triage; Phase-5 telemetry/budget helpers |
+| `sdk/` | Optional Agent-SDK orchestrator (`orchestrator.mjs`, `agent-config.json`, `lib/`, `test/`) — see `sdk/README.md` |
+| `modularization/modules.json` | Logical core/spring/messaging/quality partition + proof (`tests/static/module-coupling.sh`) |
 | `templates/` | Initial scaffolding for `.claudehut/` per project |
-| `tests/run-all.sh` | 11-layer self-test (222 assertions) |
+| `tests/run-all.sh` | 27-layer self-test (479 assertions) |
 | `tests/e2e/` | Simulated + real-Claude E2E |
 
 ---
@@ -534,24 +577,29 @@ Source is self-describing. Read the in-repo files to learn each layer:
 ## Testing
 
 ```bash
-# Full self-test (11 layers, 222 assertions)
+# Full self-test (27 layers, 479 assertions)
 bash tests/run-all.sh
 
-# Layer breakdown:
-#  L1 Static validation (JSON, bash, Mermaid, frontmatter, refs)
-#  L2 Unit tests (state.sh, validators, secret-scan)
-#  L3 Integration (hook scripts with mock JSON)
-#  L4 Coverage (rules indexed, agent/skill counts)
-#  L5 Pattern compliance (G+G+G+H per agent)
-#  L6 E2E simulated workflow (32 sub-steps, full 6 phases)
-#  L7 Bash 3.2 compatibility
-#  L8 Bidirectional reference integrity
-#  L9 Snapshot tests (golden hook outputs)
-#  L10 Hook performance (p95 within budget)
-#  L11 Reviewer dispatch (parallel + aggregation)
+# Layer breakdown (all deterministic — NO model calls; static fixtures):
+#  L1  Static validation (JSON, bash, frontmatter, refs) + L1.9 path->rule resolver
+#       + L1.10 stack-conditional rule SELECTION (init reaches a project)
+#  L2  Unit tests (state.sh route-aware derivation, validators, secret-scan)
+#  L3  Integration (hook scripts with mock JSON)        L4  Coverage / counts
+#  L5  Pattern compliance (G+G+G+H per agent)           L6  E2E simulated workflow
+#  L7  Bash 3.2 compatibility                           L8  Reference integrity
+#  L9  Snapshot (golden hook outputs)                   L10 Hook performance (p95)
+#  L11 Reviewer dispatch        L12/L16 dispatch contract + parallel build
+#  L14 Bootstrap skill (relaxed invocation rule)        L17 Eval scorer + variance
+#  L18 Adaptive routing         L19 JIT retrieval + usefulness    L20 retrieval eval
+#  L21 capability fixture       L22 cost telemetry + budget + model-tier
+#  L23 guardrail floor-invariant  L24 1%-rule relaxation + desc budget
+#  L25 phase-dispatch stays bespoke (6.4)  L26 SDK orchestrator  L27 module partition
 
-# Real Claude E2E (requires claude CLI, ~$1 in API cost)
+# Real Claude E2E (opt-in, costs tokens, NOT in CI)
 bash tests/e2e/run-real-claude.sh
+# Opt-in eval harness (real Claude, --max-budget-usd capped):
+bash evals/run.sh <task> <baseline|claudehut|sdk>      # then evals/compare.sh --variance
+node --test sdk/test/                                  # SDK control-flow unit tests (no $)
 ```
 
 CI: `.github/workflows/test.yml` runs full suite on push/PR. Two jobs: `ubuntu-latest` (canonical) and `macos-latest` (bash 3.2 compat).
@@ -575,12 +623,15 @@ When both are installed, ClaudeHut invokes them in parallel and merges results.
 
 | Version | Theme | Status |
 |---------|-------|--------|
-| **0.1.0** | MVP — 6-phase workflow, 17 agents, 28 skills, 42 rules, 8 hooks | **shipped** |
-| 0.2.0 | Federated memory across same-org private repos | planned |
-| 0.2.0 | LSP server for `application.yml` live-validation | planned |
-| 0.2.0 | Private marketplace template repo | planned |
+| **0.1.0** | MVP — 6-phase workflow, 17 agents, 31 skills, 47 rules, 8 hooks | **shipped** |
+| **0.2.0** | **Adaptive-depth routing** (`quick`/`full` triage) | **shipped** |
+| **0.2.0** | **Memory & retrieval reinforcement** (JIT relevance retrieval + usefulness prior + memory-MCP read) | **shipped** |
+| **0.2.0** | **Cost telemetry + worker-pool budget gate + per-role model tiers** | **shipped** |
+| **0.2.0** | **Native-primitive polish** — `paths:`-activated rules incl. nats/rabbitmq; relaxed skill-invocation rule; guardrail floor-invariant; module-partition manifest | **shipped** |
+| **0.2.0** | **Programmatic Agent-SDK orchestrator** (optional; parity-measured) | **shipped (experimental)** |
+| 0.2.x | Federated memory across same-org private repos; `application.yml` LSP; private marketplace template | planned |
 | 0.3.0 | Multi-language: Kotlin first-class, then Scala | planned |
-| 0.3.0 | Cost-aware model routing (Opus only when stakes justify) | planned |
+| 0.3.0 | Multi-plugin distribution (core/spring/messaging/quality) — partition proven; blocked on CC plugin-deps [#9444](https://github.com/anthropics/claude-code/issues/9444) | blocked-on-platform |
 | 1.0.0 | Stable schema for memory + state files | planned |
 
 Issues + RFCs welcome at <https://github.com/taipt1504/claudehut/issues>.
@@ -590,10 +641,10 @@ Issues + RFCs welcome at <https://github.com/taipt1504/claudehut/issues>.
 ## FAQ
 
 **Q: Does this work with non-Java projects?**
-A: It's optimized for Java/Spring. The 6-phase workflow + memory + reuse-scan are language-agnostic, but the 42 rules and 14 tech-stack skills are Java/Spring. Kotlin (JVM) is supported; Scala/Go/Python on the roadmap.
+A: It's optimized for Java/Spring. The 6-phase workflow + memory + reuse-scan are language-agnostic, but the 47 rules and 16 tech-stack skills are Java/Spring. Kotlin (JVM) is supported; Scala/Go/Python on the roadmap.
 
-**Q: Can I disable a phase for a quick fix?**
-A: No — that defeats the value. The plugin assumes every "quick fix" deserves design+contract+plan, because production incidents come from skipped steps. If you genuinely need a one-line typo fix, do it outside the plugin scope.
+**Q: Can I skip the heavy phases for a genuinely trivial fix?**
+A: Yes — that's exactly what **adaptive routing** is for. The triage step routes a trivial fix (typo, off-by-one, rename) to `quick` = `build` + `loop` only, skipping brainstorm/spec/plan/learn. It's *conservative*: anything that smells like a feature or a migration routes `full`, so the design gate is never silently skipped on real work. You don't disable phases by hand — the route decides, deterministically, and records why in `route-<task>.json`. (Override the suggestion only deliberately.)
 
 **Q: How does this compare to GitHub Copilot / Cursor?**
 A: Different layer. Copilot/Cursor are inline completion. ClaudeHut is workflow orchestration on top of Claude Code (full agentic CLI). Use Copilot for keystroke acceleration; use ClaudeHut for feature-scale work.
@@ -608,7 +659,7 @@ A: Preserved. ClaudeHut appends its section with HTML comment markers; existing 
 A: Every memory entry passes a regex scan for AWS/OpenAI/Anthropic keys, PEM blocks, JWTs, DB connection strings. Matches → entry rejected, only the pattern type is logged (never the value). Global promotion requires explicit opt-in per project.
 
 **Q: Can I customize rules per project?**
-A: Yes — `/claudehut:init` copies the plugin's 42 rules into `.claude/rules/`. Edit any file there to customize. `claudehut:init --refresh` leaves user-edited rules alone (SHA256-tracked in `.claude/rules/.checksums.json`); pass `--force` to overwrite. Each rule's `paths:` frontmatter controls when Claude auto-loads it.
+A: Yes — `/claudehut:init` copies the plugin's 47 rules into `.claude/rules/`. Edit any file there to customize. `claudehut:init --refresh` leaves user-edited rules alone (SHA256-tracked in `.claude/rules/.checksums.json`); pass `--force` to overwrite. Each rule's `paths:` frontmatter controls when Claude auto-loads it.
 
 **Q: What's the cost overhead?**
 A: SessionStart hook ≤ 151ms p95. Per-prompt overhead negligible. Reviewer subagents in Loop phase cost ~$0.40-0.50 per task (run in parallel). Skip-attempt prompts blocked at $0.
@@ -624,7 +675,7 @@ Contributions welcome. Workflow:
 
 1. Fork `taipt1504/claudehut`
 2. Create a feature branch: `git checkout -b feature/<slug>`
-3. Run the full test suite: `bash tests/run-all.sh` — must pass 222/222
+3. Run the full test suite: `bash tests/run-all.sh` — must pass 479/479
 4. Open PR against `main`
 5. CI runs ubuntu + macOS bash-compat + simulated E2E
 
