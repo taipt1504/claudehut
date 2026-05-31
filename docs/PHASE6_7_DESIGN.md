@@ -1,5 +1,13 @@
 # Phase 6 + 7 — right-sized best-practice plan (NOW vs DEFER)
 
+> **⚠️ Superseded for the DEFER section (2026-05-31).** This doc captured the
+> *original right-sized* plan (ship the high-leverage NOW items, defer the rest with
+> triggers). A later directive — *complete every phase, zero Deferred* — then resolved
+> **every** DEFER item below. Current dispositions (SHIPPED / EVALUATED-won't-adopt /
+> BLOCKED-ON-RESOURCE / BLOCKED-ON-PLATFORM, each with evidence) live in
+> `docs/UPGRADE_PLAN.md` Phase 6 + 7 status blocks. The NOW section here still
+> describes what shipped first; the DEFER section is historical.
+
 > Source: a 12-agent design workflow (research → proposals → adversarial judging →
 > synthesis). The roadmap's north star governs every call: **"smaller, measured,
 > adaptive — not larger."** A well-argued DEFER is a success, not a gap. Every NOW
