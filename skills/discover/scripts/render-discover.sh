@@ -21,7 +21,7 @@ PROJECT_ROOT="$(claudehut_project_root)"
 TASK="$(claudehut_active_task)"
 PHASE="$(claudehut_phase "$TASK")"
 
-echo "ClaudeHut · v0.1.0"
+echo "ClaudeHut · v0.1.1"
 echo
 echo "ACTIVE TASK"
 echo "  task_id: $TASK"

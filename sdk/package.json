@@ -1,6 +1,6 @@
 {
   "name": "claudehut-sdk-orchestrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Phase 7.1 — a programmatic ClaudeHut orchestrator on the Claude Agent SDK. Wraps the bash plugin runtime (state machine, dispatch-prompt enrichment, parallel build workers) behind a deterministic JS control loop.",
