@@ -61,7 +61,16 @@ pf="$(printf '%s' "$MAN" | jq -r '.tasks[0].prompt_file')"
   && ok "prep: per-task prompt carries worktree + absolute-path + result-block instructions" \
   || no "prep prompt" "$(head -2 "$pf" 2>/dev/null)"
 
-# (5) --cleanup removes the worktrees
+# (5) re-prep idempotency: re-running the same group must NOT leak the prior attempt's
+# worktrees (fixed manifest path → prior attempt is torn down before the new one).
+CLAUDE_PROJECT_DIR="$P" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+  bash "$PREP" "Add Foo and Bar" feature-demo "$P/.claudehut/plans/feature-demo-plan.md" 1 >/dev/null 2>&1
+reprep="$(git -C "$P" worktree list | grep -c 'claudehut/task-feature-demo')"
+[[ "$reprep" == "2" ]] \
+  && ok "prep re-run: idempotent — still 2 group-1 worktrees (prior attempt cleaned, no leak)" \
+  || no "prep re-prep" "leaked: $reprep group-1 worktrees after 2nd prep (expected 2)"
+
+# (6) --cleanup removes the worktrees
 bash "$PREP" --cleanup "$P/.claudehut/logs/group1-manifest.json" >/dev/null 2>&1
 [[ "$(git -C "$P" worktree list | wc -l | tr -d ' ')" == "1" ]] \
   && ok "prep --cleanup: worktrees removed (only main checkout remains)" \

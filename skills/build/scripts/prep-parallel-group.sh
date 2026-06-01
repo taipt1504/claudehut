@@ -21,18 +21,28 @@
 # (with its budget gate) remains for budget-critical / headless runs.
 set -euo pipefail
 
+# Tear down every worktree recorded in a manifest (idempotent). Used by --cleanup
+# AND by re-prep so a loop-retry / re-run of the same group does not leak the prior
+# attempt's worktrees (the manifest path is fixed per group → would otherwise be
+# overwritten with the new attempt, orphaning the old worktrees).
+_cleanup_from_manifest() {
+  local mf="$1" main wt tmp
+  [[ -f "$mf" ]] || return 0
+  main="$(jq -r '.main_repo // empty' "$mf" 2>/dev/null)"
+  [[ -n "$main" ]] || return 0
+  while IFS= read -r wt; do
+    [[ -n "$wt" ]] && git -C "$main" worktree remove --force "$wt" 2>/dev/null || true
+  done < <(jq -r '.tasks[].worktree' "$mf" 2>/dev/null)
+  tmp="$(jq -r '.tmp_dir // empty' "$mf" 2>/dev/null)"
+  [[ -n "$tmp" && -d "$tmp" ]] && rm -rf "$tmp"
+  git -C "$main" worktree prune 2>/dev/null || true
+}
+
 # ---- cleanup mode -----------------------------------------------------------
 if [[ "${1:-}" == "--cleanup" ]]; then
   MANIFEST="${2:?usage: prep-parallel-group.sh --cleanup <manifest-file>}"
   [[ -f "$MANIFEST" ]] || { echo "manifest not found: $MANIFEST" >&2; exit 1; }
-  MAIN_REPO="$(jq -r '.main_repo' "$MANIFEST")"
-  while IFS= read -r wt; do
-    [[ -n "$wt" ]] || continue
-    git -C "$MAIN_REPO" worktree remove --force "$wt" 2>/dev/null || true
-  done < <(jq -r '.tasks[].worktree' "$MANIFEST")
-  TMP_DIR="$(jq -r '.tmp_dir // empty' "$MANIFEST")"
-  [[ -n "$TMP_DIR" && -d "$TMP_DIR" ]] && rm -rf "$TMP_DIR"
-  git -C "$MAIN_REPO" worktree prune 2>/dev/null || true
+  _cleanup_from_manifest "$MANIFEST"
   echo "cleaned up worktrees from $MANIFEST"
   exit 0
 fi
@@ -71,6 +81,11 @@ while IFS= read -r n; do [[ -n "$n" ]] && TASK_NUMS+=("$n"); done < <(awk -v grp
 
 LOG_DIR="$MAIN_REPO/.claudehut/logs"; mkdir -p "$LOG_DIR"
 MANIFEST="$LOG_DIR/group${GROUP_NUM}-manifest.json"
+
+# Idempotent re-prep: a loop-retry / re-run of this group reuses the fixed manifest
+# path, so tear down any prior attempt's worktrees first (else they leak + a stale
+# branch could be cherry-picked).
+_cleanup_from_manifest "$MANIFEST"
 
 if [[ ${#TASK_NUMS[@]} -eq 0 ]]; then
   jq -n --arg r "$MAIN_REPO" --argjson g "$GROUP_NUM" \
