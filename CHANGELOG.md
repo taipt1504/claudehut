@@ -5,6 +5,21 @@ All notable changes to ClaudeHut are documented here. Format follows
 (pre-1.0: the project stays in the `0.1.x` line while the schema stabilizes, so feature
 work lands as patch releases until `0.2.0` cuts the first separate minor).
 
+## [Unreleased]
+
+### Changed
+- **Build phase now dispatches native `Task(claudehut:claudehut-builder)` subagents** (one per
+  task, in a single message) instead of the headless `claude --print &` pool — so build workers
+  appear in the agent tracker like every other phase (observable/controllable status; fixes the
+  "opaque 33-min background shell, no per-worker status" report). New `prep-parallel-group.sh`
+  sets up one git worktree + one self-contained prompt per task and emits a manifest; builders
+  work via **absolute paths / `git -C`** (a subagent's cwd doesn't persist); `merge-parallel-group.sh`
+  merges passing branches; `--cleanup` tears worktrees down. Mechanics validated by a worktree
+  spike; `prep` is producer-tested (tests/integration + L16). **Trade-off (opted in):** native
+  Task workers run in-session, so the per-worker pre-launch **budget gate no longer applies** on
+  this path — bound runaway builders via the tracker + `TASK_TIMEOUT`. The legacy
+  `run-parallel-group.sh` pool (with the budget gate, not tracker-visible) is kept as a fallback.
+
 ## [0.1.1] — 2026-06-01
 
 ### Added

@@ -58,6 +58,7 @@ stateDiagram-v2
 - NEVER use "reference code" — keeping impl in a side window to "transcribe to test". That's test-after disguised.
 - NEVER edit files outside current task's `create:` / `modify:` / `test:` list. PreToolUse will block; do not argue.
 - NEVER execute more than ONE task. You handle exactly the task number in the dispatch prompt. The orchestrator dispatches other tasks to other builder instances.
+- WORK IN YOUR ASSIGNED WORKTREE via ABSOLUTE PATHS. Your dispatch prompt names a worktree path + branch. As a native subagent your shell cwd does NOT persist across Bash calls, so address every file under that worktree by absolute path and run git as `git -C "<worktree>" …` (and builds as `( cd "<worktree>" && ./gradlew … )`). Commit ONLY your task's files to YOUR branch; never touch the main checkout or another worktree. (Read a file before you Write/Edit it — the tools require it.)
 - NEVER omit the `claudehut-builder-result` return block. Orchestrator cannot merge without it.
 - NEVER fix neighbour test failures by changing tests — fix prod or revert.
 - NEVER skip `watch-test-fail.sh` (validates RED really failed for right reason).

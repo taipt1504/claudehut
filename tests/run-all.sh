@@ -1519,12 +1519,31 @@ else
   fail "L16 run-parallel-group.sh" "missing 'worktree add' — no worktree isolation"
 fi
 
-# Build skill must reference run-parallel-group.sh
+# Build skill must reference run-parallel-group.sh (kept as the legacy/budget-gated fallback)
 if grep -q 'run-parallel-group.sh' "$build_skill"; then
-  pass "L16 build SKILL.md references run-parallel-group.sh"
+  pass "L16 build SKILL.md references run-parallel-group.sh (legacy fallback)"
 else
   fail "L16 build SKILL.md" "missing run-parallel-group.sh reference"
 fi
+
+# --- Native-Task build dispatch (PRIMARY path since v0.1.x — tracker-visible builders) ---
+prep_script="$PLUGIN_ROOT/skills/build/scripts/prep-parallel-group.sh"
+if [[ -x "$prep_script" ]]; then pass "L16 prep-parallel-group.sh exists + executable"; else fail "L16 build scripts" "prep-parallel-group.sh missing/not exec"; fi
+if grep -q 'worktree add' "$prep_script" && grep -qE 'manifest|tasks:' "$prep_script"; then
+  pass "L16 prep-parallel-group.sh creates worktrees + emits a manifest"
+else fail "L16 prep-parallel-group.sh" "missing worktree-add or manifest emission"; fi
+if grep -q 'Task(subagent_type' "$build_skill" && grep -q 'claudehut:claudehut-builder' "$build_skill" && grep -q 'prep-parallel-group.sh' "$build_skill"; then
+  pass "L16 build SKILL.md dispatches native Task(claudehut-builder) via prep-parallel-group.sh (tracker-visible primary)"
+else fail "L16 build SKILL.md" "native-Task dispatch contract missing (Task(subagent_type / claudehut:claudehut-builder / prep-parallel-group.sh)"; fi
+if grep -qi 'absolute path' "$builder_agent" && grep -q 'git -C' "$builder_agent"; then
+  pass "L16 builder persona: worktree absolute-path discipline (git -C; native Task has no persistent cwd)"
+else fail "L16 builder agent" "missing absolute-path/git -C worktree discipline for native Task"; fi
+if bash "$PLUGIN_ROOT/tests/integration/prep-parallel-group-test.sh" >/tmp/prep.log 2>&1; then
+  pass "L16 prep-parallel-group producer test ($(grep -oE 'Pass=[0-9]+' /tmp/prep.log | head -1) — worktrees/manifest/prompts/cleanup verified, no model calls)"
+else
+  fail "L16 prep-parallel-group" "producer test failed (see /tmp/prep.log)"
+fi
+unset prep_script
 
 # CLAUDEHUT_TASK_ID env override must exist in state.sh (worktree builder fix)
 state_sh="$PLUGIN_ROOT/hooks/lib/state.sh"

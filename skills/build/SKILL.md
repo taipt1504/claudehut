@@ -1,11 +1,13 @@
 ---
 name: build
-description: Phase 4 of ClaudeHut — execute the approved plan by dispatching each parallel group as concurrent builder subagents (each in its own git worktree), then merging. Groups run in order; tasks within a group run simultaneously. Strict TDD per task. Triggers when phase=build.
+description: Phase 4 of ClaudeHut — execute the approved plan by dispatching each parallel group as concurrent native builder subagents (Task, each in its own git worktree), then merging. Groups run in order; tasks within a group run simultaneously. Strict TDD per task. Triggers when phase=build.
 ---
 
 ## Dispatch contract (read this FIRST)
 
-This phase executes parallel groups via **`scripts/run-parallel-group.sh`** — one `claude --print` process per task, each in an isolated git worktree. Workers are FULL headless sessions (not Agent-tool subagents), so they load skills/hooks normally; persona guardrails are injected via `--append-system-prompt` and the model is pinned to `sonnet` for cost. Concurrency is guaranteed at the OS level; the script handles worktree lifecycle, result parsing, merge-back, and the per-group gate automatically.
+This phase executes each parallel group as **native `Task(subagent_type="claudehut:claudehut-builder")` subagents — one per task, all dispatched in a SINGLE message** so they run concurrently AND appear in the agent tracker (you can see + control each builder's status, exactly like every other phase). `scripts/prep-parallel-group.sh` does the setup — one isolated **git worktree** + one ready-to-dispatch prompt per task — and prints a JSON manifest; you dispatch the Tasks from it; `scripts/merge-parallel-group.sh` cherry-picks the passing branches.
+
+Trade-off (since v0.1.x, chosen for observability): native Task workers run **in-session**, so there is **NO per-worker pre-launch budget cap**. Bound runaway builders with attention + the now-visible tracker. The legacy headless pool **`scripts/run-parallel-group.sh`** — which forks `claude --print` workers WITH the per-worker budget gate but is NOT tracker-visible — remains as a fallback for budget-critical / headless runs (see Scripts, end of file).
 
 ### Parallel-group execution loop
 
@@ -22,17 +24,22 @@ GROUPS  = sorted distinct "Parallel group:" values in PLAN (1, 2, 3 …)
 Run: scripts/scaffold-stubs.sh "$ARGUMENTS" TASK_ID
   Exit 1 (stubs do not compile) → surface to user; STOP
 
-# ── Group loop ────────────────────────────────────────────────────────
+# ── Group loop (native Task) ──────────────────────────────────────────
 for G in GROUPS:
-  Run: scripts/run-parallel-group.sh "$ARGUMENTS" TASK_ID PLAN G
-  # subagent_type = "claudehut:claudehut-builder"  (each worker follows builder instructions)
-  # script merges passing branches, then runs a per-group compile+test gate
-  Exit 0 → proceed to next group
-  Exit 1 → surface failures (worker fail OR gate fail) to user; await decision
-  Exit 3 → BUDGET HALT (worker pool, Phase 5.1): read .claudehut/state/budget-breach.json
-           and surface spend_usd / cap_usd / tasks_unstarted to the user; do NOT retry the
-           group. Committed work from prior groups is preserved. Raising
-           budget.max_worker_pool_usd (or routing quick) is the remedy.
+  1. Run: scripts/prep-parallel-group.sh "$ARGUMENTS" TASK_ID PLAN G
+     → creates one git worktree + one prompt per unchecked task; prints a JSON
+       manifest (also at .claudehut/logs/groupG-manifest.json). Empty tasks → skip group.
+  2. For EACH manifest entry, dispatch ONE:
+       Task(subagent_type="claudehut:claudehut-builder", prompt = contents of entry.prompt_file)
+     ALL IN A SINGLE MESSAGE so the builders run concurrently and show in the tracker.
+     NEVER give one builder more than one task.
+  3. Collect each builder's claudehut-builder-result block. Gather "task_num:branch"
+     for every entry whose verify_status == pass.
+  4. Merge: scripts/merge-parallel-group.sh TASK_ID PLAN <num:branch> [<num:branch> …]
+     (cherry-picks the passing worktree branches onto the main checkout + ticks checkboxes).
+  5. Cleanup: scripts/prep-parallel-group.sh --cleanup .claudehut/logs/groupG-manifest.json
+  6. Per-group gate (main checkout): ./gradlew compileTestJava test
+     Any worker fail OR gate fail → surface to user; await decision before the next group.
 
 After last group:
   ./gradlew check  (or mvn verify)
@@ -40,7 +47,7 @@ After last group:
 ```
 
 `scaffold-stubs.sh` runs once: generates + commits compiling stubs from `contract.md` + plan.
-`run-parallel-group.sh` per group: creates worktrees, launches parallel `claude --print` workers, waits, parses `claudehut-builder-result` blocks, merges passing tasks, then gates on compile+test before returning.
+`prep-parallel-group.sh` per group: creates **worktrees** + per-task prompts + a manifest (NO model calls); you dispatch native Task builders from it; `merge-parallel-group.sh` merges the passing branches.
 
 ---
 
@@ -48,15 +55,18 @@ After last group:
 
 Execute the plan with strict TDD discipline. The ONLY phase where production code is written.
 
-## Quick start
+## Quick start (native Task builders — visible in the agent tracker)
 
 1. Read `.claudehut/plans/<id>-plan.md`. Extract all distinct `Parallel group:` values.
 2. Run `scripts/scaffold-stubs.sh "$ARGUMENTS" <task-id>` once. Non-zero exit → stop, surface.
-3. For each group G in order: run `scripts/run-parallel-group.sh "$ARGUMENTS" <task-id> <plan-file> G`.
-4. On non-zero exit (worker fail or per-group gate fail): surface failures; await decision before next group.
-5. After last group: `./gradlew check`; advance phase to `loop`.
+3. For each group G in order:
+   a. `scripts/prep-parallel-group.sh "$ARGUMENTS" <task-id> <plan-file> G` → worktrees + prompts + manifest.
+   b. Dispatch one `Task(subagent_type="claudehut:claudehut-builder", prompt=<prompt_file>)` per manifest entry, **all in one message** (concurrent + tracked). One task per builder.
+   c. Collect `claudehut-builder-result` blocks → pass `<num:branch>` of passing tasks to `scripts/merge-parallel-group.sh <task-id> <plan-file> …`.
+   d. `scripts/prep-parallel-group.sh --cleanup .claudehut/logs/groupG-manifest.json`; then `./gradlew compileTestJava test`. Fail → surface; await decision.
+4. After last group: `./gradlew check`; advance phase to `loop`.
 
-Each builder process handles its task autonomously (RED → GREEN → REFACTOR → commit → emit result), branching from the stub commit.
+Each builder works in its assigned worktree via **ABSOLUTE PATHS** (its shell cwd does NOT persist across Bash calls; use `git -C "<worktree>"`): RED → GREEN → REFACTOR → commit → emit result, branching from the stub commit.
 
 ## Hard rules
 
@@ -85,10 +95,11 @@ The PreToolUse hook auto-loads matching rules:
 ## Scripts
 
 - `scripts/scaffold-stubs.sh "<user-intent>" <task-id>` — sequential pre-build step; generate + commit compiling stubs from contract + plan so parallel workers branch from real types.
-- `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — dispatch all unchecked tasks in a parallel group as concurrent `claude --print` processes; merges passing branches and runs a per-group compile+test gate. Tunables: `CLAUDEHUT_WORKER_MODEL` (default sonnet), `CLAUDEHUT_TASK_TIMEOUT` (default 900s).
-- `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — generate a single-task builder prompt (task-num selects which plan task block to include).
-- `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each worktree branch onto main and tick plan checkboxes.
-- Surgical-scope enforcement is inline in the wired PreToolUse hook (`hooks/pre-tool.sh`); it denies Write/Edit of files not in the current task's plan. (`scripts/pre-write-scope-check.sh` is a legacy standalone of the same logic, not wired.)
+- `scripts/prep-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — **native-Task setup (primary)**: create one git worktree + one self-contained prompt per unchecked task and print a JSON manifest the orchestrator dispatches `Task(claudehut:claudehut-builder)` from. `--cleanup <manifest>` removes the worktrees after merge. NO model calls.
+- `scripts/dispatch-prompt.sh "<user-intent>" <task-num>` — single-task builder prompt (embedded by prep into each manifest prompt; task-num selects the plan task block).
+- `scripts/merge-parallel-group.sh <task-id> <plan-file> [task-num:branch ...]` — cherry-pick each passing worktree branch onto main and tick plan checkboxes.
+- `scripts/run-parallel-group.sh "<user-intent>" <task-id> <plan-file> <group-num>` — **legacy fallback**: forks headless `claude --print` workers in worktrees (OS-level parallelism + the Phase-5 per-worker budget gate) instead of native Task; NOT tracker-visible. Use for budget-critical / headless runs. Tunables: `CLAUDEHUT_WORKER_MODEL` (default sonnet), `CLAUDEHUT_TASK_TIMEOUT` (default 900s). **Exit 3 → BUDGET HALT**: reads `.claudehut/state/budget-breach.json` (spend_usd / cap_usd / tasks_unstarted); do NOT retry — raise `budget.max_worker_pool_usd` or route quick.
+- Surgical-scope enforcement is inline in the wired PreToolUse hook (`hooks/pre-tool.sh`); it denies Write/Edit of files not in the current task's plan.
 
 ## Exit criteria
 
