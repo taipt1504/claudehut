@@ -401,7 +401,7 @@ Repo ships `.claude-plugin/marketplace.json`, so Claude Code treats it as a sing
 Defaults to `main` branch. To pin a tagged version:
 
 ```
-> /plugin marketplace add taipt1504/claudehut@v0.1.1
+> /plugin marketplace add taipt1504/claudehut@v0.1.2
 > /plugin install claudehut@claudehut
 ```
 
@@ -621,7 +621,7 @@ When both are installed, ClaudeHut invokes them in parallel and merges results.
 
 ## Roadmap
 
-Shipped releases are detailed in [CHANGELOG.md](CHANGELOG.md). Current version: **0.1.1**.
+Shipped releases are detailed in [CHANGELOG.md](CHANGELOG.md). Current version: **0.1.2**.
 
 | Version | Theme | Status |
 |---------|-------|--------|
@@ -631,6 +631,7 @@ Shipped releases are detailed in [CHANGELOG.md](CHANGELOG.md). Current version: 
 | **0.1.1** | **Cost telemetry + worker-pool budget gate + per-role model tiers** | **shipped** |
 | **0.1.1** | **Native-primitive polish** — `paths:`-activated rules incl. nats/rabbitmq; relaxed skill-invocation rule; guardrail floor-invariant; module-partition manifest | **shipped** |
 | **0.1.1** | **Programmatic Agent-SDK orchestrator** (optional; parity-measured) | **shipped (experimental)** |
+| **0.1.2** | **Native-`Task` build dispatch** — build workers run as tracked subagents (observable status), not an opaque `claude --print` pool | **shipped** |
 | 0.2.x | Federated memory across same-org private repos; `application.yml` LSP; private marketplace template | planned |
 | 0.3.0 | Multi-language: Kotlin first-class, then Scala | planned |
 | 0.3.0 | Multi-plugin distribution (core/spring/messaging/quality) — partition proven; blocked on CC plugin-deps [#9444](https://github.com/anthropics/claude-code/issues/9444) | blocked-on-platform |

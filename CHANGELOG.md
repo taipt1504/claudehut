@@ -5,7 +5,7 @@ All notable changes to ClaudeHut are documented here. Format follows
 (pre-1.0: the project stays in the `0.1.x` line while the schema stabilizes, so feature
 work lands as patch releases until `0.2.0` cuts the first separate minor).
 
-## [Unreleased]
+## [0.1.2] — 2026-06-01
 
 ### Changed
 - **Build phase now dispatches native `Task(claudehut:claudehut-builder)` subagents** (one per
@@ -69,5 +69,6 @@ work lands as patch releases until `0.2.0` cuts the first separate minor).
   project-scoped memory; parallel reviewer subagents; strict-TDD enforcement; bash-3.2 test
   harness; single-plugin marketplace.
 
+[0.1.2]: https://github.com/taipt1504/claudehut/releases/tag/v0.1.2
 [0.1.1]: https://github.com/taipt1504/claudehut/releases/tag/v0.1.1
 [0.1.0]: https://github.com/taipt1504/claudehut/releases/tag/v0.1.0
