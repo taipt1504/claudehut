@@ -2,48 +2,24 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume",
+        "matcher": "startup|clear|compact",
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh",
-            "timeout": 30
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh", "timeout": 15 }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/prompt-router.sh",
-            "timeout": 15
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-phase.sh", "timeout": 10 }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool.sh",
-            "args": ["--tool", "edit"],
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool.sh",
-            "args": ["--tool", "bash"],
-            "timeout": 10
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-write.sh" }
         ]
       }
     ],
@@ -51,58 +27,28 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/post-tool.sh",
-            "async": true,
-            "timeout": 60
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "matcher": "claudehut-.*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/subagent-stop.sh",
-            "timeout": 30
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "if": "Edit(*.java)|Write(*.java)", "async": true }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh",
-            "timeout": 60
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-done.sh" }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/verify-subagent.sh" }
         ]
       }
     ],
     "PreCompact": [
       {
         "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pre-compact.sh",
-            "timeout": 15
-          }
-        ]
-      }
-    ],
-    "FileChanged": [
-      {
-        "matcher": "CLAUDE\\.md|\\.claudehut/memory/.*|\\.claude/rules/.*\\.md",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/file-changed.sh",
-            "timeout": 10
-          }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/persist-state.sh", "async": true }
         ]
       }
     ]

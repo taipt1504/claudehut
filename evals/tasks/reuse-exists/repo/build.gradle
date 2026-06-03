@@ -1,0 +1,8 @@
+plugins { id 'java'; id 'org.springframework.boot' version '3.2.0' }
+group = 'com.example'
+java { sourceCompatibility = '17' }
+repositories { mavenCentral() }
+dependencies {
+  implementation 'org.springframework.boot:spring-boot-starter-web'
+  testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}

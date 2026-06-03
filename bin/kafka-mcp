@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# kafka-mcp — STUB (intentionally non-functional in v1).
+#
+# DESIGN STATUS: 08 §3 specifies a custom stdio MCP server for Kafka because no production-ready
+# public Kafka MCP exists. Its implementation LANGUAGE was left unspecified by the design, and a real
+# implementation needs a language toolchain + a Kafka client library — a build dependency that is NOT
+# in the roadmap. Per the build decision, v1 ships this as a documented stub; a real binary is a
+# follow-up. The plugin degrades gracefully: an unavailable MCP server is reported by /mcp and the
+# workflow still runs (08 §6.3).
+#
+# INTENDED INTERFACE (stdio JSON-RPC MCP, read-biased) — to implement later:
+#   list_topics            -> topics with partition count + replication factor          (read)
+#   describe_topic         -> partition leaders/replicas/ISR + config for one topic      (read)
+#   list_consumer_groups   -> all consumer groups and their states                       (read)
+#   consumer_group_lag     -> per-partition lag (current vs end offset) for a group       (read)
+#   get_offsets            -> current + end offsets per partition of a topic              (read)
+#   peek_messages          -> up to N messages from a topic-partition at an offset        (read)
+#   reset_offsets          -> reset a group's offsets (earliest/latest/specific)   (DESTRUCTIVE — gate behind permissions.ask)
+#
+# ENV (from `claude mcp add -e …`): KAFKA_BOOTSTRAP_SERVERS, KAFKA_SECURITY_PROTOCOL (default PLAINTEXT).
+#
+# Behavior: announce stub status on stderr and exit non-zero so Claude Code marks the server as
+# failed-to-connect (non-fatal) rather than hanging an stdio session.
+echo "claudehut kafka-mcp: stub — not implemented in v1 (see file header for the intended tool interface)." >&2
+exit 1
