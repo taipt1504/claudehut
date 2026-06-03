@@ -1,6 +1,0 @@
-{
-  "class": "trivial",
-  "description": "One-line arithmetic bug fix; no new types. Highest router signal (5 phases unjustified).",
-  "language": "java",
-  "expected_touches": 1
-}

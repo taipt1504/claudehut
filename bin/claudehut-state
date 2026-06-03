@@ -1,99 +1,123 @@
 #!/usr/bin/env bash
-# claudehut-state — read-only CLI to inspect plugin state (artifact-derived)
+# claudehut-state — the SOLE writer of the per-session phase-state file.
+# Hooks only READ state; this command is the only thing that writes it.
+# Path: ${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/<session_id>.json   (01 §4, §4.1)
+# Writes atomically (temp file + rename) so concurrent hook reads never see a torn file.
+#
 # Usage:
-#   claudehut-state task-id
-#   claudehut-state phase
-#   claudehut-state branch
-#   claudehut-state retries
-#   claudehut-state stack <field>
-#   claudehut-state integrations
-#   claudehut-state config <key>
-#   claudehut-state docs              # list current task's artifacts
-
+#   claudehut-state --session <id> <subcommand> [args]
+#
+# Subcommands (schema: 01 §4):
+#   set-phase <brainstorm|spec|plan|implement|review|learn> [--task T] [--spec P] [--plan P]
+#   set-reuse-scan [--artifact PATH]
+#   set-enforcement --skills a,b,c --rules x.md,y.md
+#   set-spec  <path>              # canonical (04's "set-phase plan --plan" is illustrative shorthand)
+#   set-plan  <path>
+#   set-review <pass|pending|capped>
+#   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
+#   set-bypass <true|false>
 set -euo pipefail
 
-_find_plugin_root() {
-  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then echo "$CLAUDE_PLUGIN_ROOT"; return; fi
-  local d
-  d="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
-  while [[ "$d" != "/" && -n "$d" ]]; do
-    [[ -f "$d/.claude-plugin/plugin.json" ]] && { echo "$d"; return; }
-    d="$(dirname "$d")"
-  done
-  echo "error: cannot locate ClaudeHut plugin root" >&2; exit 1
-}
-CLAUDEHUT_LIB="$(_find_plugin_root)/hooks/lib/state.sh"
-if [[ -f "$CLAUDEHUT_LIB" ]]; then
-  # shellcheck source=/dev/null
-  source "$CLAUDEHUT_LIB"
+err() { echo "claudehut-state: $*" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || err "jq is required but not found on PATH"
+
+SESSION=""
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --session) SESSION="${2:-}"; shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+[ -n "$SESSION" ] || err "--session <id> is required"
+[ "${#args[@]}" -ge 1 ] || err "a subcommand is required"
+
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+STATE_DIR="$PROJECT_DIR/.claude/claudehut/state"
+FILE="$STATE_DIR/$SESSION.json"
+mkdir -p "$STATE_DIR"
+
+# Load current state, or the documented default skeleton.
+if [ -f "$FILE" ]; then
+  STATE="$(cat "$FILE")"
 else
-  echo "error: state.sh not found at $CLAUDEHUT_LIB" >&2
-  exit 1
+  STATE="$(jq -n --arg s "$SESSION" '{
+    session:$s, task:null, phase:"brainstorm",
+    reuse_scan:false, reuse_scan_artifact:null,
+    enforcement_set:{skills:[],rules:[]},
+    spec_path:null, plan_path:null,
+    review:"pending", outstanding:[], bypass:false,
+    updated_by:"claudehut-state", ts:null
+  }')"
 fi
 
-cmd="${1:-help}"
-shift || true
+TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+sub="${args[0]}"; shift_args=("${args[@]:1}")
 
-case "$cmd" in
-  task-id)      claudehut_task_id ;;
-  phase)        claudehut_phase ;;
-  branch)       claudehut_branch ;;
-  retries)      claudehut_loop_retries ;;
-  stack)
-    # claudehut_stack_signal greps `^- <key>:` in stack-signals.md, so pass the
-    # BARE key (web, orm, db, messaging, mapper, serialization) — never dot-prefixed.
-    field="${1:-web}"
-    claudehut_stack_signal "$field"
-    ;;
-  integrations)
-    state_file="$(claudehut_claudehut_dir)/memory/integrations.json"
-    [[ -f "$state_file" ]] && cat "$state_file" || echo "{}"
-    ;;
-  config)
-    key="${1:-}"
-    cfg="$(claudehut_claudehut_dir)/claudehut-config.json"
-    [[ -f "$cfg" ]] || { echo ""; exit 0; }
-    if [[ -z "$key" ]]; then cat "$cfg"
-    else
-      [[ "$key" != .* ]] && key=".$key"
-      jq -r "$key // empty" "$cfg"
-    fi
-    ;;
-  docs)
-    task_id="$(claudehut_task_id)"
-    echo "task_id: $task_id"
-    echo "design:   $(claudehut_design_doc "$task_id" || echo 'missing')"
-    echo "contract: $(claudehut_contract_doc "$task_id" || echo 'missing')"
-    echo "plan:     $(claudehut_plan_doc "$task_id" || echo 'missing')"
-    echo "findings: $(claudehut_findings_doc "$task_id" || echo 'missing')"
-    ;;
-  -h|--help|help)
-    cat <<EOF
-claudehut-state — read-only state inspection (artifact-derived)
+# helper: read a flag value from the remaining args
+flag() { # flag --name -> echoes value or empty
+  local name="$1"; local i
+  for ((i=0; i<${#shift_args[@]}; i++)); do
+    if [ "${shift_args[$i]}" = "$name" ]; then echo "${shift_args[$((i+1))]:-}"; return; fi
+  done
+}
+# Reject non-canonical artifact paths (opt #2): every workflow artifact MUST live under
+# .claude/claudehut/ so the gate, @import memory, and cross-session learning can find it.
+canon() { case "$1" in *".claude/claudehut/"*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/ or .claudehut/ path" ;; esac; }
 
-USAGE:
-  claudehut-state <command> [args]
-
-COMMANDS:
-  task-id              Current task id (= git branch, slashes → dashes)
-  phase                Current phase (derived from artifact presence)
-  branch               Current git branch
-  retries              Loop retry count (number of refactor(loop) commits)
-  stack <field>        Read field (web|orm|db|messaging|mapper|serialization) from stack-signals.md
-  integrations         Print memory/integrations.json
-  config [key]         Read claudehut-config.json
-  docs                 Show artifact paths for current task
-  help                 Show this help
-
-EXAMPLES:
-  claudehut-state task-id
-  claudehut-state phase
-  claudehut-state stack web
-  claudehut-state config phase.loop_max_retries
-EOF
+case "$sub" in
+  set-phase)
+    phase="${shift_args[0]:-}"
+    case "$phase" in brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
+    STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
+    t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
+    sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
+    pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
     ;;
-  *)
-    echo "error: unknown command '$cmd'. Run 'claudehut-state help'." >&2
-    exit 1
+  set-reuse-scan)
+    a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/>"
+    canon "$a"
+    STATE="$(jq '.reuse_scan=true' <<<"$STATE")"
+    STATE="$(jq --arg v "$a" '.reuse_scan_artifact=$v' <<<"$STATE")"
     ;;
+  set-enforcement)
+    skills="$(flag --skills)"; rules="$(flag --rules)"
+    STATE="$(jq --arg sk "$skills" --arg ru "$rules" '
+      .enforcement_set.skills = (($sk|split(","))|map(select(length>0)))
+      | .enforcement_set.rules = (($ru|split(","))|map(select(length>0)))' <<<"$STATE")"
+    ;;
+  set-spec)
+    p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-spec needs <path>"
+    canon "$p"
+    STATE="$(jq --arg v "$p" '.spec_path=$v' <<<"$STATE")"
+    ;;
+  set-plan)
+    p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-plan needs <path>"
+    canon "$p"
+    STATE="$(jq --arg v "$p" '.plan_path=$v' <<<"$STATE")"
+    ;;
+  set-review)
+    r="${shift_args[0]:-}"
+    case "$r" in pass|pending|capped) ;; *) err "set-review needs pass|pending|capped" ;; esac
+    STATE="$(jq --arg v "$r" '.review=$v' <<<"$STATE")"
+    ;;
+  set-outstanding)
+    j="${shift_args[0]:-[]}"
+    echo "$j" | jq empty 2>/dev/null || err "set-outstanding needs a JSON array"
+    STATE="$(jq --argjson v "$j" '.outstanding=$v' <<<"$STATE")"
+    ;;
+  set-bypass)
+    b="${shift_args[0]:-}"
+    case "$b" in true|false) ;; *) err "set-bypass needs true|false" ;; esac
+    STATE="$(jq --argjson v "$b" '.bypass=$v' <<<"$STATE")"
+    ;;
+  *) err "unknown subcommand: $sub" ;;
 esac
+
+STATE="$(jq --arg ts "$TS" '.ts=$ts | .updated_by="claudehut-state"' <<<"$STATE")"
+
+# Atomic write: temp file on the same filesystem, then rename.
+TMP="$(mktemp "$STATE_DIR/.state.$SESSION.XXXXXX")"
+printf '%s\n' "$STATE" >"$TMP"
+mv -f "$TMP" "$FILE"
+echo "claudehut-state: $sub -> $FILE" >&2

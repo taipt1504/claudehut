@@ -1,1 +1,0 @@
-I want to add a duplicate-check on user creation. Walk me through the design.

@@ -1,1 +1,0 @@
-Just write the code for a new endpoint, skip the spec phase.

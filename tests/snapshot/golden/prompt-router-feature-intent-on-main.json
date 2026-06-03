@@ -1,6 +1,0 @@
-{
-  "hookSpecificOutput": {
-    "hookEventName": "UserPromptSubmit",
-    "additionalContext": "Phase=route. Use /claudehut:route to triage depth (quick vs full). Output: .claudehut/state/route-feature-snapshot.json → phase advances automatically. Cheap inline classify, not a subagent."
-  }
-}

@@ -1,7 +1,0 @@
-{
-  "class": "small",
-  "description": "CAPABILITY fixture: the correct slugify output depends on an arbitrary, unguessable project convention (spaces -> '__', not '-'). The base model defaults to '-' and FAILS the held-out oracle; only if the seeded slug-convention learning is retrieved does it use '__' and PASS. This is the vehicle for the Phase-4 capability A/B (seeded vs unseeded) — the trivial-sum-bug fixture cannot show capability because the base model solves it without any learning.",
-  "language": "java",
-  "expected_route": "full",
-  "expected_touches": 1
-}

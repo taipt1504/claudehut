@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# claudehut-init — DETERMINISTIC project-plane generator (opt #3).
+# Detects the stack from build files (grep/sed), renders the memory templates + the stack-gated rule
+# tree into the project's canonical .claude/claudehut/ and .claude/rules/, and wires the @import slice —
+# with ZERO model reliance for the file writes. The init SKILL invokes this, then may ENRICH the
+# "TBD — refine" stubs (best-effort, non-critical). Idempotent + non-interactive: skips existing
+# plugin-owned files (regenerate with --refresh), and NEVER clobbers learnings.jsonl.
+#
+# Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect]
+#   PROJECT_DIR  default ${CLAUDE_PROJECT_DIR:-$PWD}
+#   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl)
+#   --detect     print detected stack values as JSON and exit (no writes) — used by the eval harness
+set -uo pipefail
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+TPL="$PLUGIN_ROOT/templates"
+REFRESH=false; DETECT=false; PROJ=""
+for a in "$@"; do case "$a" in
+  --refresh) REFRESH=true ;;
+  --detect)  DETECT=true ;;
+  -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
+  *) PROJ="$a" ;;
+esac; done
+PROJ="${PROJ:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+cd "$PROJ" 2>/dev/null || { echo "claudehut-init: cannot cd '$PROJ'" >&2; exit 1; }
+
+# ---------------- detection (grep/sed on build files) ----------------
+BF="$(cat pom.xml build.gradle build.gradle.kts 2>/dev/null || true)"
+has() { printf '%s' "$BF" | grep -qiE "$1"; }
+
+if [ -f pom.xml ]; then BUILD_TOOL=maven; { [ -f mvnw ] && VERIFY="./mvnw verify"; } || VERIFY="mvn verify"
+elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then BUILD_TOOL=gradle; { [ -f gradlew ] && VERIFY="./gradlew build"; } || VERIFY="gradle build"
+else BUILD_TOOL=unknown; VERIFY="(unknown)"; fi
+
+JAVA_VERSION="$(printf '%s' "$BF" | grep -oiE '<java.version>[0-9]+|sourceCompatibility[^0-9]{0,4}[0-9]+|JavaVersion.VERSION_[0-9]+|languageVersion[^0-9]{0,8}[0-9]+' | grep -oE '[0-9]+' | head -1)"
+[ -n "$JAVA_VERSION" ] || JAVA_VERSION="(unknown)"
+
+if   has 'spring-boot-starter-webflux'; then WEB=webflux; REACTIVE_OR_MVC="reactive (WebFlux)"; SPRING_MODULES="Spring WebFlux"
+elif has 'spring-boot-starter-web';     then WEB=mvc;     REACTIVE_OR_MVC="servlet (MVC)";     SPRING_MODULES="Spring MVC"
+else WEB=none; REACTIVE_OR_MVC="(no web starter)"; SPRING_MODULES="Spring Boot"; fi
+
+if   has 'r2dbc'; then ORM=r2dbc; ORM_S="R2DBC"
+elif has 'data-jpa|hibernate'; then ORM=jpa; ORM_S="JPA/Hibernate"
+else ORM=none; ORM_S="(none)"; fi
+
+if   has 'postgresql'; then DB=postgresql
+elif has 'mysql';      then DB=mysql
+else DB="(none)"; fi
+
+if   has 'spring-kafka|kafka-clients'; then MSG=kafka
+elif has 'starter-amqp|rabbit';        then MSG=rabbitmq
+elif has 'io\.nats|[^a-z.]nats[^a-z]'; then MSG=nats
+else MSG=none; fi
+
+if has 'data-redis|lettuce|jedis'; then CACHE=redis; CACHE_S="Redis"; else CACHE=none; CACHE_S="(none)"; fi
+if has 'mapstruct'; then MAPPER=mapstruct; else MAPPER=none; fi
+
+PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<artifactId>//')"
+[ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(grep -hm1 -oE "rootProject.name[^=]*=[^'\"]*['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]//")"
+[ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(basename "$PROJ")"
+
+# base package = deepest common package prefix of all src/main/java sources (survives a single file)
+BASE_PACKAGE="$(find src/main/java -name '*.java' 2>/dev/null \
+  | sed -E 's#.*src/main/java/##; s#/[^/]*\.java$##' | grep -v '^$' | sort -u \
+  | awk 'NR==1{p=$0;next}{n=split(p,a,"/");split($0,b,"/");c="";for(i=1;i<=n;i++){if(a[i]==b[i])c=(c==""?a[i]:c"/"a[i]);else break};p=c} END{gsub(/\//,".",p);print p}')"
+[ -n "$BASE_PACKAGE" ] || BASE_PACKAGE="(unknown)"
+
+ENTRY_POINTS="$(grep -rlE '@(RestController|Controller|KafkaListener|RabbitListener|Component)' src/main/java --include='*.java' 2>/dev/null | sed 's#.*/##' | head -6 | paste -sd, - | sed 's/,/, /g')"
+[ -n "$ENTRY_POINTS" ] || ENTRY_POINTS="(none detected)"
+PACKAGE_TREE="$(find src/main/java -type d 2>/dev/null | sed -E 's#.*src/main/java/?##' | grep -v '^$' | sort | head -30 | paste -sd, - | sed 's/,/, /g')"
+[ -n "$PACKAGE_TREE" ] || PACKAGE_TREE="(flat)"
+if [ "$BUILD_TOOL" = maven ]; then MODULE_LIST="$(grep -oE '<module>[^<]+' pom.xml 2>/dev/null | sed 's/<module>/- /' | paste -sd' ' - )"; else MODULE_LIST="$(grep -hoE "include\(?['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]/- /" | paste -sd' ' -)"; fi
+[ -n "$MODULE_LIST" ] || MODULE_LIST="- (single module)"
+TEST_STRATEGY="JUnit 5"; has 'testcontainers' && TEST_STRATEGY="$TEST_STRATEGY + Testcontainers"; has 'wiremock' && TEST_STRATEGY="$TEST_STRATEGY + WireMock"
+LAYER_CONVENTION="web -> service -> domain -> persistence (domain depends on nothing)"
+
+if $DETECT; then
+  printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","project":"%s","base_package":"%s"}\n' \
+    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$PROJECT_NAME" "$BASE_PACKAGE"
+  exit 0
+fi
+
+# ---------------- render helpers (portable: temp + mv; no sed -i) ----------------
+TBD="TBD — refine (claudehut-init seeded; enrich during use)"
+esc() { printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'; }   # escape for sed replacement with | delimiter
+SED=()
+add() { SED+=( -e "s|{{$1}}|$(esc "$2")|g" ); }
+add PROJECT_NAME "$PROJECT_NAME"; add BUILD_TOOL "$BUILD_TOOL"; add VERIFY_COMMAND "$VERIFY"
+add JAVA_VERSION "$JAVA_VERSION"; add SPRING_MODULES "$SPRING_MODULES"; add REACTIVE_OR_MVC "$REACTIVE_OR_MVC"
+add ORM "$ORM_S"; add DATABASE "$DB"; add MESSAGING "$MSG"; add CACHE "$CACHE_S"
+add BASE_PACKAGE "$BASE_PACKAGE"; add LAYER_CONVENTION "$LAYER_CONVENTION"; add ENTRY_POINTS "$ENTRY_POINTS"
+add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_LIST"; add PACKAGE_TREE "$PACKAGE_TREE"
+add CONTROLLER_TERM controller; add SERVICE_TERM service; add REPOSITORY_TERM repository
+add CONTROLLER_MEANING "inbound web adapter; thin"; add SERVICE_MEANING "application/use-case layer; owns the transaction"
+add REPOSITORY_MEANING "persistence port"; add ADAPTER_MEANING "concrete impl of a port"; add AGGREGATE_MEANING "DDD root (if used)"
+add TERM ""; add MEANING ""
+add DEPENDENCY_DIRECTION "$TBD"; add TX_STRATEGY "$TBD"; add ERROR_MAPPING "$TBD"; add MESSAGING_TOPOLOGY "$TBD"
+
+CHD=".claude/claudehut"; RULES=".claude/rules"
+mkdir -p "$CHD/state" "$CHD/specs" "$CHD/plans" "$RULES"
+
+# write a plugin-owned file from a template, honoring idempotency (skip if present unless --refresh)
+render() { # $1 template, $2 dest
+  local src="$TPL/$1" dest="$2" tmp
+  [ -f "$src" ] || { echo "claudehut-init: missing template $src" >&2; return 0; }
+  if [ -f "$dest" ] && ! $REFRESH; then echo "  keep (exists): $dest"; return 0; fi
+  tmp="$(mktemp)"; sed "${SED[@]}" "$src" > "$tmp" && mv -f "$tmp" "$dest" && echo "  wrote: $dest"
+}
+
+echo "claudehut-init: project=$PROJECT_NAME stack[web=$WEB orm=$ORM db=$DB msg=$MSG cache=$CACHE mapper=$MAPPER] base=$BASE_PACKAGE"
+render MEMORY.md.tmpl        "$CHD/MEMORY.md"
+render PROJECT.md.tmpl       "$CHD/PROJECT.md"
+render LANGUAGE.md.tmpl      "$CHD/LANGUAGE.md"
+render architecture.md.tmpl  "$CHD/architecture.md"
+render reuse-index.json.tmpl "$CHD/reuse-index.json"
+[ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
+
+# ---------------- rule tree (stack-gated) ----------------
+ACTIVE="web=$WEB orm=$ORM messaging=$MSG cache=$CACHE mapper=$MAPPER"
+# always-on project-identity rules (substituted)
+render rules/project-structure.md "$RULES/project-structure.md"
+render rules/vocabulary.md        "$RULES/vocabulary.md"
+# domain rules: copy untagged always; copy stack-tagged only when the tag is active
+find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
+  rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
+  tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
+  if [ -n "$tag" ]; then
+    case " $ACTIVE " in *" $tag "*) : ;; *) continue ;; esac   # tagged + inactive → skip
+  fi
+  if [ -f "$dest" ] && ! $REFRESH; then continue; fi
+  mkdir -p "$(dirname "$dest")"; cp -f "$f" "$dest"
+done
+echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
+
+# ---------------- wire the always-load @import slice (idempotent) ----------------
+CM="CLAUDE.md"; MARK="ClaudeHut: project-adaptive memory"
+if ! grep -q "$MARK" "$CM" 2>/dev/null; then
+  { printf '\n<!-- %s (always-load slice only; see 07 §1.2) -->\n' "$MARK"
+    printf '@.claude/claudehut/MEMORY.md\n@.claude/claudehut/PROJECT.md\n@.claude/claudehut/LANGUAGE.md\n'; } >> "$CM"
+  echo "  wired @import slice into $CM"
+else
+  echo "  @import slice already present in $CM"
+fi
+
+echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."

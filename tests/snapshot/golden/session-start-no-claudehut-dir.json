@@ -1,6 +1,0 @@
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": "ClaudeHut available but project not initialized. Run /claudehut:init to scaffold .claudehut/ directory.\n\nDispatch contract: once initialized, workflow phases run as Task() subagents (brainstorm→claudehut-brainstormer, spec→claudehut-spec-writer, plan→claudehut-planner, build→claudehut-builder, verify-review→claudehut-verifier, learn→claudehut-learner). Main thread = orchestrator."
-  }
-}

@@ -9,7 +9,14 @@ tests/.tmp/
 *.swp
 *~
 
-# Session-local Claude state (from running claude inside plugin dir)
-.claude/
+# Session-local Claude state (from running claude inside plugin dir) — but DO track the design docs.
+.claude/*
+!.claude/docs/
+
+# Gradle/Java build artifacts (incl. eval fixtures) — never commit build output.
+.gradle/
+**/build/
+*.class
+evals/tasks/_fixtures/*/bin/
 
 # eval harness: keep committed reference rows, ignore nothing by default (rows are small evidence)

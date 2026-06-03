@@ -1,7 +1,0 @@
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "ClaudeHut: source-code edits not allowed in phase=route. File: <TMPDIR>"
-  }
-}
