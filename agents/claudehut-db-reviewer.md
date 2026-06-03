@@ -5,7 +5,7 @@ description: >
   transaction boundaries. Use in the Review phase, spawned by claudehut:review, on changes to entities,
   repositories, or migrations.
 model: sonnet
-tools: Read, Grep, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__query, mcp__mysql__list_tables, mcp__mysql__describe_table
+tools: Read, Grep, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__mysql_query, mcp__mysql__list_tables, mcp__mysql__describe_table
 color: cyan
 ---
 

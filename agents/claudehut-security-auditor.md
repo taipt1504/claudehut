@@ -4,7 +4,7 @@ description: >
   Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Use in the Review
   phase, spawned by claudehut:review, on changes to controllers, security config, auth, or data exposure.
 model: opus
-tools: Read, Grep, Bash, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__query, mcp__mysql__list_tables, mcp__mysql__describe_table
+tools: Read, Grep, Bash, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__mysql_query, mcp__mysql__list_tables, mcp__mysql__describe_table
 color: red
 ---
 

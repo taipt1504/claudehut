@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SessionStart hook (matcher: startup|clear|compact).
 # Injects the claudehut-workflow orchestrator + top learnings + understand-anything
-# detection flag as additionalContext, before turn 1. Emits initialUserMessage when the
-# codebase index is absent. Never blocks (SessionStart cannot block). See 06 §3.
+# detection flag as additionalContext, before turn 1. Emits a top-level systemMessage
+# (user-visible) when the codebase index is absent. Never blocks (SessionStart cannot block). See 06 §3.
 set -euo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -55,5 +55,5 @@ need_init=false
 jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" '
   {hookSpecificOutput: {hookEventName:"SessionStart", additionalContext:$ctx, watchPaths:[$dir], reloadSkills:true}}
   + (if $need
-     then {initialUserMessage:"ClaudeHut: no codebase index found. Run /claudehut:init to bootstrap this project before starting a task."}
+     then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:init to bootstrap this project before starting a task."}
      else {} end)'

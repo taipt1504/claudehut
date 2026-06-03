@@ -79,7 +79,10 @@ claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> 
 ```
 
 The enforcement set is an **auditable checklist** Review will enforce — not a new mechanism. In interactive
-use, confirm the chosen option with the user before leaving Brainstorm.
+use, confirm the chosen approach before leaving Brainstorm by calling the **`AskUserQuestion` tool** with the
+scored options as choices (don't ask for a free-text reply) — this records a structured decision before Spec.
+Skip the question on a non-interactive run (`-p`) or inside a subagent, where `AskUserQuestion` is unavailable;
+there, proceed with the brainstormer's recommended option.
 
 ## Red flags — STOP
 

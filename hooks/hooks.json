@@ -27,7 +27,7 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "if": "Edit(*.java)|Write(*.java)", "async": true }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true }
         ]
       }
     ],
