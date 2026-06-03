@@ -97,7 +97,7 @@ add TERM ""; add MEANING ""
 add DEPENDENCY_DIRECTION "$TBD"; add TX_STRATEGY "$TBD"; add ERROR_MAPPING "$TBD"; add MESSAGING_TOPOLOGY "$TBD"
 
 CHD=".claude/claudehut"; RULES=".claude/rules"
-mkdir -p "$CHD/state" "$CHD/specs" "$CHD/plans" "$RULES"
+mkdir -p "$CHD/state" "$CHD/tasks" "$RULES"   # tasks/: one dir per task (NNNN-<slug>/ holds reuse-scan, spec, plan, review)
 
 # write a plugin-owned file from a template, honoring idempotency (skip if present unless --refresh)
 render() { # $1 template, $2 dest

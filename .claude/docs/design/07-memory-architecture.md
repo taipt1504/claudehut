@@ -40,11 +40,11 @@ The generated tree:
 ├── learnings.jsonl       # structured cross-session learnings (P5, on-demand + hook-injected slices)
 ├── state/                # per-session phase-state files (Item-1 fix) — see [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine)
 │   └── <session_id>.json # one file per session/task; gitignored, ephemeral
-├── specs/                # implementation specs from the Spec phase (subsume ADRs)
-│   └── 0007-idempotency-filter.md
-├── plans/                # executable plans from the Plan phase
-│   └── payment-idempotency.md
-└── reuse-scan-*.md       # per-task reuse-scan artifacts, Brainstorm (P4)
+└── tasks/                # one dir per task (NNNN-<slug>/)
+    ├── reuse-scan.md     # Brainstorm artifact (P4)
+    ├── spec.md           # implementation spec from Spec phase (subsumes ADR)
+    ├── plan.md           # executable plan from Plan phase (T-xxx breakdown; durable source of truth)
+    └── review.md         # merged auditor findings + final verdict from Review phase
 ```
 
 > The `state/` directory is **per-session** to avoid collisions when concurrent tasks/worktree-isolated agents run at once; the scheme and its concurrency guarantees are defined authoritatively in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine).
@@ -88,7 +88,7 @@ What native auto-memory *does* get right is its **loading discipline**: a concis
 | domain playbooks | skills (progressive disclosure) | skill invoked / `description` match ([04](./04-skills.md)) |
 | full `learnings.jsonl` | `UserPromptSubmit` injects prompt-matched slice; agent `Read` | prompt keyword match; `reuse-scanner` reads `category=reuse` |
 | `reuse-index.json` | agent `Read` | Brainstorm reuse scan |
-| `specs/`, `plans/` | agent `Read` | Plan/Implement reference the current task's files |
+| `tasks/NNNN-<slug>/` (spec, plan, review) | agent `Read` | Plan/Implement/Review reference the current task's files |
 
 The committed `MEMORY.md` plays the same role native `MEMORY.md` does — a concise index that *names what is stored where* so the agent knows which on-demand file to read for depth (the native index→topic-file pattern, applied to the committed store). Every loading choice maps to a named native mechanism (`@import`, `.claude/rules/` path-scoping, skills, `SessionStart`/`UserPromptSubmit` `additionalContext`, agent `Read`) — there is no bespoke loader.
 
@@ -178,7 +178,7 @@ Two artifacts + one gate (the mechanism, fully wired to [01 §10](./01-agentic-w
 }
 ```
 
-**`reuse-scan-<task>.md`** — per-task proof the index + project were checked:
+**`tasks/NNNN-<slug>/reuse-scan.md`** — per-task proof the index + project were checked:
 
 ```markdown
 # Reuse scan: add idempotency key to PaymentController

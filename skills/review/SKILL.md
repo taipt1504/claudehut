@@ -58,7 +58,11 @@ flowchart TB
    ```
 
 3. If outstanding is non-empty → fix (loop back to `claudehut:implement`) → re-spawn the auditors.
-4. When **outstanding == [] AND evidence is green** → `set-review pass`.
+4. **Persist the review evidence** to the task dir —
+   `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/review.md`: per-auditor findings (what was
+   checked, with citations), the test evidence (suite output summary), the outstanding items resolved across
+   loops, and the final verdict. The review leaves an artifact like every other phase.
+5. When **outstanding == [] AND evidence is green** → `set-review pass`.
 
 ## Test evidence (what the test-runner enforces)
 

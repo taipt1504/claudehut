@@ -3,7 +3,7 @@
 > Part of the **ClaudeHut** design document set. See [README](./README.md). Roster bindings are fixed in [02 §4.1](./02-architecture.md#41-agents--see-03).
 > **Status:** Design v1 · **Pillar focus:** P2 (satellites). **Native mechanism:** subagents (`agents/*.md`).
 
-This document specifies the eleven subagents that orbit the Workflow. Each maps to one phase ([01](./01-agentic-workflow.md)) and is invoked natively — either auto-delegated by Claude on `description` match, dispatched by a phase skill via `context: fork`, or dispatched **inline on the main thread** by a phase skill via the Agent tool ([04](./04-skills.md)). The Review auditors and the Brainstorm helpers are both dispatched **from the main thread** (a subagent cannot spawn another subagent — see [§1](#1-how-subagents-are-used-and-their-native-constraints)).
+This document specifies the eleven subagents that orbit the Workflow. Each maps to one phase ([01](./01-agentic-workflow.md)) and is invoked natively — either auto-delegated by Claude on `description` match or dispatched **inline on the main thread** by a phase skill via the Agent tool ([04](./04-skills.md)). All phase-skill dispatches happen from the main thread (a subagent cannot spawn another subagent — see [§1](#1-how-subagents-are-used-and-their-native-constraints)).
 
 ## Table of Contents
 
@@ -30,8 +30,7 @@ This document specifies the eleven subagents that orbit the Workflow. Each maps 
 Subagents run in **separate context windows**, so heavy exploration and multi-dimensional review do not pollute the main thread. Three invocation paths, all native:
 
 - **Auto-delegation:** Claude reads each agent's `description` and invokes it via the Task tool when a request matches. Descriptions are written `"<role> — Use when <trigger>"`.
-- **Skill-routed fork:** a phase skill with `context: fork` + `agent: <name>` runs that skill's turn inside the named subagent. Used for `write-plan` (planner) and `capture-learnings` (learner).
-- **Inline main-thread dispatch:** a phase skill runs on the main thread and dispatches one or more subagents sequentially or in parallel via the Agent tool. Used by `claudehut:brainstorm` (sequential: explorer → reuse-scanner → brainstormer) and `claudehut:review` (parallel: 5 auditors). This path exists because **a subagent cannot spawn another subagent** — the skill must run on the main thread to call the Agent tool.
+- **Inline main-thread dispatch (all phase skills):** every phase skill runs on the main thread and dispatches its agent(s) via the Agent tool. This path exists because **a subagent cannot spawn another subagent**, cannot use `AskUserQuestion`, and most have no `Bash` — so orchestration duties (user gates, state writes, task mirroring) must stay on the main thread. `claudehut:brainstorm` dispatches sequentially (explorer → reuse-scanner → brainstormer); `claudehut:review` dispatches five auditors in parallel; `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent.
 
 **Plugin-agent constraints (must be respected by every spec below):**
 
@@ -41,7 +40,7 @@ Subagents run in **separate context windows**, so heavy exploration and multi-di
 | `tools` omitted ⇒ inherit all | We set `tools` explicitly to keep read-only agents read-only |
 | `model: inherit` is default | We override only where a phase needs more/less reasoning |
 | `description` drives delegation | Each `description` lists concrete triggers + a "do NOT use when" guard |
-| **A subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent) | The **Review** auditors and the **Brainstorm** helpers are dispatched by the **main thread** (the inline `claudehut:review` and `claudehut:brainstorm` skills respectively), never by another subagent. Skills that fork (`write-plan`, `capture-learnings`) each fork at most **one** subagent. |
+| **A subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent) | All five **Review** auditors and all three **Brainstorm** helpers are dispatched by the **main thread**; so are the **planner** and **learner**. Subagents return data only — they never write state, never ask the user. |
 
 **Native handoff (correction-5).** Each agent's markdown *body* is its system prompt and carries the agent's flow + output contract; its `skills:` frontmatter **preloads the full bodies** of a **fixed set** of skills into the subagent at startup (`skills:` is static frontmatter, so the list is authored at build time, not computed per task). A runtime **per-task enforcement set** is conveyed in the dispatch prompt instead. So a forked subagent receives its conventions and flow natively, with no orchestration in prose outside the file. See [01 §9](./01-agentic-workflow.md#9-native-handoff-flow-lives-inside-the-skillagent-markdown).
 
@@ -119,18 +118,18 @@ Each spec: **Purpose · Phase · Trigger · Inputs · Outputs · Native invocati
 - **Phase:** Brainstorm.
 - **Trigger:** step 2 of `claudehut:brainstorm`, dispatched inline from the main thread via the Agent tool.
 - **Inputs:** task, `reuse-index.json`, learnings tagged `reuse`.
-- **Outputs:** the **reuse-scan artifact** (`.claude/claudehut/reuse-scan-<task>.md`): found components + locations + "adopt/extend/none + justification".
+- **Outputs:** the **reuse-scan artifact** (`.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`): found components + locations + "adopt/extend/none + justification".
 - **Native invocation:** subagent; `tools: Read, Grep, Glob`; `model: sonnet`.
 - **Notes:** its artifact is the precondition the `gate-write.sh` `PreToolUse` hook checks ([06](./06-hooks.md)); it does **not** write `state.json` (that is `bin/claudehut-state`).
 
 ### claudehut-planner
 - **Purpose:** Produce an executable, file-level plan.
 - **Phase:** Plan.
-- **Trigger:** invoked by `write-plan` (`context: fork`).
-- **Inputs:** the implementation spec (`specs/<task>.md`), reuse-scan artifact, architecture map.
-- **Outputs:** plan file (`.claude/claudehut/plans/<task>.md`): ordered steps, files to touch, tests to write first, verification commands.
+- **Trigger:** dispatched by `write-plan` skill from the main thread via the Agent tool.
+- **Inputs:** the implementation spec (`tasks/NNNN-<slug>/spec.md`), reuse-scan artifact (same dir), architecture map, `plan-template.md`.
+- **Outputs:** plan file (`.claude/claudehut/tasks/NNNN-<slug>/plan.md`): T-xxx breakdown table (failing test first + exact verify command per task, Depends-on, req-ref), decision summary at §1. Returns the plan path + 5-line summary for the main thread's approval question.
 - **Native invocation:** subagent; `tools: Read, Grep, Glob, Write`.
-- **Notes:** writes only into `.claude/claudehut/plans/` — not production code.
+- **Notes:** writes only into the task dir — not production code. The main thread asks the user for approval and records `claudehut-state set-plan` — the planner does NOT ask the user and does NOT write state (no `AskUserQuestion`, no `Bash`).
 
 ### claudehut-implementer
 - **Purpose:** Execute the plan test-first under project conventions.
@@ -217,7 +216,6 @@ flowchart TB
 
     ORCH -->|"Agent tool (seq)"| BRAINSTORM
     BR --> PL[planner]
-    PL -->|"write-plan fork"| PL
     PL --> IM[implementer]
     IM -->|"Agent tool (parallel)"| REVIEW
     TR --> LN[learner]
@@ -225,13 +223,12 @@ flowchart TB
     SEC --> LN
     PERF --> LN
     DB --> LN
-    LN -->|"capture-learnings fork"| LN
     LN -.writes.-> MEM[(Project memory)]
     EX -.reads.-> MEM
     RS -.reads.-> MEM
 ```
 
-The Brainstorm trio (`explorer → reuse-scanner → brainstormer`) and the five Review auditors are all dispatched **by the main thread** via the Agent tool (`claudehut:brainstorm` and `claudehut:review` run inline on the main thread — not inside a subagent). The five Review auditors run in parallel as independent lenses; each returns its slice of the **outstanding set**, the loop repeats until that set is empty ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)), then `claudehut-learner` (the single writer of cross-session memory) runs. `write-plan` and `capture-learnings` use the `context: fork` path (one subagent each). Spec has no agent.
+All agents are dispatched **by the main thread** via the Agent tool — no skill uses `context: fork`. `claudehut:brainstorm` and `claudehut:review` dispatch multiple agents (sequential and parallel respectively); `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent; the main thread owns approval gates, state writes, and task mirroring in every case. The five Review auditors run in parallel as independent lenses; each returns its slice of the **outstanding set**, the loop repeats until that set is empty ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)), then `claudehut-learner` (the single writer of cross-session memory) runs. Spec has no agent.
 
 ---
 

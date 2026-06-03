@@ -59,7 +59,7 @@ graph LR
 | P1 | Workflow spine | `claudehut-workflow` skill, `bootstrap.sh`, `bin/claudehut-state`, `state.json` schema | Session-start injects workflow; `claudehut-state set-phase` writes state |
 | P2 | Hard gates | `gate-write.sh`, `gate-done.sh`, `verify-subagent.sh` | Write denied before reuse-scan+spec+plan; Stop blocked before review-pass+learn |
 | P3 | Phase skills | `brainstorm, write-spec, write-plan, implement, review, capture-learnings` + Iron Laws | Iron-Law skills refuse to skip enforced ordering |
-| P4 | Agent roster | 11 subagent markdown specs, `context: fork` routing | Each agent invoked, returns required artifact |
+| P4 | Agent roster | 11 subagent markdown specs; all dispatched via Agent tool from main-thread skills | Each agent invoked, returns required artifact |
 | P5 | Memory & Bootstrap | `claudehut-init` skill, memory templates, `@import` wiring | Fresh project bootstraps; idempotent re-run is safe |
 | P6 | Tech-stack rule layer | Domain-organized rule templates (reuse committed rules) + `implement/references/` | Path-scoped rules auto-load on matching Java files; implement references injected on demand |
 | P7 | Reinforcement learning | `learnings.jsonl` write/dedup, `inject-learnings.sh`, `persist-state.sh` | Second session receives top learnings from first |
@@ -91,7 +91,7 @@ graph LR
 
 **Deliverables:**
 - `skills/claudehut-workflow/SKILL.md` — the orchestrator skill describing all six phases and the skill-first + 1% laws
-- `scripts/bootstrap.sh` — `SessionStart` hook: injects orchestrator body as `additionalContext`; emits `initialUserMessage` if project memory is absent
+- `scripts/bootstrap.sh` — `SessionStart` hook: injects orchestrator body as `additionalContext`; emits a top-level `systemMessage` if project memory is absent and the deterministic fallback could not run
 - `bin/claudehut-state` — the sole writer of the **per-session** `state/<session_id>.json` (takes `--session`, atomic temp+rename); subcommands: `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass` (schema + concurrency: [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine), [§4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state))
 - `state.json` schema (documented; enforced by `bin/claudehut-state` validation)
 - `scripts/inject-phase.sh` — `UserPromptSubmit` hook: reads `state.json`, appends current phase as `additionalContext`
@@ -125,11 +125,11 @@ graph LR
 
 **Deliverables:**
 - `skills/brainstorm/SKILL.md` — Brainstorm phase; explore/reuse-scan/options as inline steps; dispatches `claudehut-explorer`, `claudehut-reuse-scanner`, `claudehut-brainstormer`; builds enforcement set via `claudehut-state set-enforcement`
-- `skills/write-spec/SKILL.md` — Spec phase; writes the implementation spec to `specs/`; triggers `bin/claudehut-state set-spec`
-- `skills/write-plan/SKILL.md` — Plan phase; `context: fork` → `claudehut-planner`; writes plan file; triggers `bin/claudehut-state set-plan`
+- `skills/write-spec/SKILL.md` — Spec phase; writes the implementation spec to `tasks/NNNN-<slug>/spec.md` (from template); `AskUserQuestion` approval before `bin/claudehut-state set-spec`
+- `skills/write-plan/SKILL.md` — Plan phase; dispatches `claudehut-planner` via Agent tool to write `tasks/NNNN-<slug>/plan.md`; `AskUserQuestion` approval before `bin/claudehut-state set-plan`; `TaskCreate` mirror on approval
 - `skills/implement/SKILL.md` — **Iron Law**: no production code before a failing test; RED step allowed to `.../test/` paths before `plan_path` is set; domain depth via `implement/references/`
 - `skills/review/SKILL.md` — **Iron Law** (inline, main-thread): spawns the five auditors, loops until `outstanding == []` with fresh evidence; folds in test-matrix guidance; no done-claim otherwise
-- `skills/capture-learnings/SKILL.md` — Learn phase; `context: fork` → `claudehut-learner`; triggers `bin/claudehut-state set-phase learn`
+- `skills/capture-learnings/SKILL.md` — Learn phase; dispatches `claudehut-learner` via Agent tool; main thread triggers `bin/claudehut-state set-phase learn`
 
 **How to verify:** Use the superpowers RED-GREEN method: run `brainstorm` against a scenario without the skill loaded and observe the model writing new code immediately; then load the skill and confirm it refuses to proceed without the reuse-scan artifact. Repeat for `implement` (model writes prod code first without skill; refuses with skill). Both Iron-Law skills must emit their rationalization tables when challenged.
 
@@ -156,7 +156,7 @@ graph LR
 
 **How to verify:** In a dogfood session, give the agent a real task in the scratch Spring repo. Each agent must be dispatched via the Task tool, run in its own context window, and return its required artifact. `verify-subagent.sh` must block any agent that returns empty-handed.
 
-**Dependencies:** P3 (skills trigger agents via `context: fork` / Task dispatch; `verify-subagent.sh` from P2 enforces artifact contracts).
+**Dependencies:** P3 (skills dispatch agents via Agent tool from main thread; `verify-subagent.sh` from P2 enforces artifact contracts).
 
 ---
 
@@ -168,7 +168,7 @@ graph LR
 - `skills/claudehut-init/SKILL.md` — the `/claudehut:init` skill: generates `.claude/claudehut/` tree, writes the committed `MEMORY.md` index, `PROJECT.md`, `LANGUAGE.md`, `architecture.md`, `reuse-index.json`, and empty `learnings.jsonl`; appends `@import` lines for **only the always-load slice** (`MEMORY.md`, `PROJECT.md`, `LANGUAGE.md` — not `architecture.md`/`learnings.jsonl`, which are on-demand, [07 §1.2](./07-memory-architecture.md#12-cost-aware-context-loading)); idempotent (safe to re-run)
 - `templates/MEMORY.md.tmpl`, `templates/PROJECT.md.tmpl`, `templates/LANGUAGE.md.tmpl`, `templates/architecture.md.tmpl` — Bootstrap memory templates
 - `templates/rules/` — rule template stubs for all 9 path-scoped rules (populated in P6)
-- Updated `scripts/bootstrap.sh` — emits `initialUserMessage` if `.claude/claudehut/` is absent, prompting the user to run `/claudehut:init`
+- Updated `scripts/bootstrap.sh` — emits a top-level `systemMessage` if `.claude/claudehut/` is absent and the deterministic fallback could not run, prompting the user to run `/claudehut:init`
 
 **How to verify:** Run `/claudehut:init` in a fresh Spring Boot repo. Verify that all memory files exist, the `@import` block lists **only** `MEMORY.md`/`PROJECT.md`/`LANGUAGE.md` (not `architecture.md`/`learnings.jsonl`), and all rule files appear in `.claude/rules/`. Confirm the always-loaded slice stays under the ~25 KB/200-line budget. Run `/claudehut:init` a second time — no duplicate `@import` lines, no overwritten learnings.
 
@@ -278,7 +278,7 @@ The plugin ships when all six pillars have a passing acceptance test:
 
 - [ ] **Pillar P5 — Continuous reinforcement learning across sessions.** A learning written to `learnings.jsonl` in session N appears in `additionalContext` at the start of session N+1. A `PreCompact` event mid-session does not cause the learning to be lost.
 
-- [ ] **Pillar P6 — Native Claude Code integration.** `claude --plugin-dir . --validate-manifest` (or equivalent) reports no errors. Every enforcement point cites a specific native mechanism (hook event, skill `context: fork`, `memory: project`, `@import`, path-scoped rule) with no custom runtimes or non-native workarounds.
+- [ ] **Pillar P6 — Native Claude Code integration.** `claude --plugin-dir . --validate-manifest` (or equivalent) reports no errors. Every enforcement point cites a specific native mechanism (hook event, Agent tool dispatch from main thread, `memory: project`, `@import`, path-scoped rule) with no custom runtimes or non-native workarounds.
 
 ---
 

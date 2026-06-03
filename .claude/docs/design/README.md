@@ -49,6 +49,7 @@ The set flows **high-level → low-level**. Read in order on a first pass; jump 
 | 08 | [MCP Integration](./08-mcp-integration.md) | the MCP servers (db/cache/kafka/github) and why each | P6, P2 |
 | 09 | [Plugin Structure](./09-plugin-structure.md) | directory layout, manifest, and the file-by-file map | P6 |
 | 10 | [Build Roadmap](./10-build-roadmap.md) | the phased plan to implement this design | all |
+| 11 | [Execution Model + Artifacts](./11-execution-model-and-artifacts.md) | v0.3 redesign: task-dir layout, main-thread orchestration rule, approval gates, native task mirror, templates | P1, P2, P4, P6 |
 
 ## How the documents fit together
 

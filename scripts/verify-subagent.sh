@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SubagentStop hook. Blocks if a file-producing phase subagent returned without its required
 # artifact. Default contract (accepted default C3): only agents whose contract is a FILE are
-# checked — claudehut-reuse-scanner (a reuse-scan-*.md) and claudehut-planner (a plans/*.md).
+# checked — claudehut-reuse-scanner (tasks/*/reuse-scan.md) and claudehut-planner (tasks/*/plan.md).
 # The Review auditors return findings as text (no file) and are not file-checked here.
 # Verb name ("verify") — not the retired Verify phase. See 06 §3.
 set -euo pipefail
@@ -17,12 +17,14 @@ DIR="$PROJECT_DIR/.claude/claudehut"
 
 case "$agent" in
   claudehut-reuse-scanner)
-    ls "$DIR"/reuse-scan-*.md >/dev/null 2>&1 \
-      || block "claudehut-reuse-scanner returned without a reuse-scan artifact (.claude/claudehut/reuse-scan-<task>.md). Produce it before proceeding."
+    # canonical: tasks/<id>/reuse-scan.md ; legacy flat reuse-scan-*.md still accepted
+    { ls "$DIR"/tasks/*/reuse-scan.md >/dev/null 2>&1 || ls "$DIR"/reuse-scan-*.md >/dev/null 2>&1; } \
+      || block "claudehut-reuse-scanner returned without a reuse-scan artifact (.claude/claudehut/tasks/<NNNN-slug>/reuse-scan.md). Produce it before proceeding."
     ;;
   claudehut-planner)
-    ls "$DIR"/plans/*.md >/dev/null 2>&1 \
-      || block "claudehut-planner returned without a plan file (.claude/claudehut/plans/<task>.md). Produce it before proceeding."
+    # canonical: tasks/<id>/plan.md ; legacy plans/*.md still accepted
+    { ls "$DIR"/tasks/*/plan.md >/dev/null 2>&1 || ls "$DIR"/plans/*.md >/dev/null 2>&1; } \
+      || block "claudehut-planner returned without a plan file (.claude/claudehut/tasks/<NNNN-slug>/plan.md). Produce it before proceeding."
     ;;
   *)
     : # text-returning agents (explorer, brainstormer, auditors, learner) — no file contract to check

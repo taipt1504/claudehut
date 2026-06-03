@@ -48,10 +48,10 @@ elif ! exists_canon "$art"; then
 elif [ -z "$spec" ] || [ "$spec" = "null" ]; then
   deny "ClaudeHut gate: write the implementation spec first — run claudehut:write-spec."
 elif ! exists_canon "$spec"; then
-  deny "ClaudeHut gate: spec recorded but file not found under .claude/claudehut/ (got: $spec). Write it under .claude/claudehut/specs/, not a bare specs/ path."
+  deny "ClaudeHut gate: spec recorded but file not found under .claude/claudehut/ (got: $spec). Write it in the task dir .claude/claudehut/tasks/NNNN-<slug>/spec.md, not a bare specs/ path."
 elif [ -z "$plan" ] || [ "$plan" = "null" ]; then
   deny "ClaudeHut gate: write the plan first — run claudehut:write-plan."
 elif ! exists_canon "$plan"; then
-  deny "ClaudeHut gate: plan recorded but file not found under .claude/claudehut/ (got: $plan). Write it under .claude/claudehut/plans/."
+  deny "ClaudeHut gate: plan recorded but file not found under .claude/claudehut/ (got: $plan). Write it in the task dir .claude/claudehut/tasks/NNNN-<slug>/plan.md."
 fi
 allow

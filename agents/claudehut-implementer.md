@@ -20,7 +20,7 @@ Law and the tech-stack reference playbooks).
 
 ```mermaid
 flowchart TB
-    a([dispatched by main thread]) --> plan["Read plans/&lt;task&gt;.md + enforcement set in this dispatch prompt"]
+    a([dispatched by main thread]) --> plan["Read tasks/NNNN-&lt;slug&gt;/plan.md (T-xxx table) + enforcement set in this dispatch prompt"]
     plan --> step["Next plan step"]
     step --> red["RED: write smallest failing test; run it; confirm right-reason failure"]
     red --> green["GREEN: minimal code to pass (path-scoped .claude/rules/ auto-load)"]
@@ -54,5 +54,9 @@ End with one status line, then details:
 - **DONE** — all plan steps implemented, tests green. List files changed + which enforcement-set items you satisfied.
 - **DONE_WITH_CONCERNS** — implemented but with caveats (flaky test, a TODO you couldn't resolve). List them.
 - **BLOCKED** — a write was denied (missing phase), a test can't be made to pass, or the plan is wrong. Explain.
+
+Then a **per-task status block** — one line per plan task, so the main thread can mirror progress to the
+native Claude Code task list (you don't update that list yourself — you have no task tools):
+`T-001: done (verify green: ./gradlew test --tests X)` · `T-003: blocked — <why>`.
 
 Never claim DONE with a red test. **REQUIRED NEXT (main thread): `claudehut:review`.**

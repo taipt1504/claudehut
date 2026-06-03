@@ -25,7 +25,7 @@ flowchart TB
     q --> found{"existing impl found?"}
     found -- yes --> dec1["DECISION: adopt or extend (cite file:line)"]
     found -- no --> dec2["DECISION: new (justify why nothing fits)"]
-    dec1 & dec2 --> write["Write .claude/claudehut/reuse-scan-&lt;task&gt;.md"]
+    dec1 & dec2 --> write["Write .claude/claudehut/tasks/NNNN-&lt;slug&gt;/reuse-scan.md"]
     write --> out([Return artifact path + one-line decision])
 ```
 
@@ -35,7 +35,8 @@ flowchart TB
    annotations** (e.g. existing `@Service` doing the same work, a util with the same shape, a `@ConfigurationProperties`
    already binding the same prefix); read learnings tagged `reuse`. Search broadly — synonyms and adjacent
    layers, not just the exact name.
-2. Write the artifact `.claude/claudehut/reuse-scan-<task>.md`:
+2. Write the artifact into the task dir the dispatch prompt names —
+   `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`:
    - **searched**: tags/terms you tried
    - **FOUND**: component(s) + `file:line`, or **none**
    - **DECISION**: adopt / extend / new
@@ -47,6 +48,6 @@ flowchart TB
 
 - You do **not** write `state.json` — the main thread runs `claudehut-state set-reuse-scan` after you return.
 - Never write production code. The reuse-scan artifact is your **required output** — the `SubagentStop` hook
-  blocks your return if no `reuse-scan-*.md` exists.
+  blocks your return if no reuse-scan file exists.
 - A `new` decision is allowed, but only with a justification a reviewer would accept. "Nothing exists" must be
   the *result* of the scan, not the reason you skipped it.

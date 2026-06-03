@@ -24,10 +24,10 @@ write is denied.
 
 ```mermaid
 flowchart TB
-    start([Brainstorm phase]) --> ph["claudehut-state set-phase brainstorm"]
+    start([Brainstorm phase]) --> ph["claudehut-state set-phase brainstorm<br/>create the task dir tasks/NNNN-&lt;slug&gt;/"]
     ph --> explore["Step 1 — dispatch claudehut-explorer (Agent tool)<br/>read PROJECT.md / architecture.md / reuse-index.json<br/>return entry points, key types, Reuse candidates"]
-    explore --> reuse["Step 2 — dispatch claudehut-reuse-scanner (Agent tool)<br/>write reuse-scan-&lt;task&gt;.md (FOUND/none + DECISION)<br/>set-reuse-scan --artifact …"]
-    reuse --> opts["Step 3 — dispatch claudehut-brainstormer (Agent tool)<br/>≥2 scored options + recommendation<br/>build enforcement set (1% rule) → set-enforcement"]
+    explore --> reuse["Step 2 — dispatch claudehut-reuse-scanner (Agent tool)<br/>writes tasks/NNNN-&lt;slug&gt;/reuse-scan.md, returns the path<br/>then MAIN THREAD records set-reuse-scan"]
+    reuse --> opts["Step 3 — dispatch claudehut-brainstormer (Agent tool)<br/>returns ≥2 scored options + the enforcement set (1% rule)<br/>then MAIN THREAD records set-enforcement"]
     opts --> gate{"reuse_scan=true<br/>AND option chosen<br/>AND enforcement_set recorded?"}
     gate -- no --> opts
     gate -- yes --> done([REQUIRED NEXT: claudehut:write-spec])
@@ -43,15 +43,19 @@ SessionStart), the explorer uses its query/search skills for richer navigation; 
 
 ## Step 2 — Reuse-scan (dispatch `claudehut-reuse-scanner`)
 
+First create the **task dir** (every artifact of this task lives here): `NNNN` = zero-padded next integer
+over `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/`, slug = kebab-case task name.
+
 Dispatch the reuse-scanner. It queries `reuse-index.json` by tag, greps for similar signatures/annotations,
 reads learnings tagged `reuse`, then writes the reuse-scan to the **absolute canonical path**
-`${CLAUDE_PROJECT_DIR}/.claude/claudehut/reuse-scan-<task>.md` (NOT a bare `.claudehut/` path — the state
-writer and the write gate both require it under `.claude/claudehut/`), containing: searched tags/terms,
-**FOUND** (component + `file:line`) or **none**, **DECISION** (adopt / extend / new), and a justification for
-any new code. It then records the artifact:
+`${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (NOT a bare `.claudehut/` path —
+the state writer and the write gate both require it under `.claude/claudehut/`), containing: searched
+tags/terms, **FOUND** (component + `file:line`) or **none**, **DECISION** (adopt / extend / new), and a
+justification for any new code. It **returns the artifact path — it does not write state** (it has no Bash).
+The **main thread** then records it:
 
 ```
-claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude/claudehut/reuse-scan-<task>.md
+claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md
 ```
 
 | Rationalization | Reality |
@@ -72,7 +76,8 @@ recommendation:
 3. **Highest output quality + performance.**
 
 Then it builds the **enforcement set** by the 1% rule — *if there is even a 1% chance a skill or rule
-applies, it MUST be included* — scanning the plugin skills and the project's `.claude/rules/` tree:
+applies, it MUST be included* — scanning the plugin skills and the project's `.claude/rules/` tree. It
+**returns the set — it does not write state** (it has no Bash). The **main thread** records it:
 
 ```
 claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
@@ -86,7 +91,7 @@ there, proceed with the brainstormer's recommended option.
 
 ## Red flags — STOP
 
-- About to write production code with no `reuse-scan-<task>.md` on disk
+- About to write production code with no `tasks/NNNN-<slug>/reuse-scan.md` on disk
 - Only one option ("the obvious way") — the law requires ≥2 distinct, codebase-adapted approaches
 - Enforcement set left empty because "nothing really applies" — re-apply the 1% rule against `.claude/rules/`
 

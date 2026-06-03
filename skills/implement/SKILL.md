@@ -31,7 +31,7 @@ allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, 
 
 ```mermaid
 flowchart TB
-    start([Implement phase]) --> plan["Read plans/&lt;task&gt;.md — ordered, test-first steps"]
+    start([Implement phase]) --> plan["Read tasks/NNNN-&lt;slug&gt;/plan.md — the T-xxx table, test-first"]
     plan --> step["Take next plan step"]
     step --> red["RED — smallest failing test for the behavior<br/>run it; confirm it fails for the right reason"]
     red --> green["GREEN — minimal production code to pass<br/>(path-scoped rules in .claude/rules/ auto-load here)"]
@@ -43,6 +43,19 @@ flowchart TB
     more -- no --> done([REQUIRED NEXT: claudehut:review])
 ```
 
+## Execution + native task mirror (main thread)
+
+**Who executes (explicit rule — don't mix ad hoc):** the plan's T-xxx tasks touch **more than 2 files or any
+migration** → dispatch `claudehut-implementer` (Agent tool; isolated worktree) with the plan path + the
+enforcement set. **≤ 2 files and no migration** → implement inline on the main thread with this skill. One
+mode per task — pick it when entering the phase and say which.
+
+**Native mirror (main thread only):** the plan's T-xxx table was mirrored into Claude Code's task list at
+plan approval. Keep it live: `TaskUpdate` the matching task to `in_progress` **before** starting a step
+(or before dispatching the implementer for a batch) and to `completed` only when its **verify command is
+green** (from your run, or the implementer's per-step report). `plan.md` stays the durable source of truth —
+on a resumed session, re-mirror still-pending T-xxx rows from `plan.md` with `TaskCreate`.
+
 ## The cycle
 
 1. **RED** — write the smallest failing test for the next behavior. Run it; confirm it fails for the *right*
@@ -50,8 +63,8 @@ flowchart TB
 2. **GREEN** — write the minimal production code to pass. Run it; confirm green.
 3. **REFACTOR** — clean up while tests stay green.
 
-Work the plan's steps in order. Honor the **enforcement set** recorded in Brainstorm — every listed skill and
-rule must end up satisfied (Review audits exactly this set).
+Work the plan's T-xxx tasks in dependency order. Honor the **enforcement set** recorded in Brainstorm — every
+listed skill and rule must end up satisfied (Review audits exactly this set).
 
 | Rationalization | Reality |
 |--------|---------|

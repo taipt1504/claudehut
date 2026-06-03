@@ -64,6 +64,14 @@ flag() { # flag --name -> echoes value or empty
 # Reject non-canonical artifact paths (opt #2): every workflow artifact MUST live under
 # .claude/claudehut/ so the gate, @import memory, and cross-session learning can find it.
 canon() { case "$1" in *".claude/claudehut/"*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/ or .claudehut/ path" ;; esac; }
+# Template-structure validation (live-measured: with soft instructions alone, freeform specs/plans slip
+# through — smoke run produced a plan with zero T-xxx rows). Structure is only checkable when the file
+# already exists; existence itself stays the write gate's job (exists_canon), so absent files pass here.
+tmpl() { # $1 path  $2 grep -E pattern  $3 error
+  local p="$1"; case "$p" in /*) : ;; *) p="${CLAUDE_PROJECT_DIR:-$PWD}/$p" ;; esac
+  [ -f "$p" ] || return 0
+  grep -qE "$2" "$p" || err "$3"
+}
 
 case "$sub" in
   set-phase)
@@ -71,8 +79,8 @@ case "$sub" in
     case "$phase" in brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
     STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
     t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
-    sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
-    pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
+    sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
+    pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; tmpl "$pl" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows in $pl — use claudehut:write-plan (plan-template.md)."; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
     ;;
   set-reuse-scan)
     a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/>"
@@ -89,11 +97,14 @@ case "$sub" in
   set-spec)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-spec needs <path>"
     canon "$p"
+    tmpl "$p" '^## ' "spec rejected: no '## ' template sections found in $p. Write it with claudehut:write-spec from skills/write-spec/references/spec-template.md (Problem & Context, Decision Record, Acceptance Criteria, …) and re-run set-spec."
+    tmpl "$p" 'Decision' "spec rejected: no Decision Record found in $p. Every spec carries the MADR-lite decision (template §9) — chosen option + why. Add it and re-run set-spec."
     STATE="$(jq --arg v "$p" '.spec_path=$v' <<<"$STATE")"
     ;;
   set-plan)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-plan needs <path>"
     canon "$p"
+    tmpl "$p" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows found in $p. The plan's breakdown table (template §3 — id, files, test-first, verify, depends-on) is the executable contract; write it with claudehut:write-plan from skills/write-plan/references/plan-template.md and re-run set-plan."
     STATE="$(jq --arg v "$p" '.plan_path=$v' <<<"$STATE")"
     ;;
   set-review)

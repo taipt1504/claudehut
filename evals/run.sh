@@ -75,9 +75,9 @@ This project uses the ClaudeHut plugin; its 6-phase workflow is injected at sess
       wf='{"started":false,"phase":"none","reuse_scan":false,"spec":false,"plan":false,"review":"none","completed":false}'
     fi
     # ---- canonical-path artifact presence (detects the non-canonical-path defect) ----
-    can=$(jq -nc --argjson r "$([ -n "$(ls "$chd"/reuse-scan-*.md 2>/dev/null)" ]&&echo true||echo false)" \
-      --argjson s "$([ -n "$(ls "$chd"/specs/*.md 2>/dev/null)" ]&&echo true||echo false)" \
-      --argjson p "$([ -n "$(ls "$chd"/plans/*.md 2>/dev/null)" ]&&echo true||echo false)" \
+    can=$(jq -nc --argjson r "$([ -n "$(ls "$chd"/tasks/*/reuse-scan.md "$chd"/reuse-scan-*.md 2>/dev/null)" ]&&echo true||echo false)" \
+      --argjson s "$([ -n "$(ls "$chd"/tasks/*/spec.md "$chd"/specs/*.md 2>/dev/null)" ]&&echo true||echo false)" \
+      --argjson p "$([ -n "$(ls "$chd"/tasks/*/plan.md "$chd"/plans/*.md 2>/dev/null)" ]&&echo true||echo false)" \
       --argjson l "$([ -s "$chd/learnings.jsonl" ]&&echo true||echo false)" \
       '{reuse_scan:$r,spec:$s,plan:$p,learnings:$l}')
     if [ -x "$d/oracle.sh" ]; then ( "$d/oracle.sh" "$work" >/dev/null 2>&1 ) && oracle=1 || oracle=0; else oracle=null; fi

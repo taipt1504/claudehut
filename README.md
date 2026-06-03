@@ -53,7 +53,8 @@ ClaudeHut ships **no** MCP servers and prompts for **no** credentials. MCP is op
 
 The orchestrator skill (`claudehut:claudehut-workflow`) is injected at session start and routes each phase
 to its skills and agents. You don't invoke the phases by hand — the workflow does. Everything it generates
-lives under `.claude/claudehut/` (index, memory, specs, plans, per-session state, learnings) and
+lives under `.claude/claudehut/` (index, memory, one `tasks/NNNN-<slug>/` dir per task holding its
+reuse-scan/spec/plan/review, per-session state, learnings) and
 `.claude/rules/` (the generated tech-stack standards).
 
 ---
@@ -63,8 +64,8 @@ lives under `.claude/claudehut/` (index, memory, specs, plans, per-session state
 | Phase | Skill | Drives | Output |
 |-------|-------|--------|--------|
 | **Brainstorm** | `brainstorm` | `claudehut-brainstormer`, `claudehut-reuse-scanner`, `claudehut-explorer` | a **reuse-scan** artifact + the per-task *enforcement set* (which rules/skills must end up satisfied) |
-| **Spec** | `write-spec` | main thread | a spec under `.claude/claudehut/specs/` |
-| **Plan** | `write-plan` | `claudehut-planner` | an ordered, test-first plan under `.claude/claudehut/plans/` |
+| **Spec** | `write-spec` | main thread | a templated spec (`tasks/<id>/spec.md`), **user-approved** before the gate arms |
+| **Plan** | `write-plan` | `claudehut-planner` | a templated, test-first plan (`tasks/<id>/plan.md`), **user-approved**, mirrored to the native task list |
 | **Implement** | `implement` | `claudehut-implementer` (isolated worktree) | code written **test-first** (RED → GREEN → REFACTOR), honoring the rules/playbooks |
 | **Review** | `review` | `claudehut-reviewer` + `claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`, `claudehut-test-runner` | a verdict that audits exactly the enforcement set |
 | **Learn** | `capture-learnings` | `claudehut-learner` | append-only `learnings.jsonl` re-injected into future sessions |

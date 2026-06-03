@@ -112,7 +112,7 @@ These terms are **defined once here** and used identically across all documents.
 | **Project memory** | The generated, project-scoped context under `${CLAUDE_PROJECT_DIR}/.claude/claudehut/` describing this project's stack, architecture, vocabulary, and reusable components. |
 | **Vocabulary lock** | `LANGUAGE.md` — the project's term glossary (e.g. which layer is "service" vs "adapter") that the agent must use consistently. |
 | **Reuse index** | `reuse-index.json` — a generated catalog of the project's reusable components (services, utilities, configs) with signatures and locations. |
-| **Reuse-scan artifact** | A per-task file proving the agent checked the Reuse index and project before deciding to write new code. Its existence is a phase gate. |
+| **Reuse-scan artifact** | A per-task file (`.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`) proving the agent checked the Reuse index and project before deciding to write new code. Its existence is a phase gate. |
 | **Learnings store** | `learnings.jsonl` — the structured, queryable record of cross-session reinforcement learnings. |
 | **Auto-memory** | Native Claude Code cross-session memory (`~/.claude/projects/<project>/memory/`), enabled via a subagent's `memory: project` frontmatter. It is **machine-local, user-scoped, not committable, and may be disabled**, so ClaudeHut treats it as an **optional non-authoritative mirror** — the canonical store is the committed `learnings.jsonl`. See [07 §1.1](./07-memory-architecture.md#11-where-memory-lives--and-why-not-native-auto-memory). |
 | **MEMORY.md (committed index)** | `${CLAUDE_PROJECT_DIR}/.claude/claudehut/MEMORY.md` — the concise, committed, always-loaded index that names what is stored where; distinct from native auto-memory's `MEMORY.md`. The cost-aware loading mechanism is in [07 §1.2](./07-memory-architecture.md#12-cost-aware-context-loading). |
@@ -128,7 +128,7 @@ Each is detailed in the document that depends on it; this is the index.
 |----------------|----------|-------------------|
 | `plugin.json` manifest + `marketplace.json` | Packaging, distribution, user config | [09](./09-plugin-structure.md) |
 | Subagents (`agents/*.md` frontmatter: `description`, `tools`, `model`, `effort`, `skills`, `memory`, `isolation`) | The specialist roster, auto-delegation, cross-session memory | [03](./03-agents.md) |
-| Skills (`SKILL.md` progressive disclosure, `description`, `allowed-tools`, `disable-model-invocation`, `context: fork`, `paths`) | Phase behavior + domain knowledge + enforcement | [04](./04-skills.md) |
+| Skills (`SKILL.md` progressive disclosure, `description`, `allowed-tools`, `disable-model-invocation`, `paths`) | Phase behavior + domain knowledge + enforcement; all phase skills run on the main thread and dispatch agent(s) via the Agent tool | [04](./04-skills.md) |
 | Hooks (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop`, `PreCompact`) | Bootstrap, phase gates, formatting, learning persistence | [06](./06-hooks.md) |
 | Slash commands (skills with `disable-model-invocation` or flat `commands/`) | `/claudehut:init`, `/claudehut:phase`, etc. | [04](./04-skills.md), [09](./09-plugin-structure.md) |
 | MCP (`.mcp.json`, `${CLAUDE_PLUGIN_ROOT}`, `${user_config.*}`) | Live DB/cache/messaging/Git inspection | [08](./08-mcp-integration.md) |
@@ -157,6 +157,7 @@ Each is detailed in the document that depends on it; this is the index.
 | [08](./08-mcp-integration.md) | MCP Integration | MCP servers/resources and why |
 | [09](./09-plugin-structure.md) | Plugin Structure | directory layout, manifest, file-by-file map |
 | [10](./10-build-roadmap.md) | Build Roadmap | phased plan to implement this design |
+| [11](./11-execution-model-and-artifacts.md) | Execution Model + Artifacts | v0.3 redesign: task-dir layout, main-thread rule, approval gates, native task mirror, spec/plan templates |
 
 ---
 

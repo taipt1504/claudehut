@@ -94,3 +94,22 @@ Review document & implement:
 
 - Thực hiện testing, benchmark & đánh giá plugin 1 cách chuyên sâu nhầm tối ưu plugin theo mục tiêu đã đề ra
 - Tham khảo cách mà superpowers thực hiện test plugin, cũng như nhờ tư vấn từ advisor, các tài liệu offical từ anthropic để có strategy testing phù hợp nhất
+
+---
+
+# Task: Enhance plugin với parallel agents
+
+## Hiện trạng:
+
+- Hiện tại các agnets được spawns 1 cách tuần tự -> việc implement 1 task rất lâu
+- Các agents quản lí git worktree chưa tốt dẫn tới bị treo khi implement
+
+## Yêu cầu:
+
+- Tham khảo cách mà plugin superpowers tổ chức việc spawns agents prallel
+- Cần nghiên cứu deep dive về các khía cạnh khác nhau:
+  - Research deep dive về các mistake phổ biết trong việc tổ chức spawns agents parallel để từ đó có đầy đủ context cho việc improve
+  - Research deep dive về các best practice, các top plugin khác tổ chức và quản lí multiple agents parallel
+  - 1 Vấn rất cần thiết trong việc spawn agents parallel là tổ chức git worktree, đây cũng là 1 vấn đề rất dễ dẫn tới mistake, agent rất dễ bỏ qua và mất sai lầm trong việc implement
+- Đây là 1 feature rất quan trọng, cần research deep dive từ nhiều nguồn khác nhau, nhờ tư vấn từ advisor để có quyết định đúng đắn
+- Think carefully and step-by-step before starting.

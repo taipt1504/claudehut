@@ -96,7 +96,7 @@ sequenceDiagram
     Hook-->>Sess: allow or block
 ```
 
-Note that **subagents are dispatched only by the main thread** (the orchestrator), never by another subagent — a native constraint (see [§6](#6-native-mechanism-rationale)). This is why Brainstorm and Review run their orchestration inline.
+Note that **subagents are dispatched only by the main thread** (the orchestrator), never by another subagent — a native constraint (see [§6](#6-native-mechanism-rationale)). This is why all phase skills run inline on the main thread.
 
 ## 4. The master matrix
 
@@ -128,10 +128,10 @@ There is exactly **one skill per workflow phase** (plus two non-phase skills). T
 | `claudehut-init` | Bootstrap (prerequisite) | Skill / `/claudehut:init` | new project / missing index | builds the codebase index + project memory + rules |
 | `brainstorm` | Brainstorm | Skill, inline (main-thread); dispatches explorer → reuse-scanner → brainstormer in sequence | before any new code | reuse-scan step (Iron Law) + ≥2 codebase-adapted options + enforcement set |
 | `write-spec` | Spec | Skill | after an approach is chosen | writes the implementation spec |
-| `write-plan` | Plan | Skill, `context: fork` → planner | after the spec | writes plan file |
+| `write-plan` | Plan | Skill, inline (main-thread); dispatches planner via Agent tool; owns approval gate + state write + TaskCreate mirror | after the spec | writes plan file |
 | `implement` | Implement | Skill, Iron Law (TDD); preloaded into `claudehut-implementer` | before writing prod code | no code without failing test; tech-stack reference playbooks in `implement/references/` |
-| `review` | Review | Skill, inline (main-thread), Iron Law | before any done-claim | spawns five auditors, loops until outstanding empty |
-| `capture-learnings` | Learn | Skill, `context: fork` → learner | task end | appends learnings + updates reuse-index |
+| `review` | Review | Skill, inline (main-thread), Iron Law | before any done-claim | spawns five auditors, loops until outstanding empty; persists `review.md` |
+| `capture-learnings` | Learn | Skill, inline (main-thread); dispatches learner via Agent tool; owns state write | task end | appends learnings + updates reuse-index |
 
 ### 4.3 Rules (project-generated, path-scoped) — see [05](./05-rules.md)
 
@@ -153,7 +153,7 @@ Rules are generated into `.claude/rules/` by `claudehut-init` at bootstrap time 
 
 | Component | Event | Native mechanism | What it enforces |
 |-----------|-------|------------------|------------------|
-| `bootstrap.sh` | `SessionStart` (`startup\|clear\|compact`) | `additionalContext` + `initialUserMessage` + `watchPaths` | inject orchestrator + learnings; trigger Bootstrap if index missing; **detect understand-anything** from `enabledPlugins` and inject the flag |
+| `bootstrap.sh` | `SessionStart` (`startup\|clear\|compact`) | `additionalContext` + `watchPaths` (+ `systemMessage` if init fallback failed) | inject orchestrator + learnings; trigger Bootstrap if index missing; **detect understand-anything** from `enabledPlugins` and inject the flag |
 | `inject-phase.sh` | `UserPromptSubmit` | `additionalContext` | remind current phase + inject prompt-relevant learnings |
 | `gate-write.sh` | `PreToolUse` (`Write\|Edit\|MultiEdit`) | `permissionDecision: deny` | **action gate** — no new code before reuse-scan + spec + plan |
 | `format-java.sh` | `PostToolUse` (`Write\|Edit`, `if *.java`) | non-blocking exit | auto-format with google-java-format |
@@ -192,7 +192,7 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 ├── claudehut/                     # 07 generated memory + prerequisite index
 │   ├── MEMORY.md (committed index, always-loaded)  PROJECT.md  LANGUAGE.md  architecture.md (on-demand)
 │   ├── reuse-index.json  learnings.jsonl  state/<session_id>.json (per-session)
-│   ├── specs/  plans/  reuse-scan-*.md
+│   └── tasks/NNNN-<slug>/         # one dir per task: reuse-scan.md  spec.md  plan.md  review.md
 └── rules/*.md                     # 05 generated, path-scoped
 ```
 
@@ -202,7 +202,7 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 
 Per pillar P6, every plane and dispatch choice is forced by a native constraint, not preference:
 
-- **Why Brainstorm and Review orchestrate from the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context). Review must spawn five auditors and loop, and Brainstorm dispatches explorer/scanner/brainstormer — so the `review` and `brainstorm` skills run **inline on the main thread**, which then dispatches subagents via the Agent tool. Skills that fork (`write-plan`, `capture-learnings`) each fork at most **one** subagent, which is allowed.
+- **Why all phase skills run on the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context), cannot use `AskUserQuestion` (main-loop-only), and most have no `Bash` (cannot run `claudehut-state`). Every phase skill therefore runs **inline on the main thread** and owns user gates, state writes, and native task mirroring — dispatching its agent(s) via the Agent tool. Brainstorm and Review each dispatch multiple agents (sequential/parallel respectively); Spec has no agent; Plan dispatches `claudehut-planner`; Implement dispatches `claudehut-implementer` (or works inline for ≤2-file changes); Learn dispatches `claudehut-learner`. The uniform rule: **skills orchestrate on the main thread; subagents return data only**.
 - **Why understand-anything is detected by a hook, not declared as a dependency.** There is **no native runtime mechanism** for one plugin to branch on whether another is installed; `plugin.json` `dependencies` is install/enable-time coupling only (and would *hard-require* understand-anything). So `bootstrap.sh` (`SessionStart`, command type) reads `enabledPlugins` (or `claude plugin list`) and injects a flag via `additionalContext`. This keeps the integration optional and honest. See [06](./06-hooks.md) and [01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase).
 - **Why the enforcement set is a checklist, not an engine.** Rules still auto-load by `paths:`; skills still trigger by `description`. The enforcement set (built in Brainstorm via the 1% rule) is an **auditable list** recorded in `state.json` + the spec and **checked by the Review auditors** — it does not replace the native trigger mechanisms. See [01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule).
 - **Why generated project rules, not plugin-shipped rules?** A plugin's component dirs are `agents/skills/commands/hooks/output-styles` plus `.mcp.json`/`.lsp.json` — there is no plugin `rules/` or `CLAUDE.md` slot. Path-scoped auto-loading only works from `${CLAUDE_PROJECT_DIR}/.claude/rules/`. So ClaudeHut ships templates and Bootstrap writes the real rules into the project. (See [00 §8](./00-overview.md#8-scope-boundaries).)

@@ -36,7 +36,7 @@ The structured outputs ClaudeHut uses:
 
 - `PreToolUse` → `hookSpecificOutput.permissionDecision: "deny"` + `permissionDecisionReason` + `additionalContext`.
 - `Stop` / `SubagentStop` → `decision: "block"` + `reason`.
-- `SessionStart` / `UserPromptSubmit` → `hookSpecificOutput.additionalContext` (and for SessionStart: `initialUserMessage`, `watchPaths`, `reloadSkills`).
+- `SessionStart` / `UserPromptSubmit` → `hookSpecificOutput.additionalContext` (and for SessionStart: `watchPaths`, `reloadSkills`); `systemMessage` (top-level, user-visible) for bootstrap prompts.
 
 All scripts live in `${CLAUDE_PLUGIN_ROOT}/scripts/` and read project state from the **per-session** file `${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/<session_id>.json`, where `<session_id>` comes from the hook-input `session_id` field — this per-session keying is the concurrency fix in [01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state). They **never write the state file** — the only writer is `bin/claudehut-state` ([01 §4](./01-agentic-workflow.md#4-the-phase-state-machine)).
 
@@ -100,7 +100,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 ### bootstrap.sh — SessionStart
 - **Event/Matcher:** `SessionStart` on `startup|clear|compact`.
 - **Reads:** `source`, `cwd`; checks for `${CLAUDE_PROJECT_DIR}/.claude/claudehut/` (the prerequisite index); reads `enabledPlugins` from the settings hierarchy (or runs `claude plugin list`) to **detect the `understand-anything` plugin**.
-- **Returns:** `additionalContext` = the `claudehut-workflow` orchestrator body **+ top-N learnings** (parsed from `learnings.jsonl`, ranked by confidence×recency) **+ the plugin-detection flag** (`understand-anything: enabled|absent`, which the `claudehut:brainstorm` skill's explore step branches on). If the codebase index is **absent**, also returns `initialUserMessage: "Run /claudehut:init to bootstrap ClaudeHut for this project."`. Sets `watchPaths` to the `.claude/claudehut/` dir and `reloadSkills: true` after a fresh Bootstrap. **Arms the gate (opt #1):** also writes an initial `state/<session_id>.json` (`phase=brainstorm`, `reuse_scan=false`) for this session if none exists, so `gate-write.sh` is live from turn 1 — without this the write gate fails open until the agent *voluntarily* starts the workflow (measured gap: agents skipped it, see EVAL-REPORT #2). **Auto-bootstraps the plane (opt #3 fallback):** when `.claude/claudehut/` is **absent**, it runs `bin/claudehut-init` directly (stdout suppressed) to generate the project plane deterministically — the skill's `!`backtick`` invocation was measured **flaky (2/3)** in P7, so bootstrap removes the model from invocation entirely. The `initialUserMessage` prompt is only emitted if that fallback could not run.
+- **Returns:** `additionalContext` = the `claudehut-workflow` orchestrator body **+ top-N learnings** (parsed from `learnings.jsonl`, ranked by confidence×recency) **+ the plugin-detection flag** (`understand-anything: enabled|absent`, which the `claudehut:brainstorm` skill's explore step branches on). Sets `watchPaths` to the `.claude/claudehut/` dir and `reloadSkills: true` after a fresh Bootstrap. **Arms the gate (opt #1):** also writes an initial `state/<session_id>.json` (`phase=brainstorm`, `reuse_scan=false`) for this session if none exists, so `gate-write.sh` is live from turn 1 — without this the write gate fails open until the agent *voluntarily* starts the workflow (measured gap: agents skipped it, see EVAL-REPORT #2). **Auto-bootstraps the plane (opt #3 fallback):** when `.claude/claudehut/` is **absent**, it runs `bin/claudehut-init` directly (stdout suppressed) to generate the project plane deterministically — the skill's `!`backtick`` invocation was measured **flaky (2/3)** in P7, so bootstrap removes the model from invocation entirely. If that fallback could not run, emits a top-level `systemMessage` prompting the user to run `/claudehut:init`.
 - **Enforces:** the Workflow is loaded **before turn 1** (non-optional); the agent starts each session primed with this project's learnings (P5 read-path); and the conditional understand-anything integration is resolved **here**, because there is no native runtime cross-plugin branch ([01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase)).
 - **Phase:** all (entry) + the Bootstrap prerequisite.
 - **Honest limits:** only affects context at session start; cannot enforce anything later in the session. Plugin detection is a **hook-script read of settings**, not a native declarative dependency.
@@ -117,8 +117,12 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
   else
     ctx="$ctx\n\n## understand-anything: absent — Brainstorm uses claudehut-explorer + Grep."
   fi
-  if [ ! -d "$dir" ]; then init_msg='"initialUserMessage":"Run /claudehut:init to bootstrap ClaudeHut for this project.",'; fi
-  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart",%s"additionalContext":%s}}' "$init_msg" "$(jq -Rs . <<<"$ctx")"
+  # emit systemMessage if deterministic fallback could not run
+  need_init=false
+  { [ ! -d "$dir" ] && ! $INITED; } && need_init=true
+  jq -n --arg ctx "$ctx" --argjson need "$need_init" '
+    {hookSpecificOutput:{hookEventName:"SessionStart",additionalContext:$ctx,watchPaths:[$dir],reloadSkills:true}}
+    + (if $need then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:init to bootstrap this project."} else {} end)'
   ```
 
 ### inject-phase.sh — UserPromptSubmit
@@ -153,11 +157,11 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
   elif [ "$(jq -r '.spec_path' <<<"$s")" = "null" ]; then
     deny "Write the spec first — run claudehut:write-spec."
   elif ! exists "$(jq -r '.spec_path' <<<"$s")"; then
-    deny "spec recorded but file missing under .claude/claudehut/ — write it under specs/ there."
+    deny "spec recorded but file missing under .claude/claudehut/ — write it to tasks/NNNN-<slug>/spec.md."
   elif [ "$(jq -r '.plan_path' <<<"$s")" = "null" ]; then
     deny "Write a plan first — run claudehut:write-plan."
   elif ! exists "$(jq -r '.plan_path' <<<"$s")"; then
-    deny "plan recorded but file missing under .claude/claudehut/ — write it under plans/ there."
+    deny "plan recorded but file missing under .claude/claudehut/ — write it to tasks/NNNN-<slug>/plan.md."
   fi
   ```
   (`deny`/`allow` emit the `permissionDecision` JSON.)
@@ -197,7 +201,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 ### verify-subagent.sh — SubagentStop
 - **Event/Matcher:** `SubagentStop` (all; can match on `agent_type`). *(The script verifies subagent **output** — it is named for the verb, not the retired phase.)*
 - **Reads:** `agent_type`, transcript path.
-- **Returns:** `decision: "block"` if a phase subagent returned without its required artifact (e.g. `claudehut-reuse-scanner` produced no reuse-scan file; `claudehut-planner` produced no plan; a Review auditor returned no outstanding-set slice).
+- **Returns:** `decision: "block"` if a file-producing phase subagent returned without its required artifact: `claudehut-reuse-scanner` must produce `tasks/*/reuse-scan.md` (legacy `reuse-scan-*.md` also accepted); `claudehut-planner` must produce `tasks/*/plan.md` (legacy `plans/*.md` also accepted). Review auditors return findings as text and are not file-checked here.
 - **Enforces:** subagents complete their contract — an auditor/scanner/planner can't return empty-handed and let the main thread proceed on a false premise.
 - **Phase:** Brainstorm/Plan/Review.
 - **Honest limits:** can only check for the artifact's existence/shape, not its quality.

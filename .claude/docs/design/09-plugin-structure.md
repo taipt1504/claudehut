@@ -49,9 +49,13 @@ claudehut/                                  # static plugin plane
 │   ├── brainstorm/
 │   │   └── SKILL.md                        # explore/reuse-scan/options steps; dispatches explorer, reuse-scanner, brainstormer
 │   ├── write-spec/
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── spec-template.md            # spec-kit/EARS/MADR/Google synthesis; right-sized by task type
 │   ├── write-plan/
-│   │   └── SKILL.md
+│   │   ├── SKILL.md
+│   │   └── references/
+│   │       └── plan-template.md            # spec-kit plan template; T-xxx table + decision summary §1
 │   ├── implement/
 │   │   ├── SKILL.md                        # Iron Law: test-first enforcement
 │   │   └── references/                     # 9 context7-researched best-practice playbooks; preloaded by the implement skill at CREATE-time
@@ -133,8 +137,11 @@ The plugin never owns these files; `claudehut-init` creates them once, then hook
         ├── learnings.jsonl
         ├── state/                          # per-session phase-state files (written only by bin/claudehut-state)
         │   └── <session_id>.json           # one per session/task; gitignored, ephemeral (01 §4.1)
-        ├── specs/                          # implementation specs (write-spec skill; subsume ADRs)
-        └── plans/                          # plan files (write-plan skill)
+        └── tasks/                          # one dir per task (NNNN-<slug>/) — all task artifacts in one place
+            ├── reuse-scan.md               # Brainstorm: reuse-scan artifact (P4)
+            ├── spec.md                     # Spec phase: implementation spec (subsumes ADR)
+            ├── plan.md                     # Plan phase: T-xxx breakdown (durable source of truth)
+            └── review.md                   # Review phase: auditor findings + test evidence + verdict
 ```
 
 The boundary is absolute: nothing under `${CLAUDE_PLUGIN_ROOT}` is written at runtime; nothing under `<project>/.claude/` is shipped by the plugin.
@@ -239,8 +246,10 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `skills/claudehut-init/SKILL.md` | Skill | Bootstrap command `/claudehut:init` | [04](./04-skills.md#claudehut-init) |
 | **Skills — phase** | | | |
 | `skills/brainstorm/SKILL.md` | Skill | Brainstorm phase; explore/reuse-scan/options steps; dispatches explorer, reuse-scanner, brainstormer inline | [04](./04-skills.md#brainstorm) |
-| `skills/write-spec/SKILL.md` | Skill | Spec phase; writes the implementation spec | [04](./04-skills.md#write-spec) |
-| `skills/write-plan/SKILL.md` | Skill | Plan phase; forks to planner | [04](./04-skills.md#write-plan) |
+| `skills/write-spec/SKILL.md` | Skill | Spec phase; writes the implementation spec from template; owns AskUserQuestion approval + set-spec | [04](./04-skills.md#write-spec) |
+| `skills/write-spec/references/spec-template.md` | Reference | Spec template (spec-kit/EARS/MADR/Google synthesis); right-sized by task type | [11](./11-execution-model-and-artifacts.md) |
+| `skills/write-plan/SKILL.md` | Skill | Plan phase; dispatches planner via Agent tool; owns approval gate + set-plan + TaskCreate mirror | [04](./04-skills.md#write-plan) |
+| `skills/write-plan/references/plan-template.md` | Reference | Plan template (spec-kit tasks; T-xxx breakdown + decision summary §1) | [11](./11-execution-model-and-artifacts.md) |
 | `skills/implement/SKILL.md` | Skill | Implement Iron Law; test-first enforcement; absorbs domain depth via references/ | [04](./04-skills.md#implement) |
 | `skills/implement/references/web.md` | Reference | Spring MVC (controllers, exception handling, validation, REST conventions) | [04](./04-skills.md#implement) |
 | `skills/implement/references/jpa.md` | Reference | JPA/Hibernate persistence playbook (fetch, N+1, equals/hashCode, locking) | [04](./04-skills.md#implement) |
@@ -265,7 +274,7 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `scripts/persist-state.sh` | Hook script | PreCompact: flush learnings/state before compaction | [06](./06-hooks.md#persist-statesh--precompact) |
 | `scripts/inject-learnings.sh` | Helper script | Shared: rank + emit top-N learnings from `learnings.jsonl` | [06](./06-hooks.md) |
 | **Bin** | | | |
-| `bin/claudehut-init` | CLI binary | Deterministic project-plane generator: detects the stack (grep/sed on build files), renders the memory templates + stack-gated `.claude/rules/` tree into `.claude/claudehut/` + `.claude/rules/`, wires the `@import` slice; idempotent (`--refresh`, never clobbers `learnings.jsonl`), `--detect` prints stack JSON. Invoked by the `claudehut-init` skill. | [05](./05-rules.md), [07 §3](./07-memory-architecture.md#3-bootstrapping-a-new-project) |
+| `bin/claudehut-init` | CLI binary | Deterministic project-plane generator: detects the stack (grep/sed on build files), renders the memory templates + stack-gated `.claude/rules/` tree into `.claude/claudehut/` + `.claude/rules/`, wires the `@import` slice; creates `tasks/` dir (one-per-task artifact home); idempotent (`--refresh`, never clobbers `learnings.jsonl`), `--detect` prints stack JSON. Invoked by the `claudehut-init` skill. | [05](./05-rules.md), [07 §3](./07-memory-architecture.md#3-bootstrapping-a-new-project) |
 | `bin/claudehut-state` | CLI binary | Phase-state writer (takes `--session`); the only process that mutates the per-session `state/<session_id>.json` (atomic temp+rename) | [01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state) |
 | `bin/kafka-mcp` | MCP server | Custom Kafka MCP: topics/consumer-groups/offsets | [08](./08-mcp-integration.md) |
 | **Templates** | | | |
@@ -315,7 +324,7 @@ Each native Claude Code rule and how the layout satisfies it:
 
 - **A plugin cannot ship `.claude/rules/` or `CLAUDE.md`.** The native plugin component slot list (`agents/`, `skills/`, `commands/`, `hooks/`, `output-styles/`, plus the `.mcp.json` and `.lsp.json` files) has no `rules/` entry, and path-scoped auto-loading only works from `${CLAUDE_PROJECT_DIR}/.claude/rules/`. ClaudeHut therefore ships rule *templates* under `templates/rules/` and `claudehut-init` writes the live rules into the project. The project's `CLAUDE.md` is never shipped by the plugin; `claudehut-init` only appends `@import` lines to the already-existing project file.
 
-- **`${CLAUDE_PLUGIN_ROOT}` is replaced on update — never write state there.** All runtime state (the per-session `state/<session_id>.json`, `learnings.jsonl`, specs, plans, reuse-scan artifacts) lives in `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`, which survives plugin updates. `${CLAUDE_PLUGIN_DATA}` is the native per-machine persistence slot and remains available for any future machine-global cache needs, but the current design requires none — per-project isolation is achieved by keying everything to `CLAUDE_PROJECT_DIR`.
+- **`${CLAUDE_PLUGIN_ROOT}` is replaced on update — never write state there.** All runtime state (the per-session `state/<session_id>.json`, `learnings.jsonl`, and per-task artifacts under `tasks/`) lives in `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`, which survives plugin updates. `${CLAUDE_PLUGIN_DATA}` is the native per-machine persistence slot and remains available for any future machine-global cache needs, but the current design requires none — per-project isolation is achieved by keying everything to `CLAUDE_PROJECT_DIR`.
 
 - **`bin/claudehut-state` is the sole writer of the per-session state file.** Hook scripts read `state/<session_id>.json` but never write it; skills can instruct the agent to run `claudehut-state --session ${CLAUDE_SESSION_ID} …`, but the binary is the single authoritative writer (atomic temp+rename). Its subcommands match the authoritative schema in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine): `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass` (all take `--session`). The per-session keying prevents concurrent-task collisions ([01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state)); this preserves the clean hook-reads / command-writes separation ([06](./06-hooks.md#1-the-hook-io-protocol-what-we-rely-on)).
 

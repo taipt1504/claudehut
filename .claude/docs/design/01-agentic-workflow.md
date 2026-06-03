@@ -85,13 +85,13 @@ The single source of truth for "where are we" is the **Phase-state file**, writt
   "task": "add idempotency key to PaymentController",
   "phase": "implement",
   "reuse_scan": true,
-  "reuse_scan_artifact": ".claude/claudehut/reuse-scan-payment-idempotency.md",
+  "reuse_scan_artifact": ".claude/claudehut/tasks/0007-payment-idempotency/reuse-scan.md",
   "enforcement_set": {
     "skills": ["implement", "review"],
     "rules":  ["controller.md", "persistence.md", "testing.md", "caching.md"]
   },
-  "spec_path": ".claude/claudehut/specs/payment-idempotency.md",
-  "plan_path": ".claude/claudehut/plans/payment-idempotency.md",
+  "spec_path": ".claude/claudehut/tasks/0007-payment-idempotency/spec.md",
+  "plan_path": ".claude/claudehut/tasks/0007-payment-idempotency/plan.md",
   "review": "pending",
   "outstanding": [],
   "bypass": false,
@@ -118,7 +118,7 @@ Field semantics:
 
 ```
 claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills implement,review --rules controller.md,persistence.md,testing.md,caching.md
-claudehut-state --session ${CLAUDE_SESSION_ID} set-phase spec --spec .claude/claudehut/specs/payment-idempotency.md
+claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/0007-payment-idempotency/spec.md
 claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass        # only after outstanding == []
 ```
 
@@ -166,7 +166,7 @@ stateDiagram-v2
 
 | Durable shared file | Write pattern under concurrency |
 |---------------------|----------------------------------|
-| `specs/<task>.md`, `plans/<task>.md`, `reuse-scan-<task>.md` | per-task filenames → no collision |
+| `tasks/NNNN-<slug>/reuse-scan.md`, `spec.md`, `plan.md`, `review.md` | per-task directories → no collision |
 | `learnings.jsonl` | one JSON object per line, appended with a single atomic `O_APPEND` write (safe for line-sized records); the learner's dedup tolerates interleaved appends |
 | `reuse-index.json` | atomic temp+`rename()` (last-writer-wins); **advisory** — Brainstorm re-scans the project each task, so a lost update is non-fatal |
 
@@ -178,21 +178,21 @@ Each phase lists: **goal**, **bound skills**, **bound agents**, **rules that aut
 - **Goal (rewritten):** brainstorm **candidate solutions that adapt to the current codebase**, optimizing three axes — the **most best-practice** approach, the **smallest change footprint**, and the **highest output quality and performance**. Then **determine the enforcement set**: which skills and rules the agent MUST honor during Implement and Review, applying the 1% rule ([§7](#7-the-enforcement-set-applying-the-1-rule)).
 - **Skills:** `brainstorm` (runs inline on the main thread; carries the reuse Iron Law; conditionally enforces `understand-anything` query/search skills when that plugin is enabled). Inside `brainstorm`, three steps execute in sequence: (1) index-query step (`claudehut-explorer`), (2) reuse-scan step (`claudehut-reuse-scanner`), (3) options step (`claudehut-brainstormer`).
 - **Agents:** `claudehut-explorer`, `claudehut-reuse-scanner`, `claudehut-brainstormer`. **Dispatched in sequence from the main thread** (a subagent cannot spawn subagents — `brainstorm` runs inline and dispatches `claudehut-explorer` → `claudehut-reuse-scanner` → `claudehut-brainstormer`).
-- **Artifacts:** ≥2 candidate approaches + tradeoffs + a recommendation; the **Reuse-scan artifact** at `.claude/claudehut/reuse-scan-<task>.md`; the **enforcement set** recorded via `claudehut-state set-enforcement`. `state.json.reuse_scan = true`.
+- **Artifacts:** ≥2 candidate approaches + tradeoffs + a recommendation; the **Reuse-scan artifact** at `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`; the **enforcement set** recorded via `claudehut-state set-enforcement`. `state.json.reuse_scan = true`.
 - **Exit gate:** reuse scan complete **and** enforcement set determined. The recommended approach is presented for approval (the superpowers design-gate principle); in interactive use the human confirms before Spec, in autonomous use the agent records its choice and rationale.
 
 ### Phase 2 — Spec  *(formerly "Decide")*
 - **Goal:** produce the **implementation spec** — the chosen approach, acceptance criteria, the interfaces/contracts it touches, and the **enforcement manifest** (the applicable skills/rules/memory carried forward to Review). Framing the decision as a *specification* aligns with the core principle: the spec is the contract the implementation and Review are measured against.
 - **Skills:** `write-spec`.
 - **Agents:** none required — Spec is a main-thread act, informed by `brainstorm` output and the Vocabulary lock.
-- **Artifact:** `.claude/claudehut/specs/NNNN-<slug>.md` (context · chosen approach · acceptance criteria · enforcement manifest · alternatives rejected). `state.json.spec_path` set. The spec **subsumes the old ADR** — rationale for the choice lives in the spec.
-- **Exit gate:** spec written (and, interactively, approved).
+- **Artifact:** `.claude/claudehut/tasks/NNNN-<slug>/spec.md` (context · chosen approach · acceptance criteria · enforcement manifest · alternatives rejected). `state.json.spec_path` set **only after user approval** (via `AskUserQuestion`; non-interactive `-p` run records a draft note and proceeds). The spec **subsumes the old ADR** — rationale for the choice lives in the spec.
+- **Exit gate:** spec approved and `spec_path` set.
 
 ### Phase 3 — Plan
-- **Goal:** turn the spec into an executable, file-level plan (ordered steps, files to touch, tests to write first, verification commands).
-- **Skills:** `write-plan`.
+- **Goal:** turn the spec into an executable, file-level plan (ordered steps, files to touch, tests to write first, verification commands per task).
+- **Skills:** `write-plan` (runs inline on the main thread; dispatches `claudehut-planner` via the Agent tool to draft the plan, then owns the approval gate and the state write).
 - **Agents:** `claudehut-planner`.
-- **Artifact:** a plan file at `.claude/claudehut/plans/<task>.md`; `state.json.plan_path` set.
+- **Artifact:** a plan file at `.claude/claudehut/tasks/NNNN-<slug>/plan.md` (T-xxx breakdown table, decision summary, deps); `state.json.plan_path` set **only after user approval** (via `AskUserQuestion`). On approval the main thread also calls `TaskCreate` per T-xxx row and wires `addBlockedBy` from the Depends-on column (native task list = per-session live mirror; `plan.md` = durable source of truth).
 - **Exit gate (HARD):** `plan_path` must be set before any Write/Edit — enforced by the `PreToolUse` write gate ([§10](#10-think-and-reuse-the-hard-gate)).
 
 ### Phase 4 — Implement
@@ -200,14 +200,14 @@ Each phase lists: **goal**, **bound skills**, **bound agents**, **rules that aut
 - **Skills:** `implement` (carries the TDD Iron Law: no production code without a failing test; deep tech-stack playbooks live in `implement`'s `references/`).
 - **Agents:** `claudehut-implementer` (optionally `isolation: worktree` for risky multi-file changes). Its **static** `skills:` frontmatter preloads a **fixed core** (`implement`) — frontmatter cannot hold a runtime list. The **per-task enforcement set** is passed in the **dispatch prompt** the main thread writes when calling the Agent tool, and the tech-stack standards **auto-load as path-scoped rules** as the agent touches matching files.
 - **Rules auto-loaded (path-scoped):** `*Controller.java` → controller rules; `*Repository.java`/`*Entity.java` → persistence rules; `*Test.java` → testing rules; `*Redis*.java`/`*Cache*.java` → caching rules; etc. See [05. Rules](./05-rules.md).
-- **Artifact:** code + tests; `state.json.phase = "implement"`.
+- **Artifact:** code + tests; `state.json.phase = "implement"`. The main thread calls `TaskUpdate in_progress` before each step starts and `TaskUpdate completed` once its verify command passes (sourced from the implementer's per-step report).
 - **Exit gate:** none here (Review is the gate).
 
 ### Phase 5 — Review  *(formerly "Verify")*
 - **Goal:** the **main thread spawns auditor subagents** that enforce the rules, skills, and memory from **both the plugin and the project** to verify/review/audit the implemented task, confirming **full compliance** with every applicable item. This is a **loop** ([§8](#8-the-review-loop-and-its-exit-condition)).
 - **Skills:** `review` (runs **inline on the main thread** — it must spawn subagents, and a subagent cannot spawn subagents; carries the completion Iron Law and the test-matrix for applicable tech stacks).
 - **Agents (auditors, run in parallel, each returns its slice of the outstanding set):** `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`.
-- **Artifact:** per-auditor findings + the merged `outstanding` set; fresh test output; `state.json.review = "pass"` only when `outstanding == []` and evidence is green.
+- **Artifact:** `.claude/claudehut/tasks/NNNN-<slug>/review.md` (per-auditor findings with citations + test evidence + outstanding items resolved across loops + final verdict); `state.json.review = "pass"` only when `outstanding == []` and evidence is green.
 - **Exit gate (HARD):** the `Stop` hook blocks turn completion until `review == "pass"` **and** Learn has run; failures loop back to Implement. The loop honors the native Stop-cap (`stop_hook_active`) — see [§8](#8-the-review-loop-and-its-exit-condition).
 
 ### Phase 6 — Learn
@@ -341,9 +341,9 @@ State: "Using ClaudeHut write-spec (phase 2 — Spec)."
 
 ## Flow
 1. Read the recommended approach + enforcement set from Brainstorm.
-2. Write .claude/claudehut/specs/<task>.md: context, chosen approach,
+2. Write .claude/claudehut/tasks/NNNN-<slug>/spec.md: context, chosen approach,
    acceptance criteria, enforcement manifest (skills+rules), rejected alternatives.
-3. Run: claudehut-state set-spec <path>
+3. Call AskUserQuestion for approval. Only after approval run: claudehut-state set-spec <path>
 
 ## REQUIRED NEXT
 Invoke claudehut:write-plan. Do NOT write production code yet — the write gate is closed until a plan exists.
@@ -373,7 +373,7 @@ This pattern holds for **every phase**: Brainstorm's `brainstorm`, Spec's `write
 
 Pillar P4 demands the agent think and reuse *before* writing. The mechanism is a two-part gate:
 
-1. **Brainstorm produces a Reuse-scan artifact.** The reuse-scan step inside the `brainstorm` skill (driven by `claudehut-reuse-scanner`) queries `reuse-index.json` and greps the project for existing services/utilities/configs that already solve the task — the smallest-footprint axis. The result ("adopt/extend X at `a/b/C.java`" or "nothing reusable, justification: …") is written to `.claude/claudehut/reuse-scan-<task>.md`, and `claudehut-state set-reuse-scan` flips `reuse_scan=true`.
+1. **Brainstorm produces a Reuse-scan artifact.** The reuse-scan step inside the `brainstorm` skill (driven by `claudehut-reuse-scanner`) queries `reuse-index.json` and greps the project for existing services/utilities/configs that already solve the task — the smallest-footprint axis. The result ("adopt/extend X at `a/b/C.java`" or "nothing reusable, justification: …") is written to `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`, and `claudehut-state set-reuse-scan` flips `reuse_scan=true`.
 2. **The write gate refuses code until the prerequisites exist.** The `PreToolUse` hook on `Write|Edit|MultiEdit` reads `state.json`; if `reuse_scan` is false **or** `spec_path` is unset **or** `plan_path` is unset, it returns `permissionDecision: deny` with a reason telling the agent to finish the reuse scan, spec, and plan first.
 
 ```mermaid
@@ -395,8 +395,8 @@ The agent literally cannot create a new file until it has demonstrated it checke
 > **Task:** "Add an idempotency key to `PaymentController.charge`."
 
 1. **Brainstorm** — `brainstorm` runs inline: the index-query step (`claudehut-explorer`) queries the index (uses `understand-anything` if the SessionStart flag says it is enabled, else `claudehut-explorer` + Grep) and finds `PaymentController`, an existing `RequestKeyFilter`, and a Redis config. The reuse-scan step (`claudehut-reuse-scanner`) finds `RequestKeyFilter` already extracts idempotency keys → reuse-scan artifact records "extend `RequestKeyFilter`, back it with Redis." The options step (`claudehut-brainstormer`) weighs filter vs interceptor vs annotation and recommends extending the filter (smallest footprint, best-practice, fits the reactive path). **Enforcement set** determined at ≥1% match: skills `[implement, review]`, rules `[framework/webflux.md, framework/redis.md, performance/caching.md, testing/junit5.md]` → `claudehut-state set-enforcement`. `reuse_scan=true`.
-2. **Spec** — `write-spec` produces `specs/0007-idempotency-filter.md`: chosen approach (extend `RequestKeyFilter`, Redis-backed store), acceptance criteria (duplicate request returns the cached response; key TTL 24h), enforcement manifest, rejected alternatives. `spec_path` set.
-3. **Plan** — `write-plan` produces steps: failing `@SpringBootTest` first → Redis store → wire into the existing filter → black-box test. `plan_path` set.
+2. **Spec** — `write-spec` produces `tasks/0007-payment-idempotency/spec.md`: chosen approach (extend `RequestKeyFilter`, Redis-backed store), acceptance criteria (duplicate request returns the cached response; key TTL 24h), enforcement manifest, rejected alternatives. User approves via `AskUserQuestion`; `spec_path` set.
+3. **Plan** — `write-plan` dispatches `claudehut-planner`, which produces `tasks/0007-payment-idempotency/plan.md` with the T-xxx breakdown (failing `@SpringBootTest` first → Redis store → wire into the existing filter → black-box test). User approves; `plan_path` set; `TaskCreate` mirrors the T-xxx rows in the task panel.
 4. **Implement** — agent attempts Write; the gate now allows. `claudehut-implementer` preloads `[implement]`; the TDD Iron Law (carried by `implement`) forces the failing test first; `framework/redis.md`/`performance/caching.md` rules auto-load on the relevant files.
 5. **Review** — `review` (main thread) spawns the five auditors. `claudehut-security-auditor` flags one outstanding item: "the idempotency key is user-spoofable" → loop back to Implement, scope the key to the authenticated principal → re-audit → `outstanding == []`, tests green → `review=pass`.
 6. **Learn** — `claudehut-learner` records "this project does idempotency via filters, not interceptors" + "`RequestKeyFilter` is the reuse point" into `learnings.jsonl` and updates `reuse-index.json`. The `Stop` gate now permits turn end.
