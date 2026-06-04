@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claudehut",
   "displayName": "ClaudeHut",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "6-phase agentic workflow for Java/Spring Boot backends (over a pre-indexed codebase): brainstorm → spec → plan → implement → review → learn.",
   "author": {
     "name": "ClaudeHut Authors",

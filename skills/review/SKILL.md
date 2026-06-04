@@ -44,11 +44,14 @@ flowchart TB
    tool_use blocks in a single response). That is the native concurrency mechanism: calls in the same
    message run concurrently; one call per message runs them serially and quintuples wall time. They are
    read-only, so parallel is conflict-free. Each is scoped to the enforcement set + project rules + memory:
-   - `claudehut-test-runner` — run the suite; produce fresh pass/fail evidence.
-   - `claudehut-reviewer` — general correctness, readability, conventions.
-   - `claudehut-security-auditor` — OWASP / authn-authz / secrets / deserialization.
-   - `claudehut-perf-reviewer` — N+1 / blocking-on-reactive / query plans.
-   - `claudehut-db-reviewer` — JPA mappings / fetch strategy / migration safety.
+   - `claudehut:claudehut-test-runner` — run the suite; produce fresh pass/fail evidence.
+   - `claudehut:claudehut-reviewer` — general correctness, readability, conventions.
+   - `claudehut:claudehut-security-auditor` — OWASP / authn-authz / secrets / deserialization.
+   - `claudehut:claudehut-perf-reviewer` — N+1 / blocking-on-reactive / query plans.
+   - `claudehut:claudehut-db-reviewer` — JPA mappings / fetch strategy / migration safety.
+
+   Dispatch by these **qualified types** (`claudehut:claudehut-…`) — unqualified names can fail to resolve
+   and waste a full dispatch round (measured: a 5-agent batch had to be re-issued).
 
    Auditors that can use a database/Kafka MCP **degrade gracefully** when none is connected: they review
    statically (read code, infer query plans) instead of running live queries, and say so in their report.

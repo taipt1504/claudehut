@@ -84,8 +84,24 @@ batching survival in a full brainstorm→plan→implement context.**
 real property — concurrency independent of the model's batching choice — sidesteps exactly A1's open risk. A
 scoped read-only test on the 5-auditor review fan-out is the data-suggested follow-up.
 
-| # | Next measurement/improvement (gated on approval) | Basis |
+## Heavy-context batching check (2026-06-04) — risk DOWNGRADED
+
+One qualitative run (advisor-designed: no underpowered before/after): ~65k input tokens of real context (nine
+playbooks read in full), then the review skill's 5-auditor dispatch. **Result: 5 Agent calls in ONE message —
+twice — at 64,748 input tokens.** Batching held under heavy context; nothing reproduced; risk downgraded from
+"open" to "not reproduced (single qualitative run; cannot be hard-guaranteed — serial fallback stays correct)."
+
+**Side-finding (fixed in v0.3.0):** the first 5-call batch used unqualified agent names
+(`claudehut-db-reviewer`) and had to be re-issued with qualified types (`claudehut:claudehut-…`) — one wasted
+dispatch round. Skills now name agents by qualified type at every dispatch point.
+
+**Insurance shipped (best-effort by nature, not a guarantee):** the official parallel-tool-call guidance
+(measured phrasing, no MUST/CRITICAL — Opus 4.x overtriggers on aggressive prompts) now lives on the two
+always-loaded surfaces: the `claudehut-workflow` skill (injected each session) and the generated `MEMORY.md`
+@import slice. A plugin cannot set the system prompt, so the docs' "~100%" system-prompt number does NOT
+transfer — propensity maximized, effectiveness under all conditions unverified, correctness never depends on it.
+
+| # | Remaining (gated on approval) | Basis |
 |---|---|---|
-| 1 | Heavy-context batching check: does A1 still batch inside a real brainstorm→plan→implement run? | A1's one open risk |
-| 2 | Scoped A2 read-only test for the review 5-auditor fan-out (shape-independent concurrency where write bugs don't bite) | open, not closed |
-| 3 | Adopt the corrected msg-id-grouped shape detector in any future eval (already in `parallel-bench.sh`) | artifact post-mortem |
+| 1 | Scoped A2 read-only test for the review 5-auditor fan-out (shape-independent concurrency where write bugs don't bite) | open, not closed |
+| 2 | Adopt the corrected msg-id-grouped shape detector in any future eval (already in `parallel-bench.sh`) | artifact post-mortem |

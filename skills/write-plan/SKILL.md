@@ -12,7 +12,7 @@ task mirror (none of which a subagent can do).
 
 ## Process
 
-1. **Dispatch `claudehut-planner` (Agent tool)** to draft the plan. The task dir is **derived from the
+1. **Dispatch `claudehut:claudehut-planner` (Agent tool)** to draft the plan. The task dir is **derived from the
    recorded spec path** (`dirname` of the `set-spec` path) — never recompute `NNNN`; one task = one dir.
    Give the planner: the spec path (`tasks/NNNN-<slug>/spec.md`), the reuse-scan path (same dir), and the
    template at `references/plan-template.md`.

@@ -36,7 +36,7 @@ flowchart TB
     gate -- yes --> done([REQUIRED NEXT: claudehut:write-spec])
 ```
 
-## Step 1a — Explore (dispatch `claudehut-explorer`, same message as 1b)
+## Step 1a — Explore (dispatch `claudehut:claudehut-explorer`, same message as 1b)
 
 Dispatch the explorer with the Agent tool. It loads the pre-built index (`.claude/claudehut/PROJECT.md`,
 `architecture.md`, `reuse-index.json`), maps the packages/classes the task touches (cite `file:line`), and
@@ -44,7 +44,7 @@ returns entry points, key existing types, and a **"Reuse candidates"** list. It 
 proposes fixes. If `understand-anything` is enabled (flag set by `claudehut:claudehut-workflow` at
 SessionStart), the explorer uses its query/search skills for richer navigation; otherwise `Grep`/`Glob`.
 
-## Step 1b — Reuse-scan (dispatch `claudehut-reuse-scanner`, same message as 1a)
+## Step 1b — Reuse-scan (dispatch `claudehut:claudehut-reuse-scanner`, same message as 1a)
 
 First create the **task dir** (every artifact of this task lives here): `NNNN` = zero-padded next integer
 over `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/`, slug = kebab-case task name.
@@ -68,7 +68,7 @@ claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude
 | "I already explored, I know the code" | Exploration ≠ a reuse decision. Produce the artifact. |
 | "It's a tiny helper" | Tiny duplicates rot fastest. Scan. |
 
-## Step 2 — Options + enforcement set (dispatch `claudehut-brainstormer`, after 1a+1b return)
+## Step 2 — Options + enforcement set (dispatch `claudehut:claudehut-brainstormer`, after 1a+1b return)
 
 Dispatch the brainstormer. It produces **≥2 genuinely distinct, codebase-adapted approaches** scored on
 three axes, presented as a table (approach · pros · cons · fit-with-project · footprint · perf) plus a

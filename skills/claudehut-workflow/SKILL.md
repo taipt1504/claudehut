@@ -36,6 +36,12 @@ Brainstorm → Spec → Plan → Implement → Review → Learn
 
 Announce each phase: state *"Using ClaudeHut <skill> (phase N)"* when you invoke it.
 
+**Parallel dispatch convention.** When a phase dispatches multiple subagents with no data dependency between
+them (Review's five auditors; Brainstorm's explorer + reuse-scanner; Implement's disjoint `[P]` group after
+`check-disjoint` passes), issue all those Agent tool calls **in one message** — independent calls in the same
+message run concurrently; one call per message runs them serially. Dependent dispatches stay sequential.
+Dispatch plugin agents by their qualified type (`claudehut:claudehut-<name>`).
+
 ## Recording transitions
 
 State is per-session, recorded **by the main thread only** with the state writer (it is the only writer;

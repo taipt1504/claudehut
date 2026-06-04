@@ -47,8 +47,8 @@ flowchart TB
 
 **Who executes (explicit rule — don't mix ad hoc):**
 - **≤ 2 files and no migration** → implement inline on the main thread with this skill.
-- **Dependent T-xxx chain** (no `[P]` tasks) → dispatch **one** `claudehut-implementer` (Agent tool;
-  isolated worktree).
+- **Dependent T-xxx chain** (no `[P]` tasks) → dispatch **one** `claudehut:claudehut-implementer` (Agent
+  tool; isolated worktree).
 - **`[P]`-marked tasks → PARALLEL implementers, gated by the deterministic safety check.** First run
   `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — exit 0 (all `[P]` Files
   pairwise disjoint) is the precondition; exit 2 (overlap) → **fall back to sequential** (parallel writers on

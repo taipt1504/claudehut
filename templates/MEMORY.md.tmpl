@@ -17,6 +17,11 @@ on-demand files only when needed. Keep it concise (≤ ~150 lines).
 - `.claude/rules/*.md` — controller, service, persistence, reactive, messaging, testing, security,
   plus always-on `project-structure.md` and `vocabulary.md`.
 
+## Dispatch convention (always applies)
+When dispatching multiple independent subagents (Review's auditors; Brainstorm's explorer + reuse-scanner;
+disjoint `[P]` implement tasks), issue all the Agent tool calls in one message — independent calls in the
+same message run concurrently. Use qualified agent types (`claudehut:claudehut-<name>`).
+
 ## Topics
 <!-- claudehut-learner appends topic pointers here as new categories appear, e.g.:
 - idempotency → learnings.jsonl (category=convention, trigger=idempotency|dedup)

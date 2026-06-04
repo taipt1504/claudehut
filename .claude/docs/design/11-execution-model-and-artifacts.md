@@ -159,9 +159,12 @@ findings across the probe + 9-trial matrix + shape-confirm run:
   output loss, silent Write/Edit/Bash auto-deny with false success, a parallel-worktree cleanup race that
   destroyed a `.git` — all closed "not planned") plus zero official Anthropic plugins shipping background
   write agents. A2 stays **open for read-only fan-out** (review auditors): its concurrency is independent of
-  the model's batching choice, which is A1's one open risk (batching under heavy real-workflow context —
-  unmeasured). Full decision record: `evals/bench/BENCH-REPORT.md` — **A1 approved as the plugin's
-  write-fan-out lever (user, 2026-06-04)**.
+  the model's batching choice — a risk later **measured and downgraded**: at ~65k input tokens the review
+  skill still batched 5 Agent calls in one message (single qualitative run; cannot be hard-guaranteed; serial
+  fallback stays correct). Parallel-dispatch guidance now also lives on the always-loaded surfaces (workflow
+  skill + MEMORY.md slice), and skills dispatch agents by qualified type (`claudehut:claudehut-…` — an
+  unqualified 5-agent batch was measured wasting a full re-dispatch round). Full decision record:
+  `evals/bench/BENCH-REPORT.md` — **A1 approved as the plugin's write-fan-out lever (user, 2026-06-04)**.
 - **Sequential baseline (A0)**: 0/3 overlap (correctly serial). One A0 trial had an agent die mid-task;
   `sweep` correctly **kept** its dirty worktree (retain-evidence-by-design), removed nothing else.
 - Caveat: agents sometimes skipped the fixed-duration work block (soft instruction), so wall-clock ratios are

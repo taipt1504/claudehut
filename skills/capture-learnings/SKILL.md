@@ -18,7 +18,7 @@ isolation; this skill owns the state write (the learner has no Bash).
 
 ## Process
 
-1. **Dispatch `claudehut-learner` (Agent tool)** with a short task summary: the task dir
+1. **Dispatch `claudehut:claudehut-learner` (Agent tool)** with a short task summary: the task dir
    (`tasks/NNNN-<slug>/`), the decisions made, surprises hit, reuse points created, and Review findings.
    The learner:
    - Extracts candidate learnings (decisions, surprises, reuse points, review findings).
