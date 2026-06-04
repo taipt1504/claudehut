@@ -30,7 +30,7 @@ Brainstorm → Spec → Plan → Implement → Review → Learn
 | 1. Brainstorm | `claudehut:brainstorm` | explorer → reuse-scanner → brainstormer | choose approach | `reuse-scan.md` + enforcement set |
 | 2. Spec | `claudehut:write-spec` | — (main thread writes from template) | **approve spec** → then `set-spec` | `spec.md` |
 | 3. Plan | `claudehut:write-plan` | planner drafts from template | **approve plan** → then `set-plan` + native task mirror | `plan.md` (T-xxx breakdown) |
-| 4. Implement | `claudehut:implement` | implementer if >2 files or a migration; inline otherwise | — | code + tests (test-first; path-scoped `.claude/rules/` auto-load) |
+| 4. Implement | `claudehut:implement` | implementer if >2 files or a migration; `[P]` tasks → parallel implementers in ONE message (gated by `claudehut-worktree check-disjoint`); inline otherwise | — | code + tests (test-first; path-scoped `.claude/rules/` auto-load) |
 | 5. Review | `claudehut:review` | 5 auditors in parallel | — | `review.md`; loops until outstanding is empty |
 | 6. Learn | `claudehut:capture-learnings` | learner | — | `learnings.jsonl` records + updated index |
 

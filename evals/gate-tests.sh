@@ -78,6 +78,13 @@ echo '{"agent_type":"claudehut-reuse-scanner"}' | "$ROOT/scripts/verify-subagent
 touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 [ -z "$(echo '{"agent_type":"claudehut-reuse-scanner"}' | "$ROOT/scripts/verify-subagent.sh")" ] && ok "allow: reuse-scanner with artifact" || bad "allow: scanner artifact"
 [ -z "$(echo '{"agent_type":"claudehut-reviewer"}' | "$ROOT/scripts/verify-subagent.sh")" ] && ok "allow: text agent (reviewer)" || bad "allow: text agent"
+# HANG-FIX cap: at stop_hook_active the hook must fail OPEN even with the artifact missing —
+# otherwise a mispathed artifact = infinite SubagentStop block loop (presents as a hang).
+rm -rf "$TMP"; new_proj
+[ -z "$(echo '{"agent_type":"claudehut-planner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "cap: stop_hook_active fails open (no infinite block / hang)" || bad "cap: stop_hook_active still blocks"
+echo '{"agent_type":"claudehut-planner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "block: planner, no artifact, below cap" || bad "block: planner below cap"
 rm -rf "$TMP"
 
 echo

@@ -1,0 +1,9 @@
+{"arm":"A0","trial":1,"wall_s":49,"max_calls_per_msg":1,"overlap_s":null,"concurrent":false,"orphans":1,"cost_usd":0.14507385,"epochs":{"A":["1780542309","1780542317"],"B":["1780542336",""]}}
+{"arm":"A0","trial":2,"wall_s":125,"max_calls_per_msg":1,"overlap_s":0,"concurrent":false,"orphans":0,"cost_usd":0.17692800000000003,"epochs":{"A":["1780542370","1780542423"],"B":["1780542445","1780542458"]}}
+{"arm":"A0","trial":3,"wall_s":193,"max_calls_per_msg":1,"overlap_s":0,"concurrent":false,"orphans":0,"cost_usd":0.18310169999999998,"epochs":{"A":["1780542487","1780542496"],"B":["1780542515","1780542649"]}}
+{"arm":"A1","trial":1,"wall_s":164,"max_calls_per_msg":1,"overlap_s":10,"concurrent":true,"orphans":0,"cost_usd":0.16948245,"epochs":{"A":["1780542678","1780542815"],"B":["1780542680","1780542690"]}}
+{"arm":"A1","trial":2,"wall_s":44,"max_calls_per_msg":1,"overlap_s":16,"concurrent":true,"orphans":0,"cost_usd":0.19267199999999995,"epochs":{"A":["1780542845","1780542861"],"B":["1780542844","1780542863"]}}
+{"arm":"A1","trial":3,"wall_s":160,"max_calls_per_msg":1,"overlap_s":48,"concurrent":true,"orphans":0,"cost_usd":0.18621015000000002,"epochs":{"A":["1780542887","1780543022"],"B":["1780542887","1780542935"]}}
+{"arm":"A2","trial":1,"wall_s":65,"max_calls_per_msg":1,"overlap_s":9,"concurrent":true,"orphans":0,"cost_usd":0.365049,"epochs":{"A":["1780543049","1780543059"],"B":["1780543049","1780543058"]}}
+{"arm":"A2","trial":2,"wall_s":64,"max_calls_per_msg":1,"overlap_s":8,"concurrent":true,"orphans":0,"cost_usd":0.18843270000000004,"epochs":{"A":["1780543114","1780543122"],"B":["1780543114","1780543123"]}}
+{"arm":"A2","trial":3,"wall_s":66,"max_calls_per_msg":1,"overlap_s":8,"concurrent":true,"orphans":0,"cost_usd":0.3641904,"epochs":{"A":["1780543181","1780543189"],"B":["1780543181","1780543189"]}}

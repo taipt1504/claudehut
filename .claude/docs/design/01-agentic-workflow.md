@@ -162,7 +162,16 @@ stateDiagram-v2
 - *If `${CLAUDE_PROJECT_DIR}` remaps to the worktree*: each worktree already has an isolated `.claude/claudehut/`, so state is isolated regardless. ✅
 - *Writer/reader key agreement* — `${CLAUDE_SESSION_ID}` (skill substitution) and the hook-input `session_id` are both "the current session id"; the docs describe each as such but **do not explicitly state they are byte-identical** → **[uncertain]**. **Failure direction, stated honestly:** the gate hooks **fail open** on a missing state file (they `allow`/don't-block — [06 §5](./06-hooks.md#5-failure-modes-and-escape-hatches)), so a key mismatch would *silently disable enforcement* rather than wedge the user. Because the enforcement-critical gates (the main-thread `Stop` completion gate and the pre-dispatch `PreToolUse` gate) run **on the main thread** — same session as the writer — they agree by construction; the only fail-open exposure is a worktree subagent's own `PreToolUse`, which is non-critical (the main thread already cleared the gate before dispatching it). The build roadmap's gate tests ([10](./10-build-roadmap.md)) must assert writer/reader key agreement so this can never regress silently.
 
-**Reconciliation after a worktree merges.** None is needed for state: `state/<session_id>.json` is **ephemeral workflow position, gitignored, never merged back**. A worktree merge carries only **code**. The durable, team-shared artifacts live at the project root and are written by the main thread at low-frequency phase boundaries, with concurrency-safe writes:
+**Native worktree isolation: `origin/HEAD` base and no auto-merge.** Two additional verified behaviors (relevant to the parallel-implementer feature, documented in [11 §6](./11-execution-model-and-artifacts.md#6-parallel-execution--worktree-lifecycle)):
+
+| Fact | Consequence |
+|------|-------------|
+| `isolation: worktree` branches from `origin/HEAD` — only committed+pushed content exists inside the worktree | Uncommitted main-tree files (plan.md, spec.md, state) are **invisible** to the implementer subagent. The dispatch prompt must carry plan rows verbatim; never pass a path to `tasks/…/plan.md` ("content-in-prompt rule"). |
+| Native provides no auto-merge — a worktree with commits persists after the subagent exits | The main thread must merge each agent branch explicitly via `bin/claudehut-worktree reconcile`, then `sweep` to remove merged/clean worktrees. Without this helper, used agent branches accumulate as orphans. |
+
+These two facts extend — and do not contradict — the existing per-session state isolation design: state is still the main thread's exclusive write domain (each session writes its own file), and the implementer is still read-only with respect to state. The `origin/HEAD` base reinforces "subagents are read-only w.r.t. state" — there is nothing to accidentally write to.
+
+**Reconciliation after a worktree merges.** None is needed for state: `state/<session_id>.json` is **ephemeral workflow position, gitignored, never merged back**. A worktree merge carries only **code**; native provides no auto-merge, so `bin/claudehut-worktree reconcile` fills that gap (serialized, one branch per call, with conflict-abort and red-test rollback — see [11 §6](./11-execution-model-and-artifacts.md#6-parallel-execution--worktree-lifecycle)). The durable, team-shared artifacts live at the project root and are written by the main thread at low-frequency phase boundaries, with concurrency-safe writes:
 
 | Durable shared file | Write pattern under concurrency |
 |---------------------|----------------------------------|
@@ -176,8 +185,8 @@ Each phase lists: **goal**, **bound skills**, **bound agents**, **rules that aut
 
 ### Phase 1 — Brainstorm
 - **Goal (rewritten):** brainstorm **candidate solutions that adapt to the current codebase**, optimizing three axes — the **most best-practice** approach, the **smallest change footprint**, and the **highest output quality and performance**. Then **determine the enforcement set**: which skills and rules the agent MUST honor during Implement and Review, applying the 1% rule ([§7](#7-the-enforcement-set-applying-the-1-rule)).
-- **Skills:** `brainstorm` (runs inline on the main thread; carries the reuse Iron Law; conditionally enforces `understand-anything` query/search skills when that plugin is enabled). Inside `brainstorm`, three steps execute in sequence: (1) index-query step (`claudehut-explorer`), (2) reuse-scan step (`claudehut-reuse-scanner`), (3) options step (`claudehut-brainstormer`).
-- **Agents:** `claudehut-explorer`, `claudehut-reuse-scanner`, `claudehut-brainstormer`. **Dispatched in sequence from the main thread** (a subagent cannot spawn subagents — `brainstorm` runs inline and dispatches `claudehut-explorer` → `claudehut-reuse-scanner` → `claudehut-brainstormer`).
+- **Skills:** `brainstorm` (runs inline on the main thread; carries the reuse Iron Law; conditionally enforces `understand-anything` query/search skills when that plugin is enabled). Inside `brainstorm`, the steps are: (1a) `claudehut-explorer` and (1b) `claudehut-reuse-scanner` dispatched **in one message** (concurrent — their inputs are independent), then (2) `claudehut-brainstormer` after both return (it needs both results).
+- **Agents:** `claudehut-explorer`, `claudehut-reuse-scanner`, `claudehut-brainstormer`. Explorer and reuse-scanner are dispatched **concurrently in one message**; brainstormer is dispatched after both return.
 - **Artifacts:** ≥2 candidate approaches + tradeoffs + a recommendation; the **Reuse-scan artifact** at `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`; the **enforcement set** recorded via `claudehut-state set-enforcement`. `state.json.reuse_scan = true`.
 - **Exit gate:** reuse scan complete **and** enforcement set determined. The recommended approach is presented for approval (the superpowers design-gate principle); in interactive use the human confirms before Spec, in autonomous use the agent records its choice and rationale.
 
@@ -234,7 +243,7 @@ sequenceDiagram
     CC->>H: UserPromptSubmit
     H->>St: read current phase
     H-->>CC: additionalContext = phase brainstorm, skill-first law, learnings
-    CC->>SK: brainstorm (inline: explorer → reuse-scanner → brainstormer)
+    CC->>SK: brainstorm (inline: explorer ∥ reuse-scanner, then brainstormer)
     CC->>St: claudehut-state set-enforcement skills,rules
     CC->>St: claudehut-state set-reuse-scan
     CC->>CC: attempts Write to jump to code

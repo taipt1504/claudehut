@@ -12,6 +12,11 @@ command -v jq >/dev/null 2>&1 || exit 0   # degrade: fail open
 
 block() { jq -n --arg r "$1" '{decision:"block",reason:$r}'; exit 0; }
 
+# HANG FIX: a blocking SubagentStop holds the subagent open ("continue working"); without this cap a
+# missing/mispathed artifact loops the block forever — an infinite hold that presents as a hang.
+# Same native cap gate-done.sh uses: when stop_hook_active is true, stop blocking and fail open.
+[ "$(jq -r '.stop_hook_active // false' <<<"$in" 2>/dev/null || echo false)" = "true" ] && exit 0
+
 agent="$(jq -r '.agent_type // empty' <<<"$in" 2>/dev/null || true)"
 DIR="$PROJECT_DIR/.claude/claudehut"
 

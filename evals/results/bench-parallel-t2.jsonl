@@ -1,0 +1,4 @@
+{"arm":"A0","trial":1,"wall_s":83,"max_calls_per_msg":1,"overlap_s":0,"concurrent":false,"merged_services":2,"orphans":0,"cost_usd":0.21770505}
+{"arm":"A0","trial":2,"wall_s":89,"max_calls_per_msg":1,"overlap_s":0,"concurrent":false,"merged_services":2,"orphans":0,"cost_usd":0.22704524999999998}
+{"arm":"A1","trial":1,"wall_s":48,"max_calls_per_msg":2,"overlap_s":21,"concurrent":true,"merged_services":2,"orphans":0,"cost_usd":0.21641909999999998}
+{"arm":"A1","trial":2,"wall_s":49,"max_calls_per_msg":2,"overlap_s":18,"concurrent":true,"merged_services":2,"orphans":0,"cost_usd":0.21479144999999997}

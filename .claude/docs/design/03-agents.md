@@ -30,7 +30,7 @@ This document specifies the eleven subagents that orbit the Workflow. Each maps 
 Subagents run in **separate context windows**, so heavy exploration and multi-dimensional review do not pollute the main thread. Three invocation paths, all native:
 
 - **Auto-delegation:** Claude reads each agent's `description` and invokes it via the Task tool when a request matches. Descriptions are written `"<role> — Use when <trigger>"`.
-- **Inline main-thread dispatch (all phase skills):** every phase skill runs on the main thread and dispatches its agent(s) via the Agent tool. This path exists because **a subagent cannot spawn another subagent**, cannot use `AskUserQuestion`, and most have no `Bash` — so orchestration duties (user gates, state writes, task mirroring) must stay on the main thread. `claudehut:brainstorm` dispatches sequentially (explorer → reuse-scanner → brainstormer); `claudehut:review` dispatches five auditors in parallel; `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent.
+- **Inline main-thread dispatch (all phase skills):** every phase skill runs on the main thread and dispatches its agent(s) via the Agent tool. This path exists because **a subagent cannot spawn another subagent**, cannot use `AskUserQuestion`, and most have no `Bash` — so orchestration duties (user gates, state writes, task mirroring) must stay on the main thread. `claudehut:brainstorm` dispatches explorer ∥ reuse-scanner **in one message** (concurrent — their inputs are independent), then brainstormer after both return; `claudehut:review` dispatches five auditors **in one message** (parallel); `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent.
 
 **Plugin-agent constraints (must be respected by every spec below):**
 
@@ -134,11 +134,11 @@ Each spec: **Purpose · Phase · Trigger · Inputs · Outputs · Native invocati
 ### claudehut-implementer
 - **Purpose:** Execute the plan test-first under project conventions.
 - **Phase:** Implement.
-- **Trigger:** dispatched for multi-file changes; otherwise the main thread implements with the same skills.
-- **Inputs:** plan file, path-scoped rules ([05](./05-rules.md)), `implement` skill (preloaded) + per-task enforcement set (passed in dispatch prompt).
-- **Outputs:** code + tests, ideally in an isolated worktree for safe parallel/risky work.
+- **Trigger:** dispatched for multi-file changes or parallel `[P]` tasks; otherwise the main thread implements with the same skills.
+- **Inputs:** T-xxx rows + acceptance criteria + enforcement set carried **verbatim in the dispatch prompt** (not by path — the worktree branches from `origin/HEAD` and does not contain uncommitted main-tree artifacts). For parallel dispatch: an **exclusive file-ownership list** ("create/edit ONLY these paths").
+- **Outputs:** code + tests, committed to the worktree branch. Status line: `DONE (branch: <name>, commit: <sha>)`.
 - **Native invocation:** subagent; static `skills:` frontmatter preloads `[implement]` (frontmatter is static — it cannot hold a runtime list); `isolation: worktree`; `tools: Read, Edit, Write, Bash, Grep, Glob`; `model: inherit`.
-- **Notes:** preloading `implement` puts the test-first Iron Law and all implementation conventions in-context from turn 1 inside the subagent. Tech-stack standards are now carried by path-scoped `.claude/rules/` (auto-applied by path match) and deep playbooks live in `implement/references/` inside the skill. The **per-task enforcement set** (from Brainstorm, [01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule)) is **passed in the dispatch prompt** the main thread sends to the Agent tool. `isolation: worktree` keeps a failed attempt from corrupting the working tree. The implementer uses a **status protocol** — each turn ends with one of `DONE`, `DONE_WITH_CONCERNS`, or `BLOCKED` so the orchestrator knows whether to proceed, flag, or intervene.
+- **Notes:** preloading `implement` puts the test-first Iron Law and all implementation conventions in-context from turn 1 inside the subagent. Tech-stack standards are now carried by path-scoped `.claude/rules/` (auto-applied by path match) and deep playbooks live in `implement/references/` inside the skill. The **per-task enforcement set** (from Brainstorm, [01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule)) is **passed in the dispatch prompt** the main thread sends to the Agent tool. `isolation: worktree` keeps a failed attempt from corrupting the working tree. **Commit-before-DONE contract:** the implementer must `git add -A && git commit` before returning `DONE`; an uncommitted worktree strands work as an orphan (the main thread merges the **branch**, not uncommitted files). **BLOCKED-immediately rule:** if a precondition is missing or a test cannot be made to pass, return `BLOCKED: <reason>` immediately — never wait or retry-loop (a waiting subagent presents as a hang). Run Gradle with `--no-daemon` (parallel daemons contend on shared caches). Full lifecycle: [11 §6](./11-execution-model-and-artifacts.md#6-parallel-execution--worktree-lifecycle).
 
 ### claudehut-test-runner
 - **Purpose:** Run the suite and diagnose failures with real output.
@@ -202,7 +202,8 @@ flowchart TB
 
     subgraph BRAINSTORM["claudehut:brainstorm — inline, main thread"]
         direction LR
-        EX[explorer] --> RS[reuse-scanner] --> BR[brainstormer]
+        EX[explorer] --> BR[brainstormer]
+        RS[reuse-scanner] --> BR
     end
 
     subgraph REVIEW["claudehut:review — inline, main thread (parallel)"]
@@ -214,7 +215,7 @@ flowchart TB
         DB[db-reviewer]
     end
 
-    ORCH -->|"Agent tool (seq)"| BRAINSTORM
+    ORCH -->|"Agent tool (EX∥RS, then BR)"| BRAINSTORM
     BR --> PL[planner]
     PL --> IM[implementer]
     IM -->|"Agent tool (parallel)"| REVIEW
@@ -228,7 +229,7 @@ flowchart TB
     RS -.reads.-> MEM
 ```
 
-All agents are dispatched **by the main thread** via the Agent tool — no skill uses `context: fork`. `claudehut:brainstorm` and `claudehut:review` dispatch multiple agents (sequential and parallel respectively); `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent; the main thread owns approval gates, state writes, and task mirroring in every case. The five Review auditors run in parallel as independent lenses; each returns its slice of the **outstanding set**, the loop repeats until that set is empty ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)), then `claudehut-learner` (the single writer of cross-session memory) runs. Spec has no agent.
+All agents are dispatched **by the main thread** via the Agent tool — no skill uses `context: fork`. `claudehut:brainstorm` dispatches explorer ∥ reuse-scanner concurrently (one message), then brainstormer; `claudehut:review` dispatches all five auditors in parallel (one message); `claudehut:write-plan` and `claudehut:capture-learnings` each dispatch one agent; the main thread owns approval gates, state writes, and task mirroring in every case. The five Review auditors run in parallel as independent lenses; each returns its slice of the **outstanding set**, the loop repeats until that set is empty ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)), then `claudehut-learner` (the single writer of cross-session memory) runs. Spec has no agent.
 
 ---
 

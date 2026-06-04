@@ -106,11 +106,11 @@ Note that **subagents are dispatched only by the main thread** (the orchestrator
 
 | Component | Phase | Native mechanism | Trigger | Output |
 |-----------|-------|------------------|---------|--------|
-| `claudehut-explorer` | Brainstorm | Subagent, `tools: Read,Grep,Glob,Bash`, read-only | dispatched by `brainstorm` skill (step 1) | codebase query results, touch-points |
-| `claudehut-brainstormer` | Brainstorm | Subagent, `model: opus`, `effort: high` | dispatched by `brainstorm` skill (step 3) | ≥2 codebase-adapted options + tradeoffs |
-| `claudehut-reuse-scanner` | Brainstorm | Subagent, `tools: Read,Grep,Glob` | dispatched by `brainstorm` skill (step 2 — reuse-scan step) | reuse-scan artifact |
+| `claudehut-explorer` | Brainstorm | Subagent, `tools: Read,Grep,Glob,Bash`, read-only | dispatched by `brainstorm` skill (step 1a — concurrent with reuse-scanner) | codebase query results, touch-points |
+| `claudehut-brainstormer` | Brainstorm | Subagent, `model: opus`, `effort: high` | dispatched by `brainstorm` skill (step 2 — after explorer+scanner return) | ≥2 codebase-adapted options + tradeoffs |
+| `claudehut-reuse-scanner` | Brainstorm | Subagent, `tools: Read,Grep,Glob` | dispatched by `brainstorm` skill (step 1b — concurrent with explorer) | reuse-scan artifact |
 | `claudehut-planner` | Plan | Subagent, `tools: Read,Grep,Glob,Write` | invoked by `write-plan` skill | plan file |
-| `claudehut-implementer` | Implement | Subagent, `skills:[implement]` preloaded (carries TDD Iron Law + tech-stack reference playbooks), `isolation: worktree` | dispatched for multi-file changes | code + tests (in worktree) |
+| `claudehut-implementer` | Implement | Subagent, `skills:[implement]` preloaded (carries TDD Iron Law + tech-stack reference playbooks), `isolation: worktree` | dispatched for multi-file or `[P]` parallel changes | code + tests committed to worktree branch; returns `DONE (branch, commit)` |
 | `claudehut-test-runner` | Review | Subagent, `tools: Bash,Read,Grep` | spawned by `review` skill | test results + outstanding items |
 | `claudehut-reviewer` | Review | Subagent, read-only | spawned by `review` skill | general findings + outstanding items |
 | `claudehut-security-auditor` | Review | Subagent, MCP-aware | spawned by `review` skill | OWASP/JWT findings + outstanding |
@@ -126,7 +126,7 @@ There is exactly **one skill per workflow phase** (plus two non-phase skills). T
 |-----------|-------|------------------|---------|-------------|
 | `claudehut-workflow` | all (meta) | Skill, injected via `SessionStart` | every session | establishes phases + skill-first + 1% laws |
 | `claudehut-init` | Bootstrap (prerequisite) | Skill / `/claudehut:init` | new project / missing index | builds the codebase index + project memory + rules |
-| `brainstorm` | Brainstorm | Skill, inline (main-thread); dispatches explorer → reuse-scanner → brainstormer in sequence | before any new code | reuse-scan step (Iron Law) + ≥2 codebase-adapted options + enforcement set |
+| `brainstorm` | Brainstorm | Skill, inline (main-thread); dispatches explorer ∥ reuse-scanner (one message), then brainstormer | before any new code | reuse-scan step (Iron Law) + ≥2 codebase-adapted options + enforcement set |
 | `write-spec` | Spec | Skill | after an approach is chosen | writes the implementation spec |
 | `write-plan` | Plan | Skill, inline (main-thread); dispatches planner via Agent tool; owns approval gate + state write + TaskCreate mirror | after the spec | writes plan file |
 | `implement` | Implement | Skill, Iron Law (TDD); preloaded into `claudehut-implementer` | before writing prod code | no code without failing test; tech-stack reference playbooks in `implement/references/` |
@@ -183,6 +183,7 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 ├── hooks/hooks.json               # 06
 ├── scripts/*.sh                   # 06 hook scripts (bootstrap detects understand-anything)
 ├── bin/claudehut-state            # the state writer (01 §4)
+├── bin/claudehut-worktree         # worktree lifecycle helper: status/check-disjoint/reconcile/sweep (11 §6)
 ├── bin/kafka-mcp                  # 08 custom MCP
 ├── templates/rules/*.md           # 05 rule templates (copied into projects)
 ├── templates/*.tmpl               # 07 memory + index templates
@@ -202,7 +203,7 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 
 Per pillar P6, every plane and dispatch choice is forced by a native constraint, not preference:
 
-- **Why all phase skills run on the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context), cannot use `AskUserQuestion` (main-loop-only), and most have no `Bash` (cannot run `claudehut-state`). Every phase skill therefore runs **inline on the main thread** and owns user gates, state writes, and native task mirroring — dispatching its agent(s) via the Agent tool. Brainstorm and Review each dispatch multiple agents (sequential/parallel respectively); Spec has no agent; Plan dispatches `claudehut-planner`; Implement dispatches `claudehut-implementer` (or works inline for ≤2-file changes); Learn dispatches `claudehut-learner`. The uniform rule: **skills orchestrate on the main thread; subagents return data only**.
+- **Why all phase skills run on the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context), cannot use `AskUserQuestion` (main-loop-only), and most have no `Bash` (cannot run `claudehut-state`). Every phase skill therefore runs **inline on the main thread** and owns user gates, state writes, and native task mirroring — dispatching its agent(s) via the Agent tool. Brainstorm dispatches explorer ∥ reuse-scanner concurrently (one message), then brainstormer; Review dispatches all five auditors in parallel (one message); Spec has no agent; Plan dispatches `claudehut-planner`; Implement dispatches `claudehut-implementer` (or works inline for ≤2-file changes); Learn dispatches `claudehut-learner`. The uniform rule: **skills orchestrate on the main thread; subagents return data only**.
 - **Why understand-anything is detected by a hook, not declared as a dependency.** There is **no native runtime mechanism** for one plugin to branch on whether another is installed; `plugin.json` `dependencies` is install/enable-time coupling only (and would *hard-require* understand-anything). So `bootstrap.sh` (`SessionStart`, command type) reads `enabledPlugins` (or `claude plugin list`) and injects a flag via `additionalContext`. This keeps the integration optional and honest. See [06](./06-hooks.md) and [01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase).
 - **Why the enforcement set is a checklist, not an engine.** Rules still auto-load by `paths:`; skills still trigger by `description`. The enforcement set (built in Brainstorm via the 1% rule) is an **auditable list** recorded in `state.json` + the spec and **checked by the Review auditors** — it does not replace the native trigger mechanisms. See [01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule).
 - **Why generated project rules, not plugin-shipped rules?** A plugin's component dirs are `agents/skills/commands/hooks/output-styles` plus `.mcp.json`/`.lsp.json` — there is no plugin `rules/` or `CLAUDE.md` slot. Path-scoped auto-loading only works from `${CLAUDE_PROJECT_DIR}/.claude/rules/`. So ClaudeHut ships templates and Bootstrap writes the real rules into the project. (See [00 §8](./00-overview.md#8-scope-boundaries).)

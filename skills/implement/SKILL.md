@@ -45,10 +45,26 @@ flowchart TB
 
 ## Execution + native task mirror (main thread)
 
-**Who executes (explicit rule — don't mix ad hoc):** the plan's T-xxx tasks touch **more than 2 files or any
-migration** → dispatch `claudehut-implementer` (Agent tool; isolated worktree) with the plan path + the
-enforcement set. **≤ 2 files and no migration** → implement inline on the main thread with this skill. One
-mode per task — pick it when entering the phase and say which.
+**Who executes (explicit rule — don't mix ad hoc):**
+- **≤ 2 files and no migration** → implement inline on the main thread with this skill.
+- **Dependent T-xxx chain** (no `[P]` tasks) → dispatch **one** `claudehut-implementer` (Agent tool;
+  isolated worktree).
+- **`[P]`-marked tasks → PARALLEL implementers, gated by the deterministic safety check.** First run
+  `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — exit 0 (all `[P]` Files
+  pairwise disjoint) is the precondition; exit 2 (overlap) → **fall back to sequential** (parallel writers on
+  shared files silently clobber each other). Then dispatch one implementer per `[P]` task — **all Agent
+  calls in ONE message** (the native concurrency mechanism; **max 3** concurrent) — each dispatch prompt
+  carrying: its T-xxx row(s) **verbatim** (goal, files, test-first, minimal change, verify), the relevant
+  spec acceptance criteria, the enforcement set, and an **exclusive file-ownership list** ("create/edit ONLY
+  these paths"). Do NOT pass bare plan/spec paths instead of content — the worktree branches from
+  `origin/HEAD` and will not contain uncommitted main-tree artifacts.
+- **Reconcile serialized — never batch-merge.** As implementers return `DONE (branch, commit)`, merge **one
+  at a time**: `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" reconcile <branch> --test-cmd "<verify command
+  from PROJECT.md>"`. A conflict aborts cleanly (fix or re-plan that task); red tests roll the merge back.
+  After the last merge: `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" sweep` — removes only
+  merged/unchanged managed worktrees, leaving **zero orphans**.
+
+One mode per task — pick it when entering the phase and say which.
 
 **Native mirror (main thread only):** the plan's T-xxx table was mirrored into Claude Code's task list at
 plan approval. Keep it live: `TaskUpdate` the matching task to `in_progress` **before** starting a step

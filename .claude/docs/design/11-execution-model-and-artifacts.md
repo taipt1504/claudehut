@@ -18,7 +18,7 @@ the bug was orchestration duties assigned to contexts that can't perform them.
 
 | Phase | Skill runs | Heavy work | User gate (interactive only) | State write (main) | Native tasks (main) |
 |---|---|---|---|---|---|
-| Brainstorm | main | explorer → reuse-scanner → brainstormer (Agent tool) | AskUserQuestion: choose approach | set-reuse-scan, set-enforcement | — |
+| Brainstorm | main | explorer ∥ reuse-scanner (one message), then brainstormer (Agent tool) | AskUserQuestion: choose approach | set-reuse-scan, set-enforcement | — |
 | Spec | main (writes spec itself) | — | AskUserQuestion: **approve spec** | set-spec **after approval** | — |
 | Plan | main | claudehut-planner drafts plan (Agent tool) | AskUserQuestion: **approve plan** | set-plan **after approval**, set-phase implement | TaskCreate per plan task + deps |
 | Implement | main | claudehut-implementer (worktree) for multi-file; inline if ≤2 files | — | — | TaskUpdate in_progress/completed per step |
@@ -99,3 +99,84 @@ spec/plan therefore cannot arm the write gate; the deny message routes the model
 | `bin/claudehut-init` | creates `tasks/` (not `specs/` `plans/`) |
 | `scripts/verify-subagent.sh` | artifact globs → `tasks/*/…` |
 | `evals/` | structural assertions updated per group |
+
+## 6. Parallel execution + worktree lifecycle
+
+Driven by measured friction: (a) the `origin/HEAD` isolation boundary made content-in-prompt mandatory; (b) native provides no auto-merge + changed worktrees persist after a subagent exits, leaving orphan branches; (c) a blocking `SubagentStop` without the `stop_hook_active` cap produced infinite holds. This section is the authoritative record of root causes, the tiered dispatch model, the lifecycle helper, and the cap fix. Cross-referenced from [01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state).
+
+### Root causes (measured, not theoretical)
+
+| Issue | Root cause | Evidence |
+|-------|-----------|----------|
+| Uncommitted main-tree artifacts (plan, spec, state) not visible inside a worktree | `isolation: worktree` branches from `origin/HEAD` — only committed, pushed content exists; any in-flight plan.md on the main tree is **invisible** | Confirmed by live-usage: implementer tried to read `tasks/…/plan.md`, found nothing |
+| Agent branches persist after `DONE` — orphan worktrees accumulate | Native `isolation: worktree` auto-removes the worktree **only if the branch has no commits beyond the base** — a real implementation commit prevents auto-removal | Verified: directories remain under `.claude/worktrees/` after dispatch |
+| No auto-merge — parallel branches exist, repo diverges | Native worktrees give isolation; they do not merge back. After a parallel fan-out the main tree still sees zero of the parallel agents' work | Native behavior: `git merge` must be called explicitly per branch |
+| Blocking `SubagentStop` without the `stop_hook_active` cap = infinite hold | `verify-subagent.sh` blocked a subagent ("continue working") when an artifact was mispathed; without the cap the subagent loops forever, presenting as a hang — the **measured hang vector** | Fixed in `scripts/verify-subagent.sh`: exits 0 (fail-open) when `stop_hook_active = true`, matching the same cap `gate-done.sh` applies |
+
+### Dispatch tiers (safe / guarded / gated)
+
+The `implement` skill picks exactly one tier per task and declares it upfront:
+
+| Tier | When | Worktree | Merge needed |
+|------|------|----------|--------------|
+| **Inline** | ≤ 2 files, no migration | no | no |
+| **Single implementer** | dependent T-xxx chain (no `[P]` tasks) | yes | yes (one reconcile call) |
+| **`[P]` parallel fan-out** | `[P]`-marked tasks, gated by `check-disjoint` | yes, one per `[P]` task | yes, serialized (one reconcile per branch) |
+
+**The safety gate is deterministic, not LLM judgment.** The `[P]` markers in the plan are a SOFT instruction; the actual safety boundary is `bin/claudehut-worktree check-disjoint <plan.md>` — it exits 0 only when every `[P]` task's Files column is pairwise disjoint. If it exits 2 (overlap detected), parallel dispatch is unsafe and the skill falls back to sequential. Superpowers forbids naive parallel implementation; this check is the enforcement.
+
+**Single-message dispatch (soft, best-effort).** All `[P]` Agent tool calls are issued in **one message** — the native concurrency trigger (multiple tool_use blocks in a single response run concurrently; one call per message runs serially). This is a **soft/best-effort** speedup instruction: correctness never depends on concurrency being achieved. Max 3 concurrent implementers per dispatch.
+
+**Content-in-prompt rule (hard).** Because the worktree branches from `origin/HEAD`, the dispatch prompt must carry plan rows **verbatim** (goal, files, test-first, minimal change, verify) plus acceptance criteria and an exclusive file-ownership list. Never pass a path to `tasks/…/plan.md` — that file does not exist inside the worktree.
+
+### `bin/claudehut-worktree` — four subcommands
+
+Scope-guarded to `.claude/worktrees/` (the managed root where `isolation: worktree` creates them). Every mutating operation validates its target is strictly under that root — this tool can never touch user worktrees elsewhere, and never runs a bare destructive prune first.
+
+| Subcommand | Purpose | Exit codes |
+|-----------|---------|------------|
+| `status` | Lists managed worktrees: branch, dirty?, merged? | 0 |
+| `check-disjoint <plan.md>` | Reads `[P]` rows' Files cells; exits 0 if pairwise disjoint, 2 + overlapping paths if not | 0 = safe, 2 = unsafe |
+| `reconcile <branch> [--test-cmd CMD]` | Serialized `--no-ff` merge of ONE agent branch; refuses dirty main tree; on conflict aborts cleanly; if CMD given, runs it and on red tests rolls the merge back (ORIG_HEAD) | 0 = merged, 2 = conflict-aborted, 3 = red-test-rolled-back |
+| `sweep` | Removes ONLY worktrees that are clean AND merged/unchanged (+ deletes their branch), then prunes stale metadata | 0 |
+
+**Serialized reconcile — never batch-merge.** As implementers return `DONE (branch: <name>, commit: <sha>)`, merge **one branch at a time** via `reconcile`. 25–32% of parallel AI branches conflict; batch-merging silently clobbers work. After the last merge, `sweep` removes only clean+merged managed worktrees — zero orphans, nothing outside `.claude/worktrees/` touched.
+
+**Live verification record (superseded — see the benchmark below).** Initial 2-run check verified: no hang,
+commit-before-DONE honored, `reconcile` 2/2 + `sweep` 2/2, zero remaining worktrees. Its claim that
+single-message dispatch "did not reproduce headless" was a **measurement artifact**: the dispatch-shape
+detector counted Agent calls per stream-json *event*, but the stream emits each tool_use as its own assistant
+event sharing one `message.id` — undercounting multi-call messages as serial.
+
+**Benchmark record (`evals/bench/parallel-bench.sh`, epoch-file ground truth, overlap-gated).** Corrected
+findings across the probe + 9-trial matrix + shape-confirm run:
+- **Single-message multi-dispatch (A1) DOES fire headless and DOES produce true concurrency** — message-id-
+  grouped shape showed 2 Agent calls per message; epoch intervals overlapped in 6/6 concurrent-instruction
+  trials (T1+T2), with **consistent ~26s orchestration overhead**. Its raw wall variance was *agent-duration*
+  variance, not the lever. Real-work T2: ≈1.77× speedup at cost parity (n=2, directional).
+- **`background: true` (A2): works (3/3 concurrent; headless main thread waits-then-reconciles) but carries
+  ~56s overhead (≈2× A1), and is REJECTED for write/implementation agents** — ecosystem bug record (silent
+  output loss, silent Write/Edit/Bash auto-deny with false success, a parallel-worktree cleanup race that
+  destroyed a `.git` — all closed "not planned") plus zero official Anthropic plugins shipping background
+  write agents. A2 stays **open for read-only fan-out** (review auditors): its concurrency is independent of
+  the model's batching choice, which is A1's one open risk (batching under heavy real-workflow context —
+  unmeasured). Full decision record: `evals/bench/BENCH-REPORT.md` — **A1 approved as the plugin's
+  write-fan-out lever (user, 2026-06-04)**.
+- **Sequential baseline (A0)**: 0/3 overlap (correctly serial). One A0 trial had an agent die mid-task;
+  `sweep` correctly **kept** its dirty worktree (retain-evidence-by-design), removed nothing else.
+- Caveat: agents sometimes skipped the fixed-duration work block (soft instruction), so wall-clock ratios are
+  approximate; the **overlap** numbers are ground truth (written by the agents as epoch files, committed).
+The hang *mechanism* (Gradle build in a blind worktree) remains not reproduced; `--no-daemon` +
+content-in-prompt are design mitigations.
+
+**Commit-before-DONE contract.** A `claudehut-implementer` must commit its work (`git add -A && git commit`) before returning `DONE` — an uncommitted worktree strands the work as an orphan because the main thread reconciles by merging the **branch**, not by reading uncommitted files. The status line `DONE (branch: <name>, commit: <sha>)` is the handshake.
+
+**BLOCKED-immediately rule.** If a precondition is missing or a test cannot be made to pass, the implementer returns `BLOCKED: <reason>` immediately — never waits, never retry-loops. A waiting subagent presents as a hang.
+
+### The `stop_hook_active` cap fix
+
+`scripts/verify-subagent.sh` now reads `stop_hook_active` from its input JSON before checking artifact presence. When `stop_hook_active = true` it exits 0 (fail-open) instead of blocking. Without this cap, a missing or mispathed artifact causes `SubagentStop` to re-issue the block, the native platform re-runs the subagent, the artifact is still absent → the cycle repeats until the session is killed externally — the **infinite hold / hang vector**. The cap is the same mechanism `gate-done.sh` uses for the Review loop; `verify-subagent.sh` now applies it identically.
+
+### Eval coverage
+
+`evals/worktree-tests.sh` — 11 deterministic shell tests; no Claude needed. Covers: `check-disjoint` pass + overlap-refused, `sweep` scope-guard + clean/dirty/unmerged/outside-root cases, `reconcile` merge + conflict-abort (exit 2, tree restored) + red-test rollback (exit 3) + green-test kept, dirty-main-tree refused.

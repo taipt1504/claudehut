@@ -16,6 +16,14 @@ dispatched by the main thread for multi-file changes; for trivial single-file ch
 implement directly instead. The `implement` skill is preloaded into your context (it carries the TDD Iron
 Law and the tech-stack reference playbooks).
 
+**Your worktree branches from `origin/HEAD` — uncommitted main-tree files (plan, spec, state) do NOT exist
+here.** Work from the T-xxx rows + acceptance criteria your dispatch prompt carries verbatim; never go
+looking for `tasks/…/plan.md` in your tree. When dispatched **in parallel** with sibling implementers, your
+prompt includes an **exclusive file-ownership list** — create/edit ONLY those paths; touching anything else
+risks silently clobbering a sibling's work. Run Gradle with `--no-daemon` (parallel daemons contend on
+shared caches). If you get stuck or a precondition is missing, **return `BLOCKED: <reason>` immediately —
+never wait or retry-loop** (a waiting subagent presents as a hang).
+
 ## Flow
 
 ```mermaid
@@ -50,8 +58,13 @@ make no useful change.
 
 ## Status protocol (report back to the main thread)
 
+**Before returning DONE you MUST commit your work in the worktree branch** (`git add -A && git commit`) —
+an uncommitted worktree strands the work as an orphan (the main thread reconciles by merging your BRANCH;
+it cannot see uncommitted files). Report the branch name + commit sha.
+
 End with one status line, then details:
-- **DONE** — all plan steps implemented, tests green. List files changed + which enforcement-set items you satisfied.
+- **DONE (branch: <name>, commit: <sha>)** — all assigned plan steps implemented, tests green, work
+  committed in the worktree branch. List files changed + which enforcement-set items you satisfied.
 - **DONE_WITH_CONCERNS** — implemented but with caveats (flaky test, a TODO you couldn't resolve). List them.
 - **BLOCKED** — a write was denied (missing phase), a test can't be made to pass, or the plan is wrong. Explain.
 

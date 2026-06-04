@@ -40,8 +40,10 @@ flowchart TB
 
 ## The loop
 
-1. **Spawn the auditors in parallel** with the Agent tool, each scoped to the enforcement set + project
-   rules + memory:
+1. **Spawn the auditors in parallel** — issue **all five Agent tool calls in ONE message** (multiple
+   tool_use blocks in a single response). That is the native concurrency mechanism: calls in the same
+   message run concurrently; one call per message runs them serially and quintuples wall time. They are
+   read-only, so parallel is conflict-free. Each is scoped to the enforcement set + project rules + memory:
    - `claudehut-test-runner` — run the suite; produce fresh pass/fail evidence.
    - `claudehut-reviewer` — general correctness, readability, conventions.
    - `claudehut-security-auditor` — OWASP / authn-authz / secrets / deserialization.

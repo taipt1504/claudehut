@@ -231,6 +231,7 @@ graph LR
 - `bin/kafka-mcp` — custom stdio MCP server: topics, consumer-groups, offsets, lag (fills the gap in existing catalogs)
 - Eval harness: `evals/run.sh`, `evals/tasks/` (≥3 scenario directories each with a `task.md`, a scratch Spring repo, and an oracle check)
 - `evals/score.sh` — parses session transcripts to assert: gates fired, artifacts produced, phases advanced in order
+- `evals/worktree-tests.sh` — 11 deterministic shell tests for `bin/claudehut-worktree` (no Claude needed): check-disjoint pass/overlap, sweep scope-guard + clean/dirty/unmerged/outside-root, reconcile merge + conflict-abort + red-test rollback + green-test kept, dirty-main-tree refused [11 §6](./11-execution-model-and-artifacts.md#6-parallel-execution--worktree-lifecycle)
 - Marketplace `README.md` (installation, quick-start, bypass reference)
 - Version bump to `1.0.0` in `plugin.json` + `marketplace.json`
 
