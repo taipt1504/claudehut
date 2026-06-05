@@ -100,7 +100,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 ### bootstrap.sh — SessionStart
 - **Event/Matcher:** `SessionStart` on `startup|clear|compact`.
 - **Reads:** `source`, `cwd`; checks for `${CLAUDE_PROJECT_DIR}/.claude/claudehut/` (the prerequisite index); reads `enabledPlugins` from the settings hierarchy (or runs `claude plugin list`) to **detect the `understand-anything` plugin**.
-- **Returns:** `additionalContext` = the `claudehut-workflow` orchestrator body **+ top-N learnings** (parsed from `learnings.jsonl`, ranked by confidence×recency) **+ the plugin-detection flag** (`understand-anything: enabled|absent`, which the `claudehut:brainstorm` skill's explore step branches on). Sets `watchPaths` to the `.claude/claudehut/` dir and `reloadSkills: true` after a fresh Bootstrap. **Arms the gate (opt #1):** also writes an initial `state/<session_id>.json` (`phase=brainstorm`, `reuse_scan=false`) for this session if none exists, so `gate-write.sh` is live from turn 1 — without this the write gate fails open until the agent *voluntarily* starts the workflow (measured gap: agents skipped it, see EVAL-REPORT #2). **Auto-bootstraps the plane (opt #3 fallback):** when `.claude/claudehut/` is **absent**, it runs `bin/claudehut-init` directly (stdout suppressed) to generate the project plane deterministically — the skill's `!`backtick`` invocation was measured **flaky (2/3)** in P7, so bootstrap removes the model from invocation entirely. If that fallback could not run, emits a top-level `systemMessage` prompting the user to run `/claudehut:init`.
+- **Returns:** `additionalContext` = the `claudehut-workflow` orchestrator body **+ top-N learnings** (parsed from `learnings.jsonl`, ranked by confidence×recency) **+ the plugin-detection flag** (`understand-anything: enabled|absent`, which the `claudehut:discover` skill's explore step branches on). Sets `watchPaths` to the `.claude/claudehut/` dir and `reloadSkills: true` after a fresh Bootstrap. **Arms the gate (opt #1):** also writes an initial `state/<session_id>.json` (`phase=discover`, `reuse_scan=false`, `complexity=full`) for this session if none exists, so `gate-write.sh` is live from turn 1 — without this the write gate fails open until the agent *voluntarily* starts the workflow (measured gap: agents skipped it, see EVAL-REPORT #2). **Auto-bootstraps the plane (opt #3 fallback):** when `.claude/claudehut/` is **absent**, it runs `bin/claudehut-init` directly (stdout suppressed) to generate the project plane deterministically — the skill's `!`backtick`` invocation was measured **flaky (2/3)** in P7, so bootstrap removes the model from invocation entirely. If that fallback could not run, emits a top-level `systemMessage` prompting the user to run `/claudehut:init`.
 - **Enforces:** the Workflow is loaded **before turn 1** (non-optional); the agent starts each session primed with this project's learnings (P5 read-path); and the conditional understand-anything integration is resolved **here**, because there is no native runtime cross-plugin branch ([01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase)).
 - **Phase:** all (entry) + the Bootstrap prerequisite.
 - **Honest limits:** only affects context at session start; cannot enforce anything later in the session. Plugin detection is a **hook-script read of settings**, not a native declarative dependency.
@@ -113,9 +113,9 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
   fi
   # cross-plugin detection (no native runtime branch exists) — read enabledPlugins
   if claude plugin list --json 2>/dev/null | jq -e '.[] | select(.name=="understand-anything" and .enabled)' >/dev/null; then
-    ctx="$ctx\n\n## understand-anything: enabled — Brainstorm MUST use its query/search skills."
+    ctx="$ctx\n\n## understand-anything: enabled — Discover MUST use its query/search skills."
   else
-    ctx="$ctx\n\n## understand-anything: absent — Brainstorm uses claudehut-explorer + Grep."
+    ctx="$ctx\n\n## understand-anything: absent — Discover uses claudehut-explorer + Grep."
   fi
   # emit systemMessage if deterministic fallback could not run
   need_init=false
@@ -135,34 +135,36 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 
 ### gate-write.sh — PreToolUse (action gate)
 - **Event/Matcher:** `PreToolUse` on `Write|Edit|MultiEdit`.
-- **Reads:** `tool_input.file_path`; the per-session state file `state/<session_id>.json` (keyed by the hook-input `session_id`) — fields `reuse_scan`, `spec_path`, `plan_path`, `phase`, `bypass`.
+- **Reads:** `tool_input.file_path`; the per-session state file `state/<session_id>.json` (keyed by the hook-input `session_id`) — fields `reuse_scan`, `reuse_scan_artifact`, `spec_path`, `plan_path`, `phase`, `bypass`, `complexity`.
 - **Returns:** on violation, `permissionDecision: "deny"` + `permissionDecisionReason` naming what's missing + `additionalContext` telling the agent which skill to run. On pass, no decision (allow).
-- **Enforces (the P4 hard gate):** **no new production code until the reuse-scan artifact, the spec, and the plan all exist** — and (opt #4) until the recorded artifact **files actually exist under `.claude/claudehut/`**, not just the state flags. This is an **action gate** — it blocks the write keystroke, deterministically.
-- **Phase:** boundary of Brainstorm/Spec/Plan → Implement.
+- **Enforces (the P4 hard gate, tier-aware):** Rail 1 (all tiers): **reuse-scan artifact must exist** (no new production code until `reuse_scan=true` AND artifact file exists under `.claude/claudehut/`). Rail 2 (trivial/small fast lane): if `complexity` is `trivial` or `small` AND the deterministic bound holds (≤2 production files touched in this session, no security/auth/migration path), **allow** — Spec and Plan are not required. If the bound is exceeded, **deny and tell the agent to escalate** (`set-complexity full` → Spec + Plan). Rail 3 (full tier): **spec and plan must also exist** (artifact files, not just state flags). This is an **action gate** — it blocks the write keystroke, deterministically.
+- **Phase:** boundary of Discover → Implement (and Spec/Plan → Implement in the full tier).
 - **Honest limits:** it gates *writes to production paths only*; it deliberately **allows** writes to `.claude/claudehut/**` (so reuse-scan/spec/plan files can be created) and to test paths during TDD's RED step. It cannot force the agent to *think well* — only to have produced the artifacts.
-- **Pseudo-logic:**
+- **Pseudo-logic (tier-aware):**
   ```bash
-  in=$(cat); sid=$(jq -r '.session_id' <<<"$in")
-  s=$(cat "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/$sid.json" 2>/dev/null || echo '{}')  # missing → {} → fails open (allow)
-  fp=$(jq -r '.tool_input.file_path' <<<"$in")
+  in=$(cat); sid=$(jq -r '.session_id' <<<"$in"); fp=$(jq -r '.tool_input.file_path' <<<"$in")
+  s=$(cat "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/$sid.json" 2>/dev/null || echo '{}')  # missing → {} → fails open
   case "$fp" in *".claude/claudehut/"*|*"/test/"*|*"Test.java"|*"IT.java") allow ;; esac
   [ "$(jq -r '.bypass' <<<"$s")" = "true" ] && allow
-  # opt #4: a recorded path must EXIST as a file under .claude/claudehut/ to satisfy the gate
-  exists() { p="$1"; case "$p" in /*) :;; *) p="$CLAUDE_PROJECT_DIR/$p";; esac
-             case "$p" in *"/.claude/claudehut/"*) [ -f "$p" ];; *) false;; esac; }
+  # exists_canon: recorded path must EXIST under .claude/claudehut/
+  tier=$(jq -r '.complexity // "full"' <<<"$s")
+  # Rail 1 (all tiers): reuse-scan required
   if [ "$(jq -r '.reuse_scan' <<<"$s")" != "true" ]; then
-    deny "Run claudehut:brainstorm first (reuse-scan step) — no reuse-scan artifact for this task."
-  elif ! exists "$(jq -r '.reuse_scan_artifact' <<<"$s")"; then
+    deny "Run claudehut:discover first — no reuse-scan artifact for this task."
+  elif ! exists_canon "$(jq -r '.reuse_scan_artifact' <<<"$s")"; then
     deny "reuse-scan flag set but no artifact file under .claude/claudehut/ — write it there."
-  elif [ "$(jq -r '.spec_path' <<<"$s")" = "null" ]; then
-    deny "Write the spec first — run claudehut:write-spec."
-  elif ! exists "$(jq -r '.spec_path' <<<"$s")"; then
-    deny "spec recorded but file missing under .claude/claudehut/ — write it to tasks/NNNN-<slug>/spec.md."
-  elif [ "$(jq -r '.plan_path' <<<"$s")" = "null" ]; then
-    deny "Write a plan first — run claudehut:write-plan."
-  elif ! exists "$(jq -r '.plan_path' <<<"$s")"; then
-    deny "plan recorded but file missing under .claude/claudehut/ — write it to tasks/NNNN-<slug>/plan.md."
   fi
+  # Fast lane (trivial|small): skip Spec/Plan, but verify the bound deterministically
+  if [ "$tier" = "trivial" ] || [ "$tier" = "small" ]; then
+    if fastlane_bound_ok; then allow; fi  # ≤2 prod files, no security/auth/migration path
+    deny "fast-lane cap exceeded (${FAIL_REASON}) — escalate: set-complexity full → write-spec + write-plan."
+  fi
+  # Full tier: spec + plan required
+  [ "$(jq -r '.spec_path' <<<"$s")" = "null" ] && deny "Write the spec first — run claudehut:write-spec."
+  ! exists_canon "$(jq -r '.spec_path' <<<"$s")" && deny "spec recorded but file missing under .claude/claudehut/."
+  [ "$(jq -r '.plan_path' <<<"$s")" = "null" ] && deny "Write a plan first — run claudehut:write-plan."
+  ! exists_canon "$(jq -r '.plan_path' <<<"$s")" && deny "plan recorded but file missing under .claude/claudehut/."
+  allow
   ```
   (`deny`/`allow` emit the `permissionDecision` JSON.)
 
@@ -203,7 +205,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 - **Reads:** `agent_type`, transcript path.
 - **Returns:** `decision: "block"` if a file-producing phase subagent returned without its required artifact: `claudehut-reuse-scanner` must produce `tasks/*/reuse-scan.md` (legacy `reuse-scan-*.md` also accepted); `claudehut-planner` must produce `tasks/*/plan.md` (legacy `plans/*.md` also accepted). Review auditors return findings as text and are not file-checked here.
 - **Enforces:** subagents complete their contract — an auditor/scanner/planner can't return empty-handed and let the main thread proceed on a false premise.
-- **Phase:** Brainstorm/Plan/Review.
+- **Phase:** Discover/Plan/Review.
 - **Honest limits:** can only check for the artifact's existence/shape, not its quality.
 
 ### persist-state.sh — PreCompact
@@ -221,7 +223,7 @@ A consolidated truth table (the advisor's correctness requirement):
 | Goal | Right hook | Can it? |
 |------|-----------|---------|
 | Load the workflow before turn 1 | `SessionStart` `additionalContext` | ✅ yes |
-| Block writing new code before reuse-scan + spec + plan | `PreToolUse` `deny` | ✅ yes (blocks the action) |
+| Block writing new code before reuse-scan (all tiers) + spec+plan (full tier) | `PreToolUse` `deny` | ✅ yes (blocks the action; fast-lane bound verified deterministically) |
 | Block "I'm done" before `review=pass` + Learn | `Stop` `block` | ✅ yes (blocks turn end) |
 | Loop Review *forever* until compliant | `Stop` `block` | ⚠️ bounded — Claude blocks at most ~8 consecutive `Stop`s (`stop_hook_active`); the loop degrades to "surface remaining items" at the cap |
 | Force test-before-code *within* a turn | — (no hook) | ❌ no — that's the `tdd` Iron Law (skill, in-context) |

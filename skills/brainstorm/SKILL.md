@@ -1,101 +1,53 @@
 ---
 name: brainstorm
-description: Use at the very start of any non-trivial Java/Spring change — before specifying, planning, or writing any code, and before adding any new class, service, utility, config, filter, or endpoint. Grounds the work in the existing codebase, proves whether something reusable already exists, and produces two or more codebase-adapted options plus the enforcement set. This is the Brainstorm phase entry point.
+description: Use to generate and weigh solution approaches for a problem, after discovery has grounded the context. Produces two or more genuinely distinct options scored on trade-offs, recommends one, and (for code tasks) assembles the enforcement set the rest of the workflow audits against. General-purpose ideation — works for any problem type; not tied to a specific stack.
 ---
 
-# Brainstorm (phase 1 of 6)
+# Brainstorm (phase 2 of 7)
 
-The Brainstorm phase turns a raw request into a **grounded, reuse-checked, scored set of options** and the
-**enforcement set** that the rest of the workflow audits against. It folds three steps — explore, reuse-scan,
-option generation — into one phase. Run it **inline on the main thread** (a forked subagent cannot itself
-spawn subagents). **Dispatch explorer and reuse-scanner together in ONE message** (two Agent tool calls in a
-single response — the native concurrency mechanism; their inputs are independent), then dispatch the
-brainstormer after both return (it needs both results).
+Turn a grounded problem into **≥2 genuinely distinct, well-reasoned approaches** and a recommendation. This is
+**general-purpose ideation** — feature, bug, refactor, performance, design, or non-code decision. It does NOT
+explore the codebase or run a reuse-scan: that is **Discover** (phase 1), whose context + reuse DECISION this
+phase consumes. Decoupling ideation from discovery is deliberate (v0.4 reversal) — forcing explore+reuse here
+narrowed the option space; freeing it widens creative breadth.
 
-## Iron Law
+Run **inline on the main thread** (it owns the state write and the user gate; a forked subagent cannot spawn
+subagents).
 
-```
-NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN
-```
+## Inputs (from Discover)
 
-Wrote new code without a reuse-scan artifact? Delete it and scan first. **Delete means delete** — don't keep
-it "as a reference." The `PreToolUse` write gate enforces this: until `reuse_scan=true`, every production
-write is denied.
+- The explorer's context map (entry points, key types, structure) and the **Reuse candidates**.
+- The reuse-scan **DECISION** (adopt / extend / new) — option 0 is always "adopt/extend the existing thing"
+  when Discover found a candidate.
 
-## Flow
+## Steps
 
-```mermaid
-flowchart TB
-    start([Brainstorm phase]) --> ph["claudehut-state set-phase brainstorm<br/>create the task dir tasks/NNNN-&lt;slug&gt;/"]
-    ph --> explore["Step 1a — claudehut-explorer<br/>read PROJECT.md / architecture.md / reuse-index.json<br/>return entry points, key types, Reuse candidates"]
-    ph --> reuse["Step 1b — claudehut-reuse-scanner<br/>writes tasks/NNNN-&lt;slug&gt;/reuse-scan.md, returns the path<br/>then MAIN THREAD records set-reuse-scan"]
-    explore & reuse -. "both Agent calls in ONE message (concurrent)" .-> join(( ))
-    join --> opts["Step 2 — dispatch claudehut-brainstormer (Agent tool)<br/>returns ≥2 scored options + the enforcement set (1% rule)<br/>then MAIN THREAD records set-enforcement"]
-    opts --> gate{"reuse_scan=true<br/>AND option chosen<br/>AND enforcement_set recorded?"}
-    gate -- no --> opts
-    gate -- yes --> done([REQUIRED NEXT: claudehut:write-spec])
-```
+1. **Dispatch `claudehut:claudehut-brainstormer`** (Agent tool) with the problem statement + Discover's
+   context. The agent runs its **fixed 6-step ideation pipeline** (FRAME criteria → DIVERGE ≥6 raw candidates
+   incl. a wildcard, judgment deferred → CLUSTER to 2–4 structurally distinct → SCORE weighted matrix →
+   PREMORTEM both finalists → RECOMMEND) and returns the options table with weighted scores + premortem risks
+   + a recommendation. **Check the return against the pipeline**: ≥2 structurally distinct options, scores
+   tied to explicit criteria, premortem present — send it back if any is missing. When Discover found a reuse
+   candidate, adopting/extending it must appear as option 0.
+2. **Assemble the enforcement set (code tasks).** By the **1% rule** — *if there's even a 1% chance a skill or
+   rule applies, include it* — scan the plugin skills and the project's `.claude/rules/` tree. The brainstormer
+   returns the candidate set; the **main thread** records it:
 
-## Step 1a — Explore (dispatch `claudehut:claudehut-explorer`, same message as 1b)
-
-Dispatch the explorer with the Agent tool. It loads the pre-built index (`.claude/claudehut/PROJECT.md`,
-`architecture.md`, `reuse-index.json`), maps the packages/classes the task touches (cite `file:line`), and
-returns entry points, key existing types, and a **"Reuse candidates"** list. It never edits and never
-proposes fixes. If `understand-anything` is enabled (flag set by `claudehut:claudehut-workflow` at
-SessionStart), the explorer uses its query/search skills for richer navigation; otherwise `Grep`/`Glob`.
-
-## Step 1b — Reuse-scan (dispatch `claudehut:claudehut-reuse-scanner`, same message as 1a)
-
-First create the **task dir** (every artifact of this task lives here): `NNNN` = zero-padded next integer
-over `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/`, slug = kebab-case task name.
-
-Dispatch the reuse-scanner. It queries `reuse-index.json` by tag, greps for similar signatures/annotations,
-reads learnings tagged `reuse`, then writes the reuse-scan to the **absolute canonical path**
-`${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (NOT a bare `.claudehut/` path —
-the state writer and the write gate both require it under `.claude/claudehut/`), containing: searched
-tags/terms, **FOUND** (component + `file:line`) or **none**, **DECISION** (adopt / extend / new), and a
-justification for any new code. It **returns the artifact path — it does not write state** (it has no Bash).
-The **main thread** then records it:
-
-```
-claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md
-```
-
-| Rationalization | Reality |
-|--------|---------|
-| "Nothing like this exists here" | Then the 60-second scan confirms it and costs nothing. Run it. |
-| "It's faster to just write it" | A duplicate you later reconcile is slower. Scan. |
-| "I already explored, I know the code" | Exploration ≠ a reuse decision. Produce the artifact. |
-| "It's a tiny helper" | Tiny duplicates rot fastest. Scan. |
-
-## Step 2 — Options + enforcement set (dispatch `claudehut:claudehut-brainstormer`, after 1a+1b return)
-
-Dispatch the brainstormer. It produces **≥2 genuinely distinct, codebase-adapted approaches** scored on
-three axes, presented as a table (approach · pros · cons · fit-with-project · footprint · perf) plus a
-recommendation:
-
-1. **Most best-practice** — idiomatic for this stack/version.
-2. **Smallest change footprint** — adopting/extending the reuse-scan candidate is option 0.
-3. **Highest output quality + performance.**
-
-Then it builds the **enforcement set** by the 1% rule — *if there is even a 1% chance a skill or rule
-applies, it MUST be included* — scanning the plugin skills and the project's `.claude/rules/` tree. It
-**returns the set — it does not write state** (it has no Bash). The **main thread** records it:
-
-```
-claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
-```
-
-The enforcement set is an **auditable checklist** Review will enforce — not a new mechanism. In interactive
-use, confirm the chosen approach before leaving Brainstorm by calling the **`AskUserQuestion` tool** with the
-scored options as choices (don't ask for a free-text reply) — this records a structured decision before Spec.
-Skip the question on a non-interactive run (`-p`) or inside a subagent, where `AskUserQuestion` is unavailable;
-there, proceed with the brainstormer's recommended option.
+   ```
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
+   ```
+   The enforcement set is the auditable checklist Review enforces — and (v0.4) the **primary source for
+   dynamic reviewer selection**: the rules it lists decide which specialist auditors Review spawns. A thin or
+   empty set silently under-reviews — apply the 1% rule honestly.
+3. **Confirm the choice (interactive only).** Call the **`AskUserQuestion` tool** with the scored options as
+   choices (not a free-text ask) — records a structured decision before Spec. On a non-interactive run (`-p`)
+   or inside a subagent (no `AskUserQuestion`), proceed with the brainstormer's recommendation.
 
 ## Red flags — STOP
 
-- About to write production code with no `tasks/NNNN-<slug>/reuse-scan.md` on disk
-- Only one option ("the obvious way") — the law requires ≥2 distinct, codebase-adapted approaches
+- Only one option ("the obvious way") — the bar is ≥2 genuinely distinct approaches.
+- Re-running explore/reuse here — that was Discover; if it didn't run, go back to `claudehut:discover`.
 - Enforcement set left empty because "nothing really applies" — re-apply the 1% rule against `.claude/rules/`
+  (it also determines which reviewers fire).
 
 **REQUIRED NEXT:** `claudehut:write-spec`.

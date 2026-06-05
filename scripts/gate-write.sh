@@ -31,6 +31,7 @@ reuse="$(jq -r '.reuse_scan // false' <<<"$s")"
 art="$(jq -r '.reuse_scan_artifact // empty' <<<"$s")"
 spec="$(jq -r '.spec_path // empty' <<<"$s")"
 plan="$(jq -r '.plan_path // empty' <<<"$s")"
+tier="$(jq -r '.complexity // "full"' <<<"$s")"   # trivial|small|full; default full = no skipping
 
 # opt #4: a recorded artifact must actually EXIST as a file under .claude/claudehut/ — a set flag
 # pointing at a missing or non-canonical path does NOT open the gate.
@@ -41,11 +42,40 @@ exists_canon() {
   return 1
 }
 
+# SAFE-BY-CONSTRUCTION fast lane (Issue 4): the model proposes the tier via set-complexity, but the GATE
+# verifies the tier's bound deterministically — it can't be talked past these checks. The fast lane skips
+# only the DELIBERATION phases (Spec/Plan); the reuse-scan rail above is required in EVERY tier.
+FAST_MAX_FILES="${CLAUDEHUT_FAST_MAX_FILES:-2}"
+# changed production files this session = tracked-modified ∪ untracked ∪ the incoming write target
+fastlane_bound_ok() {
+  command -v git >/dev/null 2>&1 || return 1          # can't verify → deny fast lane (force full)
+  local changed rel sensitive count
+  rel="${fp#$PROJECT_DIR/}"
+  changed="$( { ( cd "$PROJECT_DIR" && git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null ); printf '%s\n' "$rel"; } \
+    | grep -vE '(^|/)\.claude/|(/test/|Test\.java$|IT\.java$)' | sort -u | grep -vE '^$' )"
+  count="$(printf '%s\n' "$changed" | grep -cE '.' || true)"
+  [ "$count" -le "$FAST_MAX_FILES" ] || { FAIL_REASON="touches $count files (fast-lane cap $FAST_MAX_FILES)"; return 1; }
+  # sensitive surface → never fast-lane (false-skip of security/migration review = shipped defect)
+  sensitive="$(printf '%s\n' "$changed" | grep -Ein 'security|/auth|SecurityConfig|migration|db/changelog|V[0-9].*__.*\.sql|flyway|liquibase' || true)"
+  [ -z "$sensitive" ] || { FAIL_REASON="touches a security/auth/migration path"; return 1; }
+  return 0
+}
+
+# Rail 1 (all tiers): reuse-scan must exist.
 if [ "$reuse" != "true" ]; then
-  deny "ClaudeHut gate: run claudehut:brainstorm first (its reuse-scan step) — no reuse-scan artifact for this task (think-and-reuse before build)."
+  deny "ClaudeHut gate: run claudehut:discover first (its reuse-scan step) — no reuse-scan artifact for this task (think-and-reuse before build)."
 elif ! exists_canon "$art"; then
-  deny "ClaudeHut gate: reuse-scan flag set but no artifact file under .claude/claudehut/ (got: ${art:-none}). Write the reuse-scan there."
-elif [ -z "$spec" ] || [ "$spec" = "null" ]; then
+  deny "ClaudeHut gate: reuse-scan flag set but no artifact file under .claude/claudehut/ (got: ${art:-none}). Write it under .claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md."
+fi
+
+# Fast lane (trivial|small): skip Spec/Plan, but only if the deterministic bound holds.
+if [ "$tier" = "trivial" ] || [ "$tier" = "small" ]; then
+  if fastlane_bound_ok; then allow; fi
+  deny "ClaudeHut gate: complexity=$tier fast lane denied — ${FAIL_REASON}. Escalate to the full workflow: claudehut-state set-complexity full, then run claudehut:write-spec + claudehut:write-plan."
+fi
+
+# Full tier: require spec + plan (deliberation phases).
+if [ -z "$spec" ] || [ "$spec" = "null" ]; then
   deny "ClaudeHut gate: write the implementation spec first — run claudehut:write-spec."
 elif ! exists_canon "$spec"; then
   deny "ClaudeHut gate: spec recorded but file not found under .claude/claudehut/ (got: $spec). Write it in the task dir .claude/claudehut/tasks/NNNN-<slug>/spec.md, not a bare specs/ path."

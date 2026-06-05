@@ -4,6 +4,7 @@ description: >
   Executes the plan test-first under the project's conventions. Use in the Implement phase for
   multi-file changes that benefit from an isolated worktree. Honors every rule that auto-loads for the
   files it touches.
+model: sonnet
 tools: Read, Edit, Write, Bash, Grep, Glob
 skills:
   - implement

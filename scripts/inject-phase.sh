@@ -13,7 +13,7 @@ sid="$(jq -r '.session_id // empty' <<<"$input" 2>/dev/null || true)"
 prompt="$(jq -r '.prompt // empty' <<<"$input" 2>/dev/null || true)"
 STATE="$PROJECT_DIR/.claude/claudehut/state/$sid.json"
 
-phase="$(jq -r '.phase // "brainstorm"' "$STATE" 2>/dev/null || echo "brainstorm")"
+phase="$(jq -r '.phase // "discover"' "$STATE" 2>/dev/null || echo "discover")"
 ctx="ClaudeHut — current phase: ${phase}. Follow the phase→skill map (claudehut:claudehut-workflow); do not skip the gated phases."
 
 # Prompt-targeted learnings (P7 helper — optional; no-op until present)

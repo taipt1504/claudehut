@@ -21,11 +21,15 @@ Wrote production code before the test? Delete it. Start over. **No exceptions** 
 reference," don't "adapt" it while writing the test, don't even look at it. Delete means delete.
 **Violating the letter of this law is violating the spirit of it.**
 
-## Preconditions (the write gate)
+## Preconditions (the write gate — tier-aware)
 
-Production writes are denied by the `PreToolUse` gate until **all three** are true for this session:
-`reuse_scan=true`, `spec_path` set, `plan_path` set. The RED test may be written first — the gate always
-allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, you skipped a phase: go back.
+Production writes are denied by the `PreToolUse` gate until: `reuse_scan=true` (**every tier** — Discover
+produces it), plus — **in the `full` tier only** — `spec_path` and `plan_path` set. In the `trivial`/`small`
+fast lanes, reuse-scan alone opens the gate **provided** the change stays within the bound (≤2 files, no
+security/auth/migration path); exceed it and the gate denies, telling you to escalate
+(`set-complexity full` → Spec + Plan). The RED test may be written first — the gate always allows test paths
+(`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, read the reason: you either skipped a phase or
+out-grew the fast lane.
 
 ## Flow
 
@@ -45,10 +49,12 @@ flowchart TB
 
 ## Execution + native task mirror (main thread)
 
-**Who executes (explicit rule — don't mix ad hoc):**
-- **≤ 2 files and no migration** → implement inline on the main thread with this skill.
+**Who executes (explicit rule — don't mix ad hoc). The default for a multi-task plan is to SPAWN, not to do
+it yourself on the main thread** — main-thread-does-everything is the serial bottleneck this rule exists to
+kill (Issue 3). Fast-lane tiers have no `plan.md`; work from the task description directly.
+- **≤ 2 files and no migration** (or a fast-lane trivial/small task) → implement inline on the main thread.
 - **Dependent T-xxx chain** (no `[P]` tasks) → dispatch **one** `claudehut:claudehut-implementer` (Agent
-  tool; isolated worktree).
+  tool; isolated worktree) — not inline.
 - **`[P]`-marked tasks → PARALLEL implementers, gated by the deterministic safety check.** First run
   `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — exit 0 (all `[P]` Files
   pairwise disjoint) is the precondition; exit 2 (overlap) → **fall back to sequential** (parallel writers on

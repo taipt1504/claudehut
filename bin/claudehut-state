@@ -8,7 +8,7 @@
 #   claudehut-state --session <id> <subcommand> [args]
 #
 # Subcommands (schema: 01 §4):
-#   set-phase <brainstorm|spec|plan|implement|review|learn> [--task T] [--spec P] [--plan P]
+#   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--task T] [--spec P] [--plan P]
 #   set-reuse-scan [--artifact PATH]
 #   set-enforcement --skills a,b,c --rules x.md,y.md
 #   set-spec  <path>              # canonical (04's "set-phase plan --plan" is illustrative shorthand)
@@ -16,6 +16,7 @@
 #   set-review <pass|pending|capped>
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
 #   set-bypass <true|false>
+#   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
 set -euo pipefail
 
 err() { echo "claudehut-state: $*" >&2; exit 1; }
@@ -42,11 +43,11 @@ if [ -f "$FILE" ]; then
   STATE="$(cat "$FILE")"
 else
   STATE="$(jq -n --arg s "$SESSION" '{
-    session:$s, task:null, phase:"brainstorm",
+    session:$s, task:null, phase:"discover",
     reuse_scan:false, reuse_scan_artifact:null,
     enforcement_set:{skills:[],rules:[]},
     spec_path:null, plan_path:null,
-    review:"pending", outstanding:[], bypass:false,
+    review:"pending", outstanding:[], bypass:false, complexity:"full",
     updated_by:"claudehut-state", ts:null
   }')"
 fi
@@ -76,7 +77,7 @@ tmpl() { # $1 path  $2 grep -E pattern  $3 error
 case "$sub" in
   set-phase)
     phase="${shift_args[0]:-}"
-    case "$phase" in brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
+    case "$phase" in discover|brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
     STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
     t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
     sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
@@ -121,6 +122,11 @@ case "$sub" in
     b="${shift_args[0]:-}"
     case "$b" in true|false) ;; *) err "set-bypass needs true|false" ;; esac
     STATE="$(jq --argjson v "$b" '.bypass=$v' <<<"$STATE")"
+    ;;
+  set-complexity)
+    c="${shift_args[0]:-}"
+    case "$c" in trivial|small|full) ;; *) err "set-complexity needs trivial|small|full" ;; esac
+    STATE="$(jq --arg v "$c" '.complexity=$v' <<<"$STATE")"
     ;;
   *) err "unknown subcommand: $sub" ;;
 esac

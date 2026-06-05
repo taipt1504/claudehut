@@ -23,12 +23,13 @@ until `review=pass`.
 
 ```mermaid
 flowchart TB
-    start([Review phase]) --> spawn["Dispatch 5 auditors in parallel (Agent tool)<br/>against enforcement_set ∪ .claude/rules/ ∪ memory"]
-    spawn --> tr[claudehut-test-runner — run suite, fresh evidence]
-    spawn --> rv[claudehut-reviewer — correctness / conventions]
-    spawn --> sa[claudehut-security-auditor — OWASP / authz / secrets]
-    spawn --> pr[claudehut-perf-reviewer — N+1 / blocking / query plans]
-    spawn --> db[claudehut-db-reviewer — JPA mappings / migrations]
+    start([Review phase]) --> sel["SELECT reviewers by impact<br/>(enforcement set + git diff)"]
+    sel --> spawn["Dispatch the SELECTED auditors in parallel<br/>(all Agent calls in ONE message)"]
+    spawn --> tr["claudehut-test-runner — ALWAYS"]
+    spawn --> rv["claudehut-reviewer — ALWAYS"]
+    spawn --> sa["claudehut-security-auditor — unless confident no security surface"]
+    spawn --> pr["claudehut-perf-reviewer — IF perf/query/reactive impact"]
+    spawn --> db["claudehut-db-reviewer — IF entity/repo/migration impact"]
     tr & rv & sa & pr & db --> merge["Merge outstanding items → set-outstanding"]
     merge --> cond{"outstanding == []<br/>AND evidence green?"}
     cond -- no --> fix["Fix → back to claudehut:implement → re-spawn"]
@@ -40,18 +41,29 @@ flowchart TB
 
 ## The loop
 
-1. **Spawn the auditors in parallel** — issue **all five Agent tool calls in ONE message** (multiple
-   tool_use blocks in a single response). That is the native concurrency mechanism: calls in the same
-   message run concurrently; one call per message runs them serially and quintuples wall time. They are
-   read-only, so parallel is conflict-free. Each is scoped to the enforcement set + project rules + memory:
-   - `claudehut:claudehut-test-runner` — run the suite; produce fresh pass/fail evidence.
-   - `claudehut:claudehut-reviewer` — general correctness, readability, conventions.
-   - `claudehut:claudehut-security-auditor` — OWASP / authn-authz / secrets / deserialization.
-   - `claudehut:claudehut-perf-reviewer` — N+1 / blocking-on-reactive / query plans.
-   - `claudehut:claudehut-db-reviewer` — JPA mappings / fetch strategy / migration safety.
+1. **Select the reviewers this change actually needs, then spawn them in parallel.** Dynamic selection
+   (Issue 2): spawning a specialist with nothing to review wastes tokens + time (e.g. db-reviewer on a no-DB
+   change). There is no native "reviewer selector" — *you* decide which Agent calls to issue, from two
+   signals: the **enforcement set** (recorded in Brainstorm — its rules map to reviewers) and the **changed
+   files**. **Fast-lane tasks (trivial/small tier) skipped Brainstorm and have NO enforcement set — select
+   from the changed files alone**, applying the same asymmetry below. Get the changed files first:
 
-   Dispatch by these **qualified types** (`claudehut:claudehut-…`) — unqualified names can fail to resolve
-   and waste a full dispatch round (measured: a 5-agent batch had to be re-issued).
+   ```
+   git diff --name-only $(git merge-base HEAD @{u} 2>/dev/null || echo HEAD~1)..HEAD; git status --porcelain
+   ```
+
+   | Reviewer | Spawn when | Asymmetry |
+   |---|---|---|
+   | `claudehut:claudehut-test-runner` | **always** | evidence is non-negotiable |
+   | `claudehut:claudehut-reviewer` | **always** | correctness/conventions apply to any change |
+   | `claudehut:claudehut-security-auditor` | enforcement has `security/*` **OR** diff touches controllers/auth/security/deserialization/secrets — skip ONLY on a confident no-security-surface read | **over-include**: a false-skip ships a vulnerability (the `permitAll()` precedent); when in doubt, run it |
+   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches queries/repositories/reactive/hot paths | false-skip = perf regression, not a correctness defect — safe to skip when clearly irrelevant |
+   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files | the acceptance example: a **no-DB change does NOT spawn db-reviewer** |
+
+   Then **issue all the SELECTED Agent calls in ONE message** (native concurrency — same-message calls run
+   concurrently; read-only, so conflict-free). Dispatch by **qualified type** (`claudehut:claudehut-…`) —
+   unqualified names can fail to resolve and waste a full dispatch round (measured). State which reviewers you
+   selected and why (one line each) so any skip is auditable.
 
    Auditors that can use a database/Kafka MCP **degrade gracefully** when none is connected: they review
    statically (read code, infer query plans) instead of running live queries, and say so in their report.

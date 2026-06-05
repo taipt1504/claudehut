@@ -71,6 +71,51 @@ st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && o
 st set-review pending; done_ok x '{"session_id":"s","stop_hook_active":true}' && ok "allow: stop_hook_active cap" || bad "cap allow"
 done_ok x '{"session_id":"none","stop_hook_active":false}' && ok "allow: missing state fails open (no block)" || bad "done fail-open"
 rm -rf "$TMP"
+# tier-aware completion (Issue 4 × gate-done interaction — trivial skips Learn, must NOT wedge)
+new_proj; st set-phase review; st set-review pass; st set-complexity trivial
+done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: trivial tier — review=pass terminates WITHOUT Learn (no wedge)" || bad "trivial done without learn"
+st set-complexity small
+blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: small tier still requires Learn" || bad "small learn required"
+rm -rf "$TMP"
+
+echo "== gate-write: complexity tiers (Issue 4 safe-by-construction) =="
+# helper: a real git repo as the project so the fast-lane bound (git diff) is computable
+new_gitproj() {
+  TMP="$(mktemp -d)"; export CLAUDE_PROJECT_DIR="$TMP"
+  ( cd "$TMP" && git init -q && git config user.email t@t && git config user.name t \
+    && mkdir -p src/main/java/com/x && echo 'class A{}' > src/main/java/com/x/A.java \
+    && git add -A && git commit -qm base ) >/dev/null 2>&1
+  mkdir -p "$TMP/.claude/claudehut"
+}
+PRODX='{"session_id":"s","tool_input":{"file_path":"'  # prefix; we append a path per-case
+
+# small tier, reuse set, within bound (1 changed file), no sensitive path → ALLOW without spec/plan
+new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"; st set-complexity small
+allows x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
+  && ok "fast lane: small + reuse + within bound → allow (no spec/plan)" || bad "fast lane allow"
+# same small tier but touching a security path → DENY (escalate)
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/SecurityConfig.java\"}}" \
+  && ok "fast lane: small touching SecurityConfig → deny (sensitive path)" || bad "fast lane sensitive deny"
+rm -rf "$TMP"
+# small tier exceeding the file-count bound → DENY
+new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"; st set-complexity small
+( cd "$CLAUDE_PROJECT_DIR" && for n in 1 2 3; do echo "class B$n{}" > "src/main/java/com/x/B$n.java"; done )  # 3 untracked
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/B1.java\"}}" \
+  && ok "fast lane: small exceeding file cap → deny (escalate)" || bad "fast lane cap deny"
+rm -rf "$TMP"
+# full tier (default) still requires spec+plan even with reuse set
+new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
+  && ok "full tier: reuse only, no spec → still deny" || bad "full tier deny"
+rm -rf "$TMP"
+# reuse-scan rail enforced in EVERY tier: trivial without reuse → deny
+new_gitproj; st set-phase discover; st set-complexity trivial
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
+  && ok "rail: trivial without reuse-scan → deny (no tier skips the reuse rail)" || bad "trivial reuse rail"
+rm -rf "$TMP"
 
 echo "== verify-subagent =="
 new_proj

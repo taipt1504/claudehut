@@ -128,3 +128,9 @@ Review document & implement:
   - Các task hiện tại chưa thật sự là được thực hiện parallel do chỉ có main agents thưc hiện task
     -> Ở đây cần đảm bảo việc spawns agent parallel để speed up quá trình thực hiện task, đông thời cần integrate quá trình parallel đó với việc tracking status một cách native.
 - Với các task nhỏ hiện tại đang khá strictly theo workflow dẫn tới việc thời gian thực hiện task rất lâu, cũng như cost bỏ ra rất nhiều. Cần có cơ chế reasoning yêu cần từ user để make decision được độ phức tạp của yêu cầu từ user từ đó biết được có thật sự áp dụng full workflow hay sẽ speed up bằng việc skip 1 số phase không cần thiết
+
+# Yêu cầu:
+
+- Dựa vào các issue từ review, thực hiện nghiên cứu 1 cách deep dive, research các tài liệu offical từ claude code anthropic, các top tier plugins, nhờ tư vấn từ advisor để đưa ra các solution cho các issue trên
+- Research plugin luôn luôn ưu tiên việc tương tác với agents, LLM một cách native nhất
+- Think carefully and step-by-step before starting.

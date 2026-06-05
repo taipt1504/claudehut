@@ -18,11 +18,12 @@ the bug was orchestration duties assigned to contexts that can't perform them.
 
 | Phase | Skill runs | Heavy work | User gate (interactive only) | State write (main) | Native tasks (main) |
 |---|---|---|---|---|---|
-| Brainstorm | main | explorer ∥ reuse-scanner (one message), then brainstormer (Agent tool) | AskUserQuestion: choose approach | set-reuse-scan, set-enforcement | — |
+| **Discover** | main | explorer ∥ reuse-scanner (one message, Agent tool) | — | set-reuse-scan (+ creates task dir) | — |
+| **Brainstorm** | main | brainstormer (Agent tool); consumes Discover output | AskUserQuestion: choose approach | set-enforcement | — |
 | Spec | main (writes spec itself) | — | AskUserQuestion: **approve spec** | set-spec **after approval** | — |
 | Plan | main | claudehut-planner drafts plan (Agent tool) | AskUserQuestion: **approve plan** | set-plan **after approval**, set-phase implement | TaskCreate per plan task + deps |
 | Implement | main | claudehut-implementer (worktree) for multi-file; inline if ≤2 files | — | — | TaskUpdate in_progress/completed per step |
-| Review | main | 5 auditors in parallel (Agent tool) | — | set-outstanding, set-review | — |
+| Review | main | **selected** auditors in parallel (Agent tool); test-runner + reviewer always; security/perf/db by enforcement-set + diff | — | set-outstanding, set-review | — |
 | Learn | main | claudehut-learner (Agent tool) | — | set-phase learn | — |
 
 `context: fork` removed from `write-plan` and `capture-learnings` — every phase skill is a main-thread
@@ -71,20 +72,38 @@ spec/plan therefore cannot arm the write gate; the deny message routes the model
 ├── reuse-index.json  learnings.jsonl                        # indexes (global, committed)
 ├── state/<session>.json                                     # per-session (gitignored)
 └── tasks/NNNN-<slug>/                                       # ONE DIR PER TASK
-    ├── reuse-scan.md      # Brainstorm
+    ├── reuse-scan.md      # Discover
     ├── spec.md            # Spec (from template)
     ├── plan.md            # Plan (from template; T-001… table = durable breakdown)
     └── review.md          # Review (merged auditor findings + final verdict)
 ```
 
-- `NNNN` = zero-padded next integer over `tasks/`; slug = kebab task name. Created by Brainstorm (first
+- `NNNN` = zero-padded next integer over `tasks/`; slug = kebab task name. Created by Discover (first
   artifact). Every later phase writes into the same dir — one place per task, trivially archivable.
 - Gates unchanged: `canon()` / `exists_canon()` already require only "under `.claude/claudehut/`" — the
   layout is convention, the gate is the enforcement. Old flat paths remain gate-valid (no breakage on
   existing projects); new tasks use `tasks/`.
 - Review now persists `review.md` (it previously left no artifact) — closes the evidence loop.
 
-## 5. What changed where (v0.3)
+## 5. What changed where (v0.4)
+
+**Decision reversal (v0.4):** explore + reuse-scan were previously part of Brainstorm (phase 1). They are now
+**Discover** (a new phase 1), and Brainstorm is now phase 2 with generic, domain-agnostic ideation. The
+reversal reason: folding discovery into Brainstorm over-fit it to a single stack and killed creative breadth.
+
+| Area | Change |
+|---|---|
+| `skills/discover/` | **NEW**: Reuse Iron Law; dispatches explorer ∥ reuse-scanner in one message; writes reuse-scan artifact; `set-reuse-scan`; required every tier |
+| `skills/brainstorm` | **REVERSAL**: no longer dispatches explorer or reuse-scanner — those are Discover's job. Now dispatches only brainstormer (generic ideation); consumes Discover's context + reuse DECISION; builds enforcement set |
+| `skills/claudehut-workflow` | Updated: 7 phases; Phase-0 triage (trivial/small/full); tier→phase table; law 3 now refs `claudehut:discover` |
+| `skills/review` | **v0.4**: dynamic reviewer selection — test-runner + reviewer always; security/perf/db selected by enforcement-set + diff; no-DB change does NOT spawn db-reviewer |
+| `scripts/gate-write.sh` | **v0.4**: tier-aware — Rail 1 (all tiers): reuse-scan; Rail 2 (trivial/small): fast-lane bound (≤2 files, no security/auth/migration); Rail 3 (full): spec+plan |
+| `bin/claudehut-state` | **v0.4**: `set-complexity` subcommand added; `complexity` field in schema (default `full`); default `phase` is now `discover` |
+| `scripts/bootstrap.sh` | Arms initial state with `phase=discover` (was `brainstorm`); understand-anything flag now refs Discover |
+| `agents/claudehut-brainstormer` | **v0.4 review round**: fixed 6-step ideation pipeline the agent ALWAYS follows (FRAME weighted criteria → DIVERGE ≥6 raw candidates via lens rotation + mandatory wildcard, judgment deferred → CLUSTER to 2–4 structurally distinct → SCORE weighted matrix, dominated options out → PREMORTEM both finalists → RECOMMEND) + 5 hard rules. Research-grounded: Double Diamond second diamond, Osborn deferred judgment, Pugh matrix, Klein premortem, LLM mode-collapse mitigation. `effort: xhigh` |
+| model policy (all agents) | **opus** for critical-reasoning phases: brainstormer (`xhigh`), planner, security-auditor. **sonnet** default for the rest (learner haiku→sonnet; implementer explicit sonnet — implementation is mechanical when the plan is hyper-specified) |
+
+## 5b. What changed where (v0.3)
 
 | Area | Change |
 |---|---|

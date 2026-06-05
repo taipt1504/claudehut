@@ -30,7 +30,7 @@ flowchart TB
 
     subgraph SAT["SATELLITES (P2)"]
         AG["Agents (03)<br/>11 specialists"]
-        SK["Skills (04)<br/>8 skills — workflow + per-phase"]
+        SK["Skills (04)<br/>9 skills — workflow + per-phase"]
         RU["Rules (05)<br/>path-scoped, project-generated"]
         HK["Hooks (06)<br/>gates + bootstrap + plugin-detect"]
     end
@@ -100,15 +100,15 @@ Note that **subagents are dispatched only by the main thread** (the orchestrator
 
 ## 4. The master matrix
 
-**This table is authoritative.** Every satellite maps to exactly one primary phase and one native mechanism. Docs 03–06 expand the rows; they must not change the bindings. Phases are the six of [01](./01-agentic-workflow.md): Brainstorm · Spec · Plan · Implement · Review · Learn (plus the Bootstrap prerequisite). (Anchor IDs are fixed here so cross-references resolve: e.g. [`claudehut-explorer`](./03-agents.md#claudehut-explorer).)
+**This table is authoritative.** Every satellite maps to exactly one primary phase and one native mechanism. Docs 03–06 expand the rows; they must not change the bindings. Phases are the seven of [01](./01-agentic-workflow.md): Discover · Brainstorm · Spec · Plan · Implement · Review · Learn (plus the Bootstrap prerequisite). (Anchor IDs are fixed here so cross-references resolve: e.g. [`claudehut-explorer`](./03-agents.md#claudehut-explorer).)
 
 ### 4.1 Agents — see [03](./03-agents.md)
 
 | Component | Phase | Native mechanism | Trigger | Output |
 |-----------|-------|------------------|---------|--------|
-| `claudehut-explorer` | Brainstorm | Subagent, `tools: Read,Grep,Glob,Bash`, read-only | dispatched by `brainstorm` skill (step 1a — concurrent with reuse-scanner) | codebase query results, touch-points |
-| `claudehut-brainstormer` | Brainstorm | Subagent, `model: opus`, `effort: high` | dispatched by `brainstorm` skill (step 2 — after explorer+scanner return) | ≥2 codebase-adapted options + tradeoffs |
-| `claudehut-reuse-scanner` | Brainstorm | Subagent, `tools: Read,Grep,Glob` | dispatched by `brainstorm` skill (step 1b — concurrent with explorer) | reuse-scan artifact |
+| `claudehut-explorer` | **Discover** | Subagent, `tools: Read,Grep,Glob,Bash`, read-only | dispatched by `discover` skill (concurrent with reuse-scanner in one message) | codebase query results, touch-points |
+| `claudehut-reuse-scanner` | **Discover** | Subagent, `tools: Read,Grep,Glob` | dispatched by `discover` skill (concurrent with explorer in one message) | reuse-scan artifact |
+| `claudehut-brainstormer` | Brainstorm | Subagent, `model: opus`, `effort: xhigh` | dispatched by `brainstorm` skill (after Discover output available) | ≥2 generic options + tradeoffs |
 | `claudehut-planner` | Plan | Subagent, `tools: Read,Grep,Glob,Write` | invoked by `write-plan` skill | plan file |
 | `claudehut-implementer` | Implement | Subagent, `skills:[implement]` preloaded (carries TDD Iron Law + tech-stack reference playbooks), `isolation: worktree` | dispatched for multi-file or `[P]` parallel changes | code + tests committed to worktree branch; returns `DONE (branch, commit)` |
 | `claudehut-test-runner` | Review | Subagent, `tools: Bash,Read,Grep` | spawned by `review` skill | test results + outstanding items |
@@ -120,18 +120,19 @@ Note that **subagents are dispatched only by the main thread** (the orchestrator
 
 ### 4.2 Skills — see [04](./04-skills.md)
 
-There is exactly **one skill per workflow phase** (plus two non-phase skills). The principle: each phase has a single entry-point skill that owns its Iron Law and orchestrates any subagents it needs.
+There is exactly **one skill per workflow phase** (plus two non-phase skills): **9 skills total** (7 phase + 2 orchestration). The principle: each phase has a single entry-point skill that owns its Iron Law and orchestrates any subagents it needs.
 
 | Component | Phase | Native mechanism | Trigger | Enforcement |
 |-----------|-------|------------------|---------|-------------|
-| `claudehut-workflow` | all (meta) | Skill, injected via `SessionStart` | every session | establishes phases + skill-first + 1% laws |
+| `claudehut-workflow` | all (meta) | Skill, injected via `SessionStart` | every session | establishes phases + skill-first + 1% laws; includes tier triage table |
 | `claudehut-init` | Bootstrap (prerequisite) | Skill / `/claudehut:init` | new project / missing index | builds the codebase index + project memory + rules |
-| `brainstorm` | Brainstorm | Skill, inline (main-thread); dispatches explorer ∥ reuse-scanner (one message), then brainstormer | before any new code | reuse-scan step (Iron Law) + ≥2 codebase-adapted options + enforcement set |
-| `write-spec` | Spec | Skill | after an approach is chosen | writes the implementation spec |
-| `write-plan` | Plan | Skill, inline (main-thread); dispatches planner via Agent tool; owns approval gate + state write + TaskCreate mirror | after the spec | writes plan file |
-| `implement` | Implement | Skill, Iron Law (TDD); preloaded into `claudehut-implementer` | before writing prod code | no code without failing test; tech-stack reference playbooks in `implement/references/` |
-| `review` | Review | Skill, inline (main-thread), Iron Law | before any done-claim | spawns five auditors, loops until outstanding empty; persists `review.md` |
-| `capture-learnings` | Learn | Skill, inline (main-thread); dispatches learner via Agent tool; owns state write | task end | appends learnings + updates reuse-index |
+| `discover` | Discover | Skill, inline (main-thread); dispatches explorer ∥ reuse-scanner (one message) | before any new code (every tier) | Reuse Iron Law + reuse-scan artifact + `set-reuse-scan` |
+| `brainstorm` | Brainstorm | Skill, inline (main-thread); dispatches brainstormer; consumes Discover output | full tier: after Discover | generic ideation — ≥2 options + enforcement set (drives dynamic reviewer selection) |
+| `write-spec` | Spec | Skill | full tier: after approach chosen | writes the implementation spec |
+| `write-plan` | Plan | Skill, inline (main-thread); dispatches planner via Agent tool; owns approval gate + state write + TaskCreate mirror | full tier: after the spec | writes plan file |
+| `implement` | Implement | Skill, Iron Law (TDD); preloaded into `claudehut-implementer`; tier-aware preconditions | before writing prod code | no code without failing test; fast-lane bound verified by gate; tech-stack reference playbooks in `implement/references/` |
+| `review` | Review | Skill, inline (main-thread), Iron Law | before any done-claim | **dynamically selects** auditors (test-runner + reviewer always; security/perf/db by enforcement-set + diff); loops until outstanding empty; persists `review.md` |
+| `capture-learnings` | Learn | Skill, inline (main-thread); dispatches learner via Agent tool; owns state write | task end (full + small tiers) | appends learnings + updates reuse-index |
 
 ### 4.3 Rules (project-generated, path-scoped) — see [05](./05-rules.md)
 
@@ -155,7 +156,7 @@ Rules are generated into `.claude/rules/` by `claudehut-init` at bootstrap time 
 |-----------|-------|------------------|------------------|
 | `bootstrap.sh` | `SessionStart` (`startup\|clear\|compact`) | `additionalContext` + `watchPaths` (+ `systemMessage` if init fallback failed) | inject orchestrator + learnings; trigger Bootstrap if index missing; **detect understand-anything** from `enabledPlugins` and inject the flag |
 | `inject-phase.sh` | `UserPromptSubmit` | `additionalContext` | remind current phase + inject prompt-relevant learnings |
-| `gate-write.sh` | `PreToolUse` (`Write\|Edit\|MultiEdit`) | `permissionDecision: deny` | **action gate** — no new code before reuse-scan + spec + plan |
+| `gate-write.sh` | `PreToolUse` (`Write\|Edit\|MultiEdit`) | `permissionDecision: deny` | **action gate** — reuse-scan required every tier; spec+plan required full tier only; fast-lane bound verified deterministically (≤2 files, no security/auth/migration) |
 | `format-java.sh` | `PostToolUse` (`Write\|Edit`, `if *.java`) | non-blocking exit | auto-format with google-java-format |
 | `gate-done.sh` | `Stop` | `decision: block` | **completion gate** — no done before `review=pass` + Learn; honors the `stop_hook_active` cap |
 | `verify-subagent.sh` | `SubagentStop` | `decision: block` | subagent must return its required artifact (auditors return the outstanding set) |
@@ -165,8 +166,8 @@ Rules are generated into `.claude/rules/` by `claudehut-init` at bootstrap time 
 
 | Server | Phase(s) | Native mechanism | Why |
 |--------|----------|------------------|-----|
-| `postgres` | Brainstorm, Review | `.mcp.json` stdio, `${user_config.pg_url}` | inspect real schema while adapting + auditing |
-| `mysql` | Brainstorm, Review | `.mcp.json` stdio | same for MySQL projects |
+| `postgres` | Discover, Review | `.mcp.json` stdio, `${user_config.pg_url}` | inspect real schema during grounding + auditing |
+| `mysql` | Discover, Review | `.mcp.json` stdio | same for MySQL projects |
 | `redis` | Implement, Review | `.mcp.json` stdio | cache inspection/debugging |
 | `kafka` (custom) | Implement, Review | plugin `bin/`, stdio | topics/consumer-groups/offsets (gap in existing catalogs) |
 | `github` | Plan, Review, Learn | `.mcp.json` http | PRs, issues, branch ops |
@@ -197,13 +198,13 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 └── rules/*.md                     # 05 generated, path-scoped
 ```
 
-`claudehut-state` (taking `--session`) writes the per-session `state/<session_id>.json`: subcommands `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass` (schema + concurrency design in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine), [§4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state)).
+`claudehut-state` (taking `--session`) writes the per-session `state/<session_id>.json`: subcommands `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass`, `set-complexity` (schema + concurrency design in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine), [§4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state)).
 
 ## 6. Native-mechanism rationale
 
 Per pillar P6, every plane and dispatch choice is forced by a native constraint, not preference:
 
-- **Why all phase skills run on the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context), cannot use `AskUserQuestion` (main-loop-only), and most have no `Bash` (cannot run `claudehut-state`). Every phase skill therefore runs **inline on the main thread** and owns user gates, state writes, and native task mirroring — dispatching its agent(s) via the Agent tool. Brainstorm dispatches explorer ∥ reuse-scanner concurrently (one message), then brainstormer; Review dispatches all five auditors in parallel (one message); Spec has no agent; Plan dispatches `claudehut-planner`; Implement dispatches `claudehut-implementer` (or works inline for ≤2-file changes); Learn dispatches `claudehut-learner`. The uniform rule: **skills orchestrate on the main thread; subagents return data only**.
+- **Why all phase skills run on the main thread.** A **subagent cannot spawn another subagent** (the Agent tool is unavailable inside a subagent context), cannot use `AskUserQuestion` (main-loop-only), and most have no `Bash` (cannot run `claudehut-state`). Every phase skill therefore runs **inline on the main thread** and owns user gates, state writes, and native task mirroring — dispatching its agent(s) via the Agent tool. Discover dispatches explorer ∥ reuse-scanner concurrently (one message); Brainstorm dispatches brainstormer (after Discover); Review dispatches the **selected** auditors in parallel (one message — test-runner + reviewer always; security/perf/db by enforcement-set + diff); Spec has no agent; Plan dispatches `claudehut-planner`; Implement dispatches `claudehut-implementer` (or works inline for ≤2-file changes); Learn dispatches `claudehut-learner`. The uniform rule: **skills orchestrate on the main thread; subagents return data only**.
 - **Why understand-anything is detected by a hook, not declared as a dependency.** There is **no native runtime mechanism** for one plugin to branch on whether another is installed; `plugin.json` `dependencies` is install/enable-time coupling only (and would *hard-require* understand-anything). So `bootstrap.sh` (`SessionStart`, command type) reads `enabledPlugins` (or `claude plugin list`) and injects a flag via `additionalContext`. This keeps the integration optional and honest. See [06](./06-hooks.md) and [01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase).
 - **Why the enforcement set is a checklist, not an engine.** Rules still auto-load by `paths:`; skills still trigger by `description`. The enforcement set (built in Brainstorm via the 1% rule) is an **auditable list** recorded in `state.json` + the spec and **checked by the Review auditors** — it does not replace the native trigger mechanisms. See [01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule).
 - **Why generated project rules, not plugin-shipped rules?** A plugin's component dirs are `agents/skills/commands/hooks/output-styles` plus `.mcp.json`/`.lsp.json` — there is no plugin `rules/` or `CLAUDE.md` slot. Path-scoped auto-loading only works from `${CLAUDE_PROJECT_DIR}/.claude/rules/`. So ClaudeHut ships templates and Bootstrap writes the real rules into the project. (See [00 §8](./00-overview.md#8-scope-boundaries).)
@@ -219,7 +220,7 @@ To keep all twelve documents consistent, the expansion docs obey:
 2. **Fixed names + anchors.** Component names and their heading anchors are fixed (e.g. `### claudehut-explorer` in 03, `### review` in 04). Cross-references use these.
 3. **One phase, one mechanism per component.** A component's primary phase and native mechanism match this matrix exactly.
 4. **Native-first justification.** Each spec cites the native feature it relies on, per P6.
-5. **Phase names are the six of [01](./01-agentic-workflow.md).** No document references the retired "Explore", "Decide", or "Verify" phase names; "verify" survives only as an ordinary verb.
+5. **Phase names are the seven of [01](./01-agentic-workflow.md).** No document references the retired "Explore", "Decide", or "Verify" phase names; "verify" survives only as an ordinary verb.
 
 ---
 

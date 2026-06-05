@@ -23,10 +23,11 @@ s="$(cat "$STATE" 2>/dev/null || echo '{}')"
 [ "$(jq -r '.bypass // false' <<<"$s")" = "true" ] && exit 0
 
 review="$(jq -r '.review // "pending"' <<<"$s")"
-phase="$(jq -r '.phase // "brainstorm"' <<<"$s")"
+phase="$(jq -r '.phase // "discover"' <<<"$s")"
 reuse="$(jq -r '.reuse_scan // false' <<<"$s")"
 spec="$(jq -r '.spec_path // empty' <<<"$s")"
 plan="$(jq -r '.plan_path // empty' <<<"$s")"
+tier="$(jq -r '.complexity // "full"' <<<"$s")"   # trivial skips Learn (tier map) — gate must match
 
 # opt #1: the SessionStart hook ARMS state (phase=brainstorm) so the write gate denies production
 # writes from turn 1. But only enforce COMPLETION once the workflow was actually ENGAGED — a freshly
@@ -42,7 +43,9 @@ engaged=false
 
 if [ "$review" != "pass" ]; then
   block "ClaudeHut gate: Review not passed — run claudehut:review until the outstanding set is empty, with fresh evidence."
-elif [ "$phase" != "learn" ]; then
+elif [ "$tier" != "trivial" ] && [ "$phase" != "learn" ]; then
+  # trivial tier legitimately skips Learn (workflow tier map) — blocking it here would wedge the
+  # session until the consecutive-Stop cap. full + small still require the Learn pass.
   block "ClaudeHut gate: Learn pass not run — run claudehut:capture-learnings before finishing."
 fi
 exit 0

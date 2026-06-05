@@ -3,7 +3,7 @@
 > Part of the **ClaudeHut** design document set. See [README](./README.md). This plan implements the design in [01](./01-agentic-workflow.md)–[09](./09-plugin-structure.md).
 > **Status:** Design v1 · **Audience:** plugin engineers · **Scope:** phased build plan (not implementation).
 
-ClaudeHut's value is entirely in its enforcement: the six-phase workflow is worthless if an agent can rationalize its way around it. The roadmap is therefore structured enforcement-spine-first — manifest, orchestrator, state writer, and hard gates ship before any agent, domain skill, or MCP server. Later milestones layer satellite intelligence on top of an already-working enforcement skeleton. Each milestone is independently verifiable and each subsequent milestone adds capability without replacing what came before.
+ClaudeHut's value is entirely in its enforcement: the seven-phase workflow is worthless if an agent can rationalize its way around it. The roadmap is therefore structured enforcement-spine-first — manifest, orchestrator, state writer, and hard gates ship before any agent, domain skill, or MCP server. Later milestones layer satellite intelligence on top of an already-working enforcement skeleton. Each milestone is independently verifiable and each subsequent milestone adds capability without replacing what came before.
 
 ## Table of Contents
 
@@ -90,7 +90,7 @@ graph LR
 **Goal:** ensure the `claudehut-workflow` orchestrator skill loads at session start and that `bin/claudehut-state` can write and read `state.json` reliably. These two components are the skeleton everything else hangs on — ([01 §4](./01-agentic-workflow.md#4-the-phase-state-machine), [02 §3](./02-architecture.md#3-control-flow-how-a-request-moves-through-the-planes)).
 
 **Deliverables:**
-- `skills/claudehut-workflow/SKILL.md` — the orchestrator skill describing all six phases and the skill-first + 1% laws
+- `skills/claudehut-workflow/SKILL.md` — the orchestrator skill describing all seven phases, Phase-0 tier triage, and the skill-first + 1% laws
 - `scripts/bootstrap.sh` — `SessionStart` hook: injects orchestrator body as `additionalContext`; emits a top-level `systemMessage` if project memory is absent and the deterministic fallback could not run
 - `bin/claudehut-state` — the sole writer of the **per-session** `state/<session_id>.json` (takes `--session`, atomic temp+rename); subcommands: `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass` (schema + concurrency: [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine), [§4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state))
 - `state.json` schema (documented; enforced by `bin/claudehut-state` validation)
@@ -107,7 +107,7 @@ graph LR
 **Goal:** make the two hard gates — the action gate and the completion gate — deterministic and functional. After this milestone the enforcement spine is complete: no code can be written without reuse-scan+spec+plan, and no turn can end without review-pass+learn. ([06 §3](./06-hooks.md#3-hook-specs))
 
 **Deliverables:**
-- `scripts/gate-write.sh` — `PreToolUse` on `Write|Edit|MultiEdit`: reads `state.json`; returns `permissionDecision: deny` if `reuse_scan ≠ true`, `spec_path` unset, or `plan_path` unset; allows writes to `.claude/claudehut/**`, test paths, and `bypass=true`
+- `scripts/gate-write.sh` — `PreToolUse` on `Write|Edit|MultiEdit`: reads `state.json`; returns `permissionDecision: deny` if `reuse_scan ≠ true` (all tiers), or if fast-lane bound exceeded (trivial/small), or if `spec_path`/`plan_path` unset (full tier only); allows writes to `.claude/claudehut/**`, test paths, and `bypass=true`
 - `scripts/gate-done.sh` — `Stop`: reads `state.json` + `stop_hook_active`; returns `decision: block` if `review ≠ pass` or `phase ≠ learn`; degrades gracefully (surfaces outstanding items) when the consecutive-Stop cap is reached
 - `scripts/verify-subagent.sh` — `SubagentStop`: blocks if a phase subagent returns without its required artifact file
 - `scripts/format-java.sh` — `PostToolUse` async: runs `google-java-format` on written `.java` files (non-blocking)
@@ -124,14 +124,15 @@ graph LR
 **Goal:** add the eight workflow skills that cover each phase's intra-turn ordering. Enforcement skills carry Iron Laws — explicit rationalization tables so that once loaded, they constrain the agent's action ordering within a turn even when the gates cannot fire. ([04](./04-skills.md))
 
 **Deliverables:**
-- `skills/brainstorm/SKILL.md` — Brainstorm phase; explore/reuse-scan/options as inline steps; dispatches `claudehut-explorer`, `claudehut-reuse-scanner`, `claudehut-brainstormer`; builds enforcement set via `claudehut-state set-enforcement`
+- `skills/discover/SKILL.md` — Discover phase (NEW v0.4); Reuse Iron Law; dispatches `claudehut-explorer` ∥ `claudehut-reuse-scanner` in one message; writes reuse-scan artifact; `set-reuse-scan`; every tier
+- `skills/brainstorm/SKILL.md` — Brainstorm phase; generic ideation; consumes Discover output; dispatches `claudehut-brainstormer`; builds enforcement set via `claudehut-state set-enforcement`
 - `skills/write-spec/SKILL.md` — Spec phase; writes the implementation spec to `tasks/NNNN-<slug>/spec.md` (from template); `AskUserQuestion` approval before `bin/claudehut-state set-spec`
 - `skills/write-plan/SKILL.md` — Plan phase; dispatches `claudehut-planner` via Agent tool to write `tasks/NNNN-<slug>/plan.md`; `AskUserQuestion` approval before `bin/claudehut-state set-plan`; `TaskCreate` mirror on approval
 - `skills/implement/SKILL.md` — **Iron Law**: no production code before a failing test; RED step allowed to `.../test/` paths before `plan_path` is set; domain depth via `implement/references/`
-- `skills/review/SKILL.md` — **Iron Law** (inline, main-thread): spawns the five auditors, loops until `outstanding == []` with fresh evidence; folds in test-matrix guidance; no done-claim otherwise
+- `skills/review/SKILL.md` — **Iron Law** (inline, main-thread): dynamically selects and spawns auditors (test-runner + reviewer always; security/perf/db by enforcement-set + diff), loops until `outstanding == []` with fresh evidence; folds in test-matrix guidance; no done-claim otherwise
 - `skills/capture-learnings/SKILL.md` — Learn phase; dispatches `claudehut-learner` via Agent tool; main thread triggers `bin/claudehut-state set-phase learn`
 
-**How to verify:** Use the superpowers RED-GREEN method: run `brainstorm` against a scenario without the skill loaded and observe the model writing new code immediately; then load the skill and confirm it refuses to proceed without the reuse-scan artifact. Repeat for `implement` (model writes prod code first without skill; refuses with skill). Both Iron-Law skills must emit their rationalization tables when challenged.
+**How to verify:** Use the superpowers RED-GREEN method: run `discover` against a scenario without the skill loaded and observe the model writing new code immediately; then load the skill and confirm it refuses to proceed without the reuse-scan artifact. Repeat for `implement` (model writes prod code first without skill; refuses with skill). Both Iron-Law skills must emit their rationalization tables when challenged.
 
 **Dependencies:** P2 (gates validate artifacts these skills produce).
 
@@ -216,7 +217,7 @@ graph LR
 - Updated `scripts/bootstrap.sh` — calls `inject-learnings.sh --top 12` and appends output to `additionalContext`
 - Updated `scripts/inject-phase.sh` — calls `inject-learnings.sh --filter "<prompt keywords>" --top 5` for targeted per-turn retrieval
 
-**How to verify:** Complete a full task cycle (Brainstorm→Learn) in the scratch Spring repo; confirm a new entry appears in `learnings.jsonl`. Start a second session; confirm the `SessionStart` `additionalContext` contains the learning. Trigger a compact mid-session; confirm `persist-state.sh` fires and `state.json` survives.
+**How to verify:** Complete a full task cycle (Discover→Brainstorm→Learn) in the scratch Spring repo; confirm a new entry appears in `learnings.jsonl`. Start a second session; confirm the `SessionStart` `additionalContext` contains the learning. Trigger a compact mid-session; confirm `persist-state.sh` fires and `state.json` survives.
 
 **Dependencies:** P4 (`claudehut-learner` agent writes the entries); P5 (memory directory exists).
 
@@ -269,9 +270,9 @@ graph LR
 
 The plugin ships when all six pillars have a passing acceptance test:
 
-- [ ] **Pillar P1 — Agentic workflow as the core.** In a clean session on a bootstrapped Spring Boot project (codebase already indexed), the agent completes a full Brainstorm→Spec→Plan→Implement→Review→Learn cycle on a real coding task without manual phase prompting.
+- [ ] **Pillar P1 — Agentic workflow as the core.** In a clean session on a bootstrapped Spring Boot project (codebase already indexed), the agent completes a full Discover→Brainstorm→Spec→Plan→Implement→Review→Learn cycle on a real coding task without manual phase prompting.
 
-- [ ] **Pillar P2 — Agents / Skills / Rules / Hooks as satellites.** All 11 agents are dispatched during at least one eval scenario and return their required artifacts. All 8 workflow skills load at the correct phase. All 7 hooks fire on their triggering events.
+- [ ] **Pillar P2 — Agents / Skills / Rules / Hooks as satellites.** All 11 agents are dispatched during at least one eval scenario and return their required artifacts. All 9 workflow skills load at the correct phase. All 7 hooks fire on their triggering events.
 
 - [ ] **Pillar P3 — Project-adaptive memory.** Running `/claudehut:init` in two different Spring Boot projects produces two distinct `PROJECT.md` and `LANGUAGE.md` files; the agent uses project-specific vocabulary in both. Re-running `init` on either project is idempotent.
 

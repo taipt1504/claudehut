@@ -41,7 +41,7 @@ The generated tree:
 ├── state/                # per-session phase-state files (Item-1 fix) — see [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine)
 │   └── <session_id>.json # one file per session/task; gitignored, ephemeral
 └── tasks/                # one dir per task (NNNN-<slug>/)
-    ├── reuse-scan.md     # Brainstorm artifact (P4)
+    ├── reuse-scan.md     # Discover artifact (P4)
     ├── spec.md           # implementation spec from Spec phase (subsumes ADR)
     ├── plan.md           # executable plan from Plan phase (T-xxx breakdown; durable source of truth)
     └── review.md         # merged auditor findings + final verdict from Review phase
@@ -51,7 +51,7 @@ The generated tree:
 
 **Why here and not `${CLAUDE_PLUGIN_DATA}`?** Project memory is project-shareable team knowledge — it belongs in the repo's `.claude/`, committed to git, where teammates and CI see it. `${CLAUDE_PLUGIN_DATA}` is per-machine plugin state and is the right place only for machine-local caches, not shared project memory.
 
-**The codebase index is the Workflow's prerequisite.** `reuse-index.json` + `architecture.md` (plus `PROJECT.md`) are exactly the **codebase index** the Workflow requires *before* it runs ([01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase)). They are built once by Bootstrap and refreshed on the Learn pass — never by a workflow "Explore" phase (there is none). When the `understand-anything` plugin is enabled, its knowledge graph augments this base index; Brainstorm *queries* the index, it does not build it.
+**The codebase index is the Workflow's prerequisite.** `reuse-index.json` + `architecture.md` (plus `PROJECT.md`) are exactly the **codebase index** the Workflow requires *before* it runs ([01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase)). They are built once by Bootstrap and refreshed on the Learn pass — never by a workflow "Explore" phase (there is none). When the `understand-anything` plugin is enabled, its knowledge graph augments this base index; **Discover** (phase 1) *queries* the index via explorer + reuse-scanner, it does not build it.
 
 ### 1.1 Where memory lives — and why not native auto-memory
 
@@ -87,7 +87,7 @@ What native auto-memory *does* get right is its **loading discipline**: a concis
 | per-layer conventions | `.claude/rules/*.md` path-scoped | agent touches a matching file ([05](./05-rules.md)) |
 | domain playbooks | skills (progressive disclosure) | skill invoked / `description` match ([04](./04-skills.md)) |
 | full `learnings.jsonl` | `UserPromptSubmit` injects prompt-matched slice; agent `Read` | prompt keyword match; `reuse-scanner` reads `category=reuse` |
-| `reuse-index.json` | agent `Read` | Brainstorm reuse scan |
+| `reuse-index.json` | agent `Read` | Discover reuse scan |
 | `tasks/NNNN-<slug>/` (spec, plan, review) | agent `Read` | Plan/Implement/Review reference the current task's files |
 
 The committed `MEMORY.md` plays the same role native `MEMORY.md` does — a concise index that *names what is stored where* so the agent knows which on-demand file to read for depth (the native index→topic-file pattern, applied to the committed store). Every loading choice maps to a named native mechanism (`@import`, `.claude/rules/` path-scoping, skills, `SessionStart`/`UserPromptSubmit` `additionalContext`, agent `Read`) — there is no bespoke loader.
@@ -189,7 +189,7 @@ Two artifacts + one gate (the mechanism, fully wired to [01 §10](./01-agentic-w
 - New code justification: only a RedisIdempotencyStore (no existing equivalent).
 ```
 
-**The gate:** `gate-write.sh` (`PreToolUse`) denies any production Write/Edit until the artifact exists and `state.json.reuse_scan=true`. The agent *cannot* build new before scanning. This is P4 enforced as a precondition, not a suggestion.
+**The gate:** `gate-write.sh` (`PreToolUse`) denies any production Write/Edit until the artifact exists and `state.json.reuse_scan=true` — in **every complexity tier** (the fast lane never skips this rail). The agent *cannot* build new before scanning. This is P4 enforced as a precondition, not a suggestion.
 
 ## 5. P5 — Cross-session reinforcement learning
 
@@ -243,7 +243,7 @@ flowchart LR
 
 1. **SessionStart** (`bootstrap.sh`): `inject-learnings.sh` parses `learnings.jsonl`, ranks by `confidence × recency × hits`, and injects the **capped top-N** (≈12, ≤ ~6 KB — §1.2) as `additionalContext`. The committed `MEMORY.md` index + `PROJECT.md` + `LANGUAGE.md` load via `@import`. *(If native auto-memory is enabled, its own `MEMORY.md` first-200-lines also loads — but ClaudeHut does not depend on it; it may be disabled, §1.1.)* The full `learnings.jsonl` is **not** loaded here — only the capped slice.
 2. **UserPromptSubmit** (`inject-phase.sh`): selects learnings whose `trigger` keyword-matches the current prompt — **targeted** retrieval, so a payment task surfaces payment learnings.
-3. **Reuse phase**: `claudehut-reuse-scanner` reads learnings tagged `reuse` to find known reuse points fast.
+3. **Discover phase**: `claudehut-reuse-scanner` (dispatched by `claudehut:discover`) reads learnings tagged `reuse` to find known reuse points fast.
 4. **Path-scoped**: a `pitfall` learning tied to a file pattern can be promoted into the relevant generated rule on the next Bootstrap, so it becomes always-applied for that file type.
 
 ```mermaid
@@ -296,7 +296,7 @@ So the identical installed plugin, opened in repo A vs repo B, loads A's archite
 flowchart LR
     NEW[New project] -->|/claudehut:init| BOOT[Bootstrap: gen memory + rules]
     BOOT --> WORK[Work: workflow phases]
-    WORK -->|Brainstorm| SCAN[reuse-scan -> artifact]
+    WORK -->|Discover| SCAN[reuse-scan -> artifact]
     WORK -->|Learn| WRITE[append/merge learnings + update index]
     WRITE --> NEXT[Next session]
     NEXT -->|SessionStart| INJECT["inject capped top-N learnings + MEMORY index"]

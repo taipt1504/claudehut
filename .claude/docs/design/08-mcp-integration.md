@@ -32,7 +32,7 @@ The recommended servers map to phases and agents as follows:
 ```mermaid
 flowchart TB
     subgraph PHASES["Workflow phases (01)"]
-        EX["Brainstorm"]
+        EX["Discover + Brainstorm"]
         PL["Plan"]
         IM["Implement"]
         VE["Review"]
@@ -95,15 +95,15 @@ Emitted when `claudehut-init` detects the corresponding dependency in the projec
 
 | Server | Phase(s) | Type | Package / binary | Primary agents | Trigger |
 |--------|----------|------|-----------------|----------------|---------|
-| `postgres` | Brainstorm, Review | stdio | `@modelcontextprotocol/server-postgres` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | Postgres driver detected |
-| `mysql` | Brainstorm, Review | stdio | `mcp-server-mysql` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | MySQL driver detected |
+| `postgres` | Discover + Review | stdio | `@modelcontextprotocol/server-postgres` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | Postgres driver detected |
+| `mysql` | Discover + Review | stdio | `mcp-server-mysql` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | MySQL driver detected |
 | `redis` | Implement, Review | stdio | `redis-mcp-server` | orchestrator, auditors | Redis client detected |
 | `kafka` | Implement, Review | stdio | `${CLAUDE_PLUGIN_ROOT}/bin/kafka-mcp` | `claudehut-perf-reviewer`, `claudehut-security-auditor` | Kafka client detected |
 | `github` | Plan, Review, Learn | http | `@modelcontextprotocol/server-github` | `claudehut-planner`, `claudehut-reviewer` | git remote is GitHub |
 
 #### 2.1.1 `postgres`
 
-**Purpose.** Exposes the live Postgres schema and allows executing read-only SQL. During Brainstorm, agents query `information_schema` to confirm column types, nullability, and foreign-key constraints so the candidate solution adapts to the real schema. During Review, `claudehut-db-reviewer` re-checks the mappings and `claudehut-perf-reviewer` runs `EXPLAIN (ANALYZE, BUFFERS)` on the queries the implementation issues.
+**Purpose.** Exposes the live Postgres schema and allows executing read-only SQL. During **Discover**, the explorer agent queries `information_schema` to confirm column types, nullability, and foreign-key constraints so the grounding adapts to the real schema. During Review, `claudehut-db-reviewer` re-checks the mappings and `claudehut-perf-reviewer` runs `EXPLAIN (ANALYZE, BUFFERS)` on the queries the implementation issues.
 
 **Key tools exposed.** `list_tables`, `describe_table`, `query` (read-only; see [§6](#6-security--failure-posture)).
 

@@ -3,7 +3,7 @@ name: claudehut-planner
 description: >
   Turns the implementation spec into a file-level, executable, test-first plan. Use in the Plan phase
   after the spec is written. Writes the plan file; does not write production code.
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Write
 color: green
 ---

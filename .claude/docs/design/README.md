@@ -1,6 +1,6 @@
 # ClaudeHut — Design Document Set
 
-**ClaudeHut** is a Claude Code plugin for Java backend engineers whose core is an **agentic workflow**: against a pre-indexed codebase, the agent autonomously brainstorms codebase-adapted options, writes a spec, plans, implements test-first, reviews for full compliance, and learns — with every phase auto-enforced by native Claude Code mechanisms. This folder is the **design deliverable**: a coherent set of technical documents from high-level vision down to low-level component specs.
+**ClaudeHut** is a Claude Code plugin for Java backend engineers whose core is an **agentic workflow**: against a pre-indexed codebase, the agent autonomously discovers (grounds the task + reuse-scan), brainstorms options, writes a spec, plans, implements test-first, reviews for full compliance, and learns — with every phase auto-enforced by native Claude Code mechanisms. This folder is the **design deliverable**: a coherent set of technical documents from high-level vision down to low-level component specs.
 
 > **Status:** Design v1 · **Scope:** design only — no plugin implementation code is shipped here. The build plan lives in [10. Build Roadmap](./10-build-roadmap.md).
 
@@ -10,7 +10,7 @@
 flowchart LR
     PRE["Codebase index (prerequisite)"] -. ready before .-> CORE
     subgraph CORE["Agentic Workflow (the core)"]
-        B[Brainstorm] --> S[Spec] --> P[Plan] --> I[Implement] --> R[Review] --> L[Learn]
+        D[Discover] --> B[Brainstorm] --> S[Spec] --> P[Plan] --> I[Implement] --> R[Review] --> L[Learn]
         R -.->|outstanding items| I
     end
     SK[Skills] -. drive .-> CORE
@@ -39,7 +39,7 @@ The set flows **high-level → low-level**. Read in order on a first pass; jump 
 | # | Document | Read it for | Primary pillars |
 |---|----------|-------------|-----------------|
 | 00 | [Overview](./00-overview.md) | vision, target user, scope, and the **canonical glossary** every other doc reuses | all |
-| 01 | [Agentic Workflow](./01-agentic-workflow.md) | **the centerpiece** — the 6 phases and the enforcement loop | P1, P4 |
+| 01 | [Agentic Workflow](./01-agentic-workflow.md) | **the centerpiece** — the 7 phases and the enforcement loop | P1, P4 |
 | 02 | [Architecture](./02-architecture.md) | the component map and the **master matrix** (every component → phase → native mechanism) | P2, P6 |
 | 03 | [Agents](./03-agents.md) | the 11 specialist subagents and how they're dispatched | P2 |
 | 04 | [Skills](./04-skills.md) | the skill catalog, triggers, and Iron-Law enforcement | P1, P2, P4 |
@@ -80,8 +80,8 @@ flowchart TB
 
 - **Enforcement over instruction** — three tiers: orchestrator skill (instruction) → Iron-Law skills (intra-turn ordering) → hooks (hard, deterministic gates). See [01 §2](./01-agentic-workflow.md#2-design-principle-enforcement-over-instruction).
 - **Honest gates** — `PreToolUse` deny = action gate (no new code before reuse-scan + spec + plan); `Stop` block = completion gate (no done before `review=pass` + Learn, honoring the native `stop_hook_active` cap). Neither claims to enforce mid-turn ordering. See [06 §4](./06-hooks.md#4-what-hooks-honestly-can-and-cannot-do).
-- **Brainstorm builds the enforcement set; Review audits it** — Brainstorm applies the superpowers **1% rule** (*"even a 1% chance a skill applies → you MUST invoke it"*) to list every applicable skill/rule, then **Review** spawns auditor subagents (from the main thread — subagents can't spawn subagents) and **loops until the outstanding set is empty**. See [01 §7–§8](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule).
-- **`understand-anything` is conditional, detected natively** — Brainstorm uses that plugin's query/search skills only when it's enabled; there's no native runtime cross-plugin branch, so a `SessionStart` hook reads `enabledPlugins` and injects the flag. See [06](./06-hooks.md) · [01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase).
+- **Discover grounds + reuse-scans; Brainstorm builds the enforcement set; Review audits it** — Discover (phase 1, every tier) runs explorer ∥ reuse-scanner and produces the reuse-scan artifact. Brainstorm (phase 2, full tier) then applies the superpowers **1% rule** (*"even a 1% chance a skill applies → you MUST invoke it"*) to list every applicable skill/rule — this list also drives **dynamic reviewer selection** in Review. Review spawns selected auditor subagents (from the main thread) and **loops until the outstanding set is empty**. See [01 §7–§8](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule).
+- **`understand-anything` is conditional, detected natively** — **Discover** uses that plugin's query/search skills only when it's enabled; there's no native runtime cross-plugin branch, so a `SessionStart` hook reads `enabledPlugins` and injects the flag. See [06](./06-hooks.md) · [01 §3](./01-agentic-workflow.md#3-prerequisite-the-codebase-index-not-a-phase).
 - **Rules are project-generated, not plugin-shipped** — a plugin can't ship `.claude/rules/`, so ClaudeHut ships templates and Bootstrap generates tuned, path-scoped rules per project. See [05 §1](./05-rules.md#1-the-native-constraint-that-shapes-everything).
 - **Memory = committed store + native loading discipline (cost-aware)** — native auto-memory is machine-local/uncommittable/disablable, so it can't carry team-shared P5 learnings; the canonical store stays the committed `.claude/claudehut/`. ClaudeHut *replicates* native's loading discipline: `@import` only a small capped always-load slice (`MEMORY.md` index + `PROJECT.md` + `LANGUAGE.md`, ≤ ~25 KB/200 lines), and everything else loads on-demand via native lazy primitives (path-scoped rules, skills, hook-injected learning slices, agent `Read`). Native auto-memory is an optional, non-authoritative mirror. See [07 §1.1–§1.2](./07-memory-architecture.md#11-where-memory-lives--and-why-not-native-auto-memory).
 - **State is per-session, collision-safe under concurrent worktrees** — the phase-state file is `state/<session_id>.json` (not one project-wide file), written atomically by `bin/claudehut-state`; gate hooks key off the hook-input `session_id`. Concurrent tasks = distinct sessions = distinct files → no clobber. Worktree-`${CLAUDE_PROJECT_DIR}` behavior and writer/reader key-equality are marked `[uncertain]` and the design is safe under both. See [01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state).

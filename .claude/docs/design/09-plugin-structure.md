@@ -41,13 +41,15 @@ claudehut/                                  # static plugin plane
 │   ├── claudehut-db-reviewer.md
 │   └── claudehut-learner.md
 │
-├── skills/                                 # 8 skills [04]
+├── skills/                                 # 9 skills [04]
 │   ├── claudehut-workflow/
-│   │   └── SKILL.md                        # orchestrator (injected at SessionStart)
+│   │   └── SKILL.md                        # orchestrator (injected at SessionStart); 7-phase map + tier triage
 │   ├── claudehut-init/
 │   │   └── SKILL.md                        # bootstrap skill → /claudehut:init
+│   ├── discover/
+│   │   └── SKILL.md                        # Discover phase (NEW v0.4): explorer ∥ reuse-scanner; Reuse Iron Law; every tier
 │   ├── brainstorm/
-│   │   └── SKILL.md                        # explore/reuse-scan/options steps; dispatches explorer, reuse-scanner, brainstormer
+│   │   └── SKILL.md                        # generic ideation; consumes Discover output; dispatches brainstormer; enforcement set
 │   ├── write-spec/
 │   │   ├── SKILL.md
 │   │   └── references/
@@ -139,7 +141,7 @@ The plugin never owns these files; `claudehut-init` creates them once, then hook
         ├── state/                          # per-session phase-state files (written only by bin/claudehut-state)
         │   └── <session_id>.json           # one per session/task; gitignored, ephemeral (01 §4.1)
         └── tasks/                          # one dir per task (NNNN-<slug>/) — all task artifacts in one place
-            ├── reuse-scan.md               # Brainstorm: reuse-scan artifact (P4)
+            ├── reuse-scan.md               # Discover: reuse-scan artifact (P4)
             ├── spec.md                     # Spec phase: implementation spec (subsumes ADR)
             ├── plan.md                     # Plan phase: T-xxx breakdown (durable source of truth)
             └── review.md                   # Review phase: auditor findings + test evidence + verdict
@@ -158,7 +160,7 @@ The boundary is absolute: nothing under `${CLAUDE_PLUGIN_ROOT}` is written at ru
   "name": "claudehut",
   "displayName": "ClaudeHut",
   "version": "1.0.0",
-  "description": "6-phase agentic workflow for Java/Spring Boot backends (over a pre-indexed codebase): brainstorm → spec → plan → implement → review → learn.",
+  "description": "7-phase agentic workflow for Java/Spring Boot backends (over a pre-indexed codebase): discover → brainstorm → spec → plan → implement → review → learn.",
   "author": {
     "name": "ClaudeHut Authors",
     "email": "plugins@claudehut.dev",
@@ -206,7 +208,7 @@ The boundary is absolute: nothing under `${CLAUDE_PLUGIN_ROOT}` is written at ru
     {
       "name": "claudehut",
       "displayName": "ClaudeHut",
-      "description": "6-phase agentic workflow for Java/Spring Boot backends. Enforces brainstorm → spec → plan → implement → review → learn (over a pre-indexed codebase) with Iron-Law skills, action gates, and per-project memory.",
+      "description": "7-phase agentic workflow for Java/Spring Boot backends. Enforces discover → brainstorm → spec → plan → implement → review → learn (over a pre-indexed codebase) with Iron-Law skills, tier-aware action gates, and per-project memory.",
       "source": {
         "source": "github",
         "repo": "claudehut/claudehut"
@@ -231,9 +233,9 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `.claude-plugin/plugin.json` | Manifest | Plugin identity + metadata only — components (`agents/`, `skills/`, `hooks/`) auto-discovered; no `mcpServers`/`userConfig` (§2) | §2 this doc |
 | `.claude-plugin/marketplace.json` | Manifest | Marketplace distribution listing | §3 this doc |
 | **Agents** | | | |
-| `agents/claudehut-explorer.md` | Agent | Read-only codebase query agent (Brainstorm) | [03](./03-agents.md#claudehut-explorer) |
-| `agents/claudehut-brainstormer.md` | Agent | Generates ≥2 codebase-adapted approaches (Brainstorm) | [03](./03-agents.md#claudehut-brainstormer) |
-| `agents/claudehut-reuse-scanner.md` | Agent | Enforces reuse-first, produces reuse-scan artifact (Brainstorm) | [03](./03-agents.md#claudehut-reuse-scanner) |
+| `agents/claudehut-explorer.md` | Agent | Read-only codebase query agent (**Discover**) | [03](./03-agents.md#claudehut-explorer) |
+| `agents/claudehut-brainstormer.md` | Agent | Generates ≥2 generic approaches, consumes Discover output (Brainstorm) | [03](./03-agents.md#claudehut-brainstormer) |
+| `agents/claudehut-reuse-scanner.md` | Agent | Enforces reuse-first, produces reuse-scan artifact (**Discover**) | [03](./03-agents.md#claudehut-reuse-scanner) |
 | `agents/claudehut-planner.md` | Agent | Writes executable plan file (Plan) | [03](./03-agents.md#claudehut-planner) |
 | `agents/claudehut-implementer.md` | Agent | Executes plan test-first in worktree (Implement); branches from `origin/HEAD`; commit-before-DONE contract; returns `DONE (branch, commit)`; BLOCKED-immediately rule | [03](./03-agents.md#claudehut-implementer) |
 | `agents/claudehut-test-runner.md` | Agent | Runs suite, diagnoses failures (Review) | [03](./03-agents.md#claudehut-test-runner) |
@@ -246,7 +248,8 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `skills/claudehut-workflow/SKILL.md` | Skill | Orchestrator; injected at SessionStart | [04](./04-skills.md#claudehut-workflow) |
 | `skills/claudehut-init/SKILL.md` | Skill | Bootstrap command `/claudehut:init` | [04](./04-skills.md#claudehut-init) |
 | **Skills — phase** | | | |
-| `skills/brainstorm/SKILL.md` | Skill | Brainstorm phase; explore/reuse-scan/options steps; dispatches explorer, reuse-scanner, brainstormer inline | [04](./04-skills.md#brainstorm) |
+| `skills/discover/SKILL.md` | Skill | Discover phase (NEW v0.4); dispatches explorer ∥ reuse-scanner in one message; Reuse Iron Law; every complexity tier | [04](./04-skills.md#discover) |
+| `skills/brainstorm/SKILL.md` | Skill | Brainstorm phase; generic ideation; consumes Discover output; dispatches brainstormer; builds enforcement set | [04](./04-skills.md#brainstorm) |
 | `skills/write-spec/SKILL.md` | Skill | Spec phase; writes the implementation spec from template; owns AskUserQuestion approval + set-spec | [04](./04-skills.md#write-spec) |
 | `skills/write-spec/references/spec-template.md` | Reference | Spec template (spec-kit/EARS/MADR/Google synthesis); right-sized by task type | [11](./11-execution-model-and-artifacts.md) |
 | `skills/write-plan/SKILL.md` | Skill | Plan phase; dispatches planner via Agent tool; owns approval gate + set-plan + TaskCreate mirror | [04](./04-skills.md#write-plan) |
@@ -328,9 +331,9 @@ Each native Claude Code rule and how the layout satisfies it:
 
 - **`${CLAUDE_PLUGIN_ROOT}` is replaced on update — never write state there.** All runtime state (the per-session `state/<session_id>.json`, `learnings.jsonl`, and per-task artifacts under `tasks/`) lives in `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`, which survives plugin updates. `${CLAUDE_PLUGIN_DATA}` is the native per-machine persistence slot and remains available for any future machine-global cache needs, but the current design requires none — per-project isolation is achieved by keying everything to `CLAUDE_PROJECT_DIR`.
 
-- **`bin/claudehut-state` is the sole writer of the per-session state file.** Hook scripts read `state/<session_id>.json` but never write it; skills can instruct the agent to run `claudehut-state --session ${CLAUDE_SESSION_ID} …`, but the binary is the single authoritative writer (atomic temp+rename). Its subcommands match the authoritative schema in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine): `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass` (all take `--session`). The per-session keying prevents concurrent-task collisions ([01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state)); this preserves the clean hook-reads / command-writes separation ([06](./06-hooks.md#1-the-hook-io-protocol-what-we-rely-on)).
+- **`bin/claudehut-state` is the sole writer of the per-session state file.** Hook scripts read `state/<session_id>.json` but never write it; skills can instruct the agent to run `claudehut-state --session ${CLAUDE_SESSION_ID} …`, but the binary is the single authoritative writer (atomic temp+rename). Its subcommands match the authoritative schema in [01 §4](./01-agentic-workflow.md#4-the-phase-state-machine): `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass`, `set-complexity` (all take `--session`). The per-session keying prevents concurrent-task collisions ([01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state)); this preserves the clean hook-reads / command-writes separation ([06](./06-hooks.md#1-the-hook-io-protocol-what-we-rely-on)).
 
-- **`"agents"` replaces; `"skills"` adds.** Setting `"agents": "./agents"` in `plugin.json` replaces Claude Code's default agent discovery with ClaudeHut's 11 specialists. This is deliberate: the specialists' `description` fields are tuned for the workflow's delegation logic, and mixing in default agents would introduce agents that do not understand the phase protocol. `"skills": "./skills"` additive behavior is correct — ClaudeHut's 8 phase skills should coexist with any project or user skills.
+- **`"agents"` replaces; `"skills"` adds.** Setting `"agents": "./agents"` in `plugin.json` replaces Claude Code's default agent discovery with ClaudeHut's 11 specialists. This is deliberate: the specialists' `description` fields are tuned for the workflow's delegation logic, and mixing in default agents would introduce agents that do not understand the phase protocol. `"skills": "./skills"` additive behavior is correct — ClaudeHut's 9 phase/orchestration skills should coexist with any project or user skills.
 
 - **Plugin-shipped agents ignore `hooks`, `mcpServers`, and `permissionMode` frontmatter.** The agent `.md` files therefore do not declare these. MCP access is **opt-in per project** (the plugin ships no `.mcp.json`; `claudehut-init` suggests `claude mcp add` commands — see [08](./08-mcp-integration.md)); hook behavior is governed by the plugin-level `hooks/hooks.json`. Any such frontmatter in an agent file would be silently ignored and should be omitted to avoid misleading readers.
 

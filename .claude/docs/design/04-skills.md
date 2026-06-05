@@ -3,7 +3,9 @@
 > Part of the **ClaudeHut** design document set. See [README](./README.md). Skill bindings are fixed in [02 §4.2](./02-architecture.md#42-skills--see-04).
 > **Status:** Design v2 · **Pillar focus:** P1, P2, P4. **Native mechanism:** Agent Skills (`skills/<name>/SKILL.md`).
 >
-> **Revision note (v2):** The 17-skill multi-skill-per-phase design has been superseded by a deliberate consolidation to **8 skills — exactly one per workflow phase plus 2 non-phase orchestration skills**. Domain skills were eliminated as a class; their tech-stack depth now lives in `.claude/rules/` (terse always-applied standards, see [05](./05-rules.md)) and in `implement/references/` (deep playbooks loaded on demand).
+> **Revision note (v2):** The 17-skill multi-skill-per-phase design has been superseded by a deliberate consolidation to one skill per workflow phase plus 2 non-phase orchestration skills. Domain skills were eliminated as a class; their tech-stack depth now lives in `.claude/rules/` (terse always-applied standards, see [05](./05-rules.md)) and in `implement/references/` (deep playbooks loaded on demand).
+>
+> **Revision note (v0.4):** The workflow is now **7 phases** (Discover added as phase 1, splitting explore+reuse-scan out of Brainstorm). The catalog now contains **9 skills** (7 phase + 2 orchestration). Brainstorm is now generic/domain-agnostic ideation consuming Discover's output. Review now uses **dynamic reviewer selection** (not always-5 auditors).
 
 Skills are how the Workflow's behavior is delivered and enforced inside the conversation. This catalog defines every skill, its trigger (`description`), what it loads, and — for enforcement skills — the Iron-Law pattern that makes a phase non-skippable.
 
@@ -39,25 +41,26 @@ Adopted from the mattpocock + superpowers research, fixed for the whole catalog:
 | **Orchestration** | Establish + bootstrap the Workflow | injected at `SessionStart`; user-invocable commands |
 | **Phase / Enforcement** | Drive and gate each phase | auto-trigger by `description`; Iron-Law bodies; all run inline on the main thread, dispatching agent(s) via the Agent tool |
 
-One skill per phase (6 phases × 1 skill) plus 2 orchestration skills = **8 skills total**.
+One skill per phase (7 phases × 1 skill) plus 2 orchestration skills = **9 skills total**.
 
 ## 3. Orchestration skills
 
 ### claudehut-workflow
 - **Class:** orchestration (the bootstrap meta-skill). **Phase:** all.
-- **Purpose:** Establish the 6 phases, the phase→skill map, and the two laws — the **skill-first law** and the **1% rule** (verbatim from superpowers: *"If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill."*). This is the superpowers `using-superpowers` analogue.
+- **Purpose:** Establish the **7 phases + Phase-0 complexity triage**, the phase→skill map, the tier→phase table, and the laws — the **skill-first law** and the **1% rule** (verbatim from superpowers: *"If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill."*). This is the superpowers `using-superpowers` analogue.
 - **Trigger:** injected wholesale by the `bootstrap.sh` `SessionStart` hook as `additionalContext` — it does not wait to be discovered.
 - **Inputs:** none. **Outputs:** none directly; it governs the turn.
 - **Native invocation:** Skill body injected via hook; also user-invocable as `/claudehut:workflow` to re-anchor.
 - **Body shape:**
   ```
-  ## ClaudeHut Workflow — you are always in one of 6 phases (the codebase is pre-indexed)
-  Brainstorm → Spec → Plan → Implement → Review → Learn
+  ## ClaudeHut Workflow — you are always in one of 7 phases (the codebase is pre-indexed)
+  Discover → Brainstorm → Spec → Plan → Implement → Review → Learn
+  ## Phase 0: Triage (trivial/small/full) — set-complexity before starting
   ### Laws
   1. Skill-first: check ClaudeHut skills before acting.
   2. 1% rule: if there is even a 1% chance a skill/rule applies, you MUST invoke it
-     (this builds the enforcement set in Brainstorm).
-  3. Reuse-first: never write new code before the reuse-scan step inside claudehut:brainstorm (gated).
+     (this builds the enforcement set in Brainstorm; also drives dynamic reviewer selection).
+  3. Reuse-first: never write new code before the reuse-scan step inside claudehut:discover (gated — every tier).
   4. Test-first: never write prod code before a failing test (claudehut:implement — TDD Iron Law).
   5. Compliance-first: never claim done before claudehut:review shows
      zero outstanding items (gated).
@@ -74,19 +77,26 @@ One skill per phase (6 phases × 1 skill) plus 2 orchestration skills = **8 skil
 
 ## 4. Phase skills
 
-These 6 skills cover the 6 workflow phases one-for-one. Each is the **sole** skill for its phase.
+These 7 skills cover the 7 workflow phases one-for-one. Each is the **sole** skill for its phase.
+
+### discover
+- **Phase:** Discover (phase 1). **Trigger:** start of every task (every tier); "discover / ground / explore / reuse-scan before coding".
+- **Purpose:** Ground the task in the existing codebase and settle the reuse question before any ideation. Owns the Reuse Iron Law and the `set-reuse-scan` state write.
+- **Runs INLINE on the main thread** — dispatches two subagents **concurrently in one message** (their inputs are independent):
+  1. [`claudehut-explorer`](./03-agents.md#claudehut-explorer) — queries the codebase index, maps the packages/classes the task touches (cites `file:line`), returns entry points, key types, and a Reuse candidates list.
+  2. [`claudehut-reuse-scanner`](./03-agents.md#claudehut-reuse-scanner) — produces `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (adopt/extend/none + justification); the main thread then runs `claudehut-state set-reuse-scan --artifact <path>`.
+- **Iron Law (reuse):** *"NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN. Required in every complexity tier — the fast lane never skips it."*
+- **I/O:** in: task + codebase index; out: reuse-scan artifact + `reuse_scan=true`. **REQUIRED NEXT:** `claudehut:brainstorm` (full tier) or `claudehut:implement` (trivial/small).
 
 ### brainstorm
-- **Phase:** Brainstorm. **Trigger:** start of Brainstorm; "understand / map / where is … / what are the options / how should I approach …".
-- **Purpose:** Three-step inline orchestration: (1) explore the codebase, (2) reuse scan, (3) produce options + enforcement set.
-- **Runs INLINE on the main thread** — dispatches three subagents in sequence via the Agent tool:
-  1. [`claudehut-explorer`](./03-agents.md#claudehut-explorer) — explore step: queries the codebase index and maps relevant code.
-  2. [`claudehut-reuse-scanner`](./03-agents.md#claudehut-reuse-scanner) — reuse-scan step: produces `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (adopt/extend/none + justification); the main thread then runs `claudehut-state set-reuse-scan`.
-  3. [`claudehut-brainstormer`](./03-agents.md#claudehut-brainstormer) — options step: ≥2 codebase-adapted options scored on three axes (most best-practice · smallest footprint · highest quality+performance), a recommendation, and the **enforcement set** (applicable skills+rules at ≥1% match).
-- **Must run inline on the main thread** because it dispatches multiple subagents — no phase skill uses `context: fork`.
-- **Iron Law (reuse):** *"NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN. If you wrote new code without a reuse-scan artifact, delete it and scan first."*
-- **Rule:** must present "adopt existing" as an explicit option when the reuse scan found a candidate; the main thread records the enforcement set via `claudehut-state set-enforcement` ([01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule)).
-- **I/O:** in: task + codebase index; out: reuse-scan artifact + ≥2 options + enforcement set. **REQUIRED NEXT:** `claudehut:write-spec`.
+- **Phase:** Brainstorm (phase 2). **Trigger:** after Discover (full tier); "brainstorm / options / what are the approaches / how should I approach …".
+- **Purpose:** **Generic, domain-agnostic ideation** — turn a grounded problem into ≥2 genuinely distinct approaches + enforcement set. Does NOT explore or reuse-scan (that is Discover — v0.4 reversal). Consumes Discover's context + reuse DECISION.
+- **Runs INLINE on the main thread** — dispatches one subagent:
+  1. [`claudehut-brainstormer`](./03-agents.md#claudehut-brainstormer) — consumes Discover output; produces ≥2 distinct approaches scored on three axes (most best-practice · smallest footprint · highest quality+performance), a recommendation, and the **enforcement set** (applicable skills+rules at ≥1% match).
+- **Must run inline on the main thread** — no phase skill uses `context: fork`.
+- **Rule:** must present "adopt existing" as an explicit option when Discover found a reuse candidate; the main thread records the enforcement set via `claudehut-state set-enforcement` ([01 §7](./01-agentic-workflow.md#7-the-enforcement-set-applying-the-1-rule)). The enforcement set is the **primary source for dynamic reviewer selection** (Review reads it to decide which specialist auditors fire).
+- **Fast lane:** skipped in `trivial` and `small` tiers.
+- **I/O:** in: Discover output (context + reuse DECISION); out: ≥2 options + enforcement set. **REQUIRED NEXT:** `claudehut:write-spec`.
 
 ### write-spec
 - **Phase:** Spec. **Trigger:** after an approach is chosen in Brainstorm.
@@ -113,16 +123,16 @@ These 6 skills cover the 6 workflow phases one-for-one. Each is the **sole** ski
 - **I/O:** in: plan + spec + enforcement set; out: tested, passing implementation. **REQUIRED NEXT:** `claudehut:review`.
 
 ### review
-- **Phase:** Review. **Trigger:** after implementation; "review / check / audit / does this comply".
-- **Runs INLINE on the main thread** — spawns the five auditor agents in parallel via the Agent tool.
+- **Phase:** Review (phase 6). **Trigger:** after implementation; "review / check / audit / does this comply".
+- **Runs INLINE on the main thread** — spawns the **dynamically selected** auditor agents in parallel via the Agent tool.
 - **Iron Law (review-completion):** *"NO COMPLETION CLAIM WHILE ANY APPLICABLE SKILL, RULE, OR MEMORY ITEM REMAINS UNSATISFIED — AND NONE WITHOUT FRESH REVIEW EVIDENCE. If you have not re-run the auditors in this turn, you cannot say it passes."*
-- **What it does (the Review loop):** dispatches the five auditor agents; each enforces one lens against the enforcement set + project rules/memory and returns its **outstanding items**. The skill merges them via `claudehut-state set-outstanding`. When `outstanding == []` and evidence is green, persists **`tasks/NNNN-<slug>/review.md`** (per-auditor findings + test evidence + items resolved across loops + final verdict) — the review artifact that closes the per-task evidence loop.
-- **Auditors dispatched:** [`claudehut-test-runner`](./03-agents.md#claudehut-test-runner) plus the four other auditors defined in [03](./03-agents.md).
+- **What it does (the Review loop):** first reads `git diff` to determine changed files; then **selects auditors** by enforcement-set + diff impact; dispatches the selected auditors in one message (native concurrency). Each auditor enforces one lens and returns its **outstanding items**. The skill merges them via `claudehut-state set-outstanding`. When `outstanding == []` and evidence is green, persists **`tasks/NNNN-<slug>/review.md`** (per-auditor findings + test evidence + items resolved across loops + final verdict).
+- **Auditor selection (always–conditional):** `claudehut-test-runner` + `claudehut-reviewer` **always**; `claudehut-security-auditor` unless confident no security surface (over-include asymmetry: a false-skip ships a vulnerability); `claudehut-perf-reviewer` if enforcement has `performance/*` or diff touches queries/reactive/hot paths; `claudehut-db-reviewer` if enforcement has `framework/jpa`/`flyway`/`migration` or diff touches `@Entity`/repository/migration files. **A no-DB change does NOT spawn db-reviewer.**
 - **Test matrix** for Java/Spring (slice tests, WireMock, Testcontainers): `references/test-matrix.md`.
 - **Exit condition:** loop (fix → re-spawn auditors) until `outstanding == []` **and** fresh test evidence is green → `claudehut-state set-review pass`. **OR** the native Stop-cap (`stop_hook_active`, ~8 consecutive blocks) is reached → surface the remaining items to the user and mark `review=capped` rather than wedge ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)).
 - **Gate function (per claim):** IDENTIFY the auditors + commands → RUN them fresh → READ outputs → VERIFY `outstanding == []` → THEN claim. Skipping a step = lying.
 - **Red-flag phrases that force a halt:** "should work", "probably passes", "seems fine", "looks compliant", expressing satisfaction before the auditors have re-run.
-- **Native:** skill, inline on the main thread (dispatches five auditors via Agent tool); the `Stop` hook blocks turn end until `state.json.review=pass` (or `capped`). **Pairs with:** the `gate-done.sh` completion gate ([06](./06-hooks.md)). **REQUIRED NEXT:** `claudehut:capture-learnings`.
+- **Native:** skill, inline on the main thread (dispatches **selected** auditors via Agent tool in one message); the `Stop` hook blocks turn end until `state.json.review=pass` (or `capped`). **Pairs with:** the `gate-done.sh` completion gate ([06](./06-hooks.md)). **REQUIRED NEXT:** `claudehut:capture-learnings`.
 
 ### capture-learnings
 - **Phase:** Learn. **Trigger:** after a successful review; end of task; "capture / record / learnings".
@@ -137,7 +147,7 @@ The 4 Iron Laws are each hosted inside their phase skill. Summary table:
 
 | Iron Law | Host skill | Paired gate |
 |----------|-----------|-------------|
-| **Reuse-first** — no new code before a reuse-scan artifact | `brainstorm` | `gate-write.sh` action gate ([06](./06-hooks.md)) |
+| **Reuse-first** — no new code before a reuse-scan artifact | `discover` | `gate-write.sh` action gate ([06](./06-hooks.md)) |
 | **TDD** — no production code before a failing test | `implement` | intra-turn ordering (honest scope) |
 | **Review-completion** — no completion claim without fresh auditor evidence | `review` | `gate-done.sh` completion gate ([06](./06-hooks.md)) |
 | **Learn-must-run** — no task end without a Learn pass | `capture-learnings` | `gate-done.sh` completion gate ([06](./06-hooks.md)) |
@@ -174,19 +184,20 @@ User-invocable entry points (skills with `user-invocable: true`; some `disable-m
 ```mermaid
 flowchart LR
     SS[SessionStart hook] -->|inject| WF[claudehut-workflow]
-    WF -->|phase map| BS[brainstorm]
-    BS -->|inline: explorer→reuse-scanner→brainstormer| SP[write-spec]
+    WF -->|phase map| DC[discover]
+    DC -->|inline: explorer∥reuse-scanner| BS[brainstorm]
+    BS -->|inline: brainstormer| SP[write-spec]
     SP --> WP[write-plan]
     WP -->|Agent tool: claudehut-planner| IM[implement]
     IM -->|rules + references| IM
     IM --> RV[review]
-    RV -->|inline: 5 auditors| CL[capture-learnings]
+    RV -->|inline: selected auditors| CL[capture-learnings]
     CL -->|Agent tool: claudehut-learner| done[task complete]
 ```
 
 - **Discovery:** only `name` + `description` preload (cheap). Bodies load on invoke. The orchestrator's phase→skill table tells the agent which to reach for, so chaining is reliable, not accidental.
-- **Chaining:** each skill names the next required skill (`REQUIRED NEXT: claudehut:write-spec`), mirroring superpowers' terminal-state pattern, so the phases self-sequence.
-- **All phase skills run inline on the main thread** and dispatch agent(s) via the Agent tool. `brainstorm` and `review` dispatch multiple agents (sequential/parallel); `write-plan` and `capture-learnings` dispatch one agent each; `write-spec` and `implement` run without dispatching an agent for most cases (Implement may dispatch `claudehut-implementer` for multi-file changes).
+- **Chaining:** each skill names the next required skill (`REQUIRED NEXT: claudehut:brainstorm`), mirroring superpowers' terminal-state pattern, so the phases self-sequence.
+- **All phase skills run inline on the main thread** and dispatch agent(s) via the Agent tool. `discover` dispatches explorer ∥ reuse-scanner (one message); `brainstorm` dispatches brainstormer; `review` dispatches the selected auditors (one message); `write-plan` and `capture-learnings` dispatch one agent each; `write-spec` and `implement` run without dispatching an agent for most cases (Implement may dispatch `claudehut-implementer` for multi-file changes).
 
 ---
 
