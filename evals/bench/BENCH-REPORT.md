@@ -101,7 +101,24 @@ always-loaded surfaces: the `claudehut-workflow` skill (injected each session) a
 @import slice. A plugin cannot set the system prompt, so the docs' "~100%" system-prompt number does NOT
 transfer — propensity maximized, effectiveness under all conditions unverified, correctness never depends on it.
 
-| # | Remaining (gated on approval) | Basis |
+## Scoped A2 read-only test — auditor fan-out (2026-06-04) — CLOSED
+
+One run per arm (qualitative, n=1), identical review task with a planted SQL-injection controller; A2 = the 5
+auditors given `background: true` in a throwaway sanitized copy (shipped tree untouched).
+
+| | A1 foreground (shipped) | A2 background |
 |---|---|---|
-| 1 | Scoped A2 read-only test for the review 5-auditor fan-out (shape-independent concurrency where write bugs don't bite) | open, not closed |
-| 2 | Adopt the corrected msg-id-grouped shape detector in any future eval (already in `parallel-bench.sh`) | artifact post-mortem |
+| Reports returned (parent-side, id-matched) | **5/5** (2.1–6.9k chars) | **5/5** (2.5–8.4k chars) — no silent loss on the text channel |
+| test-runner survived (needs Bash, auto-deny risk) | ✓ | ✓ (2.5k report) |
+| Dispatch shape | 5 calls in ONE message | 5 calls in ONE message |
+| Planted SQLi found in final verdict | ✓ | ✓ |
+| Wall | 174s | 189s (slightly slower — background overhead, no batching benefit to offset) |
+
+**Verdict: A2 read-only works (no silent loss; auto-deny didn't bite) but provides NO advantage when A1
+batching fires — and A1 batching held in every measurement including 65k-token context. A2's only residual
+value is insurance against a batching failure we could not reproduce. CLOSED: keep A1 everywhere; do not ship
+background auditors.** (n=1 per arm — qualitative, consistent with all prior measurements.)
+
+| # | Remaining | Basis |
+|---|---|---|
+| 1 | Adopt the corrected msg-id-grouped shape detector in any future eval (already in `parallel-bench.sh`; note the verbose stream also interleaves subagent transcripts — filter parent-side events by `subagent_type==null`) | artifact post-mortem |

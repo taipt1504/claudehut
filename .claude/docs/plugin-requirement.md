@@ -113,3 +113,18 @@ Review document & implement:
   - 1 Vấn rất cần thiết trong việc spawn agents parallel là tổ chức git worktree, đây cũng là 1 vấn đề rất dễ dẫn tới mistake, agent rất dễ bỏ qua và mất sai lầm trong việc implement
 - Đây là 1 feature rất quan trọng, cần research deep dive từ nhiều nguồn khác nhau, nhờ tư vấn từ advisor để có quyết định đúng đắn
 - Think carefully and step-by-step before starting.
+
+---
+
+# Review sử dụng plugin
+
+- Phase brainstorm:
+  - Skill & agent brainstorm nên được build theo hướng common để có thể thực hiện brainstorming giải quyết nhiều vấn đề hơn. Hệnn tại đang fit với project bằng việc luôn thực hiện explore và scan reuse trong phase này dẫn tới việc skill, agent mất khả năng sáng tạo trong việc brainstorming
+    -> Cần thực hiện tách việc explore và scan reuse thành 1 phase riêng trong workflow
+- Ở phase review: hiện tại đang hard trong việc spawns agents để thực hiện review, ví dụ 1 task không có effect tới database nhưng luôn spawn agent db-reviewer để thực hiện review -> điều nay gây tăng cose, tăng time thực hiện task
+  -> ở đây cần thực hiện spawn agents 1 cách native, dynamic hơn cho từng task
+- Ở phase planning và implement: đã có thực hiện break task và sử dụng tool native để thực hiện tạo và tracking task native claude code. Nhưng hiện có issues với việc agent parallel với task đó:
+  - Agents đang không spawns parallel để thực hiện task mà ở đây main agents efforce skill ![alt text](image.png)
+  - Các task hiện tại chưa thật sự là được thực hiện parallel do chỉ có main agents thưc hiện task
+    -> Ở đây cần đảm bảo việc spawns agent parallel để speed up quá trình thực hiện task, đông thời cần integrate quá trình parallel đó với việc tracking status một cách native.
+- Với các task nhỏ hiện tại đang khá strictly theo workflow dẫn tới việc thời gian thực hiện task rất lâu, cũng như cost bỏ ra rất nhiều. Cần có cơ chế reasoning yêu cần từ user để make decision được độ phức tạp của yêu cầu từ user từ đó biết được có thật sự áp dụng full workflow hay sẽ speed up bằng việc skip 1 số phase không cần thiết
