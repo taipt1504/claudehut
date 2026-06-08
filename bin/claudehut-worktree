@@ -60,18 +60,39 @@ case "$sub" in
 
   check-disjoint)
     plan="${1:-}"; [ -f "$plan" ] || err "check-disjoint needs <plan.md>"
-    # rows of the T-xxx table whose ID cell carries [P]; Files = 3rd cell
-    overlaps="$(awk -F'|' '
-      /^\|[[:space:]]*T-[0-9]+/ && $2 ~ /\[P\]/ {
+    # PHASE-AWARE. The main thread fans out [P] tasks WITHIN a phase, so disjointness is checked
+    # per-phase: two [P] tasks in DIFFERENT phases may legitimately touch the same file (e.g. a domain
+    # phase creates a service, a later cross-cutting phase edits it) — they never run concurrently, so a
+    # global check would falsely serialize them. Phases are the plan's markdown/bold "Phase N" headings;
+    # a plan with no phase headings is one implicit phase 0 (== the old global behavior). Files = 4th
+    # cell; the leading [PG]/[P] annotations have no "/" and drop out, backticks are stripped.
+    pairs="$(awk -F'|' '
+      $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]*[0-9]/ && ($0 ~ /#/ || $0 ~ /\*\*/) { phase++; next }
+      $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ {
         n=split($4, f, /[,[:space:]]+/)
-        for (i=1;i<=n;i++) if (f[i] ~ /\//) print f[i]
-      }' "$plan" | sort | uniq -d)"
+        for (i=1;i<=n;i++) { p=f[i]; gsub(/`/,"",p); if (p ~ /\//) print phase "\t" p }
+      }' "$plan")"
+    overlaps="$(printf '%s\n' "$pairs" | grep -v '^$' | sort | uniq -d)"
+    # per-phase parallel-batch schedule (task IDs) — the deterministic plan the implement skill follows
+    schedule="$(awk -F'|' '
+      $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]*[0-9]/ && ($0 ~ /#/ || $0 ~ /\*\*/) { phase++; next }
+      $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ { match($2,/T-[0-9]+/); id=substr($2,RSTART,RLENGTH);
+        b[phase]=b[phase] (b[phase]?", ":"") id; n[phase]++ }
+      END { for (p=0;p<=phase;p++) if (n[p]>1) print "  phase " p ": PARALLEL BATCH [" b[p] "]";
+                                   else if (n[p]==1) print "  phase " p ": [" b[p] "] (lone [P] — no batch)" }
+    ' "$plan")"
     if [ -n "$overlaps" ]; then
-      echo "OVERLAP — these paths appear in more than one [P] task (parallel dispatch is UNSAFE; run them sequentially):"
-      echo "$overlaps"
+      echo "OVERLAP — these paths appear in more than one [P] task WITHIN the same phase (that phase's parallel dispatch is UNSAFE; run those tasks sequentially):"
+      printf '%s\n' "$overlaps" | sed 's/^/  phase /; s/\t/ : /'
+      [ -n "$schedule" ] && { echo "per-phase [P] schedule (phases without an overlap above are still parallel-safe):"; echo "$schedule"; }
       exit 2
     fi
-    echo "disjoint: all [P] task Files are pairwise distinct — parallel dispatch is safe."
+    if [ -n "$schedule" ]; then
+      echo "disjoint: every phase's [P] Files are pairwise distinct — per-phase parallel dispatch is safe. Schedule:"
+      echo "$schedule"
+    else
+      echo "disjoint: no [P] tasks found — nothing to parallelize (dispatch sequentially / inline)."
+    fi
     ;;
 
   reconcile)

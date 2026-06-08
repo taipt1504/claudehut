@@ -76,6 +76,25 @@ jq -e '(has("mcpServers")|not) and (has("userConfig")|not)' "$PJ" >/dev/null 2>&
 [ ! -f "$ROOT/.mcp.json" ] && ok "no shipped .mcp.json" || bad ".mcp.json should not be shipped"
 [ -f "$ROOT/templates/mcp-recommendations.md" ] && ok "MCP recommendation catalog present" || bad "mcp-recommendations.md missing"
 
+# C8 — Implement orchestrates PHASE BY PHASE (Issue 1 fix: no single-implementer collapse on multi-task plans)
+IMP="$ROOT/skills/implement/SKILL.md"
+grep -qi 'PHASE BY PHASE' "$IMP" \
+  && ok "implement: phase-by-phase orchestration is the default" \
+  || bad "implement: missing phase-by-phase orchestration default (Issue 1 regression risk)"
+grep -qi 'phase-batch boundaries' "$IMP" \
+  && ok "implement: native task list updated at phase boundaries (main-thread only)" \
+  || bad "implement: missing phase-boundary task-update rule"
+# planner must mark EVERY intra-phase-independent task [P], not just one (avoids serialized Implement)
+grep -qi 'EVERY task that has no dependency' "$ROOT/agents/claudehut-planner.md" \
+  && ok "planner: marks every intra-phase-independent task [P]" \
+  || bad "planner: missing 'mark every intra-phase-independent task [P]' rule (under-marking serializes Implement)"
+# plan template MUST use interleaved ### Phase headings (a trailing phase list collapses check-disjoint's
+# per-phase grouping → cross-phase false-positive → serialized Implement; verified in worktree-tests plan5)
+PT="$ROOT/skills/write-plan/references/plan-template.md"
+[ "$(grep -cE '^### Phase [0-9]' "$PT")" -ge 2 ] \
+  && ok "plan template: interleaved ### Phase headings (check-disjoint groups correctly)" \
+  || bad "plan template: not using interleaved ### Phase headings — collapses per-phase dispatch"
+
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -29,6 +29,45 @@ cat > "$R/plan2.md" <<'EOF'
 | T-002 [P] | b | src/a/Svc.java, src/b/X.java | t | c | v | — | FR-2 |
 EOF
 ( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan2.md >/dev/null 2>&1 ); [ $? -eq 2 ] && ok "overlapping [P] files refused (exit 2)" || bad "overlap refused"
+# phase-aware: same file in two DIFFERENT phases is SAFE (never concurrent) — a global check false-positives here
+cat > "$R/plan3.md" <<'EOF'
+## Phase 1 — domain
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-001 [P] | svc | src/a/Svc.java | t | c | v | — | FR-1 |
+| T-002 [P] | repo | src/a/Repo.java | t | c | v | — | FR-2 |
+## Phase 3 — cross-cutting
+| T-005 [P] | edit svc | src/a/Svc.java | t | c | v | T-001 | FR-5 |
+EOF
+( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan3.md >/dev/null 2>&1 ) && ok "cross-phase file reuse is SAFE (per-phase check, exit 0)" || bad "cross-phase reuse wrongly refused"
+# phase-aware: overlap WITHIN a phase is still caught
+cat > "$R/plan4.md" <<'EOF'
+## Phase 1 — domain
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-001 [P] | svc | src/a/Svc.java | t | c | v | — | FR-1 |
+| T-002 [P] | also svc | src/a/Svc.java, src/a/X.java | t | c | v | — | FR-2 |
+EOF
+( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan4.md >/dev/null 2>&1 ); [ $? -eq 2 ] && ok "within-phase overlap still refused (exit 2)" || bad "within-phase overlap not caught"
+# schedule output names the parallel batch the implement skill must dispatch
+( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan3.md 2>&1 | grep -q 'PARALLEL BATCH' ) && ok "check-disjoint prints the per-phase batch schedule" || bad "no schedule emitted"
+# EXACT plan-template layout: interleaved ### Phase N headings, one mini-table (with its own header row) per phase.
+# Repeated header/separator rows must NOT break phase detection; cross-phase file reuse stays safe.
+cat > "$R/plan5.md" <<'EOF'
+## 3. Task Breakdown
+### Phase 1 — domain / service
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-002 [P] | foo | src/a/FooService.java, src/test/a/FooServiceTest.java | x | c | v | T-001 | FR-2 |
+| T-003 [P] | bar | src/a/BarService.java, src/test/a/BarServiceTest.java | y | c | v | T-001 | FR-3 |
+### Phase 3 — cross-cutting
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-007 [P] | metrics on foo | src/a/FooService.java | z | c | v | T-002 | FR-7 |
+EOF
+out5="$( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan5.md 2>&1 )"; rc5=$?
+[ $rc5 -eq 0 ] && ok "template layout (interleaved ### Phase mini-tables): exit 0" || bad "template layout wrongly refused (rc=$rc5)"
+echo "$out5" | grep -q 'PARALLEL BATCH \[T-002, T-003\]' && ok "template layout: phase-1 [P] batch detected (T-002,T-003)" || bad "template layout: phase-1 batch not detected"
 
 echo "== sweep: scope guard + merged/unchanged only =="
 R="$(mkrepo)"

@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.3.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.3.2** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -72,7 +72,7 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 | **Brainstorm** | `brainstorm` | `claudehut-brainstormer` (opus, `xhigh` — fixed 6-step ideation pipeline: diverge ≥6 → cluster → score → premortem → recommend) | ≥2 structurally distinct options + the per-task *enforcement set* |
 | **Spec** | `write-spec` | main thread | a templated spec (`tasks/<id>/spec.md`), **user-approved** before the gate arms |
 | **Plan** | `write-plan` | `claudehut-planner` (opus) | a templated, test-first plan (`tasks/<id>/plan.md`), **user-approved**, mirrored to the native task list |
-| **Implement** | `implement` | `claudehut-implementer` (isolated worktree); disjoint `[P]` tasks → **parallel implementers** gated by `claudehut-worktree check-disjoint` | code written **test-first** (RED → GREEN → REFACTOR), honoring the rules/playbooks |
+| **Implement** | `implement` | main thread **walks the plan phase by phase** (sequential spine); within each phase, disjoint `[P]` tasks → **parallel implementers** (one per task, concurrent, gated by `claudehut-worktree check-disjoint`); the native task list is updated at each **phase boundary** | code written **test-first** (RED → GREEN → REFACTOR), honoring the rules/playbooks |
 | **Review** | `review` | **dynamically selected** auditors: `test-runner` + `reviewer` always; `security-auditor` (over-included), `perf-reviewer`, `db-reviewer` by actual impact | a verdict that audits exactly the enforcement set |
 | **Learn** | `capture-learnings` | `claudehut-learner` | append-only `learnings.jsonl` re-injected into future sessions |
 

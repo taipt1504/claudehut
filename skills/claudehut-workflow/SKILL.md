@@ -51,15 +51,15 @@ because it grew past the bound (>2 files or a sensitive path), the gate tells yo
 | 2. Brainstorm | `claudehut:brainstorm` | brainstormer (generic ideation) | full | ≥2 options + enforcement set |
 | 3. Spec | `claudehut:write-spec` | — (main writes from template); **approve spec** → `set-spec` | full | `spec.md` |
 | 4. Plan | `claudehut:write-plan` | planner drafts from template; **approve plan** → `set-plan` + task mirror | full | `plan.md` (T-xxx breakdown) |
-| 5. Implement | `claudehut:implement` | implementer if >2 files/migration; `[P]` tasks → parallel implementers in ONE message (gated by `claudehut-worktree check-disjoint`); inline otherwise | all | code + tests (test-first; `.claude/rules/` auto-load) |
+| 5. Implement | `claudehut:implement` | main thread walks the plan **phase by phase**; within each phase the `[P]`/independent tasks → parallel implementers in ONE message (`check-disjoint`, max 3), dependent tasks → one implementer each, inline if ≤2 files; native task list updated at each phase boundary | all | code + tests (test-first; `.claude/rules/` auto-load) |
 | 6. Review | `claudehut:review` | **dynamically selected** auditors in parallel (test-runner + reviewer always; specialists by impact) | all | `review.md`; loops until outstanding empty |
 | 7. Learn | `claudehut:capture-learnings` | learner | full + small | `learnings.jsonl` records + updated index |
 
 Announce each phase: state *"Using ClaudeHut <skill> (phase N)"* when you invoke it.
 
 **Parallel dispatch convention.** When a phase dispatches multiple subagents with no data dependency between
-them (Discover's explorer + reuse-scanner; Review's selected auditors; Implement's disjoint `[P]` group after
-`check-disjoint` passes), issue all those Agent tool calls **in one message** — independent calls in the same
+them (Discover's explorer + reuse-scanner; Review's selected auditors; Implement's disjoint `[P]` group
+within a phase after `check-disjoint` passes), issue all those Agent tool calls **in one message** — independent calls in the same
 message run concurrently; one call per message runs them serially. Dependent dispatches stay sequential.
 Dispatch plugin agents by their qualified type (`claudehut:claudehut-<name>`).
 

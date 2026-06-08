@@ -1,6 +1,6 @@
 {
   "name": "claudehut-marketplace",
-  "description": "ClaudeHut — a 6-phase agentic workflow plugin for Java/Spring Boot backend engineers.",
+  "description": "ClaudeHut — a 7-phase agentic workflow plugin for Java/Spring Boot backend engineers.",
   "owner": {
     "name": "ClaudeHut Authors"
   },
@@ -11,7 +11,7 @@
       "description": "7-phase agentic workflow for Java/Spring Boot backends. Enforces discover → brainstorm → spec → plan → implement → review → learn (over a pre-indexed codebase) with Iron-Law skills, tier-aware action gates, parallel implementers, and per-project memory.",
       "source": "./",
       "keywords": ["java", "spring-boot", "agentic-workflow", "tdd"],
-      "version": "0.3.1"
+      "version": "0.3.2"
     }
   ]
 }

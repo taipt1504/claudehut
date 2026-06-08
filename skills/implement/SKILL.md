@@ -3,7 +3,7 @@ name: implement
 description: Use in the Implement phase whenever writing or editing production Java code, or fixing a bug, in a Spring/Spring Boot project. Enforces test-first (red-green-refactor), executes the approved plan step by step, and honors the project's path-scoped tech-stack rules and the task's enforcement set. Preloaded into claudehut-implementer.
 ---
 
-# Implement (phase 4 of 6)
+# Implement (phase 5 of 7)
 
 Execute the approved plan **test-first**, producing code that satisfies the spec and passes every applicable
 rule. This skill is preloaded into `claudehut-implementer` (which runs in an isolated worktree) and is also
@@ -47,35 +47,66 @@ flowchart TB
     more -- no --> done([REQUIRED NEXT: claudehut:review])
 ```
 
-## Execution + native task mirror (main thread)
+## Execution — the main thread orchestrates the plan PHASE BY PHASE
 
-**Who executes (explicit rule — don't mix ad hoc). The default for a multi-task plan is to SPAWN, not to do
-it yourself on the main thread** — main-thread-does-everything is the serial bottleneck this rule exists to
-kill (Issue 3). Fast-lane tiers have no `plan.md`; work from the task description directly.
-- **≤ 2 files and no migration** (or a fast-lane trivial/small task) → implement inline on the main thread.
-- **Dependent T-xxx chain** (no `[P]` tasks) → dispatch **one** `claudehut:claudehut-implementer` (Agent
-  tool; isolated worktree) — not inline.
-- **`[P]`-marked tasks → PARALLEL implementers, gated by the deterministic safety check.** First run
-  `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — exit 0 (all `[P]` Files
-  pairwise disjoint) is the precondition; exit 2 (overlap) → **fall back to sequential** (parallel writers on
-  shared files silently clobber each other). Then dispatch one implementer per `[P]` task — **all Agent
-  calls in ONE message** (the native concurrency mechanism; **max 3** concurrent) — each dispatch prompt
-  carrying: its T-xxx row(s) **verbatim** (goal, files, test-first, minimal change, verify), the relevant
-  spec acceptance criteria, the enforcement set, and an **exclusive file-ownership list** ("create/edit ONLY
-  these paths"). Do NOT pass bare plan/spec paths instead of content — the worktree branches from
-  `origin/HEAD` and will not contain uncommitted main-tree artifacts.
+**The main thread is the orchestrator. The default for ANY multi-task plan is to WALK THE PLAN PHASE BY
+PHASE and fan out within each phase — NEVER hand the whole plan to one implementer.** A real plan is
+*phased and mixed* (a sequential setup phase, then a domain phase with several independent tasks, then an
+API phase…). Collapsing all of it onto a single implementer is the serial bottleneck this rule exists to
+kill (Issue 1): you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
+
+Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** from the task description and
+skip to *The cycle*. For a `full`-tier plan, run this loop on the main thread:
+
+```mermaid
+flowchart TB
+    start([plan.md approved + mirrored to the task list]) --> grp["Group the T-xxx rows into phases<br/>(plan's Phase headings; else by Depends-on level)"]
+    grp --> ph["Take the next phase — phases run in ORDER (the sequential spine)"]
+    ph --> split["Within the phase, split rows into the [P]/independent SET and the dependent SET"]
+    split --> mark["TaskUpdate every task in THIS phase → in_progress (boundary update, before dispatch)"]
+    mark --> par{"[P] set non-empty?"}
+    par -- yes --> disj["claudehut-worktree check-disjoint plan.md → exit 0 required"]
+    disj --> fan["Dispatch ONE implementer per [P] task —<br/>ALL Agent calls in ONE message (concurrent, MAX 3 per message)"]
+    par -- no --> seqd
+    fan --> seqd["Dependent tasks in this phase: one implementer each<br/>(or inline if ≤2 files, no migration)"]
+    seqd --> rec["Reconcile each returned branch SERIALLY (worktree reconcile --test-cmd)"]
+    rec --> upd["TaskUpdate each task → completed (verify green) / blocked (boundary update, after reconcile)"]
+    upd --> more{"more phases?"}
+    more -- yes --> ph
+    more -- no --> sweep["worktree sweep — remove merged worktrees"] --> done([REQUIRED NEXT: claudehut:review])
+```
+
+**Who executes a task within a phase** (decide per task, not per plan):
+- **≤ 2 files and no migration** → implement **inline** on the main thread (cheap; no worktree).
+- **otherwise** → dispatch a `claudehut:claudehut-implementer` (Agent tool; isolated worktree).
+- **The phase's `[P]`/independent tasks → a PARALLEL batch.** First run
+  `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — it is **phase-aware** and
+  prints the **per-phase batch schedule** (e.g. `phase 1: PARALLEL BATCH [T-002, T-003]`). **Follow that
+  schedule — it is the authoritative dispatch plan; don't re-derive batches by eye.** Exit 0 = every phase's
+  `[P]` Files are pairwise disjoint. Exit 2 = some phase has a *within-phase* file overlap — run **that
+  phase's** listed tasks sequentially; the other phases in the schedule are still parallel-safe. (A file
+  reused across *different* phases is fine — those tasks never run concurrently.) For each phase's PARALLEL
+  BATCH, dispatch **one implementer per task — all Agent calls in ONE message** (the native concurrency
+  mechanism; **max 3** concurrent — a larger batch fans out in successive messages of ≤3). Each dispatch prompt carries: its T-xxx row(s) **verbatim**
+  (goal, files, test-first, minimal change, verify), the relevant spec acceptance criteria, the enforcement
+  set, and an **exclusive file-ownership list** ("create/edit ONLY these paths"). Do NOT pass bare plan/spec
+  paths instead of content — the worktree branches from `origin/HEAD` and will not contain uncommitted
+  main-tree artifacts.
 - **Reconcile serialized — never batch-merge.** As implementers return `DONE (branch, commit)`, merge **one
   at a time**: `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" reconcile <branch> --test-cmd "<verify command
   from PROJECT.md>"`. A conflict aborts cleanly (fix or re-plan that task); red tests roll the merge back.
-  After the last merge: `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" sweep` — removes only
-  merged/unchanged managed worktrees, leaving **zero orphans**.
+  Advance to the next phase only after the current phase's batch reconciles. After the last phase:
+  `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" sweep` — removes only merged/unchanged managed worktrees,
+  leaving **zero orphans**.
 
-One mode per task — pick it when entering the phase and say which.
-
-**Native mirror (main thread only):** the plan's T-xxx table was mirrored into Claude Code's task list at
-plan approval. Keep it live: `TaskUpdate` the matching task to `in_progress` **before** starting a step
-(or before dispatching the implementer for a batch) and to `completed` only when its **verify command is
-green** (from your run, or the implementer's per-step report). `plan.md` stays the durable source of truth —
+**Native task mirror — boundary updates (main thread ONLY).** The plan's T-xxx table was mirrored into
+Claude Code's task list at plan approval. **Subagents have no task tools — they cannot update the list; only
+the main thread can, and only when it is not blocked.** So keep the list live at **phase-batch boundaries**:
+`TaskUpdate` every task in a phase → `in_progress` **before** dispatching that phase's batch, and → `completed`
+(its verify command green — from your run or the implementer's returned per-task status block) or `blocked`
+**after** the batch reconciles. The list therefore advances at each phase boundary; you will not see a
+mid-flight tick *inside* a single parallel batch (a blocking dispatch can't report partials — that is the
+accepted trade for not paying background-dispatch overhead). `plan.md` stays the durable source of truth —
 on a resumed session, re-mirror still-pending T-xxx rows from `plan.md` with `TaskCreate`.
 
 ## The cycle

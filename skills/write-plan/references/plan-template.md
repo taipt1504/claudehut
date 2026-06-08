@@ -21,19 +21,36 @@
 Java/Spring versions, build tool, test framework, exact build/test commands (verbatim from PROJECT.md).
 
 ## 3. Task Breakdown
-One row per task. Every behavior task names its failing test FIRST (Iron Law). [P] = no intra-phase
-dependency, safe to parallelize.
+One row per task. Every behavior task names its failing test FIRST (Iron Law). `[P]` = no dependency on
+another task in the SAME phase and disjoint Files — safe to run as a parallel implementer. **Mark EVERY
+intra-phase-independent task `[P]`, not just one** — the main thread fans out exactly the `[P]` tasks per
+phase, so under-marking serializes Implement.
 
+**Layout — group rows under interleaved `### Phase N` headings, one mini-table per phase. Do NOT use one
+combined table with a trailing phase list.** `check-disjoint` and the main thread read each task's phase from
+the `### Phase N` heading ABOVE it; a trailing list collapses every task into a single phase and defeats
+per-phase parallel dispatch. Phases run in order (the sequential spine); the main thread fans out the `[P]`
+tasks **within** each phase.
+
+### Phase 0 — setup & migrations  _(sequential)_
 | ID | Goal (imperative) | Files | Test first | Minimal change | Verify | Depends on | Req |
 |----|-------------------|-------|------------|----------------|--------|------------|-----|
-| T-001 | <one sentence> | src/…, test/… | <TestClass#method> | <what makes it pass — nothing else> | `./gradlew test --tests <TestClass>` | — | FR-001 |
-| T-002 [P] | … | … | … | … | … | T-001 | FR-002 |
+| T-001 | Flyway migration … | db/migration/V2__add_x.sql | — _(migration)_ | forward-only DDL | `./gradlew flywayValidate` | — | FR-001 |
 
-Group rows by phase when the task is big enough to need it:
-- **Phase 0 — setup & migrations** (sequential): Flyway scripts, dependencies, scaffolding.
-- **Phase 1 — domain/service** ([P] within phase): entities, repositories, services — unit-tested.
-- **Phase 2 — API/controller** (after phase 1): controllers, DTOs, error mapping — integration-tested.
-- **Phase 3 — cross-cutting** (after phase 2): metrics/logging, caching, security constraints.
+### Phase 1 — domain / service  _([P] within phase — mark EVERY independent task)_
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-002 [P] | Foo service | src/…/FooService.java, src/test/…/FooServiceTest.java | FooServiceTest#x | minimal pass | `./gradlew test --tests FooServiceTest` | T-001 | FR-002 |
+| T-003 [P] | Bar service | src/…/BarService.java, src/test/…/BarServiceTest.java | BarServiceTest#y | minimal pass | `./gradlew test --tests BarServiceTest` | T-001 | FR-003 |
+
+### Phase 2 — API / controller  _(after phase 1)_
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-004 | Foo endpoint | src/…/FooController.java | FooControllerIT#z | minimal pass | `./gradlew test --tests FooControllerIT` | T-002, T-003 | FR-004 |
+
+### Phase 3 — cross-cutting  _(after phase 2)_
+metrics/logging, caching, security constraints — may edit files created earlier. That is safe: a file reused
+across *different* phases never runs concurrently, so it is not a parallel overlap.
 
 ## 4. Execution Order
 Dependency summary (what blocks what) + which [P] tasks can run concurrently.

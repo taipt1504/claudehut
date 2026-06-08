@@ -22,7 +22,7 @@ the bug was orchestration duties assigned to contexts that can't perform them.
 | **Brainstorm** | main | brainstormer (Agent tool); consumes Discover output | AskUserQuestion: choose approach | set-enforcement | — |
 | Spec | main (writes spec itself) | — | AskUserQuestion: **approve spec** | set-spec **after approval** | — |
 | Plan | main | claudehut-planner drafts plan (Agent tool) | AskUserQuestion: **approve plan** | set-plan **after approval**, set-phase implement | TaskCreate per plan task + deps |
-| Implement | main | claudehut-implementer (worktree) for multi-file; inline if ≤2 files | — | — | TaskUpdate in_progress/completed per step |
+| Implement | main | walks plan **phase by phase**; per-phase `[P]` fan-out (one implementer each, concurrent, worktree) + dependent tasks one each; inline if ≤2 files | — | — | TaskUpdate in_progress/completed at each **phase boundary** |
 | Review | main | **selected** auditors in parallel (Agent tool); test-runner + reviewer always; security/perf/db by enforcement-set + diff | — | set-outstanding, set-review | — |
 | Learn | main | claudehut-learner (Agent tool) | — | set-phase learn | — |
 
@@ -40,8 +40,11 @@ view in Claude Code's task panel, NOT the durable record. The durable record is 
 (T-001…). Rules:
 - Plan approval → main thread `TaskCreate` one native task per plan task (`subject: "T-001: <goal>"`), wires
   `addBlockedBy` from the Depends-on column.
-- Implement → main thread marks `in_progress` before a step starts and `completed` when its verify command is
-  green (from the implementer's per-step report). The implementer itself works from `plan.md`.
+- Implement → main thread marks every task in a phase `in_progress` **before** dispatching that phase's batch
+  and `completed`/`blocked` **after** the batch reconciles (verify green — from its run or the implementer's
+  returned per-task status block). Updates land at **phase boundaries**, not mid-batch: subagents have no task
+  tools, and a blocking single-message dispatch cannot report partials (the accepted trade for not paying
+  background-dispatch overhead). The implementer itself works from `plan.md`.
 - A resumed session re-mirrors pending steps from `plan.md` — never the other way around.
 
 ## 3. Spec + plan templates (consistency standard)
@@ -132,21 +135,33 @@ Driven by measured friction: (a) the `origin/HEAD` isolation boundary made conte
 | No auto-merge — parallel branches exist, repo diverges | Native worktrees give isolation; they do not merge back. After a parallel fan-out the main tree still sees zero of the parallel agents' work | Native behavior: `git merge` must be called explicitly per branch |
 | Blocking `SubagentStop` without the `stop_hook_active` cap = infinite hold | `verify-subagent.sh` blocked a subagent ("continue working") when an artifact was mispathed; without the cap the subagent loops forever, presenting as a hang — the **measured hang vector** | Fixed in `scripts/verify-subagent.sh`: exits 0 (fail-open) when `stop_hook_active = true`, matching the same cap `gate-done.sh` applies |
 
-### Dispatch tiers (safe / guarded / gated)
+### Phase-walk orchestration (Issue 1 fix, v0.3.2)
 
-The `implement` skill picks exactly one tier per task and declares it upfront:
+**The main thread walks the plan PHASE BY PHASE — it never hands the whole plan to one implementer.** Real
+plans are *phased and mixed* (a sequential setup phase, a domain phase with several independent tasks, an API
+phase…). The earlier model was a **binary** decision tree (all-`[P]` → parallel, else → one implementer for
+the whole dependent chain); facing a realistic mixed plan it had no orchestration path and collapsed to a
+single opaque implementer — measured in real party-ms usage (12-task / 8-phase / 2-`[P]` plan dispatched as
+one agent; frozen task list). The fix replaces it with a per-phase loop: phases run in order (the sequential
+spine), and **within each phase** the execution mode is chosen **per task**:
 
-| Tier | When | Worktree | Merge needed |
+| Within-phase mode | When | Worktree | Merge needed |
 |------|------|----------|--------------|
 | **Inline** | ≤ 2 files, no migration | no | no |
-| **Single implementer** | dependent T-xxx chain (no `[P]` tasks) | yes | yes (one reconcile call) |
-| **`[P]` parallel fan-out** | `[P]`-marked tasks, gated by `check-disjoint` | yes, one per `[P]` task | yes, serialized (one reconcile per branch) |
+| **Single implementer** | a dependent task in this phase | yes | yes (one reconcile call) |
+| **`[P]` parallel batch** | the phase's `[P]`/independent tasks, gated by `check-disjoint` | yes, one per `[P]` task | yes, serialized (one reconcile per branch) |
 
-**The safety gate is deterministic, not LLM judgment.** The `[P]` markers in the plan are a SOFT instruction; the actual safety boundary is `bin/claudehut-worktree check-disjoint <plan.md>` — it exits 0 only when every `[P]` task's Files column is pairwise disjoint. If it exits 2 (overlap detected), parallel dispatch is unsafe and the skill falls back to sequential. Superpowers forbids naive parallel implementation; this check is the enforcement.
+**The planner drives the parallelism**: it groups every multi-task plan into phases and marks `[P]` on
+**every** intra-phase-independent task (not just one — under-marking serializes Implement). The main thread
+then fans out exactly the `[P]` set per phase.
+
+**The safety gate is deterministic, not LLM judgment.** The `[P]` markers in the plan are a SOFT instruction; the actual safety boundary is `bin/claudehut-worktree check-disjoint <plan.md>`, which is **phase-aware** (v0.3.2): it checks file-disjointness **within each phase** (the unit the main thread fans out) and prints the **per-phase batch schedule** the skill follows. A file reused across *different* phases is safe (those tasks never run concurrently) — a global check false-positived here and serialized legitimate parallelism, reproducing Issue 1 through the back door. Exit 0 = every phase's `[P]` Files are pairwise disjoint; exit 2 = a *within-phase* overlap (run that phase's tasks sequentially; other phases still parallelize). Superpowers forbids naive parallel implementation; this check is the enforcement.
 
 **Single-message dispatch (soft, best-effort).** All `[P]` Agent tool calls are issued in **one message** — the native concurrency trigger (multiple tool_use blocks in a single response run concurrently; one call per message runs serially). This is a **soft/best-effort** speedup instruction: correctness never depends on concurrency being achieved. Max 3 concurrent implementers per dispatch.
 
 **Content-in-prompt rule (hard).** Because the worktree branches from `origin/HEAD`, the dispatch prompt must carry plan rows **verbatim** (goal, files, test-first, minimal change, verify) plus acceptance criteria and an exclusive file-ownership list. Never pass a path to `tasks/…/plan.md` — that file does not exist inside the worktree.
+
+**Live verification of the Issue-1 fix (v0.3.2, `evals/parallel-dispatch-probe.sh`, demonstrated-once on opus).** The dispatch decision is made by the **main thread**, which in real sessions is Opus 4.8 — so the probe runs `--model opus` (implementers stay sonnet via frontmatter), pre-gated to start *at* Implement, with a NEUTRAL prompt (never says "parallel"/"one message"; the skill must decide). Detector is msg-id-**grouped** (per-event counting undercounts — a prior artifact). Result on a substantial 3-task / 2-phase plan: `fanout_max_per_msg=2`, `implementers_total=2`, `check_disjoint_used=1`, `TaskCreate=3 / TaskUpdate=7` — the main thread ran the phase-aware `check-disjoint`, dispatched **both Phase-1 `[P]` implementers in one message** (worktree isolation), serialized the reconcile, marked tasks in_progress→completed at the phase boundary, then ran Phase-2 inline and swept to zero orphans. Caveat (honest): n=1, soft by the project's standard; and a `--model sonnet` + trivial-file-creation run **inlined** (legitimate for ≤2-file work, but it conflated "parallel" with batching its own Writes) — the fan-out is demonstrated for opus + dispatch-worthy work, not guaranteed for every model/size. The deterministic rails (phase-aware `check-disjoint` + schedule, template/planner layout) are the guarantees; the fan-out itself remains a soft behavior.
 
 ### `bin/claudehut-worktree` — four subcommands
 
@@ -155,7 +170,7 @@ Scope-guarded to `.claude/worktrees/` (the managed root where `isolation: worktr
 | Subcommand | Purpose | Exit codes |
 |-----------|---------|------------|
 | `status` | Lists managed worktrees: branch, dirty?, merged? | 0 |
-| `check-disjoint <plan.md>` | Reads `[P]` rows' Files cells; exits 0 if pairwise disjoint, 2 + overlapping paths if not | 0 = safe, 2 = unsafe |
+| `check-disjoint <plan.md>` | **Phase-aware**: groups `[P]` rows by phase heading, checks Files disjointness *within each phase*, prints the per-phase batch schedule; exit 2 only on a within-phase overlap | 0 = safe, 2 = unsafe |
 | `reconcile <branch> [--test-cmd CMD]` | Serialized `--no-ff` merge of ONE agent branch; refuses dirty main tree; on conflict aborts cleanly; if CMD given, runs it and on red tests rolls the merge back (ORIG_HEAD) | 0 = merged, 2 = conflict-aborted, 3 = red-test-rolled-back |
 | `sweep` | Removes ONLY worktrees that are clean AND merged/unchanged (+ deletes their branch), then prunes stale metadata | 0 |
 
