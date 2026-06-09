@@ -89,15 +89,23 @@ flowchart TB
   BATCH, dispatch **one implementer per task — all Agent calls in ONE message** (the native concurrency
   mechanism; **max 3** concurrent — a larger batch fans out in successive messages of ≤3). Each dispatch prompt carries: its T-xxx row(s) **verbatim**
   (goal, files, test-first, minimal change, verify), the relevant spec acceptance criteria, the enforcement
-  set, and an **exclusive file-ownership list** ("create/edit ONLY these paths"). Do NOT pass bare plan/spec
-  paths instead of content — the worktree branches from `origin/HEAD` and will not contain uncommitted
-  main-tree artifacts.
+  set, and an **exclusive file-ownership list** ("create/edit ONLY these paths"). The worktree **forks from
+  the current branch HEAD** (`worktree.baseRef=head`, set by `claudehut-init`), so **committed prior-phase
+  code IS present** — a later phase's implementer can and should build on earlier phases' work. Only
+  **uncommitted** main-tree files are absent (the in-flight `plan.md`/`spec.md` under `.claude/`), so still
+  pass the T-xxx rows + acceptance criteria as **content, not a path**.
 - **Reconcile serialized — never batch-merge.** As implementers return `DONE (branch, commit)`, merge **one
   at a time**: `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" reconcile <branch> --test-cmd "<verify command
   from PROJECT.md>"`. A conflict aborts cleanly (fix or re-plan that task); red tests roll the merge back.
   Advance to the next phase only after the current phase's batch reconciles. After the last phase:
   `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" sweep` — removes only merged/unchanged managed worktrees,
   leaving **zero orphans**.
+- **Commit-before-dependent-dispatch (HARD — this is what makes `baseRef=head` work).** A phase's worktrees
+  fork from the **current HEAD**, so every prior phase's work must be **committed on the feature branch
+  before the next phase dispatches**. Reconcile already commits the worktree branches; **an inline phase you
+  do NOT — so after implementing a phase inline (a sequential spine, a ≤2-file task), `git commit` it before
+  dispatching the next phase's batch.** Skip this and the next phase's implementers fork from a HEAD missing
+  the inline work → they can't build on it → you're forced back to inline (the exact failure this fixes).
 
 **Native task mirror — boundary updates (main thread ONLY).** The plan's T-xxx table was mirrored into
 Claude Code's task list at plan approval. **Subagents have no task tools — they cannot update the list; only

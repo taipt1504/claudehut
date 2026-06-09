@@ -70,4 +70,24 @@ fp=0; for f in MEMORY.md PROJECT.md LANGUAGE.md architecture.md reuse-index.json
 [ -d "$W/.claudehut" ] && bad "fallback created wrong-dir .claudehut/" || ok "fallback: no wrong-dir .claudehut/"
 rm -rf "$W"
 
+echo "== worktree.baseRef=head settings write (v0.3.3 — dependent-phase fan-out) =="
+# create case: no settings.json -> init creates it with baseRef=head
+W="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+[ "$(jq -r '.worktree.baseRef // empty' "$W/.claude/settings.json" 2>/dev/null)" = "head" ] \
+  && ok "init created .claude/settings.json with worktree.baseRef=head" || bad "settings.json baseRef not head"
+# merge case: pre-existing settings keys must be PRESERVED, baseRef added
+SRC="$(mktemp -d)/repo"; mkdir -p "$SRC/.claude"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$SRC/" 2>/dev/null
+mkdir -p "$SRC/.claude"; printf '{"env":{"FOO":"bar"},"enabledPlugins":{"x":true}}' > "$SRC/.claude/settings.json"
+W2="$(run_init "$SRC")"
+b=$(jq -r '.worktree.baseRef // empty' "$W2/.claude/settings.json" 2>/dev/null)
+foo=$(jq -r '.env.FOO // empty' "$W2/.claude/settings.json" 2>/dev/null)
+[ "$b" = "head" ] && [ "$foo" = "bar" ] \
+  && ok "init merges baseRef=head WITHOUT clobbering existing settings keys (env.FOO preserved)" \
+  || bad "settings merge wrong (baseRef=$b env.FOO=$foo)"
+# idempotent: second run keeps exactly one baseRef, still head
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W2" >/dev/null 2>&1
+[ "$(jq -r '.worktree.baseRef' "$W2/.claude/settings.json" 2>/dev/null)" = "head" ] \
+  && ok "settings baseRef idempotent on re-run" || bad "settings baseRef changed on re-run"
+rm -rf "$W" "$W2"
+
 echo; echo "INIT: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

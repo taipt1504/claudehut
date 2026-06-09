@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.3.2** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.3.3** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -124,7 +124,9 @@ Code's `disableAllHooks` setting.
 - **Agents** (`agents/`) — 11 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
   `claudehut-reuse-scanner`, `claudehut-planner`, `claudehut-implementer`, `claudehut-test-runner`,
   `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`,
-  `claudehut-learner`. The implementer runs in an isolated worktree; the reviewers are dispatched by `review`.
+  `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
+  via `worktree.baseRef=head`, which `claudehut-init` sets — so a later phase's implementer sees the
+  committed work of earlier phases); the reviewers are dispatched by `review`.
 - **Skills** (`skills/`) — 9 total: orchestrator (`claudehut-workflow`, with the Phase-0 complexity triage) +
   indexer (`claudehut-init`) + one per phase (`discover`, `brainstorm`, `write-spec`, `write-plan`,
   `implement`, `review`, `capture-learnings`). The `implement` skill carries the TDD Iron Law and the

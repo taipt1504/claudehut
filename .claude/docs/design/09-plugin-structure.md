@@ -237,7 +237,7 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `agents/claudehut-brainstormer.md` | Agent | Generates ≥2 generic approaches, consumes Discover output (Brainstorm) | [03](./03-agents.md#claudehut-brainstormer) |
 | `agents/claudehut-reuse-scanner.md` | Agent | Enforces reuse-first, produces reuse-scan artifact (**Discover**) | [03](./03-agents.md#claudehut-reuse-scanner) |
 | `agents/claudehut-planner.md` | Agent | Writes executable plan file (Plan) | [03](./03-agents.md#claudehut-planner) |
-| `agents/claudehut-implementer.md` | Agent | Executes plan test-first in worktree (Implement); branches from `origin/HEAD`; commit-before-DONE contract; returns `DONE (branch, commit)`; BLOCKED-immediately rule | [03](./03-agents.md#claudehut-implementer) |
+| `agents/claudehut-implementer.md` | Agent | Executes plan test-first in worktree (Implement); forks from current HEAD (`baseRef=head`, sees committed prior-phase work); commit-before-DONE contract; returns `DONE (branch, commit)`; BLOCKED-immediately rule | [03](./03-agents.md#claudehut-implementer) |
 | `agents/claudehut-test-runner.md` | Agent | Runs suite, diagnoses failures (Review) | [03](./03-agents.md#claudehut-test-runner) |
 | `agents/claudehut-reviewer.md` | Agent | General code review (Review) | [03](./03-agents.md#claudehut-reviewer) |
 | `agents/claudehut-security-auditor.md` | Agent | OWASP/JWT/authn security review (Review) | [03](./03-agents.md#claudehut-security-auditor) |

@@ -17,9 +17,11 @@ dispatched by the main thread for multi-file changes; for trivial single-file ch
 implement directly instead. The `implement` skill is preloaded into your context (it carries the TDD Iron
 Law and the tech-stack reference playbooks).
 
-**Your worktree branches from `origin/HEAD` — uncommitted main-tree files (plan, spec, state) do NOT exist
-here.** Work from the T-xxx rows + acceptance criteria your dispatch prompt carries verbatim; never go
-looking for `tasks/…/plan.md` in your tree. When dispatched **in parallel** with sibling implementers, your
+**Your worktree forks from the current branch HEAD** (`worktree.baseRef=head`). **Committed prior-phase code
+IS present** — earlier phases' work is already committed on the feature branch, so build on it (read those
+classes, extend them). Only **uncommitted** main-tree files are absent (the in-flight `plan.md`/`spec.md`/
+state under `.claude/`), so work from the T-xxx rows + acceptance criteria your dispatch prompt carries
+verbatim; never go looking for `tasks/…/plan.md` in your tree. When dispatched **in parallel** with sibling implementers, your
 prompt includes an **exclusive file-ownership list** — create/edit ONLY those paths; touching anything else
 risks silently clobbering a sibling's work. Run Gradle with `--no-daemon` (parallel daemons contend on
 shared caches). If you get stuck or a precondition is missing, **return `BLOCKED: <reason>` immediately —

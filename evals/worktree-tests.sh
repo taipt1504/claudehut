@@ -68,6 +68,28 @@ EOF
 out5="$( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan5.md 2>&1 )"; rc5=$?
 [ $rc5 -eq 0 ] && ok "template layout (interleaved ### Phase mini-tables): exit 0" || bad "template layout wrongly refused (rc=$rc5)"
 echo "$out5" | grep -q 'PARALLEL BATCH \[T-002, T-003\]' && ok "template layout: phase-1 [P] batch detected (T-002,T-003)" || bad "template layout: phase-1 batch not detected"
+# LETTER-labeled phases (Phase A/B, not digits): [P] rows must still be detected (regression — an
+# uninitialized `phase` key made these report "no [P] found" -> forced inline; fixed by BEGIN{phase=0} + alnum label).
+cat > "$R/plan6.md" <<'EOF'
+### Phase A — foundation (done)
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-001 | base | src/a/Base.java | t | c | v | — | F1 |
+### Phase B — handlers (parallel)
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-002 [P] | h1 | src/a/H1.java | t | c | v | T-001 | F2 |
+| T-003 [P] | h2 | src/a/H2.java | t | c | v | T-001 | F3 |
+EOF
+( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan6.md 2>&1 | grep -q 'PARALLEL BATCH \[T-002, T-003\]' ) && ok "letter-labeled phases: [P] batch still detected (no phantom inline)" || bad "letter-labeled phases: [P] batch MISSED (uninitialized-phase regression)"
+# NO phase headings at all: two [P] rows must still form a batch (all in phase 0)
+cat > "$R/plan7.md" <<'EOF'
+| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|
+| T-001 [P] | a | src/a/A.java | t | c | v | — | F1 |
+| T-002 [P] | b | src/b/B.java | t | c | v | — | F2 |
+EOF
+( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" check-disjoint plan7.md 2>&1 | grep -q 'PARALLEL BATCH \[T-001, T-002\]' ) && ok "no phase headings: [P] batch detected in phase 0" || bad "no-heading [P] batch missed"
 
 echo "== sweep: scope guard + merged/unchanged only =="
 R="$(mkrepo)"

@@ -132,6 +132,33 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
 done
 echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
 
+# ---------------- worktree base: fork agent worktrees from current HEAD (idempotent) ----------------
+# ClaudeHut's parallel implementers run in `isolation: worktree`. The native default (`fresh`) branches
+# them from origin/HEAD, so a later phase depending on earlier IN-SESSION commits (committed to the feature
+# branch but not yet pushed) can't see them and gets forced inline — killing the fan-out. `baseRef: head`
+# forks worktrees from the current branch HEAD, so committed prior-phase work IS present. Project-wide
+# worktree setting (affects all worktree use in this repo); committed with the rest of .claude/.
+SETTINGS=".claude/settings.json"
+if command -v jq >/dev/null 2>&1; then
+  if [ -f "$SETTINGS" ]; then
+    if [ "$(jq -r '.worktree.baseRef // empty' "$SETTINGS" 2>/dev/null)" = "head" ]; then
+      echo "  worktree.baseRef=head already set in $SETTINGS"
+    else
+      tmp="$(mktemp)"
+      if jq '.worktree = (.worktree // {}) | .worktree.baseRef = "head"' "$SETTINGS" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$SETTINGS"; echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+      else
+        rm -f "$tmp"; echo "  WARN: $SETTINGS is not valid JSON — add {\"worktree\":{\"baseRef\":\"head\"}} manually" >&2
+      fi
+    fi
+  else
+    printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
+    echo "  created $SETTINGS (worktree.baseRef=head — agent worktrees fork from current HEAD)"
+  fi
+else
+  echo "  NOTE: jq missing — set worktree.baseRef=\"head\" in $SETTINGS manually (parallel implementers need it)" >&2
+fi
+
 # ---------------- wire the always-load @import slice (idempotent) ----------------
 CM="CLAUDE.md"; MARK="ClaudeHut: project-adaptive memory"
 if ! grep -q "$MARK" "$CM" 2>/dev/null; then

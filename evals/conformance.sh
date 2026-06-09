@@ -94,6 +94,17 @@ PT="$ROOT/skills/write-plan/references/plan-template.md"
 [ "$(grep -cE '^### Phase [0-9]' "$PT")" -ge 2 ] \
   && ok "plan template: interleaved ### Phase headings (check-disjoint groups correctly)" \
   || bad "plan template: not using interleaved ### Phase headings — collapses per-phase dispatch"
+# C9 — worktree base: init sets baseRef=head; skill/agent say worktrees carry committed prior-phase work
+# (v0.3.3: default origin/HEAD base forced dependent later phases inline). No stale 'branches from origin/HEAD'.
+grep -q 'worktree.baseRef' "$ROOT/bin/claudehut-init" && grep -q '"head"' "$ROOT/bin/claudehut-init" \
+  && ok "init writes worktree.baseRef=head (worktrees fork from current HEAD)" \
+  || bad "init does not set worktree.baseRef=head — dependent phases will be forced inline"
+grep -qi 'baseRef=head' "$IMP" && grep -qi 'commit-before-dependent-dispatch' "$IMP" \
+  && ok "implement: baseRef=head + commit-before-dependent-dispatch documented" \
+  || bad "implement: missing baseRef=head / commit-before-dependent-dispatch (v0.3.3 fan-out fix)"
+if grep -rqn 'branches from `origin/HEAD`' "$ROOT/skills" "$ROOT/agents" 2>/dev/null; then
+  bad "stale 'branches from origin/HEAD' in skills/agents — model will preemptively inline dependent phases"
+else ok "no stale 'branches from origin/HEAD' in skills/agents"; fi
 
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
