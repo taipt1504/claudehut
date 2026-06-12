@@ -54,6 +54,8 @@ Tables/columns touched; Flyway/Liquibase migration id; whether a down-path exist
 - **Outcome: <chosen option> — because <how it best satisfies the drivers>.**
 - Confirmation: the test/review that will validate the decision.
 - Consequences: (+) …, (−) ….
+- **Budget: ≤80 words. One line per considered option.** Do NOT echo Brainstorm's scoring tables or
+  /500 numbers — the spec records the decision + why, not the deliberation transcript.
 
 ## 10. Out of Scope
 Explicit neighbouring concerns excluded (UI, auth flow, other services…).
@@ -62,7 +64,13 @@ Explicit neighbouring concerns excluded (UI, auth flow, other services…).
 Numbered; each with an owner and a [NEEDS CLARIFICATION] marker if blocking.
 
 ## 12. Enforcement Manifest (ClaudeHut)
-The skills + rules from Brainstorm's enforcement set that Review will audit this task against:
+The skills + rules from Brainstorm's enforcement set that Review will audit this task against.
+**>5 rules → use the two-column table; NEVER a prose list** (29 rules in one paragraph is unscannable —
+the reviewer must be able to tick each row):
 - skills: claudehut:implement, …
-- rules: framework/jpa.md, security/owasp-top10.md, …
+
+| Rule file | Category |
+|-----------|----------|
+| framework/jpa.md | orm |
+| security/owasp-top10.md | security |
 ```

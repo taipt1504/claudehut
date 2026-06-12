@@ -83,6 +83,14 @@ spec/plan therefore cannot arm the write gate; the deny message routes the model
 
 - `NNNN` = zero-padded next integer over `tasks/`; slug = kebab task name. Created by Discover (first
   artifact). Every later phase writes into the same dir — one place per task, trivially archivable.
+- **Artifact length budgets (Issue 3 — docs are dispatch tables a reviewer scans in ≤5 min, not transcripts):**
+
+  | Artifact | Budget | Format contract (template) | Measured before |
+  |---|---|---|---|
+  | `reuse-scan.md` | ≤400 words | Summary table first; Evidence only for questionable rows (`skills/discover/references/reuse-scan-template.md`) | 1,178 words, ~60% repetition |
+  | `spec.md` | ≤800 words | Right-sized sections; §9 ≤80 words (no Brainstorm score echo); §12 rules as a table (`skills/write-spec/references/spec-template.md`) | 1,430 words |
+  | `plan.md` | ≤500 words | `Test first` = `Class#method` ≤60 chars; `Minimal change` ≤30 words; OQ resolved once in §1 (`skills/write-plan/references/plan-template.md`) | 1,477 words, 609-char cells |
+  | `review.md` | ≤450 words | Severity-tagged findings table (already the reference quality — unchanged) | 420 words ✓ |
 - Gates unchanged: `canon()` / `exists_canon()` already require only "under `.claude/claudehut/`" — the
   layout is convention, the gate is the enforcement. Old flat paths remain gate-valid (no breakage on
   existing projects); new tasks use `tasks/`.

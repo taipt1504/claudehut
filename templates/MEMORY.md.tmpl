@@ -10,15 +10,17 @@ on-demand files only when needed. Keep it concise (≤ ~150 lines).
 
 ## On demand (read when relevant — NOT @import-ed)
 - `architecture.md` — package/layer map, dependency direction. Read when exploring structure.
-- `reuse-index.json` — catalog of reusable components (services, utils, configs). Read during the brainstorm reuse-scan.
+- `reuse-index.json` — catalog of reusable components (services, utils, configs). Read during Discover's reuse-scan.
 - `learnings.jsonl` — cross-session learnings. Top-N injected at SessionStart; full file read on demand.
+  Entries marked `promoted: true` have graduated into the matching `.claude/rules/` file ("Learned
+  pitfalls" section) — they auto-load at edit-time and are no longer injected; the JSONL line is the audit trail.
 
 ## Path-scoped rules (auto-load when touching matching files)
 - `.claude/rules/*.md` — controller, service, persistence, reactive, messaging, testing, security,
   plus always-on `project-structure.md` and `vocabulary.md`.
 
 ## Dispatch convention (always applies)
-When dispatching multiple independent subagents (Review's auditors; Brainstorm's explorer + reuse-scanner;
+When dispatching multiple independent subagents (Review's auditors; Discover's explorer + reuse-scanner;
 disjoint `[P]` implement tasks), issue all the Agent tool calls in one message — independent calls in the
 same message run concurrently. Use qualified agent types (`claudehut:claudehut-<name>`).
 

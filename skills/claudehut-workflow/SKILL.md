@@ -37,8 +37,11 @@ because it grew past the bound (>2 files or a sensitive path), the gate tells yo
 2. **1% rule.** *If you think there is even a 1% chance a skill or rule might apply to what you are doing, you ABSOLUTELY MUST invoke it.* This is how the **enforcement set** is built in Brainstorm (and it drives which reviewers Review spawns). This is not negotiable. You cannot rationalize your way out of it.
 3. **Reuse-first.** Never write new code before the reuse-scan step in `claudehut:discover` (hook-gated; required in every tier).
 4. **Test-first.** Never write production code before a failing test — `claudehut:implement` (Iron Law).
+   **The write gate enforces the skill itself (skill rail, every tier):** production writes stay denied until
+   `claudehut:implement` is actually invoked for the current task — the `PreToolUse(Skill)` recorder hook is
+   the only thing that opens it, and entering Discover/Brainstorm closes it again (one invocation per task).
 5. **Compliance-first.** Never claim a task is done before `claudehut:review` reports zero outstanding items (hook-gated).
-6. **Canonical store — one dir per task.** Every artifact of a task — reuse-scan, spec, plan, review — lives in that task's dir `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/` (created in Brainstorm; `NNNN` = next integer over `tasks/`; never a bare `specs/`/`plans/` or a `.claudehut/` path). The write gate verifies files exist under `.claude/claudehut/`; off-path artifacts are invisible to the gate, to `@import` memory, and to the next session. Global stores stay at the root: `learnings.jsonl`, `reuse-index.json`, the memory plane, `state/`.
+6. **Canonical store — one dir per task.** Every artifact of a task — reuse-scan, spec, plan, review — lives in that task's dir `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/` (created in Discover, the first phase; `NNNN` = next integer over `tasks/`; never a bare `specs/`/`plans/` or a `.claudehut/` path). The write gate verifies files exist under `.claude/claudehut/`; off-path artifacts are invisible to the gate, to `@import` memory, and to the next session. Global stores stay at the root: `learnings.jsonl`, `reuse-index.json`, the memory plane, `state/`.
 7. **Main thread orchestrates.** Skills run on the main thread and own the user gates (`AskUserQuestion`), the state writes (`claudehut-state`), and the native task mirror (`TaskCreate`/`TaskUpdate`). Subagents do isolated work and **return data** — they never write state and never ask the user (they can't: no `AskUserQuestion`, and most have no Bash).
 
 **Violating the letter of these laws is violating the spirit of them.**
@@ -47,13 +50,13 @@ because it grew past the bound (>2 files or a sensitive path), the gate tells yo
 
 | Phase | Invoke | Heavy work (Agent tool) | Tiers | Produces (in `tasks/NNNN-<slug>/`) |
 |-------|--------|------------------------|-------|-------------------------------------|
-| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message) | all | `reuse-scan.md` + reuse DECISION |
+| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message); **trivial tier: inline — ≤3 Greps + inline artifact, no dispatch** | all | `reuse-scan.md` + reuse DECISION |
 | 2. Brainstorm | `claudehut:brainstorm` | brainstormer (generic ideation) | full | ≥2 options + enforcement set |
 | 3. Spec | `claudehut:write-spec` | — (main writes from template); **approve spec** → `set-spec` | full | `spec.md` |
 | 4. Plan | `claudehut:write-plan` | planner drafts from template; **approve plan** → `set-plan` + task mirror | full | `plan.md` (T-xxx breakdown) |
 | 5. Implement | `claudehut:implement` | main thread walks the plan **phase by phase**; within each phase the `[P]`/independent tasks → parallel implementers in ONE message (`check-disjoint`, max 3), dependent tasks → one implementer each, inline if ≤2 files; native task list updated at each phase boundary | all | code + tests (test-first; `.claude/rules/` auto-load) |
 | 6. Review | `claudehut:review` | **dynamically selected** auditors in parallel (test-runner + reviewer always; specialists by impact) | all | `review.md`; loops until outstanding empty |
-| 7. Learn | `claudehut:capture-learnings` | learner | full + small | `learnings.jsonl` records + updated index |
+| 7. Learn | `claudehut:capture-learnings` | learner; **small tier: one-line inline record when nothing novel (no dispatch)** | full + small | `learnings.jsonl` records + updated index |
 
 Announce each phase: state *"Using ClaudeHut <skill> (phase N)"* when you invoke it.
 

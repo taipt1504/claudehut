@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse hook (matcher: Write|Edit|MultiEdit) — the ACTION GATE.
-# Denies new production code until: reuse_scan=true AND spec_path set AND plan_path set.
+# Denies new production code until: reuse_scan=true AND spec_path set AND plan_path set
+# AND (skill rail, every tier) claudehut:implement was INVOKED for this task.
 # Always allows: writes under .claude/claudehut/**, test paths, and when bypass=true.
 # Per-session state keyed by hook-input session_id. FAILS OPEN on a missing state file
 # (allows) — deliberate, never wedge the user; see 06 §5 / 01 §4.1.
@@ -79,6 +80,19 @@ fastlane_bound_ok() {
   return 0
 }
 
+# Skill rail (all tiers, Issue 1): production writes require that claudehut:implement was actually
+# INVOKED for this task — proven by implement_skill_ok, which ONLY record-skill.sh (PreToolUse on the
+# Skill tool) sets, and which set-phase discover|brainstorm resets at each task boundary. Artifact
+# checks alone measured a 69% bypass (11/16 real tasks wrote production code with zero Skill(implement)
+# calls — losing the Iron Law, the rules table, and the dispatch discipline in one skip). Checked in
+# BOTH branches below (fast lane + full tier) before their allow, after the phase-order denials so the
+# deny messages still arrive in workflow order (reuse → spec → plan → skill).
+skill_ok="$(jq -r '.implement_skill_ok // false' <<<"$s")"
+require_skill() {
+  [ "$skill_ok" = "true" ] && return 0
+  deny "ClaudeHut gate: artifacts are ready but claudehut:implement has not been invoked for this task. Invoke the Skill tool with skill=claudehut:implement (one call — it loads the Iron Law, the tech-stack rules table, and the parallel-dispatch discipline), then retry this write. (If you DID just invoke it and still see this, the recorder hook failed — check jq is installed and run: claudehut-state --session <sid> mark-skill implement.)"
+}
+
 # Rail 1 (all tiers): reuse-scan must exist.
 if [ "$reuse" != "true" ]; then
   deny "ClaudeHut gate: run claudehut:discover first (its reuse-scan step) — no reuse-scan artifact for this task (think-and-reuse before build)."
@@ -87,8 +101,10 @@ elif ! exists_canon "$art"; then
 fi
 
 # Fast lane (trivial|small): skip Spec/Plan, but only if the deterministic bound holds.
+# The skill rail applies HERE TOO — the fast lane skips deliberation phases, never the implement skill
+# (it is the fast lane's only carrier of test-first + the rules table; one Skill call, no subagent).
 if [ "$tier" = "trivial" ] || [ "$tier" = "small" ]; then
-  if fastlane_bound_ok; then allow; fi
+  if fastlane_bound_ok; then require_skill; allow; fi
   deny "ClaudeHut gate: complexity=$tier fast lane denied — ${FAIL_REASON}. Escalate to the full workflow: claudehut-state set-complexity full, then run claudehut:write-spec + claudehut:write-plan."
 fi
 
@@ -102,4 +118,5 @@ elif [ -z "$plan" ] || [ "$plan" = "null" ]; then
 elif ! exists_canon "$plan"; then
   deny "ClaudeHut gate: plan recorded but file not found under .claude/claudehut/ (got: $plan). Write it in the task dir .claude/claudehut/tasks/NNNN-<slug>/plan.md."
 fi
+require_skill
 allow

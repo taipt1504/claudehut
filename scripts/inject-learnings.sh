@@ -42,6 +42,9 @@ jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
           ((.trigger // "") + " " + (.learning // "")) | ascii_downcase as $hay
           | ($words | any(. as $w | $hay | contains($w))) ) )
         end )
+    # promoted entries live in their rule file now (always-on at edit-time) — injecting them too
+    # would double-pay the tokens. The learner sets promoted=true at promotion (07 §5.4).
+    | map(select(.promoted != true))
     | sort_by(-._score)
     | .[0:$top]
     | .[]

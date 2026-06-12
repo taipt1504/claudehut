@@ -32,7 +32,10 @@ denies x "$PROD" && ok "deny: reuse ok, no spec" || bad "deny: no spec"
 printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
 denies x "$PROD" && ok "deny: spec ok, no plan" || bad "deny: no plan"
 printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
-allows x "$PROD" && ok "allow: reuse+spec+plan all set (files exist)" || bad "allow: all set"
+# Issue-1 skill rail: artifacts alone no longer open the gate — the implement skill must be invoked.
+denies x "$PROD" && ok "deny: reuse+spec+plan set but implement skill NOT invoked (skill rail)" || bad "deny: skill rail (full tier)"
+st mark-skill implement
+allows x "$PROD" && ok "allow: reuse+spec+plan + implement skill invoked" || bad "allow: all set + skill"
 # template-structure validation — freeform spec/plan rejected by the state writer
 echo freeform > "$chd/specs/bad.md"
 "$ROOT/bin/claudehut-state" --session s set-spec "$chd/specs/bad.md" >/dev/null 2>&1 \
@@ -91,10 +94,14 @@ new_gitproj() {
 PRODX='{"session_id":"s","tool_input":{"file_path":"'  # prefix; we append a path per-case
 
 # small tier, reuse set, within bound (1 changed file), no sensitive path → ALLOW without spec/plan
+# (after the implement skill is invoked — the skill rail applies in EVERY tier, fast lanes included)
 new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"; st set-complexity small
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
+  && ok "fast lane: small within bound but skill NOT invoked → deny (skill rail in fast lane)" || bad "fast lane skill rail"
+st mark-skill implement
 allows x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
-  && ok "fast lane: small + reuse + within bound → allow (no spec/plan)" || bad "fast lane allow"
+  && ok "fast lane: small + reuse + within bound + skill → allow (no spec/plan)" || bad "fast lane allow"
 # same small tier but touching a security path → DENY (escalate)
 denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/SecurityConfig.java\"}}" \
   && ok "fast lane: small touching SecurityConfig → deny (sensitive path)" || bad "fast lane sensitive deny"
@@ -116,6 +123,66 @@ rm -rf "$TMP"
 new_gitproj; st set-phase discover; st set-complexity trivial
 denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
   && ok "rail: trivial without reuse-scan → deny (no tier skips the reuse rail)" || bad "trivial reuse rail"
+rm -rf "$TMP"
+
+echo "== gate-write: skill rail + recorder (Issue 1) =="
+# Qualified skill name (claudehut:implement) opens the rail too
+new_proj; st set-phase brainstorm
+chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
+echo scan > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
+printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
+st mark-skill claudehut:implement
+allows x "$PROD" && ok "skill rail: qualified name claudehut:implement accepted" || bad "skill rail: qualified name"
+# Unrelated skill is a no-op (rail stays open)
+st mark-skill review
+allows x "$PROD" && ok "skill rail: unrelated skill no-op (rail stays open)" || bad "skill rail: unrelated skill"
+# New-task boundary resets the rail: set-phase discover → deny again
+st set-phase discover
+denies x "$PROD" && ok "skill rail: set-phase discover resets (per-TASK invocation required)" || bad "skill rail: discover reset"
+# Skill(discover) via recorder also resets (task started through the skill, not set-phase)
+st set-bypass true; st set-phase implement; st set-bypass false; st mark-skill implement
+allows x "$PROD" && ok "skill rail: re-armed via mark-skill implement" || bad "skill rail: re-arm"
+st mark-skill discover
+denies x "$PROD" && ok "skill rail: mark-skill discover resets (new task via Skill tool)" || bad "skill rail: skill-discover reset"
+rm -rf "$TMP"
+# record-skill.sh end-to-end: real PreToolUse(Skill) payload sets the flag through claudehut-state
+new_proj; st set-phase brainstorm
+echo '{"session_id":"s","tool_name":"Skill","tool_input":{"skill":"claudehut:implement"}}' | "$ROOT/scripts/record-skill.sh" >/dev/null 2>&1
+jq -e '.implement_skill_ok==true' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json" >/dev/null 2>&1 \
+  && ok "record-skill.sh: PreToolUse(Skill) payload → implement_skill_ok=true" || bad "record-skill.sh: flag not set"
+echo '{"session_id":"s","tool_name":"Skill","tool_input":{"skill":"discover"}}' | "$ROOT/scripts/record-skill.sh" >/dev/null 2>&1
+jq -e '.implement_skill_ok==false' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json" >/dev/null 2>&1 \
+  && ok "record-skill.sh: Skill(discover) payload → rail reset" || bad "record-skill.sh: reset not applied"
+rm -rf "$TMP"
+# Migration: PRE-v0.4 state file (no implement_skill_ok field at all) → rail closed → deny
+# (one-deny upgrade cost; the deny message names the recovery: invoke claudehut:implement)
+new_proj
+chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
+echo scan > "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"
+printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"
+jq -n '{session:"s",phase:"implement",reuse_scan:true,reuse_scan_artifact:"'"$chd"'/reuse-scan-x.md",spec_path:"'"$chd"'/specs/x.md",plan_path:"'"$chd"'/plans/x.md",review:"pending",outstanding:[],bypass:false,complexity:"full"}' > "$chd/state/s.json"
+denies x "$PROD" && ok "migration: pre-v0.4 state (field absent) → rail closed, deny with recovery hint" || bad "migration: legacy state not gated"
+st mark-skill implement
+allows x "$PROD" && ok "migration: one mark-skill re-opens a legacy-state session" || bad "migration: legacy state not recoverable"
+rm -rf "$TMP"
+# Unrelated skill must not OPEN a closed rail either
+new_proj; st set-phase brainstorm
+chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
+echo scan > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
+printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
+st mark-skill review
+denies x "$PROD" && ok "skill rail: unrelated skill does NOT open a closed rail" || bad "skill rail: unrelated skill opened rail"
+rm -rf "$TMP"
+# bootstrap restore: live state missing + snapshot present → snapshot restored (skill rail survives)
+new_proj; st set-phase brainstorm; st mark-skill implement
+cp "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json" "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.snapshot.json"
+rm "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json"
+echo '{"session_id":"s"}' | "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+jq -e '.implement_skill_ok==true' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json" >/dev/null 2>&1 \
+  && ok "bootstrap: snapshot restored when live state missing (rail survives)" || bad "bootstrap: snapshot restore"
 rm -rf "$TMP"
 
 echo "== verify-subagent =="

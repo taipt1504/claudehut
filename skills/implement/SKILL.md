@@ -24,12 +24,15 @@ reference," don't "adapt" it while writing the test, don't even look at it. Dele
 ## Preconditions (the write gate — tier-aware)
 
 Production writes are denied by the `PreToolUse` gate until: `reuse_scan=true` (**every tier** — Discover
-produces it), plus — **in the `full` tier only** — `spec_path` and `plan_path` set. In the `trivial`/`small`
-fast lanes, reuse-scan alone opens the gate **provided** the change stays within the bound (≤2 files, no
-security/auth/migration path); exceed it and the gate denies, telling you to escalate
-(`set-complexity full` → Spec + Plan). The RED test may be written first — the gate always allows test paths
-(`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, read the reason: you either skipped a phase or
-out-grew the fast lane.
+produces it), plus — **in the `full` tier only** — `spec_path` and `plan_path` set, plus — **every tier,
+the skill rail** — *this skill was invoked for this task*. Invoking `claudehut:implement` is what opens
+that rail (a `PreToolUse(Skill)` recorder hook proves the call; entering Discover/Brainstorm closes it for
+the next task) — so if you are reading this because the gate told you to, the rail is now open. In the
+`trivial`/`small` fast lanes, reuse-scan + the skill rail open the gate **provided** the change stays
+within the bound (≤2 files, no security/auth/migration path); exceed it and the gate denies, telling you
+to escalate (`set-complexity full` → Spec + Plan). The RED test may be written first — the gate always
+allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, read the reason: you
+skipped a phase, skipped this skill, or out-grew the fast lane.
 
 ## Flow
 
@@ -166,6 +169,11 @@ body, not only in the playbook file:
   DLQ/retry for poison messages. (→ `references/messaging.md`)
 - **Reactive** — never block the event loop: no `.block()`/blocking I/O inside a `Mono`/`Flux` chain or handler;
   offload blocking calls to a bounded scheduler. (→ `references/reactive.md`)
+
+*The bullets above are the always-loaded floor, not the authoritative depth — the `references/*` playbooks
+and the generated `.claude/rules/` files carry the full standard. **If this list and a rule file ever
+diverge, the rule file wins** (rules are upgraded independently; this floor is intentionally minimal to
+avoid drift).*
 
 Cross-cutting Spring conventions that always apply: **constructor injection only** (no field `@Autowired`;
 collaborators `final`), **thin controllers** (validate → one service call → map; DTOs not entities),

@@ -6,6 +6,11 @@
 #
 # claudehut mode: (1) optional init call to bootstrap, then (2) the task call — both against a SANITIZED
 # plugin copy (evals/ docs/ .git stripped) so the agent can't read the held-out oracle (answer-key guard).
+#
+# SECURITY NOTE: live runs use --dangerously-skip-permissions (CC ≥2.1.x headless flags .claude/** writes
+# as "sensitive" even under acceptEdits + allow rules, deadlocking the workflow; the ClaudeHut deny-hooks
+# were live-probed to still block under this flag). The eval agent therefore runs UNSANDBOXED with your
+# user's filesystem access — only run evals with fixtures from THIS repo that you trust.
 # Workflow progress is read from the AUTHORITATIVE per-session state file (phase/reuse_scan/spec/plan/review),
 # not from artifact paths — the agent may write artifacts to non-canonical locations (a measured defect).
 set -uo pipefail
@@ -40,26 +45,30 @@ for t in "${sel[@]}"; do
   prompt="$(cat "$d/task.md")"
   for ((i=1;i<=TRIALS;i++)); do
     work="$(mktemp -d)/work"; mkdir -p "$work"; cp -R "$d/repo/." "$work/"
+    # CC ≥2.1.x headless treats .claude/** edits as "sensitive" — acceptEdits does NOT auto-approve them,
+    # which deadlocks the workflow (artifacts live under .claude/claudehut/). Allow them explicitly.
+    mkdir -p "$work/.claude"
+    printf '{"permissions":{"allow":["Write(.claude/claudehut/**)","Edit(.claude/claudehut/**)","Write(./.claude/claudehut/**)","Edit(./.claude/claudehut/**)"]}}\n' > "$work/.claude/settings.json"
     ( cd "$work" && git init -q && git add -A && git commit -qm base >/dev/null 2>&1 )
     j="$work/.eval.json"; icost=0
     start=$(date +%s)
     if [ "$MODE" = baseline ]; then
       ( cd "$work" && claude --print --output-format json --model "$MODEL" --max-budget-usd "$BUDGET" \
-          --permission-mode acceptEdits "$prompt" < /dev/null ) > "$j" 2>"$work/.err" || true
+          --dangerously-skip-permissions "$prompt" < /dev/null ) > "$j" 2>"$work/.err" || true
     else
       if $DO_INIT; then
         ( cd "$work" && CLAUDE_PROJECT_DIR="$work" CLAUDE_PLUGIN_ROOT="$SAN" \
             claude --print --plugin-dir "$SAN" --output-format json --model "$MODEL" --max-budget-usd 1.20 \
-            --permission-mode acceptEdits "Bootstrap this project for ClaudeHut: run claudehut-init to detect the stack and generate the project index, memory, and path-scoped rules under .claude/claudehut/." < /dev/null ) \
+            --dangerously-skip-permissions "Bootstrap this project for ClaudeHut: run claudehut-init to detect the stack and generate the project index, memory, and path-scoped rules under .claude/claudehut/." < /dev/null ) \
             > "$work/.init.json" 2>"$work/.init.err" || true
         icost=$(num "$(jq -r '.total_cost_usd // 0' "$work/.init.json" 2>/dev/null)")
       fi
       full="$prompt
 
-This project uses the ClaudeHut plugin; its 6-phase workflow is injected at session start. Drive the ClaudeHut workflow — brainstorm (incl. reuse scan) → spec → plan → implement (test-first) → review → learn — to completion, writing all workflow artifacts under .claude/claudehut/. Complete the task."
+This project uses the ClaudeHut plugin; its 7-phase workflow is injected at session start. Drive the ClaudeHut workflow to completion: triage the complexity tier FIRST (Phase 0 — set-complexity trivial/small/full), then run exactly that tier's phases, writing all workflow artifacts under .claude/claudehut/. Complete the task."
       ( cd "$work" && CLAUDE_PROJECT_DIR="$work" CLAUDE_PLUGIN_ROOT="$SAN" \
           claude --print --plugin-dir "$SAN" --output-format json --model "$MODEL" --max-budget-usd "$BUDGET" \
-          --permission-mode acceptEdits "$full" < /dev/null ) > "$j" 2>"$work/.err" || true
+          --dangerously-skip-permissions "$full" < /dev/null ) > "$j" 2>"$work/.err" || true
     fi
     end=$(date +%s); wall=$(( (end - start) * 1000 ))
     tcost=$(num "$(jq -r '.total_cost_usd // 0' "$j" 2>/dev/null)")

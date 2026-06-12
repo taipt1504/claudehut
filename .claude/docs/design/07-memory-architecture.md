@@ -216,8 +216,15 @@ Schema:
 | `trigger` | pipe-separated keywords for matching against prompts/files |
 | `learning` | the one-sentence lesson |
 | `evidence` | `file:line` or command proving it |
-| `confidence` | 0–1, raised on repeated confirmation |
+| `confidence` | 0–1, raised on repeated confirmation — **merge formula: `min(confidence + 0.05, 1.0)`** (deterministic, specified — the model does not pick a delta) |
 | `hits` | times re-observed (drives ranking + dedup) |
+| `promoted` | `true` once the entry has been promoted into a rule file (§5.4) — kept as audit trail; skipped by injection |
+
+**Trigger normalization (deterministic — the dedup key, v0.4):** lowercase → split on `|`, space, comma,
+hyphen → drop empties → sort tokens alphabetically → rejoin with `|`. `"R2DBC|reactive|Blocking"` ≡
+`"blocking, reactive, r2dbc"` → `blocking|r2dbc|reactive`. Previously "normalized" was undefined and left
+to model judgment — reversed token order created silent duplicates that split `hits` across twin entries
+and kept both below every promotion/ranking threshold.
 
 ### 5.2 Write protocol (Learn phase)
 
@@ -232,6 +239,8 @@ flowchart LR
     N --> J
     A --> RI[update reuse-index.json with anything newly built]
     A --> MI[refresh committed MEMORY.md index]
+    A --> P["PROMOTE (§5.4): pitfall ∧ hits≥5 ∧ conf≥0.85 → rule file"]
+    A --> PR["PRUNE (§5.5): conf<0.25 ∧ hits≤1 ∧ age>90d"]
     A -.if enabled.-> AM[mirror narrative to native auto-memory]
 ```
 
@@ -244,7 +253,35 @@ flowchart LR
 1. **SessionStart** (`bootstrap.sh`): `inject-learnings.sh` parses `learnings.jsonl`, ranks by `confidence × recency × hits`, and injects the **capped top-N** (≈12, ≤ ~6 KB — §1.2) as `additionalContext`. The committed `MEMORY.md` index + `PROJECT.md` + `LANGUAGE.md` load via `@import`. *(If native auto-memory is enabled, its own `MEMORY.md` first-200-lines also loads — but ClaudeHut does not depend on it; it may be disabled, §1.1.)* The full `learnings.jsonl` is **not** loaded here — only the capped slice.
 2. **UserPromptSubmit** (`inject-phase.sh`): selects learnings whose `trigger` keyword-matches the current prompt — **targeted** retrieval, so a payment task surfaces payment learnings.
 3. **Discover phase**: `claudehut-reuse-scanner` (dispatched by `claudehut:discover`) reads learnings tagged `reuse` to find known reuse points fast.
-4. **Path-scoped**: a `pitfall` learning tied to a file pattern can be promoted into the relevant generated rule on the next Bootstrap, so it becomes always-applied for that file type.
+4. **Path-scoped**: promoted `pitfall` learnings (§5.4) live inside the relevant generated rule file and auto-load whenever a matching file is edited — always-applied, zero injection cost.
+
+### 5.4 Promotion pipeline (episodic → semantic — what makes memory COMPOUND, v0.4)
+
+Previously this was one aspirational sentence with **zero implementation** (measured sync gap). Now it is a
+specified learner step (`agents/claudehut-learner.md` step 5):
+
+- **Threshold:** `category=pitfall` ∧ `hits ≥ 5` ∧ `confidence ≥ 0.85` ∧ not yet `promoted`. A pitfall
+  confirmed across ≥5 observations is no longer episodic memory — it is a project fact, and the cheapest
+  place for a project fact is the **path-scoped rule file** that auto-loads exactly when a matching file is
+  edited (native mechanism; no injection budget spent ever again).
+- **Routing:** a **static trigger-keyword → rule-file table embedded in the learner's instructions**
+  (auditable, no file-discovery needed — the learner has no Glob/Bash; an unmatched trigger stays
+  unpromoted rather than guessing a wrong file).
+- **Write:** append under a `## Learned pitfalls` section in the rule file, one imperative sentence + an
+  HTML comment carrying trigger/ts/evidence. Mark the JSONL entry `promoted: true`.
+- **Read-side dedup:** `inject-learnings.sh` filters `promoted==true` — knowledge is paid for once
+  (rule-file load on matching edits), never twice (injection + rule).
+
+This is the Reflexion-style episodic→semantic consolidation (verbal lessons → durable policy), done with
+files + hooks only — no vector store, no external memory service (P6 native-first).
+
+### 5.5 Pruning (bounded store, v0.4)
+
+The store was append-only with **no cap** (measured). The learner's final step now rewrites
+`learnings.jsonl` dropping `confidence < 0.25 ∧ hits ≤ 1 ∧ age > 90d` (noise the decay already buried and
+nothing ever reinforced). Never dropped: `promoted` entries (audit trail) or anything with `hits ≥ 2`.
+The ranking-injection cap (§1.2) bounds the *read* cost; pruning bounds the *store* so ranking quality and
+dedup scans stay sharp over years of accumulation.
 
 ```mermaid
 flowchart TB

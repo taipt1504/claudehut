@@ -29,9 +29,9 @@ spec="$(jq -r '.spec_path // empty' <<<"$s")"
 plan="$(jq -r '.plan_path // empty' <<<"$s")"
 tier="$(jq -r '.complexity // "full"' <<<"$s")"   # trivial skips Learn (tier map) — gate must match
 
-# opt #1: the SessionStart hook ARMS state (phase=brainstorm) so the write gate denies production
+# opt #1: the SessionStart hook ARMS state (phase=discover) so the write gate denies production
 # writes from turn 1. But only enforce COMPLETION once the workflow was actually ENGAGED — a freshly
-# armed session that never did workflow work (no reuse-scan, no spec/plan, still brainstorm) must not
+# armed session that never did workflow work (no reuse-scan, no spec/plan, still discover/brainstorm) must not
 # block turn end, so non-coding sessions stay usable. Writing production code requires engaging the
 # workflow (the write gate forces it), and once engaged this gate requires it to finish.
 engaged=false

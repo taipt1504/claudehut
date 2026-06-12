@@ -1,6 +1,6 @@
 ---
 name: discover
-description: Use as the FIRST phase of any non-trivial change, before brainstorming - grounds the work in the existing codebase (entry points, key types, structure) and proves whether something reusable already exists. Produces the reuse-scan artifact the write gate requires and the reuse DECISION (adopt / extend / new). Runs inline on the main thread.
+description: Use as the FIRST phase of EVERY coding task, before brainstorming - grounds the work in the existing codebase (entry points, key types, structure) and proves whether something reusable already exists. Produces the reuse-scan artifact the write gate requires and the reuse DECISION (adopt / extend / new). Runs inline on the main thread; trivial tier uses the inline 3-grep variant. Skip ONLY for pure documentation/comment edits with zero production-code change.
 allowed-tools: Read Grep Glob Bash Agent
 ---
 
@@ -39,10 +39,23 @@ flowchart TB
    `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/`, slug = kebab-case task name. Record:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase discover`.
 
-2. **Dispatch explorer + reuse-scanner together in ONE message** (two Agent tool calls in a single response —
-   the native concurrency mechanism; their inputs are independent). **BOTH are mandatory — the scanner is not
-   optional**, even when the task "obviously" has nothing to reuse (measured miss: a rate-limiting task
-   skipped the scanner; the write gate then denies every production write for lack of the artifact):
+2. **Tier branch — how the scan runs depends on the recorded complexity tier:**
+
+   **`trivial` tier → INLINE DISCOVER (no subagents).** A no-logic change does not justify the ~26s
+   2-subagent dispatch floor (measured, BENCH-REPORT). The main thread does the scan itself, ~5 tool calls:
+   1. Grep the codebase for components matching what you are about to change (≤3 targeted Grep calls —
+      the class, its annotations/signature shape, the config prefix).
+   2. Write `tasks/NNNN-<slug>/reuse-scan.md` inline, following the Summary-table format of
+      `references/reuse-scan-template.md` (a trivial scan is usually just the table + Recommendation).
+   3. Record it (step 3 below) and proceed straight to Implement — **still invoking
+      `claudehut:implement` first; the gate's skill rail applies in every tier.**
+   The gate still requires the artifact file — inline replaces the *dispatch*, never the *scan*.
+
+   **`small`/`full` tiers → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
+   calls in a single response — the native concurrency mechanism; their inputs are independent). **In these
+   tiers BOTH are mandatory — the scanner is not optional**, even when the task "obviously" has nothing to
+   reuse (measured miss: a rate-limiting task skipped the scanner; the write gate then denies every
+   production write for lack of the artifact):
 
    | Rationalization | Reality |
    |---|---|
@@ -54,9 +67,10 @@ flowchart TB
    - `claudehut:claudehut-reuse-scanner` — queries `reuse-index.json` by tag, greps similar signatures/
      annotations, reads learnings tagged `reuse`, then writes
      `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (canonical path — the gate
-     requires it under `.claude/claudehut/`) with: searched terms, **FOUND** (component + `file:line`) or
-     **none**, **DECISION** (adopt / extend / new), and a justification for any new code. It **returns the
-     path — it does not write state** (no Bash).
+     requires it under `.claude/claudehut/`) **in the summary-first format of
+     `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/reuse-scan-template.md` — name this template path in
+     the dispatch prompt** (Summary table → Evidence only for questionable rows → one-line Recommendation,
+     ≤400 words). It **returns the path — it does not write state** (no Bash).
 
 3. **Main thread records the artifact** (this flips `reuse_scan=true` and arms the gate's first precondition):
 

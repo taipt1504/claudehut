@@ -26,6 +26,11 @@ another task in the SAME phase and disjoint Files — safe to run as a parallel 
 intra-phase-independent task `[P]`, not just one** — the main thread fans out exactly the `[P]` tasks per
 phase, so under-marking serializes Implement.
 
+**Cell budgets (hard):** `Test first` = `ClassName#method` only (≤60 chars — assertion detail lives in the
+spec's AC section, not here). `Minimal change` = intent phrase ≤30 words (no FQNs, signatures, or branches —
+"minimal pass" in the example rows below is the calibration, not a placeholder to expand). Whole plan ≤500
+words. Resolve each OQ-xxx once in §1; do not restate in §5/§7.
+
 **Layout — group rows under interleaved `### Phase N` headings, one mini-table per phase. Do NOT use one
 combined table with a trailing phase list.** `check-disjoint` and the main thread read each task's phase from
 the `### Phase N` heading ABOVE it; a trailing list collapses every task into a single phase and defeats

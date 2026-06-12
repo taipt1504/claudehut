@@ -42,7 +42,9 @@ flowchart LR
 
 The Workflow runs **per task** (one user request = one pass) against an **already-indexed** codebase ([§3](#3-prerequisite-the-codebase-index-not-a-phase)). Phases are sequential; the **Discover→Implement** path includes a hard action gate (no new code until reuse-scan exists; spec + plan also required for the `full` tier) and **Review** is a hard completion gate that loops back to Implement until nothing applicable is left unsatisfied.
 
-> **Phase 0 — Complexity triage.** Before entering Discover, assess the request and set the tier (`trivial` / `small` / `full`, default `full`) via `claudehut-state set-complexity`. Trivial/small fast lanes skip the deliberation phases (Brainstorm/Spec/Plan) but **never skip the safety rails** (Discover reuse-scan, test-first, Review). The write gate verifies the tier's bound deterministically — a fast-lane write that grows past the bound (>2 files or a security/auth/migration path) is denied, telling the agent to escalate to `full`. See Phase 1 (Discover) in §5 below and the tier table in the `claudehut-workflow` skill.
+> **Phase 0 — Complexity triage.** Before entering Discover, assess the request and set the tier (`trivial` / `small` / `full`, default `full`) via `claudehut-state set-complexity`. Trivial/small fast lanes skip the deliberation phases (Brainstorm/Spec/Plan) but **never skip the safety rails** (Discover reuse-scan, test-first via the implement skill rail, Review). The write gate verifies the tier's bound deterministically — a fast-lane write that grows past the bound (>2 files or a security/auth/migration path) is denied, telling the agent to escalate to `full`. See Phase 1 (Discover) in §5 below and the tier table in the `claudehut-workflow` skill.
+>
+> **Fast-path latency contract (Issue 2 — v0.4).** Measured floor: one 2-subagent dispatch ≈ 26s; the pre-fix `small` path cost ≥5 subagent round-trips for a ≤2-file change. The tiers therefore swap dispatches for inline work where a deterministic rail keeps it safe: **trivial** = inline Discover (≤3 Greps + inline reuse-scan artifact, 0 dispatches — the gate still requires the artifact + the implement skill rail), Review reduced to test-runner + reviewer (security-auditor skip is **gate-backed**: `fastlane_bound_ok` already denied any security/auth/migration path in the fast lane), no Learn. **small** = full Discover dispatch; security-auditor skip gate-backed as above; Learn may be a one-line inline record when nothing novel surfaced (the Stop gate checks content, not author). **full** = everything dispatches, security-auditor over-includes.
 >
 > **Why Discover is a separate phase (v0.4 decision).** Exploration + reuse-scan are *discovery*, not *ideation* — folding them into Brainstorm over-fit Brainstorm to a single stack and killed creative breadth. Discover does the grounding; Brainstorm (phase 2) then ideates freely on top of it. Codebase indexing remains a Bootstrap prerequisite (built once, refreshed on demand), not a per-task phase.
 
@@ -99,6 +101,7 @@ The single source of truth for "where are we" is the **Phase-state file**, writt
   "review": "pending",
   "outstanding": [],
   "bypass": false,
+  "implement_skill_ok": true,
   "updated_by": "claudehut-state",
   "ts": "2026-06-02T10:31:00Z"
 }
@@ -118,6 +121,7 @@ Field semantics:
 | `review` | `pending` \| `pass` \| `capped` — pass only when `outstanding` is empty and evidence is green | Review |
 | `outstanding` | applicable-but-unsatisfied {skills ∪ rules ∪ memory} items from the auditors | Review (each iteration) |
 | `bypass` | senior override; disables the gate hooks for the session | manual |
+| `implement_skill_ok` | **skill rail (Issue 1):** `claudehut:implement` was invoked for the *current task* — set **only** by `record-skill.sh` (the `PreToolUse(Skill)` recorder hook, via `mark-skill`), reset to `false` by `set-phase discover\|brainstorm` / `mark-skill discover\|brainstorm` (the per-task boundary). `gate-write.sh` denies production writes in **every tier** until it is `true`. Default `false`. | Implement (via the Skill call itself) |
 
 **Who writes it (critical, per native constraints):** a skill *cannot* reliably persist state on its own — skill text only lives in context. So the **only writer** is the `bin/claudehut-state` command, which the orchestrator and phase skills instruct the agent to run on each transition, e.g.:
 
@@ -127,7 +131,7 @@ claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/
 claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass        # only after outstanding == []
 ```
 
-The skill body passes `${CLAUDE_SESSION_ID}` (a native skill string-substitution) so the writer targets the correct per-session file; gate hooks derive the same path from the `session_id` field in their hook-input JSON ([§4.1](#41-concurrency-and-worktree-isolation-collision-safe-state)). Subcommands: `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass`, `set-complexity` (all take `--session`). **Hooks only read the state file; they never write it.** This separation is what makes the gates deterministic.
+The skill body passes `${CLAUDE_SESSION_ID}` (a native skill string-substitution) so the writer targets the correct per-session file; gate hooks derive the same path from the `session_id` field in their hook-input JSON ([§4.1](#41-concurrency-and-worktree-isolation-collision-safe-state)). Subcommands: `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass`, `set-complexity`, `mark-skill` (all take `--session`). **Hooks only read the state file; they never write it** — with one deliberate exception: `record-skill.sh` (the `PreToolUse(Skill)` recorder) *calls the writer* (`claudehut-state mark-skill`) rather than writing the file itself, preserving the single-writer invariant while letting the skill rail be armed by the actual Skill tool call instead of by model cooperation. This separation is what makes the gates deterministic.
 
 ```mermaid
 stateDiagram-v2
@@ -136,7 +140,12 @@ stateDiagram-v2
     Discover --> Implement: reuse_scan=true (trivial/small fast lane)
     Brainstorm --> Spec: enforcement_set determined
     Spec --> Plan: spec_path set (approach approved)
-    Plan --> Implement: plan_path set (write gate opens — full tier)
+    Plan --> Implement: plan_path set (full tier)
+    note right of Implement
+        write gate opens only when implement_skill_ok=true —
+        i.e. Skill(claudehut:implement) was INVOKED for this task
+        (recorded by the PreToolUse(Skill) hook; reset each new task)
+    end note
     Implement --> Review: implementation complete
     Review --> Implement: outstanding not empty
     Review --> Learn: review=pass (outstanding empty, evidence green)
@@ -403,6 +412,7 @@ Pillar P4 demands the agent think and reuse *before* writing. The mechanism is a
 
 1. **Discover produces a Reuse-scan artifact.** The reuse-scan step inside the `discover` skill (driven by `claudehut-reuse-scanner`) queries `reuse-index.json` and greps the project for existing services/utilities/configs that already solve the task — the smallest-footprint axis. The result ("adopt/extend X at `a/b/C.java`" or "nothing reusable, justification: …") is written to `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`, and `claudehut-state set-reuse-scan` flips `reuse_scan=true`. **Discover runs in every complexity tier — the fast lane never skips it.**
 2. **The write gate refuses code until the prerequisites exist.** The `PreToolUse` hook on `Write|Edit|MultiEdit` reads `state.json`; if `reuse_scan` is false, it returns `permissionDecision: deny` in **every tier**. In the `full` tier, `spec_path` and `plan_path` must also be set. In `trivial`/`small` tiers, the gate additionally verifies the fast-lane bound deterministically (≤2 files, no security/auth/migration path) — exceed the bound and the gate denies, telling the agent to escalate to `full`.
+3. **The skill rail (Issue 1) refuses code until the implement skill was actually invoked.** Artifacts alone are not enough — real usage measured **69% of tasks (11/16)** writing production code with every artifact in place but **zero `Skill(implement)` calls** (losing the Iron Law, the rules table, and the dispatch discipline in one skip). The gate therefore also requires `implement_skill_ok=true`, which only the `PreToolUse(Skill)` recorder hook sets when `claudehut:implement` genuinely fires, and which resets at every task boundary (`set-phase discover|brainstorm`).
 
 ```mermaid
 flowchart TD
@@ -411,10 +421,12 @@ flowchart TD
     G -->|trivial/small AND bound exceeded| D4[DENY: escalate to full tier]
     G -->|full tier: spec_path unset| D2[DENY: write a spec first]
     G -->|full tier: plan_path unset| D3[DENY: write a plan first]
+    G -->|implement_skill_ok=false| D5[DENY: invoke claudehut:implement]
     G -->|all satisfied| OK[ALLOW write]
     D1 --> RC[discover reuse-scan step -> artifact] --> A
     D2 --> WS[write-spec -> spec] --> A
     D3 --> WP[write-plan -> plan] --> A
+    D5 --> SI["Skill(claudehut:implement) -> recorder hook sets implement_skill_ok"] --> A
 ```
 
 The agent literally cannot create a new file until it has demonstrated it checked for reuse, specified the approach, and produced a plan. This converts P4 from a hope into a precondition — **provided the gate is armed**: the `PreToolUse` gate fails open on a missing state file, so the SessionStart hook now writes an initial state at turn 1 (opt #1) so the gate is live from the first keystroke. Without arming the claim held only once the agent voluntarily started the workflow (measured gap — EVAL-REPORT #2, now closed). The gate also requires the recorded reuse-scan/spec/plan **files to exist under `.claude/claudehut/`** (opt #4), not merely the state flags.

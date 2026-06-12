@@ -14,9 +14,10 @@ set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
-REFRESH=false; DETECT=false; PROJ=""
+REFRESH=false; RULES_REFRESH=false; DETECT=false; PROJ=""
 for a in "$@"; do case "$a" in
-  --refresh) REFRESH=true ;;
+  --refresh) REFRESH=true; RULES_REFRESH=true ;;
+  --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
   --detect)  DETECT=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
@@ -116,7 +117,7 @@ render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
 
 # ---------------- rule tree (stack-gated) ----------------
-ACTIVE="web=$WEB orm=$ORM messaging=$MSG cache=$CACHE mapper=$MAPPER"
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"
@@ -127,8 +128,15 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   if [ -n "$tag" ]; then
     case " $ACTIVE " in *" $tag "*) : ;; *) continue ;; esac   # tagged + inactive → skip
   fi
-  if [ -f "$dest" ] && ! $REFRESH; then continue; fi
-  mkdir -p "$(dirname "$dest")"; cp -f "$f" "$dest"
+  if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
+  mkdir -p "$(dirname "$dest")"
+  # A refresh must NOT clobber learner-promoted pitfalls (07 §5.4) — carry the section over.
+  if [ -f "$dest" ] && grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
+    lp="$(awk '/^## Learned pitfalls/,0' "$dest")"
+    cp -f "$f" "$dest"; printf '\n%s\n' "$lp" >> "$dest"
+  else
+    cp -f "$f" "$dest"
+  fi
 done
 echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
 

@@ -43,6 +43,22 @@ C="$(bash "$INJ" --filter "jpa entity fetch" --top 1)"
 D="$(bash "$INJ" --top 2)"
 grep -q REDISMARK <<<"$D" && ok "unfiltered: newest/highest-score entry surfaces (recency real)" || bad "unfiltered ranking not by score"
 
+# E — promoted entries are skipped by injection (07 §5.4: knowledge paid for once, never twice)
+cat >> "$TMP/.claude/claudehut/learnings.jsonl" <<'EOF'
+{"category":"pitfall","trigger":"jpa entity lazy","learning":"promoted pitfall PROMOMARK","evidence":"E.java:5","confidence":0.95,"hits":9,"ts":"2026-06-10T00:00:00Z","promoted":true}
+EOF
+E="$(bash "$INJ" --filter "jpa entity" --top 12)"
+{ ! grep -q PROMOMARK <<<"$E" && grep -q EGRAPHMARK <<<"$E"; } && ok "promoted=true entry skipped by injection (rule file carries it now)" || bad "promoted entry still injected (double-pay)"
+E2="$(bash "$INJ" --top 12)"
+! grep -q PROMOMARK <<<"$E2" && ok "promoted entry skipped in unfiltered ranking too" || bad "promoted entry leaked into unfiltered top-N"
+
+# F — deterministic trigger-normalization spec (07 §5.2): the dedup key is order/case/separator-insensitive.
+# The normalizer is executed by the learner agent per its instructions; this asserts the SPEC's algebra
+# so any future script implementation has a frozen reference.
+norm() { tr '[:upper:]' '[:lower:]' <<<"$1" | tr '| ,-' '\n\n\n\n' | grep -v '^$' | sort -u | paste -sd'|' -; }
+k1="$(norm "R2DBC|reactive|Blocking")"; k2="$(norm "blocking, reactive, r2dbc")"
+[ "$k1" = "$k2" ] && [ "$k1" = "blocking|r2dbc|reactive" ] && ok "trigger normalization: order/case/separator-insensitive key (spec algebra)" || bad "normalization spec broken (k1=$k1 k2=$k2)"
+
 rm -rf "$TMP"
 echo
 echo "RANKER: $PASS passed, $FAIL failed"

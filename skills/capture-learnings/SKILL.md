@@ -18,6 +18,20 @@ isolation; this skill owns the state write (the learner has no Bash).
 
 ## Process
 
+0. **Small-tier inline learn (when nothing novel surfaced).** If the tier is `small` AND the task produced
+   no new pitfall, convention, or reuse point (it only confirmed existing patterns), skip the learner
+   dispatch and append ONE line inline to
+   `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (1 tool call — the Stop gate checks content,
+   not author):
+
+   ```json
+   {"id":"<uuid>","ts":"<iso>","project":"<name>","phase":"learn","category":"convention","trigger":"<file-pattern keywords>","learning":"<one sentence: what was confirmed>","evidence":"<file:line>","confidence":0.6,"hits":1}
+   ```
+
+   Then go to step 3. Dispatch the full learner ONLY when something genuinely new was found — a learner
+   round-trip to record "nothing new" is pure latency. (Full tier always dispatches: a task that went
+   through Brainstorm/Spec/Plan has decisions worth distilling.)
+
 1. **Dispatch `claudehut:claudehut-learner` (Agent tool)** with a short task summary: the task dir
    (`tasks/NNNN-<slug>/`), the decisions made, surprises hit, reuse points created, and Review findings.
    The learner:

@@ -49,9 +49,10 @@ for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
 
-# C6 — rule layer: 2 always-on + 47 domain; every domain rule path-scoped
+# C6 — rule layer: 2 always-on + 51 domain; every domain rule path-scoped
+# (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation)
 RT=$(find "$ROOT/templates/rules" -name '*.md' | wc -l | tr -d ' ')
-[ "$RT" = "49" ] && ok "49 rule templates (47 domain + 2 always-on)" || bad "expected 49 rule templates, found $RT"
+[ "$RT" = "53" ] && ok "53 rule templates (51 domain + 2 always-on)" || bad "expected 53 rule templates, found $RT"
 nopaths=0
 for f in $(find "$ROOT/templates/rules" -mindepth 2 -name '*.md'); do
   fm "$f" | grep -q '^paths:' || { nopaths=$((nopaths+1)); echo "      (no paths: $f)"; }

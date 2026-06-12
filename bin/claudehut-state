@@ -17,6 +17,9 @@
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
 #   set-bypass <true|false>
 #   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
+#   mark-skill <name>             # Issue-1 skill rail: records a Skill-tool invocation (written by
+#                                 # record-skill.sh, the PreToolUse(Skill) recorder hook). implement →
+#                                 # implement_skill_ok=true; discover|brainstorm → reset to false (new task).
 set -euo pipefail
 
 err() { echo "claudehut-state: $*" >&2; exit 1; }
@@ -48,6 +51,7 @@ else
     enforcement_set:{skills:[],rules:[]},
     spec_path:null, plan_path:null,
     review:"pending", outstanding:[], bypass:false, complexity:"full",
+    implement_skill_ok:false,
     updated_by:"claudehut-state", ts:null
   }')"
 fi
@@ -105,6 +109,10 @@ case "$sub" in
     fi
 
     STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
+    # Issue-1 skill rail: entering discover/brainstorm is the per-TASK boundary — reset the
+    # implement-skill proof so EVERY task requires its own Skill(claudehut:implement) invocation.
+    # (Measured pre-fix: one session invoked the skill for task 1 only, then wrote 9 more tasks without it.)
+    case "$phase" in discover|brainstorm) STATE="$(jq '.implement_skill_ok=false' <<<"$STATE")" ;; esac
     t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
     sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
     pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; tmpl "$pl" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows in $pl — use claudehut:write-plan (plan-template.md)."; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
@@ -153,6 +161,19 @@ case "$sub" in
     c="${shift_args[0]:-}"
     case "$c" in trivial|small|full) ;; *) err "set-complexity needs trivial|small|full" ;; esac
     STATE="$(jq --arg v "$c" '.complexity=$v' <<<"$STATE")"
+    ;;
+  mark-skill)
+    # Issue-1 skill rail. Written by record-skill.sh on every Skill-tool call (PreToolUse, matcher: Skill).
+    # Only the implement skill opens the rail; the phase-entry skills close it (new-task boundary, in case
+    # the agent starts a new task via Skill(discover) without a set-phase call). Other skills are no-ops.
+    sk="${shift_args[0]:-}"
+    [ -n "$sk" ] || err "mark-skill needs <skill-name>"
+    sk="${sk##*:}"   # tolerate qualified names (claudehut:implement)
+    case "$sk" in
+      implement)           STATE="$(jq '.implement_skill_ok=true'  <<<"$STATE")" ;;
+      discover|brainstorm) STATE="$(jq '.implement_skill_ok=false' <<<"$STATE")" ;;
+      *) : ;;  # unrelated (or malformed) skill name — record nothing
+    esac
     ;;
   *) err "unknown subcommand: $sub" ;;
 esac

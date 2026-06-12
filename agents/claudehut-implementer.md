@@ -56,6 +56,11 @@ end up satisfying (Review audits exactly these items). The tech-stack standards 
 project's path-scoped rules, which load automatically as you open matching files (confirmed to load inside the
 worktree subagent); you do not need to remember them all up front.
 
+**When CREATING a new file, READ the matching playbook from the implement skill's `references/` dir BEFORE
+writing any code** — path-scoped rules fire on *editing existing* files, **not on creation** (measured), so
+at create-time the playbook is the only carrier of the standard (security deny-by-default, JPA LAZY, consumer
+idempotency, …). The component-type → playbook table is in the implement skill body you were preloaded with.
+
 `isolation: worktree` keeps a failed attempt from corrupting the working tree — branch is discarded if you
 make no useful change.
 

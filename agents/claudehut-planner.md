@@ -36,6 +36,13 @@ flowchart TB
      goal, **exact files**, the **failing test to write first**, the minimal change, the **verify command
      verbatim from `PROJECT.md`** (e.g. `./gradlew test --tests OrderServiceTest`), Depends-on, and the spec
      requirement it traces to. (`claudehut-state set-plan` rejects a plan file with no `| T-` rows.)
+   - **Cell budgets (hard — a plan is a dispatch table the reviewer scans in 5 minutes, not a second spec):**
+     - `Test first` = **`ClassName#method` only, ≤60 chars.** What the test asserts belongs in the spec's
+       acceptance criteria — if you are writing assertion detail here, it is spec content in the wrong file.
+     - `Minimal change` = **intent phrase, ≤30 words.** No annotation FQNs, no method signatures, no
+       conditional branches. The implementer reads the spec for the *what*; this cell only scopes the *where*.
+     - Resolve each OQ-xxx **ONCE, in §1 Decision & Approach** — never restate the resolution in §5 Risks or
+       §7 Done Definition (measured: the same OQ echoed 3× added ~200 words of pure repetition).
    - **Group every multi-task plan under interleaved `### Phase N` headings — one mini-table per phase, NOT
      one combined table with a trailing phase list.** Phase 0 setup/migrations (sequential) → Phase 1
      domain/service → Phase 2 API/controller → Phase 3 cross-cutting. This is **mandatory layout**: the main

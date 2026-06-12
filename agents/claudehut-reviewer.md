@@ -36,6 +36,18 @@ flowchart TB
 - **Dead code / leftovers** — unused imports/vars *your change introduced*, commented-out blocks, stray TODOs.
 - **Enforcement set** — every listed skill/rule actually satisfied by the change.
 
+**Fast-lane fallback checklist — when the enforcement set is EMPTY (trivial/small tier skipped Brainstorm),
+you are the only domain reviewer; run these mechanical checks against the diff:**
+
+| Diff touches | Verify |
+|---|---|
+| `@Entity` | every `@ManyToOne`/`@OneToOne` declares `fetch = FetchType.LAZY` explicitly (the default is EAGER); no `@Data`/`@Builder`/`@EqualsAndHashCode` on the entity |
+| `@KafkaListener` / `@RabbitListener` | ack is explicit (manual ack / container ack mode), not auto-ack-before-work; handler is idempotent under redelivery |
+| `@Cacheable` / Redis code | TTL is set; serializer is explicit (not JDK default) |
+| controller / `@RequestBody` | `@Valid` present; parameter is a `*Request` DTO, never an `@Entity` |
+| `Mono`/`Flux` chain | no `.block()` or blocking I/O inside the chain |
+| repository / `@Query` | no findById-in-a-loop; collection fetches guard N+1 (fetch join / `@EntityGraph`) |
+
 Skip pure style nits already handled by `format-java.sh`.
 
 ## Output contract

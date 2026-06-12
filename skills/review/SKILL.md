@@ -3,7 +3,7 @@ name: review
 description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it must spawn subagents.
 ---
 
-# Review (phase 5 of 6)
+# Review (phase 6 of 7)
 
 Prove the change is done — against the enforcement set, the project rules, and fresh test evidence — before
 any completion claim. Run **inline on the main thread**: a subagent cannot spawn subagents, and this phase
@@ -56,7 +56,7 @@ flowchart TB
    |---|---|---|
    | `claudehut:claudehut-test-runner` | **always** | evidence is non-negotiable |
    | `claudehut:claudehut-reviewer` | **always** | correctness/conventions apply to any change |
-   | `claudehut:claudehut-security-auditor` | enforcement has `security/*` **OR** diff touches controllers/auth/security/deserialization/secrets — skip ONLY on a confident no-security-surface read | **over-include**: a false-skip ships a vulnerability (the `permitAll()` precedent); when in doubt, run it |
+   | `claudehut:claudehut-security-auditor` | **full tier:** enforcement has `security/*` **OR** diff touches controllers/auth/security/deserialization/secrets — skip ONLY on a confident no-security-surface read. **trivial/small tier: SKIP by default** — the write gate's fast-lane bound already **deterministically denied** any diff touching a security/auth/migration path (`fastlane_bound_ok`), so a fast-lane diff cannot contain that surface; spawn the auditor only if the diff somehow touches a controller/deserialization path anyway | **full tier over-include**: a false-skip ships a vulnerability (the `permitAll()` precedent); when in doubt, run it. The fast-lane skip is gate-backed, not judgment-backed |
    | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches queries/repositories/reactive/hot paths | false-skip = perf regression, not a correctness defect — safe to skip when clearly irrelevant |
    | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files | the acceptance example: a **no-DB change does NOT spawn db-reviewer** |
 
