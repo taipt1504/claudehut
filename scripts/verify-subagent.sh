@@ -31,8 +31,24 @@ case "$agent" in
     { ls "$DIR"/tasks/*/plan.md >/dev/null 2>&1 || ls "$DIR"/plans/*.md >/dev/null 2>&1; } \
       || block "claudehut-planner returned without a plan file (.claude/claudehut/tasks/<NNNN-slug>/plan.md). Produce it before proceeding."
     ;;
+  claudehut-learner)
+    # P1-1 FIX (defense-in-depth): learner must have written to learnings.jsonl this session.
+    # Proxy for "this session": the state file is created by bootstrap.sh at SessionStart, before
+    # any subagent is dispatched. If learnings.jsonl mtime > state file mtime, the learner wrote
+    # to it during this session. Fails open when session_id, state file, or learnings.jsonl is
+    # absent — never wedge on an unexpected filesystem state (06 §5).
+    sid_l="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
+    LEARNINGS="$DIR/learnings.jsonl"
+    STATE_FILE="$DIR/state/$sid_l.json"
+    if [ -n "$sid_l" ] && [ -f "$STATE_FILE" ] && [ -f "$LEARNINGS" ]; then
+      if ! find "$LEARNINGS" -newer "$STATE_FILE" -maxdepth 0 | grep -q .; then
+        block "claudehut-learner returned but learnings.jsonl was not modified this session. Write at least one entry to .claude/claudehut/learnings.jsonl before returning."
+      fi
+    fi
+    # If state file or learnings.jsonl absent: fail open (bootstrap may not have run, or first task)
+    ;;
   *)
-    : # text-returning agents (explorer, brainstormer, auditors, learner) — no file contract to check
+    : # text-returning agents (explorer, brainstormer, auditors) — no file contract to check
     ;;
 esac
 exit 0

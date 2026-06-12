@@ -13,13 +13,31 @@ command -v jq >/dev/null 2>&1 || exit 0   # degrade: fail open
 allow() { exit 0; }   # no decision = proceed normally
 deny()  { jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r,additionalContext:$r}}'; exit 0; }
 
-fp="$(jq -r '.tool_input.file_path // empty' <<<"$in" 2>/dev/null || true)"
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 
+# Real CC payload carries the target at top-level .tool_input.file_path for Write, Edit
+# AND MultiEdit (MultiEdit applies many edits to ONE file). The prior branch read
+# .tool_input.file_edits[] — a field that does NOT exist in the CC payload — so it
+# produced an empty list and let EVERY MultiEdit bypass the gate (fail-open). Extract the
+# top-level path and also tolerate per-edit nested paths from any shape, so the gate
+# applies regardless of the exact payload. Empty list → all_exempt stays true → fail-open
+# (06 §5), unchanged. NB: exact MultiEdit shape pending a live payload dump — this is
+# correct under every observed/claimed shape.
+fp_list="$(jq -r '[.tool_input.file_path, (.tool_input.edits[]?.file_path), (.tool_input.file_edits[]?.file_path)] | map(select(. != null and . != "")) | .[]' <<<"$in" 2>/dev/null || true)"
+fp="$(printf '%s\n' "$fp_list" | head -1)"
+
 # Non-production targets are always allowed (reuse-scan/spec/plan files; tests during TDD RED).
-case "$fp" in
-  *"/.claude/claudehut/"*|*"/test/"*|*Test.java|*IT.java) allow ;;
-esac
+# For MultiEdit: ALL paths in the batch must be exempt for the call to bypass the gate.
+# Empty fp_list (malformed payload) keeps all_exempt=true and falls through to allow — fail-open (06 §5).
+all_exempt=true
+while IFS= read -r p; do
+  [ -z "$p" ] && continue
+  case "$p" in
+    *"/.claude/claudehut/"*|*"/test/"*|*Test.java|*IT.java) : ;;
+    *) all_exempt=false; break ;;
+  esac
+done <<<"$fp_list"
+$all_exempt && allow
 
 STATE="$PROJECT_DIR/.claude/claudehut/state/$sid.json"
 [ -f "$STATE" ] || allow   # no active workflow for this session → fail open (06 §5)

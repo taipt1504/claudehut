@@ -5,7 +5,7 @@ description: >
   paths, allocation hot spots. Use in the Review phase, spawned by claudehut:review, on changes to
   repositories, queries, hot paths, or reactive code.
 model: sonnet
-tools: Read, Grep, Bash, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__mysql_query, mcp__mysql__list_tables, mcp__mysql__describe_table
+tools: Read, Grep, Bash, mcp__postgres__query, mcp__mysql__mysql_query, mcp__kafka__list_topics, mcp__kafka__describe_topic, mcp__kafka__consumer_group_lag, mcp__kafka__list_consumer_groups, mcp__kafka__get_offsets, mcp__kafka__peek_messages
 color: pink
 ---
 
@@ -46,6 +46,12 @@ When a DB MCP server is connected, run **read-only** `EXPLAIN`/`EXPLAIN ANALYZE`
 ground claims with real query plans — never destructive SQL. When **no** MCP is connected (default; MCP is
 opt-in per project), reason from the code and any migration/schema files and **state** that the plan is
 inferred, not measured. Never hard-fail on a missing server.
+
+When a **Kafka MCP server** is connected (opt-in via `claudehut-init`), use `consumer_group_lag`,
+`list_consumer_groups`, and `get_offsets` to ground consumer-lag and throughput claims with live
+broker data. When **no Kafka MCP** is connected (the default), reason from the Spring Kafka
+`@KafkaListener`, `KafkaTemplate`, and producer/consumer config in code — and **state explicitly**
+that consumer-group lag was inferred from code patterns, not measured from a live broker.
 
 ## Output contract
 

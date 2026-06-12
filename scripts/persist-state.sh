@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PreCompact hook (async). Best-effort durability before context compaction:
-# flush any staged learnings into learnings.jsonl and snapshot the per-session state file,
-# so a long session that compacts mid-task does not lose phase position or learnings.
-# Non-blocking; relies on the agent having staged learnings. See 06 §3 / 07 §5.
+# PreCompact hook. Durability before context compaction: snapshot the per-session
+# state file so a long session that compacts mid-task does not lose phase position.
+# Runs synchronously (hooks.json timeout) so the snapshot completes before compaction.
+# See 06 §3 / 07 §5.
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -12,12 +12,9 @@ command -v jq >/dev/null 2>&1 || exit 0
 DIR="$PROJECT_DIR/.claude/claudehut"
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 
-# Flush staged learnings (one JSON object per line) into the durable store.
-STAGED="$DIR/learnings.staged.jsonl"
-if [ -f "$STAGED" ]; then
-  cat "$STAGED" >> "$DIR/learnings.jsonl" 2>/dev/null || true
-  : > "$STAGED" || true
-fi
+# Note: learnings.staged.jsonl had no producer anywhere in the plugin — the flush was
+# dead code (always a no-op) and is removed. claudehut-learner writes learnings.jsonl
+# directly in the Learn phase; there is no mid-task staging to flush here.
 
 # Snapshot the per-session state file.
 STATE="$DIR/state/$sid.json"

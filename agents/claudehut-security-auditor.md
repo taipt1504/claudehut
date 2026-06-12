@@ -4,7 +4,7 @@ description: >
   Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Use in the Review
   phase, spawned by claudehut:review, on changes to controllers, security config, auth, or data exposure.
 model: opus
-tools: Read, Grep, Bash, mcp__postgres__query, mcp__postgres__list_tables, mcp__postgres__describe_table, mcp__mysql__mysql_query, mcp__mysql__list_tables, mcp__mysql__describe_table
+tools: Read, Grep, Bash, mcp__postgres__query, mcp__mysql__mysql_query, mcp__kafka__list_topics, mcp__kafka__describe_topic, mcp__kafka__consumer_group_lag, mcp__kafka__list_consumer_groups, mcp__kafka__get_offsets, mcp__kafka__peek_messages
 color: red
 ---
 
@@ -45,6 +45,12 @@ confirm a query is parameterised against the real schema or that exposed data is
 destructive SQL. When **no** MCP is connected (the default; MCP is opt-in per project), review **statically**
 from the code and **state in your report** that you could not verify against a live DB. Never hard-fail on a
 missing server.
+
+When a **Kafka MCP server** is connected, use `list_topics` and `describe_topic` to confirm
+topic-level ACLs and partition assignments match the security config — specifically that DLQ topics
+are not world-readable and that `SASL_SSL` is enforced for production topics. When **no Kafka MCP**
+is connected, review the Spring Kafka security config and `application.yml` statically and **state**
+that ACL verification was inferred, not confirmed from a live broker.
 
 ## Output contract
 

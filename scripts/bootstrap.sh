@@ -43,7 +43,7 @@ fi
 # understand-anything detection — no native runtime cross-plugin field exists, so read
 # enabledPlugins via the CLI. Default to "absent" when the command/data is unavailable.
 if command -v claude >/dev/null 2>&1 \
-   && claude plugin list --json 2>/dev/null | jq -e '.[]? | select(.name=="understand-anything" and (.enabled // false))' >/dev/null 2>&1; then
+   && claude plugin list --json 2>/dev/null | jq -e '.[]? | select((.id | startswith("understand-anything@")) and (.enabled // false))' >/dev/null 2>&1; then
   ctx="$ctx"$'\n\n## understand-anything: ENABLED — Brainstorm MUST use its query/search skills.'
 else
   ctx="$ctx"$'\n\n## understand-anything: absent — Brainstorm uses claudehut-explorer + Grep.'

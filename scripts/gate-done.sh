@@ -47,5 +47,12 @@ elif [ "$tier" != "trivial" ] && [ "$phase" != "learn" ]; then
   # trivial tier legitimately skips Learn (workflow tier map) — blocking it here would wedge the
   # session until the consecutive-Stop cap. full + small still require the Learn pass.
   block "ClaudeHut gate: Learn pass not run — run claudehut:capture-learnings before finishing."
+elif [ "$tier" != "trivial" ] && [ "$phase" = "learn" ]; then
+  # P1-1 FIX: phase=learn is necessary but not sufficient. The learner must have actually written
+  # to learnings.jsonl. An empty file = claudehut-init created it but no learner ran this task.
+  LEARNINGS="$PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+  if [ ! -f "$LEARNINGS" ] || [ ! -s "$LEARNINGS" ]; then
+    block "ClaudeHut gate: learnings.jsonl is absent or empty — the learner did not produce output. Re-dispatch claudehut:capture-learnings."
+  fi
 fi
 exit 0

@@ -65,6 +65,16 @@ flowchart TB
    unqualified names can fail to resolve and waste a full dispatch round (measured). State which reviewers you
    selected and why (one line each) so any skip is auditable.
 
+   **Every dispatch prompt MUST carry (the subagent inherits `.claude/rules/` via project memory, but these
+   two are NOT auto-present in its isolated context):**
+   - **Enforcement set, verbatim** —
+     `jq -c '.enforcement_set' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
+     Auditors check against exactly these items; without it in the prompt they audit blind. (Fast-lane
+     trivial/small tasks have an empty set — say so explicitly.)
+   - **Vocabulary table** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, read it on the
+     main thread and paste it under a `## Project Vocabulary` heading. The `vocabulary.md` rule reaches the
+     subagent, but the LANGUAGE.md table it points to does not. If absent, omit (do not block).
+
    Auditors that can use a database/Kafka MCP **degrade gracefully** when none is connected: they review
    statically (read code, infer query plans) instead of running live queries, and say so in their report.
 

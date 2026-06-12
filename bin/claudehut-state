@@ -74,10 +74,36 @@ tmpl() { # $1 path  $2 grep -E pattern  $3 error
   grep -qE "$2" "$p" || err "$3"
 }
 
+# P2-2: inter-phase transition guard — maps phase names to ordinal positions.
+# Defined here (before the dispatch case) so set-phase can call it.
+phase_order() {
+  case "$1" in
+    discover) echo 1 ;; brainstorm) echo 2 ;; spec) echo 3 ;;
+    plan) echo 4 ;; implement) echo 5 ;; review) echo 6 ;; learn) echo 7 ;;
+    *) echo 0 ;;
+  esac
+}
+
 case "$sub" in
   set-phase)
     phase="${shift_args[0]:-}"
     case "$phase" in discover|brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
+
+    # P2-2 FIX: block backward phase transitions unless bypass=true or restarting via discover.
+    # discover is always valid as an explicit new-task entry point (no minimum ordinal).
+    # bypass=true in state is the intentional escape hatch for recovery and non-standard flows.
+    if [ "$phase" != "discover" ]; then
+      current_phase="$(jq -r '.phase // "discover"' <<<"$STATE")"
+      bypass_flag="$(jq -r '.bypass // false' <<<"$STATE")"
+      if [ "$bypass_flag" != "true" ]; then
+        cur_ord="$(phase_order "$current_phase")"
+        new_ord="$(phase_order "$phase")"
+        if [ "$new_ord" -lt "$cur_ord" ]; then
+          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-bypass true' first (recovery mode), or 'set-phase discover' to start a new task."
+        fi
+      fi
+    fi
+
     STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
     t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
     sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true

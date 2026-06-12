@@ -67,7 +67,8 @@ rm -rf "$TMP"
 new_proj; st set-phase implement
 blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pending (engaged)" || bad "block: pending"
 st set-review pass; blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pass but phase!=learn" || bad "block: phase!=learn"
-st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: review=pass + phase=learn" || bad "allow: done"
+printf '{"id":"x","learning":"test"}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: review=pass + phase=learn + non-empty learnings" || bad "allow: done"
 st set-review pending; done_ok x '{"session_id":"s","stop_hook_active":true}' && ok "allow: stop_hook_active cap" || bad "cap allow"
 done_ok x '{"session_id":"none","stop_hook_active":false}' && ok "allow: missing state fails open (no block)" || bad "done fail-open"
 rm -rf "$TMP"
@@ -130,6 +131,83 @@ rm -rf "$TMP"; new_proj
   && ok "cap: stop_hook_active fails open (no infinite block / hang)" || bad "cap: stop_hook_active still blocks"
 echo '{"agent_type":"claudehut-planner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
   && ok "block: planner, no artifact, below cap" || bad "block: planner below cap"
+rm -rf "$TMP"
+
+echo "== gate-write: MultiEdit (P1-2) =="
+new_proj; st set-phase brainstorm
+chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd"
+# MultiEdit on test files only -> all paths exempt -> allow (even without reuse scan)
+allows x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_edits":[{"file_path":"/p/src/test/java/FooTest.java","changes":[]},{"file_path":"/p/src/test/java/BarTest.java","changes":[]}]}}' \
+  && ok "P1-2: MultiEdit test-only files exempt (allowed)" || bad "P1-2: MultiEdit test files wrongly gated"
+# MultiEdit on .claude/claudehut artifacts only -> all exempt -> allow
+allows x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_edits":[{"file_path":"/p/.claude/claudehut/tasks/0001-slug/spec.md","changes":[]}]}}' \
+  && ok "P1-2: MultiEdit artifact path exempt" || bad "P1-2: MultiEdit artifact path wrongly gated"
+# MultiEdit mixing prod + test -> not all paths exempt -> gates on reuse_scan
+denies x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_edits":[{"file_path":"/p/src/main/java/Foo.java","changes":[]},{"file_path":"/p/src/test/java/FooTest.java","changes":[]}]}}' \
+  && ok "P1-2: MultiEdit mixed prod+test correctly gated (reuse_scan missing)" || bad "P1-2: MultiEdit mixed not gated"
+# Real CC MultiEdit payload uses a SINGLE top-level file_path (many edits to one file), NOT file_edits[].
+# These cover the shape production actually sends (the file_edits[] fixtures above are legacy/defensive).
+denies x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/p/src/main/java/Foo.java","edits":[{"old_string":"a","new_string":"b"}]}}' \
+  && ok "P1-2: MultiEdit real shape (top-level file_path) prod file gated" || bad "P1-2: MultiEdit top-level file_path NOT gated (gate bypass)"
+allows x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/p/src/test/java/FooTest.java","edits":[{"old_string":"a","new_string":"b"}]}}' \
+  && ok "P1-2: MultiEdit real shape test file exempt" || bad "P1-2: MultiEdit real-shape test file wrongly gated"
+rm -rf "$TMP"
+
+echo "== gate-done: learn gate hollow-learn (P1-1) =="
+# phase=learn but learnings.jsonl empty -> block
+new_proj; st set-phase implement; st set-review pass
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"   # exists but empty
+st set-phase learn
+blocks x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "P1-1: phase=learn + empty learnings.jsonl -> blocked (hollow learn)" || bad "P1-1: hollow learn not blocked"
+# Write one entry -> should allow
+printf '{"id":"x","learning":"test"}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+done_ok x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "P1-1: phase=learn + non-empty learnings.jsonl -> allowed" || bad "P1-1: valid learn blocked"
+# learnings.jsonl absent -> block
+rm "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+blocks x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "P1-1: phase=learn + absent learnings.jsonl -> blocked" || bad "P1-1: absent learnings not blocked"
+rm -rf "$TMP"
+
+echo "== verify-subagent: learner mtime (P1-1 defense-in-depth) =="
+new_proj
+# No state file -> fail open (no block)
+[ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "P1-1 verify: learner, no state file -> fail open" || bad "P1-1 verify: fail open broken"
+# Create state file, then learnings.jsonl older than state file -> block
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+sleep 1
+echo '{}' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json"
+echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "P1-1 verify: learner, learnings older than state -> block" || bad "P1-1 verify: stale learnings not blocked"
+# Touch learnings to make it newer -> allow
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+[ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "P1-1 verify: learner, learnings newer than state -> allow" || bad "P1-1 verify: fresh learnings still blocked"
+# stop_hook_active cap -> fail open regardless
+[ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "P1-1 verify: stop_hook_active cap -> fail open" || bad "P1-1 verify: cap not respected"
+rm -rf "$TMP"
+
+echo "== claudehut-state: phase transition guard (P2-2) =="
+new_proj; st set-phase brainstorm
+# Forward: brainstorm -> spec -> ok
+st set-phase spec && ok "P2-2: forward brainstorm->spec allowed" || bad "P2-2: forward blocked"
+# Forward: spec -> plan -> ok
+st set-phase plan && ok "P2-2: forward spec->plan allowed" || bad "P2-2: forward blocked"
+# Backward: plan -> spec -> REJECTED
+"$ROOT/bin/claudehut-state" --session s set-phase spec >/dev/null 2>&1 \
+  && bad "P2-2: backward plan->spec was allowed (guard missing)" || ok "P2-2: backward plan->spec rejected"
+# Backward: plan -> discover -> ALLOWED (discover is always a valid restart)
+st set-phase discover && ok "P2-2: discover always valid restart" || bad "P2-2: discover restart blocked"
+# bypass=true allows backward jump
+st set-phase implement; st set-bypass true
+st set-phase brainstorm && ok "P2-2: bypass=true allows backward" || bad "P2-2: bypass=true blocked"
+# Tier skip path: discover -> implement (skipping middle phases) -> ALLOWED (forward)
+new_proj; st set-phase discover
+st set-phase implement && ok "P2-2: tier-skip discover->implement allowed (forward)" || bad "P2-2: tier-skip blocked"
 rm -rf "$TMP"
 
 echo

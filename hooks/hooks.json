@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|clear|compact",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh", "timeout": 15 }
         ]
@@ -48,7 +48,7 @@
     "PreCompact": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/persist-state.sh", "async": true }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/persist-state.sh", "timeout": 10 }
         ]
       }
     ]
