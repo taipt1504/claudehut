@@ -70,7 +70,7 @@ fp=0; for f in MEMORY.md PROJECT.md LANGUAGE.md architecture.md reuse-index.json
 [ -d "$W/.claudehut" ] && bad "fallback created wrong-dir .claudehut/" || ok "fallback: no wrong-dir .claudehut/"
 rm -rf "$W"
 
-echo "== worktree.baseRef=head settings write (v0.3.3 — dependent-phase fan-out) =="
+echo "== worktree.baseRef=head settings write (v0.4.0 — dependent-phase fan-out) =="
 # create case: no settings.json -> init creates it with baseRef=head
 W="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
 [ "$(jq -r '.worktree.baseRef // empty' "$W/.claude/settings.json" 2>/dev/null)" = "head" ] \

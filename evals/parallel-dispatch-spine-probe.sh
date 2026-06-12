@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live probe (v0.3.3): does a SPINE-DEPENDENT phase fan out? — the exact case that broke in party-ms 0007.
+# Live probe (v0.4.0): does a SPINE-DEPENDENT phase fan out? — the exact case that broke in party-ms 0007.
 # Phase A (T-001) commits a base class on the feature branch (local-only, branch AHEAD of origin). Phase B
 # has two [P] tasks (T-002, T-003) that DEPEND on T-001 and must build on it. With worktree.baseRef=head,
 # Phase-B worktrees fork from the current HEAD (which has the committed Phase A) and SEE it.
