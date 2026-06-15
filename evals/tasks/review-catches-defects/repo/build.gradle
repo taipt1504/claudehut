@@ -1,8 +1,12 @@
-plugins { id 'java'; id 'org.springframework.boot' version '3.2.0'; id 'io.spring.dependency-management' version '1.1.4' }
+plugins { id 'java'; id 'org.springframework.boot' version '3.2.0' }
 group = 'com.example'
 java { sourceCompatibility = '17' }
 repositories { mavenCentral() }
 dependencies {
+  // platform BOM instead of the io.spring.dependency-management plugin: the plugin's 1.1.4 calls a
+  // LenientConfiguration API removed in Gradle 9 → :compileJava fails. The BOM supplies versions and is
+  // Gradle-9-safe. (Found by the v0.5 review-rigor probe — the test-runner flagged the toolchain break.)
+  implementation platform('org.springframework.boot:spring-boot-dependencies:3.2.0')
   implementation 'org.springframework.boot:spring-boot-starter-web'
   implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
   implementation 'org.springframework.boot:spring-boot-starter-validation'
