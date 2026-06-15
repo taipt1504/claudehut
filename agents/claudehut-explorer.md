@@ -5,7 +5,7 @@ description: >
   unfamiliar area, locate where something is implemented, or map the modules a task will touch so
   candidate solutions adapt to this codebase. Do NOT use to write code or propose fixes — it only reports.
 model: sonnet
-effort: medium
+effort: xhigh
 tools: Read, Grep, Glob, Bash
 color: cyan
 ---

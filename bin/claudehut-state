@@ -13,7 +13,7 @@
 #   set-enforcement --skills a,b,c --rules x.md,y.md
 #   set-spec  <path>              # canonical (04's "set-phase plan --plan" is illustrative shorthand)
 #   set-plan  <path>
-#   set-review <pass|pending|capped>
+#   set-review <pass|pending|capped> [--evidence PATH]   # pass REQUIRES --evidence review.md (coverage table + test evidence)
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
 #   set-bypass <true|false>
 #   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
@@ -145,6 +145,25 @@ case "$sub" in
   set-review)
     r="${shift_args[0]:-}"
     case "$r" in pass|pending|capped) ;; *) err "set-review needs pass|pending|capped" ;; esac
+    # Earned pass (review-rigor v0.5): `pass` requires an --evidence review.md that actually carries a
+    # coverage table + test evidence. Mirrors the tmpl() guard on spec/plan — a flag the model can flip
+    # for free is not enforcement. pending/capped need no evidence.
+    if [ "$r" = "pass" ]; then
+      ev="$(flag --evidence)"
+      [ -n "$ev" ] || err "set-review pass requires --evidence <tasks/NNNN-slug/review.md> (the review artifact with the coverage table + test summary)."
+      canon "$ev"
+      evp="$ev"; case "$evp" in /*) : ;; *) evp="$PROJECT_DIR/$evp" ;; esac
+      [ -f "$evp" ] || err "set-review pass: evidence file not found at $ev — write review.md (merged coverage table + test evidence) before passing."
+      # Coverage table = a MARKDOWN TABLE ROW (line starts with `|`) carrying a status token — not the
+      # word "satisfied" loose in prose (that one-sentence-review bypass was a review finding).
+      grep -qiE '^[[:space:]]*\|.*(✓|✗|satisfied|violated|n-?/?a)' "$evp" \
+        || err "set-review pass: $ev has no coverage table — expected markdown rows like '| <item> | ✓ satisfied | file:line |'. Each enforcement-set item + defect class needs a row with evidence (claudehut:review)."
+      # Test evidence = a build command OR a counted result ("12 passed", "Tests run: 12") — not the bare
+      # word "passing" in prose.
+      grep -qiE '(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|build success|[0-9]+ +(passed|passing|tests?))' "$evp" \
+        || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed'). Review requires green evidence, not an assertion."
+      STATE="$(jq --arg v "$ev" '.review_evidence=$v' <<<"$STATE")"
+    fi
     STATE="$(jq --arg v "$r" '.review=$v' <<<"$STATE")"
     ;;
   set-outstanding)

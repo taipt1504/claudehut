@@ -12,6 +12,14 @@ bad()  { FAIL=$((FAIL+1)); echo "  FAIL - $1"; }
 
 new_proj() { TMP="$(mktemp -d)"; export CLAUDE_PROJECT_DIR="$TMP"; mkdir -p "$TMP/.claude/claudehut/state" "$TMP/.claude/claudehut/plans"; }
 st() { "$ROOT/bin/claudehut-state" --session s "$@" >/dev/null; }
+# review-rigor v0.5: set-review pass requires --evidence review.md (coverage table + test summary).
+# Helper writes a valid evidence file under the canonical store and passes it.
+review_pass() {
+  local ev="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/review.md"
+  mkdir -p "$(dirname "$ev")"
+  printf '# Review\n| Item | Status | Evidence |\n|---|---|---|\n| jpa fetch | ✓ satisfied | Foo.java:1 |\n\nTests: ./gradlew test — 12 passed\n' > "$ev"
+  "$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$ev" >/dev/null
+}
 denies()  { echo "$2" | "$ROOT/scripts/gate-write.sh" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; }
 allows()  { [ -z "$(echo "$2" | "$ROOT/scripts/gate-write.sh")" ]; }
 blocks()  { echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
@@ -69,14 +77,14 @@ done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: armed-but-
 rm -rf "$TMP"
 new_proj; st set-phase implement
 blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pending (engaged)" || bad "block: pending"
-st set-review pass; blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pass but phase!=learn" || bad "block: phase!=learn"
+review_pass; blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pass but phase!=learn" || bad "block: phase!=learn"
 printf '{"id":"x","learning":"test"}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
 st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: review=pass + phase=learn + non-empty learnings" || bad "allow: done"
 st set-review pending; done_ok x '{"session_id":"s","stop_hook_active":true}' && ok "allow: stop_hook_active cap" || bad "cap allow"
 done_ok x '{"session_id":"none","stop_hook_active":false}' && ok "allow: missing state fails open (no block)" || bad "done fail-open"
 rm -rf "$TMP"
 # tier-aware completion (Issue 4 × gate-done interaction — trivial skips Learn, must NOT wedge)
-new_proj; st set-phase review; st set-review pass; st set-complexity trivial
+new_proj; st set-phase review; review_pass; st set-complexity trivial
 done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: trivial tier — review=pass terminates WITHOUT Learn (no wedge)" || bad "trivial done without learn"
 st set-complexity small
 blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: small tier still requires Learn" || bad "small learn required"
@@ -220,9 +228,42 @@ allows x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/
   && ok "P1-2: MultiEdit real shape test file exempt" || bad "P1-2: MultiEdit real-shape test file wrongly gated"
 rm -rf "$TMP"
 
+echo "== claudehut-state: set-review pass earned-evidence (review-rigor v0.5) =="
+new_proj; st set-phase review
+# pass with no --evidence → rejected
+"$ROOT/bin/claudehut-state" --session s set-review pass >/dev/null 2>&1 \
+  && bad "set-review pass without --evidence accepted" || ok "reject: set-review pass needs --evidence"
+# pass with --evidence to a missing file → rejected
+"$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/review.md" >/dev/null 2>&1 \
+  && bad "set-review pass accepted a missing evidence file" || ok "reject: evidence file must exist"
+# evidence with no coverage table → rejected
+ev="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/review.md"; mkdir -p "$(dirname "$ev")"
+printf '# Review\nlooks good, shipping.\n' > "$ev"
+"$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$ev" >/dev/null 2>&1 \
+  && bad "set-review pass accepted evidence with no coverage table" || ok "reject: evidence needs a coverage table (✓/✗/n-a rows)"
+# coverage table but no test evidence → rejected
+printf '# Review\n| Item | Status | Evidence |\n|---|---|---|\n| x | ✓ satisfied | A.java:1 |\n' > "$ev"
+"$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$ev" >/dev/null 2>&1 \
+  && bad "set-review pass accepted evidence with no test summary" || ok "reject: evidence needs fresh test evidence"
+# prose that merely contains the words "satisfied"/"passing" but has NO table row → rejected (bypass guard)
+printf '# Review\nAll requirements are satisfied. Tests are passing. Shipping.\n' > "$ev"
+"$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$ev" >/dev/null 2>&1 \
+  && bad "set-review pass accepted prose with keywords but no table row" || ok "reject: prose with 'satisfied/passing' but no '|' table row"
+# non-canonical evidence path → rejected
+printf '| x | ✓ | A.java:1 |\n./gradlew test 5 passed\n' > /tmp/ch-bad-review.md
+"$ROOT/bin/claudehut-state" --session s set-review pass --evidence /tmp/ch-bad-review.md >/dev/null 2>&1 \
+  && bad "set-review pass accepted non-canonical evidence path" || ok "reject: evidence must be under .claude/claudehut/"
+rm -f /tmp/ch-bad-review.md
+# full valid evidence → accepted, review=pass + review_evidence recorded
+review_pass && jq -e '.review=="pass" and (.review_evidence|type=="string")' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json" >/dev/null 2>&1 \
+  && ok "allow: set-review pass with valid coverage-table + test evidence" || bad "valid evidence rejected"
+# pending/capped need no evidence
+"$ROOT/bin/claudehut-state" --session s set-review pending >/dev/null 2>&1 && ok "set-review pending needs no evidence" || bad "pending wrongly required evidence"
+rm -rf "$TMP"
+
 echo "== gate-done: learn gate hollow-learn (P1-1) =="
 # phase=learn but learnings.jsonl empty -> block
-new_proj; st set-phase implement; st set-review pass
+new_proj; st set-phase implement; review_pass
 touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"   # exists but empty
 st set-phase learn
 blocks x '{"session_id":"s","stop_hook_active":false}' \

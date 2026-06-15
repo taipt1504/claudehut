@@ -99,6 +99,7 @@ The single source of truth for "where are we" is the **Phase-state file**, writt
   "spec_path": ".claude/claudehut/tasks/0007-payment-idempotency/spec.md",
   "plan_path": ".claude/claudehut/tasks/0007-payment-idempotency/plan.md",
   "review": "pending",
+  "review_evidence": ".claude/claudehut/tasks/0007-payment-idempotency/review.md",
   "outstanding": [],
   "bypass": false,
   "implement_skill_ok": true,
@@ -118,8 +119,9 @@ Field semantics:
 | `enforcement_set.skills` / `.rules` | the applicable skills/rules at ≥1% match — the checklist Review audits ([§7](#7-the-enforcement-set-applying-the-1-rule))                                                                                                                                                                                                                                                                           | Brainstorm                            |
 | `spec_path`                         | the implementation spec exists                                                                                                                                                                                                                                                                                                                                                                      | Spec (full tier only)                 |
 | `plan_path`                         | the executable plan exists                                                                                                                                                                                                                                                                                                                                                                          | Plan (full tier only)                 |
-| `review`                            | `pending` \| `pass` \| `capped` — pass only when `outstanding` is empty and evidence is green                                                                                                                                                                                                                                                                                                       | Review                                |
-| `outstanding`                       | applicable-but-unsatisfied {skills ∪ rules ∪ memory} items from the auditors                                                                                                                                                                                                                                                                                                                        | Review (each iteration)               |
+| `review`                            | `pending` \| `pass` \| `capped` — `pass` requires `--evidence` (v0.5): the writer refuses `pass` unless the named `review.md` exists under `.claude/claudehut/` and carries a coverage table + a fresh test-run summary                                                                                                                                                                              | Review                                |
+| `review_evidence`                   | path to the `review.md` that earned `pass` (v0.5) — recorded by `set-review pass --evidence`; the audit trail behind the flag                                                                                                                                                                                                                                                                       | Review (on pass)                      |
+| `outstanding`                       | applicable-but-unsatisfied {skills ∪ rules ∪ memory} items from the auditors (every `✗` at MED+ surviving the validation pass)                                                                                                                                                                                                                                                                      | Review (each iteration)               |
 | `bypass`                            | senior override; disables the gate hooks for the session                                                                                                                                                                                                                                                                                                                                            | manual                                |
 | `implement_skill_ok`                | **skill rail (Issue 1):** `claudehut:implement` was invoked for the _current task_ — set **only** by `record-skill.sh` (the `PreToolUse(Skill)` recorder hook, via `mark-skill`), reset to `false` by `set-phase discover\|brainstorm` / `mark-skill discover\|brainstorm` (the per-task boundary). `gate-write.sh` denies production writes in **every tier** until it is `true`. Default `false`. | Implement (via the Skill call itself) |
 
@@ -128,7 +130,7 @@ Field semantics:
 ```
 claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills implement,review --rules controller.md,persistence.md,testing.md,caching.md
 claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/0007-payment-idempotency/spec.md
-claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass        # only after outstanding == []
+claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence .claude/claudehut/tasks/0007-payment-idempotency/review.md   # validated: coverage table + test evidence
 ```
 
 The skill body passes `${CLAUDE_SESSION_ID}` (a native skill string-substitution) so the writer targets the correct per-session file; gate hooks derive the same path from the `session_id` field in their hook-input JSON ([§4.1](#41-concurrency-and-worktree-isolation-collision-safe-state)). Subcommands: `set-phase`, `set-reuse-scan`, `set-enforcement`, `set-spec`, `set-plan`, `set-review`, `set-outstanding`, `set-bypass`, `set-complexity`, `mark-skill` (all take `--session`). **Hooks only read the state file; they never write it** — with one deliberate exception: `record-skill.sh` (the `PreToolUse(Skill)` recorder) _calls the writer_ (`claudehut-state mark-skill`) rather than writing the file itself, preserving the single-writer invariant while letting the skill rail be armed by the actual Skill tool call instead of by model cooperation. This separation is what makes the gates deterministic.
@@ -338,27 +340,30 @@ flowchart TB
 
 Review is not a single pass — it **loops until full compliance**, honoring a real native limit.
 
+> **Review rigor (v0.5).** Lenient review was a measured failure mode — code shipped with N+1s, missing `@Valid`, poor performance because 4/5 auditors ran sonnet at default effort (below the brainstormer), any auditor could return a bare `PASS` with no cited evidence, enforcement items were never ticked one-by-one, and `set-review pass` was a free flag. v0.5 closes all of it: the **four code-review auditors** (reviewer/security/perf/db) run **opus + `effort: xhigh` + `ultrathink`** with a **refute-don't-confirm** framing and each returns a **coverage table** (one row per enforcement-set item + defect-class floor → ✓/✗/n-a, every `✓` cited `file:line`); the **test-runner** (sonnet) supplies the fresh test evidence (exact command + real counts). A shared **severity scale** (CRITICAL/HIGH block · MED block-unless-deferred · LOW advisory) drives blocking; a main-thread **validation pass** bounces evidence-less/incomplete coverage tables and refutes blocking findings; and `set-review pass` is **earned** — it requires `--evidence review.md` carrying the coverage table + fresh test output. The depth costs real tokens/latency (4 opus+xhigh reviewers in parallel + a validation pass per task) — an intended trade for output quality. See [03 §reviewers](./03-agents.md#2-roster-summary) and `skills/review/SKILL.md`.
+
 **The loop (driven inline from the main thread, because subagents cannot spawn subagents):**
 
-1. `review` (main thread) spawns the auditor subagents in parallel via the Agent tool. Each auditor enforces one lens against the enforcement set + project memory and returns its **outstanding items** (applicable skills/rules/memory not yet satisfied, with evidence).
-2. The merged `outstanding` set is written via `claudehut-state set-outstanding`.
-3. If `outstanding` is non-empty → fix (loop back to Implement or fix inline) → re-spawn auditors.
-4. If `outstanding == []` **and** fresh test evidence is green → `claudehut-state set-review pass`.
+1. `review` (main thread) spawns the auditor subagents in parallel via the Agent tool. Each auditor dispatch carries the **review-rigor contract**, the enforcement set, prompt-filtered **learnings/pitfalls** (RC-5 — episodic memory is not in a subagent's context), and `LANGUAGE.md`. Each enforces one lens and returns its **coverage table**.
+2. **Validation pass:** the main thread rejects any coverage table that is incomplete or whose `✓` rows lack a cited line (re-dispatch), and refutes each CRITICAL/HIGH at its cited `file:line` before merging. The surviving `✗` at MED+ become the `outstanding` set (`claudehut-state set-outstanding`).
+3. If `outstanding` is non-empty → fix (loop back to Implement or fix inline) → re-spawn auditors → re-validate.
+4. If `outstanding == []` **and** fresh test evidence is green → write `review.md` (merged coverage table + test evidence) → `claudehut-state set-review pass --evidence <review.md>` (validated).
 
 **Exit condition (explicit):**
 
-> Review exits when **`outstanding == []` AND fresh evidence is green** → `review=pass`. **OR** the native Stop-cap is reached (`stop_hook_active`; Claude Code blocks at most ~8 consecutive `Stop` hooks) → the `gate-done.sh` hook degrades gracefully: it stops blocking, marks `review` as `capped`, and **surfaces the remaining `outstanding` items to the user** rather than wedging the session.
+> Review exits when **`outstanding == []` AND fresh evidence is green** → `set-review pass --evidence <review.md>` (the writer validates the file carries a coverage table + test summary; an evidence-less `pass` is refused). **OR** the native Stop-cap is reached (`stop_hook_active`; Claude Code blocks at most ~8 consecutive `Stop` hooks) → the `gate-done.sh` hook degrades gracefully: it stops blocking, marks `review` as `capped`, and **surfaces the remaining `outstanding` items to the user** rather than wedging the session.
 
 ```mermaid
 flowchart TB
     START["review (main thread)"] --> SPAWN["spawn auditors in parallel"]
     SPAWN --> AUD["selected auditors (test-runner + reviewer always;<br/>security/perf/db by enforcement-set + diff impact)<br/>each returns outstanding items"]
-    AUD --> MERGE["merge outstanding set"]
+    AUD --> VAL["validate: reject evidence-less/incomplete coverage tables (re-dispatch);<br/>refute each CRITICAL/HIGH at cited line"]
+    VAL --> MERGE["merge surviving outstanding (✗ at MED+)"]
     MERGE --> Q{"outstanding empty AND evidence green?"}
     Q -->|no| CAP{"Stop-cap reached? (stop_hook_active)"}
     CAP -->|no| FIX["fix, loop back to Implement"] --> SPAWN
     CAP -->|yes| SURF["surface remaining items to user, review=capped"]
-    Q -->|yes| PASS["claudehut-state set-review pass"]
+    Q -->|yes| REC["write review.md (coverage table + test evidence)"] --> PASS["set-review pass --evidence review.md (validated)"]
 ```
 
 This keeps correction 4 honest: "loop until zero applicable rules/memory unsatisfied" is the _goal_, and the cap is the _native ceiling_ that prevents an infinite block.

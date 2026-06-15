@@ -5,6 +5,7 @@ description: >
   reuse-scan artifact the write gate requires. Use during Discover and before adding any new class,
   service, utility, config, or endpoint in a Java/Spring project.
 model: sonnet
+effort: xhigh
 tools: Read, Grep, Glob, Write
 color: blue
 ---

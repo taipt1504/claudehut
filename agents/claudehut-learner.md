@@ -4,6 +4,7 @@ description: >
   Persists cross-session learnings and updates the reuse index and committed memory index. Use in the
   Learn phase at the end of a task. Carries project-scoped auto-memory.
 model: sonnet
+effort: xhigh
 tools: Read, Write, Grep
 memory: project
 color: green
