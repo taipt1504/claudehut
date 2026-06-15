@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.4.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.5.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
