@@ -283,17 +283,18 @@ new_proj
 # No state file -> fail open (no block)
 [ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh")" ] \
   && ok "P1-1 verify: learner, no state file -> fail open" || bad "P1-1 verify: fail open broken"
-# Create state file, then learnings.jsonl older than state file -> block
-mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"
-touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+# Create state file, then a learn-candidates.jsonl older than state file -> block (learner's new contract:
+# it writes candidates; merge-learnings.sh writes learnings.jsonl afterward)
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/state" "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl"
 sleep 1
 echo '{}' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json"
 echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
-  && ok "P1-1 verify: learner, learnings older than state -> block" || bad "P1-1 verify: stale learnings not blocked"
-# Touch learnings to make it newer -> allow
-touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+  && ok "P1-1 verify: learner, candidates older than state -> block" || bad "P1-1 verify: stale candidates not blocked"
+# Touch candidates to make it newer -> allow
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl"
 [ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh")" ] \
-  && ok "P1-1 verify: learner, learnings newer than state -> allow" || bad "P1-1 verify: fresh learnings still blocked"
+  && ok "P1-1 verify: learner, candidates newer than state -> allow" || bad "P1-1 verify: fresh candidates still blocked"
 # stop_hook_active cap -> fail open regardless
 [ -z "$(echo '{"session_id":"s","agent_type":"claudehut-learner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
   && ok "P1-1 verify: stop_hook_active cap -> fail open" || bad "P1-1 verify: cap not respected"

@@ -28,24 +28,35 @@ isolation; this skill owns the state write (the learner has no Bash).
    {"id":"<uuid>","ts":"<iso>","project":"<name>","phase":"learn","category":"convention","trigger":"<file-pattern keywords>","learning":"<one sentence: what was confirmed>","evidence":"<file:line>","confidence":0.6,"hits":1}
    ```
 
-   Then go to step 3. Dispatch the full learner ONLY when something genuinely new was found — a learner
-   round-trip to record "nothing new" is pure latency. (Full tier always dispatches: a task that went
-   through Brainstorm/Spec/Plan has decisions worth distilling.)
+   Then go to step 4 (skip the learner dispatch AND the merge script — one confirmed line needs neither).
+   Dispatch the full learner ONLY when something genuinely new was found — a learner round-trip to record
+   "nothing new" is pure latency. (Full tier always dispatches: a task that went through Brainstorm/Spec/Plan
+   has decisions worth distilling.)
 
 1. **Dispatch `claudehut:claudehut-learner` (Agent tool)** with a short task summary: the task dir
    (`tasks/NNNN-<slug>/`), the decisions made, surprises hit, reuse points created, and Review findings.
-   The learner:
-   - Extracts candidate learnings (decisions, surprises, reuse points, review findings).
-   - **Dedups** against the cross-session store at the **absolute canonical path**
-     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (NOT `.claudehut/memory.jsonl` — only the
-     canonical file is injected at the next session's SessionStart): match `category` + normalized `trigger`;
-     merge (`hits++`, raise `confidence`, `ts=now`) or append a new line
-     (schema: `id, ts, project, phase, category, trigger, learning, evidence, confidence, hits`).
+   The learner does the **judgment** only:
+   - Extracts candidate learnings (decisions, surprises, reuse points, review findings) and writes them to
+     `${task_dir}/learn-candidates.jsonl` — one JSON object per line
+     (`{category, trigger, learning, evidence, confidence?}`). It does **not** dedup, assign ids, promote, or
+     prune (that is the script's job in step 2).
    - **Updates `reuse-index.json`** with anything newly built.
    - **Refreshes `MEMORY.md`** (the committed index) when a new topic/category/artifact appears.
    - Never records secrets or connection strings.
-2. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
-3. **Main thread closes the phase** after the learner returns:
+2. **Run the deterministic merge** on the candidates the learner produced — this is what actually writes the
+   cross-session store, exactly and in milliseconds (the learner must NOT do this math by reasoning):
+
+   ```
+   "${CLAUDE_PLUGIN_ROOT}/scripts/merge-learnings.sh" --candidates "${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/learn-candidates.jsonl"
+   ```
+
+   It dedups against the **canonical** `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (NOT
+   `.claudehut/memory.jsonl` — only the canonical file is injected at the next session's SessionStart) by
+   `category` + normalized `trigger` → merge (`hits++`, `confidence = min(+0.05, 1.0)`, `ts=now`) or append a
+   new `L-####` line; **promotes** proven pitfalls (`hits≥5 ∧ confidence≥0.85`) into the matching
+   `.claude/rules/` file; **prunes** decayed noise. It prints a `{added, merged, promoted, dropped}` report.
+3. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
+4. **Main thread closes the phase** after the merge runs:
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-phase learn

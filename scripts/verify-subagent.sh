@@ -32,20 +32,21 @@ case "$agent" in
       || block "claudehut-planner returned without a plan file (.claude/claudehut/tasks/<NNNN-slug>/plan.md). Produce it before proceeding."
     ;;
   claudehut-learner)
-    # P1-1 FIX (defense-in-depth): learner must have written to learnings.jsonl this session.
-    # Proxy for "this session": the state file is created by bootstrap.sh at SessionStart, before
-    # any subagent is dispatched. If learnings.jsonl mtime > state file mtime, the learner wrote
-    # to it during this session. Fails open when session_id, state file, or learnings.jsonl is
-    # absent — never wedge on an unexpected filesystem state (06 §5).
+    # P1-1 FIX (defense-in-depth): the learner's contract is now to EXTRACT candidates — it writes
+    # tasks/<id>/learn-candidates.jsonl, and capture-learnings runs merge-learnings.sh on that to write
+    # learnings.jsonl (so the learner no longer touches learnings.jsonl directly). Verify the learner
+    # produced a candidates file this session. Proxy for "this session": the state file is created by
+    # bootstrap.sh at SessionStart, before any subagent is dispatched — a candidates file newer than it
+    # was written this task. Fails open when session_id or state file is absent, or no candidates file
+    # exists at all (the inline small-tier path writes none) — never wedge on unexpected state (06 §5).
     sid_l="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
-    LEARNINGS="$DIR/learnings.jsonl"
     STATE_FILE="$DIR/state/$sid_l.json"
-    if [ -n "$sid_l" ] && [ -f "$STATE_FILE" ] && [ -f "$LEARNINGS" ]; then
-      if ! find "$LEARNINGS" -newer "$STATE_FILE" -maxdepth 0 | grep -q .; then
-        block "claudehut-learner returned but learnings.jsonl was not modified this session. Write at least one entry to .claude/claudehut/learnings.jsonl before returning."
+    if [ -n "$sid_l" ] && [ -f "$STATE_FILE" ] && ls "$DIR"/tasks/*/learn-candidates.jsonl >/dev/null 2>&1; then
+      if ! find "$DIR"/tasks/*/learn-candidates.jsonl -newer "$STATE_FILE" 2>/dev/null | grep -q .; then
+        block "claudehut-learner returned but no learn-candidates.jsonl was written this session. Extract at least one candidate to .claude/claudehut/tasks/<id>/learn-candidates.jsonl before returning."
       fi
     fi
-    # If state file or learnings.jsonl absent: fail open (bootstrap may not have run, or first task)
+    # If state file or candidates file absent: fail open (bootstrap may not have run, or first task)
     ;;
   *)
     : # text-returning agents (explorer, brainstormer, auditors) — no file contract to check
