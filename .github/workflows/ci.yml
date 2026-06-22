@@ -1,0 +1,84 @@
+name: ci
+
+# Distribution-hardening gate (audit roadmap A.2): catch manifest/wiring regressions
+# BEFORE they ship. The deterministic eval suite needs no Claude and is the hard gate;
+# `claude plugin validate --strict` runs only when the CLI is present (informational).
+# The authoritative runtime load-probe (`plugin_errors == []`) needs Claude headless +
+# auth, so it is NOT run here — see scripts/load-probe.sh + the release checklist.
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  deterministic:
+    name: deterministic evals (no Claude)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (state CLI + gates require it)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: JSON manifests are valid
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json hooks/hooks.json; do
+            jq empty "$f" && echo "  ok   - $f valid" || { echo "  FAIL - $f invalid"; exit 1; }
+          done
+
+      - name: Manifest is pure metadata (P6 regression guard)
+        run: |
+          # The runtime --plugin-dir schema rejects re-declared default component locations
+          # (agents/skills/hooks). They are auto-discovered; the manifest must not name them.
+          if jq -e 'has("agents") or has("skills") or has("hooks")' .claude-plugin/plugin.json >/dev/null; then
+            echo "  FAIL - plugin.json re-declares agents/skills/hooks (breaks runtime load — see EVAL-REPORT #1)"
+            exit 1
+          fi
+          echo "  ok   - plugin.json is pure metadata"
+
+      - name: Version is single-sourced (plugin.json == marketplace == README badge)
+        run: |
+          PV=$(jq -r .version .claude-plugin/plugin.json)
+          MV=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
+          RV=$(grep -oE '\*\*v[0-9]+\.[0-9]+\.[0-9]+\*\*' README.md | head -1 | tr -d '*v')
+          echo "plugin.json=$PV  marketplace=$MV  README=$RV"
+          [ "$PV" = "$MV" ] && [ "$PV" = "$RV" ] || { echo "  FAIL - version drift (P0-2)"; exit 1; }
+          echo "  ok   - versions agree ($PV)"
+
+      - name: Executable bits on scripts + bin
+        run: |
+          miss=0
+          for f in scripts/*.sh bin/*; do
+            [ -x "$f" ] || { echo "  FAIL - not executable: $f"; miss=1; }
+          done
+          [ "$miss" = 0 ] && echo "  ok   - all scripts/bin executable" || exit 1
+
+      - name: conformance.sh (structural/wiring)
+        run: bash evals/conformance.sh
+
+      - name: gate-tests.sh (write/done gate matrix)
+        run: bash evals/gate-tests.sh
+
+      - name: init-tests.sh (detect + plane generation)
+        run: bash evals/init-tests.sh
+
+      - name: ranker-tests.sh (reuse-ranker)
+        run: bash evals/ranker-tests.sh
+
+  plugin-validate:
+    name: claude plugin validate --strict (if CLI present)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate marketplace manifest
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            claude plugin validate . --strict
+          else
+            echo "claude CLI not available in this runner — skipping."
+            echo "NOTE: 'claude plugin validate' checks marketplace.json, NOT the runtime"
+            echo "manifest schema. The authoritative load check is scripts/load-probe.sh"
+            echo "(needs Claude headless + auth) — run it in the release checklist."
+          fi

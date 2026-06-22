@@ -90,4 +90,14 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W2" >/dev/null 2>&1
   && ok "settings baseRef idempotent on re-run" || bad "settings baseRef changed on re-run"
 rm -rf "$W" "$W2"
 
+echo "== .worktreeinclude (v0.6.0 — native gitignored-config copy into agent worktrees) =="
+W3="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+[ -f "$W3/.worktreeinclude" ] && ok "init created .worktreeinclude at project root" || bad "init did not create .worktreeinclude"
+grep -q '\.env' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude seeds gitignored config (.env)" || bad ".worktreeinclude missing seed entries"
+# idempotent + never clobber: user edits survive a re-run
+printf 'custom-secret.json\n' > "$W3/.worktreeinclude"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
+grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
+rm -rf "$W3"
+
 echo; echo "INIT: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

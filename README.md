@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.5.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.6.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -30,7 +30,7 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
 
 ```bash
 # from the marketplace
-/plugin marketplace add claudehut/claudehut
+/plugin marketplace add taipt1504/claudehut
 /plugin install claudehut@claudehut-marketplace
 
 # or load locally for a session
@@ -89,8 +89,10 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 - **Completion gate** (`Stop`, tier-aware): you can't claim "done" until Review reports zero outstanding
   items and — in full/small tiers — the Learn pass has run (trivial legitimately ends at review-pass; honors
   the native consecutive-Stop cap). Sessions that never engaged the workflow aren't blocked.
-- **Iron-Law skills** order actions within a turn — reuse-first (Discover), test-first (`implement`'s
-  "no production code without a failing test"), evidence-first (Review).
+- **Iron-Law skills** order actions within a turn — reuse-first **+ the minimalism decision ladder**
+  (Discover: _need-to-exist? → stdlib → Spring/dep → reuse → minimal new_), test-first (`implement`'s
+  "no production code without a failing test"), evidence-first (Review). The safety floor (validation,
+  error handling, security, transactions) is never cut for minimalism.
 - **Path-scoped rules** auto-load the right standard when you **open/edit** a matching file; **reference
   playbooks** carry the deeper create-time standard (see below).
 
@@ -137,8 +139,8 @@ Code's `disableAllHooks` setting.
   `project-structure.md` and `vocabulary.md`. Stack-gated at init — only the rules matching your detected
   stack (web / reactive / orm / messaging / cache / mapper) are emitted.
 - **Hooks** (`hooks/hooks.json` + `scripts/`) — `SessionStart` bootstrap + phase/learnings injection,
-  `PreToolUse`/`Stop` gates, `PostToolUse` Java formatting, `SubagentStop` verification, `PreCompact` state
-  persistence.
+  `UserPromptExpansion` slash skill-rail recorder, `PreToolUse`/`Stop` gates, `PostToolUse` Java formatting,
+  `PostToolUseFailure` failure capture, `SubagentStop` verification, `PreCompact` state persistence.
 - **CLI tools** (`bin/`) — `claudehut-init` (deterministic stack-detect + project-plane generator),
   `claudehut-state` (the sole writer of per-session phase state), `claudehut-worktree` (parallel-implementer worktree lifecycle: check-disjoint / reconcile / sweep), and `kafka-mcp` (an optional, documented
   **stub**).

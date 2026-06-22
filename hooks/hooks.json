@@ -15,6 +15,14 @@
         ]
       }
     ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "implement|discover|brainstorm",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill-expansion.sh" }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit",
@@ -34,6 +42,14 @@
         "matcher": "Write|Edit",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-failure.sh", "async": true }
         ]
       }
     ],

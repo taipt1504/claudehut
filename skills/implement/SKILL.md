@@ -145,6 +145,7 @@ Two surfaces, split by **measured** behavior (EVAL-REPORT #7):
 
 | Creating / editing… | READ this playbook (create-time) | Rule that auto-loads (edit-time) |
 |---|---|---|
+| **ANY new component — before you build it** | **`references/minimalism.md`** (the decision ladder: drop → stdlib → Spring → dep → one-line → minimal) | — |
 | MVC controller, DTO, validation, error mapping | `references/web.md` | `framework/spring-mvc`, `framework/jackson`, `security/input-validation` |
 | WebFlux handler/router, Mono/Flux, R2DBC | `references/reactive.md` | `framework/webflux`·`r2dbc`, `performance/backpressure` |
 | JPA entity / repository | `references/jpa.md` | `framework/jpa`·`lombok-jpa-safety`, `performance/n-plus-one` |

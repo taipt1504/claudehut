@@ -12,8 +12,10 @@ Hooks are ClaudeHut's only **deterministic** enforcement — they are code, not 
 - [3. Hook specs](#3-hook-specs)
   - [bootstrap.sh — SessionStart](#bootstrapsh--sessionstart)
   - [inject-phase.sh — UserPromptSubmit](#inject-phasesh--userpromptsubmit)
+  - [record-skill-expansion.sh — UserPromptExpansion (slash skill-rail, P1-3)](#record-skill-expansionsh--userpromptexpansion-slash-skill-rail-p1-3)
   - [gate-write.sh — PreToolUse (action gate)](#gate-writesh--pretooluse-action-gate)
   - [format-java.sh — PostToolUse](#format-javash--posttooluse)
+  - [record-failure.sh — PostToolUseFailure (failure capture)](#record-failuresh--posttoolusefailure-failure-capture)
   - [gate-done.sh — Stop (completion gate)](#gate-donesh--stop-completion-gate)
   - [verify-subagent.sh — SubagentStop](#verify-subagentsh--subagentstop)
   - [persist-state.sh — PreCompact](#persist-statesh--precompact)
@@ -46,10 +48,12 @@ Where each hook fires across the session/turn lifecycle:
 flowchart TB
     SS["SessionStart<br/>bootstrap.sh"] --> T0{{"turn loop"}}
     T0 --> UPS["UserPromptSubmit<br/>inject-phase.sh"]
-    UPS --> REC["PreToolUse(Skill)<br/>record-skill.sh — SKILL RECORDER"]
+    UPS --> UPE["UserPromptExpansion(skill)<br/>record-skill-expansion.sh — SLASH RECORDER"]
+    UPE --> REC["PreToolUse(Skill)<br/>record-skill.sh — SKILL RECORDER"]
     REC --> PRE["PreToolUse(Write/Edit)<br/>gate-write.sh — ACTION GATE"]
     PRE --> POST["PostToolUse(*.java)<br/>format-java.sh"]
-    POST --> SUB["SubagentStop<br/>verify-subagent.sh"]
+    POST --> PF["PostToolUseFailure(Bash)<br/>record-failure.sh — FAILURE CAPTURE"]
+    PF --> SUB["SubagentStop<br/>verify-subagent.sh"]
     SUB --> STOP["Stop<br/>gate-done.sh — COMPLETION GATE"]
     STOP -->|allow| T0
     STOP -.->|block: review not pass or learn missing| UPS
@@ -70,6 +74,10 @@ flowchart TB
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-phase.sh", "timeout": 10 }] }
     ],
+    "UserPromptExpansion": [
+      { "matcher": "implement|discover|brainstorm",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill-expansion.sh" }] }
+    ],
     "PreToolUse": [
       { "matcher": "Write|Edit|MultiEdit",
         "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-write.sh" }] },
@@ -79,6 +87,10 @@ flowchart TB
     "PostToolUse": [
       { "matcher": "Write|Edit",
         "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-failure.sh", "async": true }] }
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-done.sh" }] }
@@ -93,7 +105,9 @@ flowchart TB
 }
 ```
 
-Referenced from `plugin.json` via `"hooks": "./hooks/hooks.json"`.
+**Auto-discovered**, not referenced from `plugin.json`. The standard `hooks/hooks.json` is loaded automatically;
+the manifest must stay **pure metadata** (re-declaring `hooks`/`agents`/`skills` there breaks runtime load — the
+P6 over-declare bug, EVAL-REPORT #1, now guarded by the conformance manifest-purity check + CI).
 
 ## 3. Hook specs
 
@@ -130,10 +144,18 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 ### inject-phase.sh — UserPromptSubmit
 - **Event/Matcher:** `UserPromptSubmit` (all).
 - **Reads:** `prompt`, `state.json`.
-- **Returns:** `additionalContext` = "Current phase: `<phase>`. Next allowed step: `<…>`." plus up to ~5 learnings whose `trigger` keyword-matches the prompt (targeted retrieval).
+- **Returns:** `additionalContext` = "Current phase: `<phase>`. Next allowed step: `<…>`." plus up to ~5 learnings whose `trigger` keyword-matches the prompt (targeted retrieval). **In the entry (`discover`) phase it also adds a Phase-0 triage reminder** (run `set-complexity` — cost lever B.2: keeps trivial/small tasks off the default `full` lane, which runs all 7 phases).
 - **Enforces:** every turn re-anchors to the current phase and surfaces relevant prior learnings — keeps the Workflow salient across a long session and feeds the reuse instinct.
 - **Phase:** all.
 - **Honest limits:** advisory context only; does not block. (Blocking lives in the gate hooks.)
+
+### record-skill-expansion.sh — UserPromptExpansion (slash skill-rail, P1-3)
+- **Event/Matcher:** `UserPromptExpansion` on `implement|discover|brainstorm` (matches the bare `command_name`).
+- **Reads:** `session_id`, `command_name` (the matched skill; also tolerates `.tool_input.skill` and a leading `/claudehut:<skill>` parsed from `expanded_prompt`/`prompt`).
+- **Returns:** nothing (always allow) — a **recorder, not a gate**, mirroring `record-skill.sh`. Calls `claudehut-state mark-skill <name>`.
+- **Enforces:** closes the **slash-command bypass** of the skill rail. `record-skill.sh` only fires on `PreToolUse(Skill)` (the model calling the Skill *tool*); a user typing `/claudehut:implement` expands via `UserPromptExpansion` instead, which never hit `PreToolUse` — so the rail stayed closed and wedged slash-invokers (fail-closed). This recorder opens/closes the rail on that path identically.
+- **Phase:** all (observes slash skill invocations).
+- **Honest limits:** same as `record-skill.sh` — targets drift, not adversarial agents; the matcher relies on the bare-command-name semantics verified against current hooks docs.
 
 ### record-skill.sh — PreToolUse (skill recorder, Issue 1)
 - **Event/Matcher:** `PreToolUse` on `Skill`.
@@ -182,12 +204,20 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
   (`deny`/`allow` emit the `permissionDecision` JSON.)
 
 ### format-java.sh — PostToolUse
-- **Event/Matcher:** `PostToolUse` on `Write|Edit`, `if: Edit(*.java)|Write(*.java)`, `async: true`.
+- **Event/Matcher:** `PostToolUse` on `Write|Edit`, `async: true`. **No `if` condition** (v0.6.0 decision, audit C.2): an `if` would save nothing here — the hook is already `async` (off the critical path) and self-guards on `*.java` internally; a glob mismatch in an `if` could silently *disable* formatting for nested paths. `if` is reserved for sync, critical-path filtering, and the one sync hook (`gate-write`) must inspect every write, so it gets no `if` either (a filter there risks a gate bypass).
 - **Reads:** `tool_input.file_path`.
 - **Returns:** nothing blocking (async, non-blocking exit).
 - **Enforces:** consistent formatting via `google-java-format`/`palantir-java-format` so the reviewer agents never waste signal on style nits.
 - **Phase:** Implement.
 - **Honest limits:** cosmetic only; runs after the edit, never blocks it.
+
+### record-failure.sh — PostToolUseFailure (failure capture)
+- **Event/Matcher:** `PostToolUseFailure` on `Bash`, `async: true`.
+- **Reads:** `session_id`, `tool_name`, `tool_input.command`, `tool_error.{exit_code,type,stderr}`.
+- **Returns:** nothing (non-blocking — the tool already failed). Appends a compact record to the **session-scoped, ephemeral** `state/<session_id>.failures.jsonl` (deduped against the previous entry, capped at 20).
+- **Enforces (P5 signal, not gate):** gives the Learn phase real build/test-failure signal to curate. It deliberately does **NOT** write the curated `learnings.jsonl` directly — many Bash failures are intentional (TDD RED runs, expected non-zero exits), so auto-promotion would pollute the store. `capture-learnings` reads the staging file as *candidate* signal and the learner filters out RED/one-off noise.
+- **Phase:** Implement / Review (wherever Bash runs).
+- **Honest limits:** captures only what a failed Bash call exposes; cannot tell an intentional RED from a real regression — that judgment is the learner's.
 
 ### gate-done.sh — Stop (completion gate)
 - **Event/Matcher:** `Stop` (all).

@@ -317,3 +317,42 @@ $17.1). Within the approved Standard (~$15–25). No fabricated numbers; `[not r
 Every documented objective mapped to a measured criterion (untestable ones `[uncertain]`); strategy approved
 before running; existing harness reused/extended; multi-trial + variance reported; P6 fix approved + re-validated.
 Remaining optimizations (1–5) await the Optimization Gate.
+
+---
+
+## v0.6.0 addendum (audit response + ponytail minimalism layer)
+
+Full changelog: `.claude/prompt/update-v0.6.0/CHANGES-v0.6.0.md`. Deterministic-suite deltas after the upgrade:
+
+| Suite | before | after | added |
+|---|---|---|---|
+| conformance | 83 | **93** | C11: slash recorder, failure capture, new-script exec, minimalism D1/D2/D3, `.worktreeinclude`, repo-fix |
+| init-tests | 39 | **42** | `.worktreeinclude` create + seed + no-clobber |
+| gate / ranker / worktree / merge-learnings | 71 / 8 / 18 / 14 | **unchanged, all green** | — |
+| `loc-metric.sh --self-test` | — | **new, ok** | net-LOC + reuse-rate parser (D4) |
+
+**Cost/reliability (P2) — still `[not run]` live.** The realized levers are **D (less generated code → fewer
+tokens)** and **B3 (fast-lane folds test-runner into the reviewer → fewer opus dispatches)**; both are
+mechanism-level here and need a fresh `evals/bench` `$/run` measurement (use `loc-metric.sh` for the LOC side).
+**B1 model/effort tiering is deliberately deferred to a measured A/B experiment** — plugin-subagent model is
+frontmatter-fixed (no per-dispatch override) and the review rigor contract requires opus+xhigh, so a blind
+flip risks the lenient-review regression the plugin exists to prevent.
+
+**Recommended design for the deferred cost experiment** (template adapted from the ponytail v4.7 agentic
+benchmark, `benchmarks/results/2026-06-18-agentic.md` — built to *disprove* its own plugin):
+- **Arms:** `baseline` (no plugin) · `claudehut` (full plugin) · a terse-prose control (isolates "is the win
+  just brevity?") · optionally a one-line-YAGNI-prompt control (isolates "does a short instruction suffice?").
+- **Metrics:** `net_loc_added` + `reuse_rate` (via `evals/loc-metric.sh`) · tokens · `$/run` · wall-time ·
+  **safety scored by executing the produced code against adversarial input** (the minimalism cut must not drop
+  a guard) — exactly the floor `loc-metric` can't see. n≥4 per (task, arm), fresh repo + fresh context per cell.
+- **CONTAMINATION CAVEAT (ponytail caught this; it applies to us too):** ClaudeHut's own `bootstrap.sh`
+  SessionStart hook would fire on the **baseline** arm and inject the workflow, silently contaminating it.
+  Isolate each arm with `--setting-sources project,local` and a single `--plugin-dir` per arm so the plugin
+  loads only where intended. Without this, the baseline is not a baseline.
+- **Honesty boundary:** report only measured numbers; a "% saved" requires the real baseline arm above
+  (`loc-metric.sh` documents this) — never a fabricated counterfactual.
+
+**Carried-forward finding (now actionable):** `evals/score.sh` + the task `oracle.sh` files still grep the
+**legacy flat** `reuse-scan-*.md`/`specs/`/`plans/` paths, not the canonical `tasks/NNNN-<slug>/` store — the
+same drift behind the false "fail" #5. Fixing those paths so live scoring reads the canonical store is the
+recommended next eval-harness task.

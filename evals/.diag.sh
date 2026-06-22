@@ -23,7 +23,7 @@ echo "=== TASK call (stream-json) ==="
 Follow the ClaudeHut 6-phase workflow (brainstorm with reuse scan → spec → plan → implement test-first → review → learn) to completion." < /dev/null ) \
    > "$work/.task.stream.jsonl" 2>"$work/.task.err" || true
 echo "  post-task .claude/claudehut tree:"; find "$work/.claude/claudehut" 2>/dev/null | sed "s#$work/##" | head -40
-echo "  workflow artifacts: reuse=$(ls "$work/.claude/claudehut"/reuse-scan-*.md 2>/dev/null|wc -l|tr -d ' ') spec=$(ls "$work/.claude/claudehut"/specs/*.md 2>/dev/null|wc -l|tr -d ' ') plan=$(ls "$work/.claude/claudehut"/plans/*.md 2>/dev/null|wc -l|tr -d ' ') learn=$([ -s "$work/.claude/claudehut/learnings.jsonl" ]&&echo 1||echo 0) state=$(ls "$work/.claude/claudehut/state"/*.json 2>/dev/null|wc -l|tr -d ' ')"
+echo "  workflow artifacts: reuse=$(ls "$work/.claude/claudehut"/tasks/*/reuse-scan.md "$work/.claude/claudehut"/reuse-scan-*.md 2>/dev/null|wc -l|tr -d ' ') spec=$(ls "$work/.claude/claudehut"/tasks/*/spec.md "$work/.claude/claudehut"/specs/*.md 2>/dev/null|wc -l|tr -d ' ') plan=$(ls "$work/.claude/claudehut"/tasks/*/plan.md "$work/.claude/claudehut"/plans/*.md 2>/dev/null|wc -l|tr -d ' ') learn=$([ -s "$work/.claude/claudehut/learnings.jsonl" ]&&echo 1||echo 0) state=$(ls "$work/.claude/claudehut/state"/*.json 2>/dev/null|wc -l|tr -d ' ')"
 echo "  tool_use invoked (name x count):"
 grep '^{' "$work/.task.stream.jsonl" 2>/dev/null | jq -rc 'select(.type=="assistant")|.message.content[]?|select(.type=="tool_use")|.name' 2>/dev/null | sort | uniq -c
 echo "  Skill invocations (claudehut:*):"

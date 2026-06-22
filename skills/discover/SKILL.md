@@ -21,6 +21,24 @@ NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN
 The `PreToolUse` write gate enforces this: until `reuse_scan=true` (recorded here), every production write is
 denied — in **every** complexity tier. Discover is the one phase the fast lane never skips.
 
+## The decision ladder (what the scan decides)
+
+The reuse-scan is not only "does the project already have it?" — it answers the full lazy-senior-dev ladder
+for each thing the task would build, **stopping at the first rung that fits** (create-time depth:
+`skills/implement/references/minimalism.md`):
+
+```
+0. need-to-exist?              → no: DROP it (YAGNI)                         drop
+1. JDK / Java stdlib does it?  ┐
+2. Spring / installed starter? ├ → use it, write nothing                    framework
+3. already-declared dependency?┘   (check build.gradle/pom.xml's classpath)
+4. existing PROJECT code?      → adopt as-is | extend it (cite file:line)    adopt | extend
+5. nothing fits                → minimum new code, justified                 new
+```
+
+**The safety floor is never a rung you skip** — validation, error handling, security, transactions, and
+observability are required no matter how lazy the build. Minimalism cuts complexity, never robustness.
+
 ## Flow
 
 ```mermaid

@@ -99,6 +99,14 @@ flowchart TB
    | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` **OR** the diff touches ANY repository/`@Query`/entity/loop-over-a-finder/`Mono`/`Flux`/`@Cacheable` — i.e. anything data-access or reactive. **Default to spawning it** | **over-include**: the common Java/Spring defects (N+1, EAGER fetch, `.block()` in reactive) hide in "pure logic" diffs — a false-skip ships the regression. Skip ONLY a diff with zero data-access/reactive surface |
    | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files | the acceptance example: a **no-DB change does NOT spawn db-reviewer** |
 
+   **Fast-lane fan-out reduction (trivial/small tier — audit B.3, cost):** a ≤2-file, non-sensitive change
+   does not justify a separate test-runner dispatch on top of the reviewer. In trivial/small tier, **fold the
+   test run into `claudehut-reviewer`** — its dispatch prompt adds "run the suite fresh this turn (cheapest
+   test that proves the behavior); include the exact command + real pass/fail counts in your report," and you
+   **do NOT spawn `claudehut-test-runner` separately**. One opus reviewer + (only if the diff warrants) one
+   specialist, instead of reviewer + test-runner + specialists. The evidence bar is unchanged: `review.md`
+   still needs the test-run summary, now carried by the reviewer. Full tier keeps the dedicated test-runner.
+
    Then **issue all the SELECTED Agent calls in ONE message** (native concurrency — same-message calls run
    concurrently; read-only, so conflict-free). Dispatch by **qualified type** (`claudehut:claudehut-…`) —
    unqualified names can fail to resolve and waste a full dispatch round (measured). State which reviewers you

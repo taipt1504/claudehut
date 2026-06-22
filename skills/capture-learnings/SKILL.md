@@ -35,6 +35,10 @@ isolation; this skill owns the state write (the learner has no Bash).
 
 1. **Dispatch `claudehut:claudehut-learner` (Agent tool)** with a short task summary: the task dir
    (`tasks/NNNN-<slug>/`), the decisions made, surprises hit, reuse points created, and Review findings.
+   **Also pass this session's staged failures if present** — `.claude/claudehut/state/${CLAUDE_SESSION_ID}.failures.jsonl`
+   (captured by the `PostToolUseFailure` hook). Treat it as **candidate signal, not truth**: a recurring,
+   real build/dependency error is a pitfall worth recording; an intentional TDD RED test failure or a one-off
+   typo is **not** — the learner filters these out.
    The learner does the **judgment** only:
    - Extracts candidate learnings (decisions, surprises, reuse points, review findings) and writes them to
      `${task_dir}/learn-candidates.jsonl` — one JSON object per line

@@ -167,6 +167,23 @@ else
   echo "  NOTE: jq missing — set worktree.baseRef=\"head\" in $SETTINGS manually (parallel implementers need it)" >&2
 fi
 
+# ---------------- .worktreeinclude: native gitignored-config copy into agent worktrees ----------------
+# ClaudeHut's parallel implementers run in `isolation: worktree` — a fresh checkout that does NOT carry
+# gitignored local config (.env etc.). Claude Code natively copies gitignored files matching
+# .worktreeinclude (project root, .gitignore syntax) into every new worktree, INCLUDING subagent ones —
+# so we let the platform do it instead of hand-copying. Seed if absent (user-editable; never clobbered,
+# like CLAUDE.md). Only gitignored matches are copied; tracked files are never duplicated.
+WTI=".worktreeinclude"
+if [ ! -f "$WTI" ]; then
+  { printf '# ClaudeHut: copied into agent worktrees (subagent `isolation: worktree`) so parallel\n'
+    printf '# implementers see your gitignored local config. .gitignore syntax; ONLY gitignored\n'
+    printf '# matching files are copied (tracked files are never duplicated). Edit freely.\n'
+    printf '.env\n.env.local\n'; } > "$WTI"
+  echo "  created $WTI (gitignored config copied into agent worktrees)"
+else
+  echo "  .worktreeinclude already present"
+fi
+
 # ---------------- wire the always-load @import slice (idempotent) ----------------
 CM="CLAUDE.md"; MARK="ClaudeHut: project-adaptive memory"
 if ! grep -q "$MARK" "$CM" 2>/dev/null; then

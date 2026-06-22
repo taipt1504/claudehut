@@ -131,6 +131,45 @@ grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
   && ok "bootstrap.sh: understand-anything detection uses .id field (correct)" \
   || bad "bootstrap.sh: understand-anything detection uses .name field which does not exist in plugin list JSON"
 
+# C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
+HJ="$ROOT/hooks/hooks.json"
+jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill-expansion"))' "$HJ" >/dev/null 2>&1 \
+  && ok "P1-3: UserPromptExpansion → record-skill-expansion.sh wired (slash skill-rail bypass closed)" \
+  || bad "P1-3: no UserPromptExpansion recorder — /claudehut:implement bypasses the skill rail"
+jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failure"))' "$HJ" >/dev/null 2>&1 \
+  && ok "C3: PostToolUseFailure → record-failure.sh wired (failure signal capture)" \
+  || bad "C3: PostToolUseFailure not wired to record-failure.sh"
+for s in record-skill-expansion.sh record-failure.sh load-probe.sh; do
+  [ -x "$ROOT/scripts/$s" ] && ok "script present+exec: $s" || bad "missing or non-exec: scripts/$s"
+done
+{ [ -f "$ROOT/skills/implement/references/minimalism.md" ] && grep -q 'minimalism.md' "$IMP"; } \
+  && ok "D3: minimalism playbook present + wired into implement table" \
+  || bad "D3: minimalism playbook missing or not referenced in implement skill"
+{ grep -q 'framework' "$ROOT/agents/claudehut-reuse-scanner.md" && grep -qiE 'decision ladder|need-to-exist|YAGNI' "$ROOT/agents/claudehut-reuse-scanner.md"; } \
+  && ok "D1: reuse-scanner carries the necessity+framework decision ladder" \
+  || bad "D1: reuse-scanner missing the decision ladder"
+grep -qiE 'over-engineering|minimalism' "$ROOT/agents/claudehut-reviewer.md" \
+  && ok "D2: reviewer carries the minimalism/over-engineering lens" \
+  || bad "D2: reviewer missing the minimalism lens"
+grep -q 'worktreeinclude' "$ROOT/bin/claudehut-init" \
+  && ok "C1: init emits .worktreeinclude (native gitignored-config copy into agent worktrees)" \
+  || bad "C1: init does not emit .worktreeinclude"
+{ grep -q 'taipt1504/claudehut' "$ROOT/.claude-plugin/plugin.json" \
+  && ! grep -q 'github.com/claudehut/claudehut' "$ROOT/.claude-plugin/plugin.json"; } \
+  && ok "P0-1: plugin.json repository points to the real repo (not the 404 mirror)" \
+  || bad "P0-1: plugin.json repository still the 404 mirror"
+
+# C12 — score.sh credits the CANONICAL per-task store (regression for the false-fail #5:
+# artifacts in tasks/NNNN-<slug>/ were scored as misses because score.sh read only flat paths)
+SW="$(mktemp -d)"; mkdir -p "$SW/.claude/claudehut/tasks/0001-x"
+printf '{"id":"L-1"}\n' > "$SW/.claude/claudehut/learnings.jsonl"
+for a in reuse-scan spec plan; do echo x > "$SW/.claude/claudehut/tasks/0001-x/$a.md"; done
+TD="$(mktemp -d)"   # empty task dir → score.sh skips the optional oracle
+if bash "$ROOT/evals/score.sh" "$SW" "$TD" >/dev/null 2>&1; then
+  ok "score.sh credits canonical tasks/*/{reuse-scan,spec,plan}.md (false-fail #5 fixed)"
+else bad "score.sh does not credit the canonical tasks/*/ store"; fi
+rm -rf "$SW" "$TD"
+
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

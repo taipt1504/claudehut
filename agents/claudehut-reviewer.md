@@ -41,6 +41,16 @@ flowchart TB
   across the web boundary; matches `project-structure.md` and `vocabulary.md` (reject "manager"/"helper"
   where a service is meant).
 - **Dead code / leftovers** — unused imports/vars *your change introduced*, commented-out blocks, stray TODOs.
+- **Minimalism / over-engineering** — code that did not need to exist. Flag: speculative abstraction
+  (single-implementation interface, unused generics/type params, strategy/factory with one case), config or
+  "flexibility" nobody asked for, a new util/class for a one-liner, and **hand-rolling what the framework
+  already ships** (a map-as-cache vs `@Cacheable`, a retry loop vs Spring Retry/Resilience4j, manual
+  null/format checks vs `@Valid`, a timer thread vs `@Scheduled`, string-built SQL paging vs `Pageable`). When
+  a reuse-scan exists, cross-check its `drop`/`framework` decisions were actually honored — a row decided
+  `framework` but hand-rolled anyway is a finding (full catalog: `skills/implement/references/minimalism.md`).
+  Severity by waste/risk (usually MED). **NEVER flag a safety-floor item — validation, error handling,
+  security/authz, transaction boundaries, observability — as "over-engineering." Those are required; cutting
+  them is the defect, not the code.**
 - **Enforcement set** — every listed skill/rule actually satisfied by the change.
 
 **Fast-lane fallback checklist — when the enforcement set is EMPTY (trivial/small tier skipped Brainstorm),
@@ -60,7 +70,7 @@ Skip pure style nits already handled by `format-java.sh`.
 ## Output contract — a coverage table (evidence both ways)
 
 Return a **coverage table**, one row per enforcement-set item + per defect class above (correctness,
-conventions, dead-code, vocabulary, and each fast-lane row that applies):
+conventions, dead-code, minimalism/over-engineering, vocabulary, and each fast-lane row that applies):
 
 ```
 | Item | Status | Severity | Evidence (file:line + quote) |

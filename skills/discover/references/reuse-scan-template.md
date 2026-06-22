@@ -11,18 +11,23 @@
 > task: NNNN-<slug> · date: YYYY-MM-DD
 
 ## Summary
+<!-- Decision ladder, stop at first fit: drop (YAGNI, rung 0) | framework (stdlib/Spring/installed dep,
+     rungs 1-3) | adopt | extend (project reuse, rung 4) | new (rung 5, justified). "Existing asset" =
+     the framework feature + dep for `framework` rows, the file:line for adopt/extend, "none" only for `new`. -->
 | Dimension | Existing asset | Decision | Effort |
 |-----------|----------------|----------|--------|
+| <e.g. speculative cache> | not needed for this task | drop | - |
+| <e.g. retries> | Resilience4j `@Retry` (build.gradle) | framework | S |
 | <e.g. idempotency> | `RequestKeyFilter` — `src/.../RequestKeyFilter.java:34` | extend | S |
-| <e.g. caching> | none | new — <≤10-word justification> | M |
+| <e.g. reaper job> | none | new — <≤10-word justification> | M |
 
 ## Evidence
 <!-- ONE section per dimension whose Decision a reader could reasonably question — typically the
-     "new" rows and contested "extend" rows. Obvious rows get NO section. No "Searched:" restating
-     the dimension name; no narrative paragraph repeating the table row. -->
+     "new" rows, contested "extend" rows, and "drop" rows. Obvious rows get NO section. No "Searched:"
+     restating the dimension name; no narrative paragraph repeating the table row. -->
 ### <Dimension>
-Searched: <terms> → found `file:line` | nothing relevant.
-Decision: adopt/extend/new — <one line: the deciding fact>.
+Searched: <terms / classpath dep> → found `file:line` or framework feature | nothing relevant.
+Decision: drop/framework/adopt/extend/new — <one line: the deciding fact>.
 
 ## Recommendation
 <ONE sentence: reuse X, extend Y, build Z new.>

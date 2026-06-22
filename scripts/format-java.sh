@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# PostToolUse hook (matcher: Write|Edit, if: Edit(*.java)|Write(*.java), async).
-# Cosmetic only: formats the written Java file so reviewer agents never waste signal on
-# style nits. Non-blocking; probes for a formatter and exits 0 if none is installed. See 06 §3.
+# PostToolUse hook (matcher: Write|Edit, async). Cosmetic only: formats the written Java file
+# so reviewer agents never waste signal on style nits. Non-blocking; probes for a formatter and
+# exits 0 if none is installed. Self-guards on *.java below (no hooks.json `if` — async + this
+# guard make one redundant, and an `if` glob mismatch could silently skip nested paths). See 06 §3.
 set -euo pipefail
 
 in="$(cat || true)"
