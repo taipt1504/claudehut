@@ -344,8 +344,12 @@ claudehut mode, n=1, `evals/results/claudehut.jsonl`):**
 
 - **No regression:** the plugin loads and drives in all 5 (reuse_scan=true everywhere) after the v0.6.0
   hooks/script changes. **pass@1 = 4/5** — the one miss (`review-catches-defects`) was **capped mid-implement
-  before Review ran**, a budget artifact, not a review-rigor failure (re-run at a higher cap to actually
-  exercise the D2 lens).
+  before Review ran**, a budget artifact, not a review-rigor failure.
+- **`review-catches-defects` re-run at the $6 cap → pass@1=1, completed (review=pass), terminal=success,
+  $6.27, canonical 4/4.** With adequate budget the full 7-phase workflow completes and the **D2 review rigor
+  catches/prevents all 4 seeded defects** (N+1, EAGER collection, missing `@Valid`, entity-as-`@RequestBody`)
+  and reaches an earned `review=pass` — confirming the $3 result was purely a budget artifact and the
+  minimalism/rigor review lens works live.
 - **Canonical store now works: spec & plan landed canonical in 5/5** (this report's earlier matrix measured
   **0/6**). The `tasks/NNNN-<slug>/` store + the score.sh/run.sh canonical-path reads are confirmed end-to-end.
 - **Cost confirms P2:** **5/5 hit the $3 cap** (~$3.4/run incl init ≈ 24× the $0.142 baseline; truncated by the
