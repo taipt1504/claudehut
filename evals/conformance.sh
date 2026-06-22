@@ -170,6 +170,11 @@ if bash "$ROOT/evals/score.sh" "$SW" "$TD" >/dev/null 2>&1; then
 else bad "score.sh does not credit the canonical tasks/*/ store"; fi
 rm -rf "$SW" "$TD"
 
+# C13 — run.sh dry-run with NO args must exit 0 (regression: "${args[@]}" on an empty array
+# under `set -u` is an unbound-variable error on bash 3.2 / macOS — broke the run-all default)
+if bash "$ROOT/evals/run.sh" >/dev/null 2>&1; then ok "run.sh dry-run (no args) exits 0 (bash-3.2 empty-array safe)"
+else bad "run.sh dry-run errors with no args (empty-array under set -u — bash 3.2)"; fi
+
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

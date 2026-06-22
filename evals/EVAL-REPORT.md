@@ -331,9 +331,28 @@ Full changelog: `.claude/prompt/update-v0.6.0/CHANGES-v0.6.0.md`. Deterministic-
 | gate / ranker / worktree / merge-learnings | 71 / 8 / 18 / 14 | **unchanged, all green** | — |
 | `loc-metric.sh --self-test` | — | **new, ok** | net-LOC + reuse-rate parser (D4) |
 
-**Cost/reliability (P2) — still `[not run]` live.** The realized levers are **D (less generated code → fewer
-tokens)** and **B3 (fast-lane folds test-runner into the reviewer → fewer opus dispatches)**; both are
-mechanism-level here and need a fresh `evals/bench` `$/run` measurement (use `loc-metric.sh` for the LOC side).
+**Cost/reliability (P2) — live run on the v0.6.0 release (2026-06-23, `claude` 2.1.185, sonnet, $3/task cap,
+claudehut mode, n=1, `evals/results/claudehut.jsonl`):**
+
+| task | pass@1 | workflow | canonical r/s/p/l | $/run (incl init) | terminal |
+|---|---|---|---|---|---|
+| reuse-exists | 1 | **completed (learn, review=pass)** | T/T/T/**T** | $3.34 | capped |
+| clean-first-run | 1 | capped in implement | T/T/T/F | $3.49 | capped |
+| implement-skill-bypass | 1 | capped in implement | T/T/T/F | $3.39 | capped |
+| shortcut-attempt | 1 | capped in implement | T/T/T/F | $3.37 | capped |
+| review-catches-defects | 0 | capped in implement | T/T/T/F | $3.28 | capped |
+
+- **No regression:** the plugin loads and drives in all 5 (reuse_scan=true everywhere) after the v0.6.0
+  hooks/script changes. **pass@1 = 4/5** — the one miss (`review-catches-defects`) was **capped mid-implement
+  before Review ran**, a budget artifact, not a review-rigor failure (re-run at a higher cap to actually
+  exercise the D2 lens).
+- **Canonical store now works: spec & plan landed canonical in 5/5** (this report's earlier matrix measured
+  **0/6**). The `tasks/NNNN-<slug>/` store + the score.sh/run.sh canonical-path reads are confirmed end-to-end.
+- **Cost confirms P2:** **5/5 hit the $3 cap** (~$3.4/run incl init ≈ 24× the $0.142 baseline; truncated by the
+  cap, so a floor). The workflow needs >$3/run on sonnet to complete most tasks — exactly the tension the cost
+  levers target. The realized levers are **D (less generated code)** + **B3 (fewer fast-lane dispatches)**;
+  **B1 model/effort tiering** remains the highest-impact measured experiment (design below). Use `loc-metric.sh`
+  for the LOC side; report only measured numbers (no fabricated savings %).
 **B1 model/effort tiering is deliberately deferred to a measured A/B experiment** — plugin-subagent model is
 frontmatter-fixed (no per-dispatch override) and the review rigor contract requires opus+xhigh, so a blind
 flip risks the lenient-review regression the plugin exists to prevent.

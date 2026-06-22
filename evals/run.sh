@@ -25,7 +25,10 @@ while [ $# -gt 0 ]; do case "$1" in
   *) args+=("$1"); shift ;;
 esac; done
 case "$MODE" in claudehut|baseline) ;; *) echo "mode must be claudehut|baseline" >&2; exit 2 ;; esac
-sel=("${args[@]}"); [ ${#sel[@]} -eq 0 ] && sel=($(ls "$TASKS_DIR"))
+# NB: "${args[@]}" on an empty array under `set -u` is an unbound-variable error on bash 3.2
+# (macOS default) — guard by length before expanding.
+sel=(); [ ${#args[@]} -gt 0 ] && sel=("${args[@]}")
+[ ${#sel[@]} -eq 0 ] && sel=($(ls "$TASKS_DIR"))
 BUDGET="${CLAUDEHUT_EVAL_BUDGET:-3.00}"; MODEL="${CLAUDEHUT_EVAL_MODEL:-sonnet}"
 mkdir -p "$RESULTS_DIR"
 
