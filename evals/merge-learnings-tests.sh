@@ -59,6 +59,61 @@ R2="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T11:00:00Z)"
   && ok "re-run: rule file still 1 bullet (no dup)" || bad "rule bullet duplicated"
 rm -rf "$T"
 
+echo "== merge-learnings: quality gate + recurrence (v0.7, Issue 7) =="
+new_proj
+cat > "$(store)" <<'EOF'
+{"id":"L-0001","ts":"2026-06-01T00:00:00Z","project":"x","phase":"learn","category":"pitfall","trigger":"jpa|n+1|orderrepository","learning":"OrderRepository.findAll triggers N+1 — use @EntityGraph","evidence":"OrderRepository.java:42","confidence":0.9,"hits":6,"promoted":true,"recurrence":0}
+EOF
+cat > "$T/cand.jsonl" <<'EOF'
+{"category":"note","trigger":"jpa","learning":"be careful with jpa","evidence":"no evidence"}
+{"category":"pitfall","trigger":"orderrepository, n+1, jpa","learning":"OrderRepository.findAll N+1 recurs — use @EntityGraph","evidence":"OrderRepository.java:42","confidence":0.7}
+EOF
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
+[ "$(jq -r '.rejected' <<<"$R")" = 1 ] && ok "quality gate: vague no-evidence candidate rejected" || bad "quality gate ($R)"
+[ "$(jq -r '.recurred' <<<"$R")" = 1 ] && ok "recurrence: promoted pitfall resurfaced counted" || bad "recurrence report ($R)"
+[ "$(jq -sc 'map(select(.id=="L-0001"))|.[0].recurrence' "$(store)")" = 1 ] \
+  && ok "recurrence: L-0001.recurrence 0->1" || bad "recurrence not bumped on entry"
+[ -z "$(jq -sc 'map(select(.learning=="be careful with jpa"))|.[0]//empty' "$(store)")" ] \
+  && ok "quality gate: vague candidate NOT written to store" || bad "vague candidate leaked into store"
+rm -rf "$T"
+
+echo "== merge-learnings: promotion edges (v0.7 — R7 hardening) =="
+# Edge 1 — UNKNOWN trigger must NOT promote (never guess a rule file).
+new_proj
+cat > "$(store)" <<'EOF'
+{"id":"L-0001","ts":"2026-06-01T00:00:00Z","project":"x","phase":"learn","category":"pitfall","trigger":"telemetry|widget|gizmo","learning":"do the widget thing","evidence":"W.java:1","confidence":0.86,"hits":5}
+EOF
+echo '{"category":"pitfall","trigger":"widget, gizmo, telemetry","learning":"do the widget thing","evidence":"W.java:1","confidence":0.86}' > "$T/cand.jsonl"
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
+[ "$(jq -r '.promoted' <<<"$R")" = 0 ] && ok "unknown trigger: promoted=0 (no rule-file guess)" || bad "unknown trigger promoted ($R)"
+[ "$(jq -sc 'map(select(.id=="L-0001"))|.[0].promoted // false' "$(store)")" = "false" ] \
+  && ok "unknown trigger: entry stays unpromoted" || bad "unknown trigger entry promoted wrongly"
+rm -rf "$T"
+
+# Edge 2 — threshold CROSSING on merge promotes (hits 4->5 AND conf 0.84->0.89).
+new_proj
+echo "# Redis rules" > "$T/.claude/rules/framework/redis.md"
+cat > "$(store)" <<'EOF'
+{"id":"L-0005","ts":"2026-06-01T00:00:00Z","project":"x","phase":"learn","category":"pitfall","trigger":"redis|cache|ttl","learning":"set a TTL on every @Cacheable","evidence":"C.java:9","confidence":0.84,"hits":4}
+EOF
+echo '{"category":"pitfall","trigger":"cache, redis, ttl","learning":"set a TTL on every @Cacheable","evidence":"C.java:9","confidence":0.84}' > "$T/cand.jsonl"
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
+[ "$(jq -r '.promoted' <<<"$R")" = 1 ] && ok "threshold crossing: promoted=1 (hits 4->5, conf 0.84->0.89)" || bad "threshold crossing not promoted ($R)"
+grep -qF "set a TTL on every @Cacheable" "$T/.claude/rules/framework/redis.md" \
+  && ok "threshold crossing: line routed to framework/redis.md" || bad "threshold crossing rule not written"
+rm -rf "$T"
+
+# Edge 3 — PRUNE must NOT drop a promoted entry even when it looks decayed (conf<0.25, hits<=1, old).
+new_proj
+cat > "$(store)" <<'EOF'
+{"id":"L-0009","ts":"2020-01-01T00:00:00Z","project":"x","phase":"learn","category":"pitfall","trigger":"old|promoted","learning":"kept because promoted","evidence":"O.java:1","confidence":0.1,"hits":1,"promoted":true}
+EOF
+echo '{"category":"note","trigger":"unrelated, harmless","learning":"new unrelated note here","evidence":"N.java:2","confidence":0.6}' > "$T/cand.jsonl"
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
+[ -n "$(jq -sc 'map(select(.id=="L-0009"))|.[0]//empty' "$(store)")" ] \
+  && ok "prune-protect: promoted L-0009 survives despite decay markers" || bad "prune dropped a promoted entry"
+rm -rf "$T"
+
 echo "== merge-learnings: fail-open / no-op guards =="
 new_proj
 R="$("$SH" --candidates "$T/does-not-exist.jsonl")"
