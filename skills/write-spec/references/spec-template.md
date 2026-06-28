@@ -14,6 +14,7 @@
 
 > id: NNNN-<slug> · type: feature|refactor|bugfix · status: draft|approved · date: YYYY-MM-DD
 > approval: <approved via AskUserQuestion | non-interactive run — proceeded with draft>
+> brainstorm: tasks/NNNN-<slug>/brainstorm.md  <!-- the deliberation this decision came from (full tier) -->
 
 ## 1. Problem & Context
 One paragraph: why this change, the current pain, the bounded scope. Cite codebase facts from Explore
@@ -55,7 +56,9 @@ Tables/columns touched; Flyway/Liquibase migration id; whether a down-path exist
 - Confirmation: the test/review that will validate the decision.
 - Consequences: (+) …, (−) ….
 - **Budget: ≤80 words. One line per considered option.** Do NOT echo Brainstorm's scoring tables or
-  /500 numbers — the spec records the decision + why, not the deliberation transcript.
+  /500 numbers here — **link them instead** (`> brainstorm:` in the header points at `brainstorm.md`, the
+  full options table + premortem). The spec records the decision + why; the deliberation stays traceable
+  one click away, not lost.
 
 ## 10. Out of Scope
 Explicit neighbouring concerns excluded (UI, auth flow, other services…).

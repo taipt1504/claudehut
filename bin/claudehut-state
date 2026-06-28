@@ -162,6 +162,20 @@ case "$sub" in
       # word "passing" in prose.
       grep -qiE '(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|build success|[0-9]+ +(passed|passing|tests?))' "$evp" \
         || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed'). Review requires green evidence, not an assertion."
+      # v0.7 reuse-suspect loop gate (R5 AC4 — advisory→gate): the lint-reuse PostToolUse hook stages
+      # duplication / reinvented-stdlib suspects this session. set-review pass REFUSES unless review.md
+      # ADDRESSED each — the suspect's file must appear in review.md (a Standards-axis coverage row
+      # confirming ✗ or clearing n-a). Closes the loop that was prose-only (the reviewer could ignore the
+      # staged suspects with no consequence). Fails open if jq is missing.
+      SUS="$STATE_DIR/$SESSION.suspects.jsonl"
+      if [ -f "$SUS" ] && [ -s "$SUS" ] && command -v jq >/dev/null 2>&1; then
+        miss=""
+        while IFS= read -r sfile; do
+          [ -n "$sfile" ] || continue
+          grep -qF "$sfile" "$evp" || miss="$miss $sfile"
+        done < <(jq -r '.file // empty' "$SUS" 2>/dev/null | sort -u)
+        [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) for [$miss ] not addressed in $ev — add a Standards-axis coverage row confirming (✗ duplication/reinvented) or clearing (n-a + reason) each suspect file before passing."
+      fi
       STATE="$(jq --arg v "$ev" '.review_evidence=$v' <<<"$STATE")"
     fi
     STATE="$(jq --arg v "$r" '.review=$v' <<<"$STATE")"

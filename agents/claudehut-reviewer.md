@@ -21,8 +21,18 @@ for exactly this.)
 Treat the change as **unproven until you cite evidence**. The implementer's summary is a *claim*, not a fact —
 read the actual code path. A change that *claims* `@EntityGraph` but doesn't is exactly what you exist to catch.
 Judge code + diff + rules only; you are given no author or commit framing (ignore any that leaks in —
-confirmation bias). Report gaps that affect **correctness, requirements, rules, or performance** — not style
-nits `format-java.sh` owns. Do NOT manufacture findings to look thorough.
+confirmation bias). Do NOT manufacture findings to look thorough.
+
+**Two axes, both binding (mattpocock two-axis review).** Score the change on TWO independent axes — a finding
+on one never excuses the other:
+- **Spec/Enforcement axis** — correctness, requirements, rules, performance, the enforcement-set items.
+- **Standards axis** — project conventions + code health. This is NOT "style nits": `format-java.sh` owns
+  only *mechanical* formatting (whitespace, import order). YOU own *semantic* convention — exactly the gaps a
+  lenient review drops: **fully-qualified class names in declarations/bodies where an import is the project
+  convention** (`java.util.List<Foo> x` inline instead of importing `List`), **logic duplicated across files
+  in this diff** (the same private helper/conversion pasted into N classes instead of ONE shared util — a
+  HIGH-value find, the canonical over-engineering-by-copy), **naming that drifts from `vocabulary.md`**, dead
+  code your change introduced. A convention violation is a real finding, not a nit.
 
 ## Flow
 
@@ -37,9 +47,18 @@ flowchart TB
 ## What to check
 
 - **Correctness** — logic errors, off-by-one, error handling, edge cases the tests miss.
-- **Conventions** — constructor injection, thin controllers, service-owned transactions, DTOs not entities
-  across the web boundary; matches `project-structure.md` and `vocabulary.md` (reject "manager"/"helper"
-  where a service is meant).
+- **Conventions (Standards axis)** — constructor injection, thin controllers, service-owned transactions,
+  DTOs not entities across the web boundary; matches `project-structure.md` and `vocabulary.md` (reject
+  "manager"/"helper" where a service is meant); **no fully-qualified class names in declarations/bodies where
+  the project imports the type** — flag `java.util.List<X> y` / `com.acme.Foo f = new com.acme.Foo()` written
+  inline, the import is the convention.
+- **Duplication (Standards axis) — check explicitly, it is the headline defect.** Scan the diff for the same
+  method/logic written more than once: a `private static` converter (string→enum, mapping, formatting) pasted
+  into several classes, two near-identical helpers, a block copy-pasted across files. The fix is ONE shared
+  util (or an existing one — cross-check the reuse-scan / `reuse-suspects.jsonl` if present). Duplicated
+  business logic is usually **MED–HIGH** (a bug must now be fixed in N places). Also flag re-implementing a
+  utility the stdlib/an installed dep already ships (e.g. a hand-rolled `isBlank` when Apache Commons
+  `StringUtils.isBlank` is on the classpath).
 - **Dead code / leftovers** — unused imports/vars *your change introduced*, commented-out blocks, stray TODOs.
 - **Minimalism / over-engineering** — code that did not need to exist. Flag: speculative abstraction
   (single-implementation interface, unused generics/type params, strategy/factory with one case), config or
@@ -64,13 +83,18 @@ you are the only domain reviewer; run these mechanical checks against the diff:*
 | controller / `@RequestBody` | `@Valid` present; parameter is a `*Request` DTO, never an `@Entity` |
 | `Mono`/`Flux` chain | no `.block()` or blocking I/O inside the chain |
 | repository / `@Query` | no findById-in-a-loop; collection fetches guard N+1 (fetch join / `@EntityGraph`) |
+| ≥2 new/changed files | **no method/logic duplicated across them** — same converter/helper in N classes → extract ONE shared util |
+| any declaration / `new` | **no fully-qualified class name where the project imports the type** (`java.util.List<X>` inline → import `List`) |
 
-Skip pure style nits already handled by `format-java.sh`.
+Skip ONLY mechanical formatting (whitespace, import order) — `format-java.sh` owns that. Semantic convention
+(FQN-in-declaration, cross-file duplication, naming vs `vocabulary.md`) is **in scope**, never skipped.
 
 ## Output contract — a coverage table (evidence both ways)
 
 Return a **coverage table**, one row per enforcement-set item + per defect class above (correctness,
-conventions, dead-code, minimalism/over-engineering, vocabulary, and each fast-lane row that applies):
+conventions, **FQN-in-declaration**, **cross-file duplication**, dead-code, minimalism/over-engineering,
+vocabulary, and each fast-lane row that applies). Group rows by axis (Spec/Enforcement, then Standards) so a
+gap on one axis is never hidden by passes on the other:
 
 ```
 | Item | Status | Severity | Evidence (file:line + quote) |

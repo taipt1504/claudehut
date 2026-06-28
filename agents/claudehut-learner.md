@@ -5,7 +5,7 @@ description: >
   current. The deterministic merge/dedup/promote/prune is done by a script after you return. Carries
   project-scoped auto-memory.
 model: sonnet
-effort: low
+effort: medium
 tools: Read, Write, Grep
 memory: project
 color: green
@@ -41,7 +41,13 @@ flowchart TB
    JSON object per line**:
 
    ```json
-   {"category":"pitfall","trigger":"jpa, n+1, OrderRepository","learning":"OrderRepository.findAll triggers N+1 on lineItems — use @EntityGraph","evidence":"OrderRepository.java:42","confidence":0.7}
+   {
+     "category": "pitfall",
+     "trigger": "jpa, n+1, OrderRepository",
+     "learning": "OrderRepository.findAll triggers N+1 on lineItems — use @EntityGraph",
+     "evidence": "OrderRepository.java:42",
+     "confidence": 0.7
+   }
    ```
 
    - `category` ∈ {`convention`, `pitfall`, `reuse`, `decision`, `finding`, `note`}.
@@ -50,8 +56,14 @@ flowchart TB
    - `learning`: one crisp sentence. For `pitfall` entries phrase it **imperatively** — a proven pitfall is
      promoted into a rule file **verbatim**, so write the sentence you'd want a rule to carry.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
-   - Do **not** assign ids, dedup against existing entries, or set `promoted` — `merge-learnings.sh` owns all
-     of that.
+   - **Quality gate (v0.7):** `merge-learnings.sh` now **drops** candidates scoring <0.4 — i.e. ones that are
+     vague (no concrete type/method/annotation), evidence-less, or have <2 trigger tokens. So every candidate
+     must carry a real `evidence` (`file:line`/test) and ≥2 trigger keywords, or it is rejected as noise.
+   - `supersedes` (optional): if this learning **refines/corrects an earlier one**, set `"supersedes":"L-####"`
+     (mattpocock Learning Records) — the merge marks the new entry `status:"refines"` so evolution is traceable.
+   - Do **not** assign ids, dedup against existing entries, set `promoted`, or compute `recurrence` —
+     `merge-learnings.sh` owns all of that.
+
 3. **Update** `.claude/claudehut/reuse-index.json` with anything newly built (`id, kind, path, purpose, tags`)
    so the next reuse-scan can find it. This stays yours — deciding what is a reusable artifact is judgment.
 4. **Refresh `.claude/claudehut/MEMORY.md`** (the committed always-loaded index) when a new topic/category/

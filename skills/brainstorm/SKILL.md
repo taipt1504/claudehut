@@ -29,6 +29,12 @@ subagents).
    + a recommendation. **Check the return against the pipeline**: ≥2 structurally distinct options, scores
    tied to explicit criteria, premortem present — send it back if any is missing. When Discover found a reuse
    candidate, adopting/extending it must appear as option 0.
+
+   **Persist the deliberation** to `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/brainstorm.md`
+   (the task dir from Discover's reuse-scan; the brainstormer has no Write — the main thread writes it): the
+   options table + weighted scores + both premortems + the recommendation. The spec's §9 links it
+   (`> brainstorm:` header). This is the fix for "the deliberation was generated then thrown away" — Spec
+   stays terse (decision + why) while the *reasoning* is one click away, reviewable and auditable.
 2. **Assemble the enforcement set (code tasks).** By the **1% rule** — *if there's even a 1% chance a skill or
    rule applies, include it* — scan the plugin skills and the project's `.claude/rules/` tree. The brainstormer
    returns the candidate set; the **main thread** records it:

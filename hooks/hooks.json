@@ -41,7 +41,8 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh", "async": true }
         ]
       }
     ],

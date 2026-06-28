@@ -57,10 +57,17 @@ isolation; this skill owns the state write (the learner has no Bash).
    It dedups against the **canonical** `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (NOT
    `.claudehut/memory.jsonl` — only the canonical file is injected at the next session's SessionStart) by
    `category` + normalized `trigger` → merge (`hits++`, `confidence = min(+0.05, 1.0)`, `ts=now`) or append a
-   new `L-####` line; **promotes** proven pitfalls (`hits≥5 ∧ confidence≥0.85`) into the matching
-   `.claude/rules/` file; **prunes** decayed noise. It prints a `{added, merged, promoted, dropped}` report.
-3. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
-4. **Main thread closes the phase** after the merge runs:
+   new `L-####` line; **quality-gates** candidates (drops vague/evidence-less ones below 0.4 — specificity +
+   evidence + triggerability); **promotes** proven pitfalls (`hits≥5 ∧ confidence≥0.85`) into the matching
+   `.claude/rules/` file; **counts recurrence** when an already-promoted pitfall resurfaces (the negative
+   signal — the rule didn't stick); **prunes** decayed noise. It prints
+   `{added, merged, promoted, dropped, rejected, recurred}`. A `recurred > 0` means a promoted rule is being
+   re-violated — surface it.
+3. **Show the learning scoreboard** so memory health is visible this session (measured, not vibes):
+   `"${CLAUDE_PLUGIN_ROOT}/scripts/learning-score.sh" --top 5`. Users can re-run it anytime via
+   `/claudehut:claudehut-learning-report`.
+4. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
+5. **Main thread closes the phase** after the merge runs:
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-phase learn

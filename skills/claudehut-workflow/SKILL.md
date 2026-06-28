@@ -22,8 +22,16 @@ security-touching change into a fast lane.**
 | Tier | When (your assessment) | Phases run | Skips |
 |------|------------------------|------------|-------|
 | **trivial** | comment/doc/rename/config-value; no logic change | Discover (quick) → Implement → Review (min) | Brainstorm, Spec, Plan |
-| **small** | ≤2 files, no new component, **no security/auth/migration surface** | Discover → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
-| **full** (default) | new component, multi-file, architectural, OR any security/auth/migration surface | all 7 | — |
+| **small** | ≤2 files, no new component, **no security/auth/migration surface**, **and one obvious approach** | Discover → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
+| **full** (default) | new component, multi-file, architectural, security/auth/migration surface, **OR a non-obvious design choice / ≥2 viable approaches** | all 7 | — |
+
+**Tier by the hardest QUESTION, not the diff size (Issue 3 fix).** File-count is a *floor*, not the test: a
+≤2-file change that hinges on a non-obvious design decision, or where ≥2 genuinely different approaches exist,
+is **full** — it needs Brainstorm even though it's small. The gate can only verify the mechanical bound
+(files, sensitive paths); *you* must escalate on reasoning-complexity. **The fast lane skips the Brainstorm
+*dispatch*, never the *deliberation*:** a `small`-tier task still names **≥2 approaches + the one chosen and
+why, in one line** (a mini-brainstorm) before Implement — a single rationalized option is the smell that the
+task was really `full`.
 
 **Safety rails are never skipped in any tier:** the reuse-scan (Discover), test-first (Implement Iron Law),
 and a Review pass. Only the *deliberation* phases (Brainstorm/Spec/Plan) are skipped. If unsure, default to
