@@ -35,7 +35,9 @@ flowchart TB
    (controller/handler, service, repository/entity, listener/producer, config, security).
 4. Return a structured map: **entry points**, **key types**, **existing related code**, and an explicit
    **"Reuse candidates"** list (component + `file:line` + why it might be adoptable) that seeds
-   `claudehut-reuse-scanner`.
+   `claudehut-reuse-scanner`. **Don't dump the whole tree — judge relevance:** rank what the task actually
+   touches first, and for each reuse candidate say in a few words *why it's relevant to THIS task* (so the
+   scanner can score Fit), not just that it exists.
 
 ## Constraints & red flags
 

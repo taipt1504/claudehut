@@ -31,19 +31,26 @@ real counts".
 1. **Think first.** Each code-review auditor runs `model: opus, effort: xhigh` and its prompt contains the
    literal token `ultrathink` — the only deep-reasoning keyword Claude Code recognizes (`think hard`/`think
    deeply` are plain text, ignored — Claude Code model-config docs). Reason about the change before judging.
-2. **Refute, don't confirm.** You are a senior Java/Spring engineer whose sign-off decides whether this ships.
-   Treat the change as **unproven until you cite evidence**. Judge code + diff + rules only — you are given no
-   author, commit message, or "it's a quick fix" framing (confirmation-bias countermeasure). Report gaps that
-   affect **correctness, the requirements, the rules, or performance** — not style nits `format-java.sh` owns.
-   Do **not** manufacture findings to look thorough ("find ≥N" is banned — it produces false positives).
+2. **Refute, don't confirm — on TWO axes.** You are a senior Java/Spring engineer whose sign-off decides
+   whether this ships. Treat the change as **unproven until you cite evidence**. Judge code + diff + rules
+   only — you are given no author, commit message, or "it's a quick fix" framing (confirmation-bias
+   countermeasure). Report gaps on BOTH axes (a pass on one never excuses the other):
+   **(a) Spec/Enforcement** — correctness, requirements, rules, performance, enforcement-set items;
+   **(b) Standards** — semantic convention + code health: **fully-qualified names where the project imports
+   the type, logic duplicated across files in the diff (the same helper/converter pasted into N classes),
+   naming drift vs `vocabulary.md`, dead code introduced.** `format-java.sh` owns ONLY mechanical formatting
+   (whitespace/import-order) — semantic convention is a real finding, never "just a nit". Do **not**
+   manufacture findings to look thorough ("find ≥N" is banned — it produces false positives).
 3. **Evidence per claim — both directions.** Every finding AND every "satisfied" attestation cites `file:line`
    and quotes the deciding code. A behavioral claim ("uses @EntityGraph", "input is validated") needs a
    `file:line` citation in the source — **never an inference from a name**. A bare "looks good / PASS" is a
    disqualified, non-answer.
 4. **Coverage table — the output contract.** Return a table with **one row per enforcement-set item AND per
    item in your defect-class floor** (below), each → `✓ satisfied | ✗ violated | n-a` + evidence
-   (`file:line` + quote, or `n-a: <one-line reason>`). Silence is not a pass: an item with no row = incomplete
-   review, bounced back. **PASS is allowed only when every row is `✓` or `n-a`, each with evidence.**
+   (`file:line` + quote, or `n-a: <one-line reason>`). The floor now includes the **Standards-axis rows**
+   (FQN-in-declaration, cross-file duplication, naming-vs-vocabulary) — each gets its own row, even when the
+   enforcement set is thin/empty. Silence is not a pass: an item with no row = incomplete review, bounced
+   back. **PASS is allowed only when every row is `✓` or `n-a`, each with evidence.**
 5. **Severity scale (shared — drives blocking):**
 
    | Severity | Meaning | Gate |
@@ -130,6 +137,13 @@ flowchart TB
    - **Vocabulary table** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, read it on the
      main thread and paste it under a `## Project Vocabulary` heading. The `vocabulary.md` rule reaches the
      subagent, but the LANGUAGE.md table it points to does not. If absent, omit (do not block).
+   - **Known reuse suspects (Issue 5)** — the `lint-reuse.sh` PostToolUse hook stages duplication /
+     reinvented-stdlib suspects this session at `.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl`.
+     If it exists, paste its rows under a `## Known reuse suspects (confirm or clear each)` heading
+     (`jq -c . "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl"`). The
+     reviewer must add a coverage row per suspect — **confirm** it (a real `✗` duplication/reinvention finding)
+     or **clear** it (`n-a` with the reason it's a false positive). These are advisory signals, not verdicts;
+     the reviewer's judgment decides. If absent, omit.
 
    Auditors that can use a database/Kafka MCP **degrade gracefully** when none is connected: they review
    statically (read code, infer query plans) instead of running live queries, and say so in their report.

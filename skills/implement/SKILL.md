@@ -59,7 +59,10 @@ API phase…). Collapsing all of it onto a single implementer is the serial bott
 kill (Issue 1): you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
 
 Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** from the task description and
-skip to *The cycle*. For a `full`-tier plan, run this loop on the main thread:
+skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm** (Issue 3): name ≥2 approaches +
+the one you chose and why, in a single line, before the first test. If you can only find one approach and it
+needs defending, the task was really `full` — escalate (`set-complexity full`). `trivial` (comment/rename)
+needs none. For a `full`-tier plan, run this loop on the main thread:
 
 ```mermaid
 flowchart TB
@@ -124,7 +127,11 @@ on a resumed session, re-mirror still-pending T-xxx rows from `plan.md` with `Ta
 
 1. **RED** — write the smallest failing test for the next behavior. Run it; confirm it fails for the *right*
    reason (not a compile error you didn't intend).
-2. **GREEN** — write the minimal production code to pass. Run it; confirm green.
+2. **GREEN** — `ultrathink` the **design beat** first (≤30s, this is what stops rote code): (a) **reuse?** an
+   existing method/util/dep — honor the plan sketch's reuse anchor, don't re-implement what the project or an
+   installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
+   abstraction nor the flimsier algorithm; (c) **don't duplicate** — about to repeat a helper from a sibling
+   file this task? extract ONE shared util. Then write the minimal production code to pass. Run it; confirm green.
 3. **REFACTOR** — clean up while tests stay green.
 
 Work the plan's T-xxx tasks in dependency order. Honor the **enforcement set** recorded in Brainstorm — every
@@ -141,7 +148,7 @@ listed skill and rule must end up satisfied (Review audits exactly this set).
 
 Two surfaces, split by **measured** behavior (EVAL-REPORT #7):
 - **Path-scoped rules** in `.claude/rules/` auto-load when you **read/edit an existing** matching file — terse standards, reliable on edits.
-- **They do NOT fire when you CREATE a new file** (creation ≠ a read). **So when creating a new component, READ the matching playbook below FIRST.** These `references/*` playbooks are **context7-researched current best practice**, preloaded with this skill, and carry the create-time standard the path-rule would otherwise supply.
+- **They do NOT fire when you CREATE a new file** (creation ≠ a read). **So when creating a new component, READ the matching playbook below FIRST.** These `references/*` playbooks are **context7-researched current best practice**, preloaded with this skill, and carry the create-time standard the path-rule would otherwise supply. **Completion criterion (not optional):** a new file created *without* its playbook read is an unfinished task — the create-time miss is exactly where duplication and missing-security defects enter (the `lint-reuse.sh` hook and Review's reuse-suspects catch what slips, but the cheap fix is reading the playbook before you type).
 
 | Creating / editing… | READ this playbook (create-time) | Rule that auto-loads (edit-time) |
 |---|---|---|
