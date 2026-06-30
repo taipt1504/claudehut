@@ -55,9 +55,11 @@ fi
 
 ctx="$(cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null || echo "ClaudeHut workflow orchestrator skill not found.")"
 
-# Top learnings (P7 helper — optional; no-op until present)
+# Top learnings (P7 helper — optional; no-op until present). WS-6: --snapshot records the injected IDs so the
+# Learn phase can stamp .applied on the ones that resurface (closing the inject→use reinforcement loop).
 if [ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -f "$DIR/learnings.jsonl" ]; then
-  learn="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --top 12 2>/dev/null || true)"
+  snap=""; [ -n "$sid" ] && { mkdir -p "$DIR/state" 2>/dev/null || true; snap="$DIR/state/$sid.injected.json"; }
+  learn="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --top 12 ${snap:+--snapshot "$snap"} 2>/dev/null || true)"
   [ -n "$learn" ] && ctx="$ctx"$'\n\n## Learnings for this project (top by confidence x recency x hits)\n'"$learn"
 fi
 

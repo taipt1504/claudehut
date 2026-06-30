@@ -43,6 +43,7 @@ $all_exempt && allow
 STATE="$PROJECT_DIR/.claude/claudehut/state/$sid.json"
 [ -f "$STATE" ] || allow   # no active workflow for this session → fail open (06 §5)
 s="$(cat "$STATE" 2>/dev/null || echo '{}')"
+jq -e . <<<"$s" >/dev/null 2>&1 || s='{}'   # N4: a corrupt state file → treat as empty (fail open, no jq noise)
 
 [ "$(jq -r '.bypass // false' <<<"$s")" = "true" ] && allow
 
