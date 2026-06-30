@@ -15,6 +15,26 @@ block() { jq -n --arg r "$1" '{decision:"block",reason:$r}'; exit 0; }
 # Native cap: never block past the consecutive-Stop limit.
 [ "$(jq -r '.stop_hook_active // false' <<<"$in" 2>/dev/null || echo false)" = "true" ] && exit 0
 
+# PARK-and-wait fail-open: a Stop fired while a background subagent is STILL RUNNING is not a
+# completion attempt — the main thread merely ended its turn to await background Agent/Task results
+# (e.g. the Review fan-out). Blocking it spams "Stop hook error" on every background-agent completion
+# (the measured 0012 symptom). No documented Stop-hook field exposes background tasks (confirmed against
+# the CC hooks docs), so detect via the transcript: a FOREGROUND subagent always completes (its
+# tool_result is paired) before the main turn ends; a background one still in flight leaves its
+# Agent/Task tool_use UNPAIRED. Any unpaired ⇒ parked ⇒ fail open. Streaming (memory = #ids, not file
+# size). Fails open on missing/unreadable transcript → no behavior change when absent (e.g. under test).
+tp="$(jq -r '.transcript_path // empty' <<<"$in" 2>/dev/null || true)"
+if [ -n "$tp" ] && [ -f "$tp" ]; then
+  pend="$(jq -n '
+    (reduce inputs as $x ({u:[],r:[]};
+       if   ($x.type=="assistant") then .u += [ $x.message.content[]? | select(.type=="tool_use"    and (.name=="Agent" or .name=="Task")) | .id ]
+       elif ($x.type=="user")      then .r += [ $x.message.content[]? | select(.type=="tool_result") | .tool_use_id ]
+       else . end)) as $s
+    | [ $s.u[] | . as $id | select( ($s.r | index($id)) == null ) ] | length' < "$tp" 2>/dev/null || echo 0)"
+  case "$pend" in ''|*[!0-9]*) pend=0 ;; esac
+  [ "$pend" -gt 0 ] && exit 0   # background subagent(s) still running → parked, not finishing
+fi
+
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 STATE="$PROJECT_DIR/.claude/claudehut/state/$sid.json"
 [ -f "$STATE" ] || exit 0   # no active workflow for this session → don't block stop (06 §5)

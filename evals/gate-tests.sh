@@ -86,6 +86,23 @@ st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && o
 st set-review pending; done_ok x '{"session_id":"s","stop_hook_active":true}' && ok "allow: stop_hook_active cap" || bad "cap allow"
 done_ok x '{"session_id":"none","stop_hook_active":false}' && ok "allow: missing state fails open (no block)" || bad "done fail-open"
 rm -rf "$TMP"
+# PARK-and-wait fail-open (0012): a Stop fired while a background subagent is still running (an UNPAIRED
+# Agent tool_use in the transcript) is a park, not a completion attempt → fail open even with review
+# pending. A transcript whose Agent tool_use is PAIRED (subagent finished) → the gate enforces normally.
+new_proj; st set-profile feature; st set-phase implement   # review pending → would block without a park
+TR_PEND="$TMP/pending.jsonl"
+printf '%s\n%s\n' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","id":"toolu_INFLIGHT"}]}}' \
+  '{"type":"user","message":{"content":[{"type":"text","text":"waiting on reviewer"}]}}' > "$TR_PEND"
+done_ok x "{\"session_id\":\"s\",\"stop_hook_active\":false,\"transcript_path\":\"$TR_PEND\"}" \
+  && ok "allow: background subagent in flight (unpaired Agent) → park, fail open" || bad "park-wait: blocked while subagent running"
+TR_DONE="$TMP/done.jsonl"
+printf '%s\n%s\n' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","id":"toolu_DONE"}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_DONE","content":"ok"}]}}' > "$TR_DONE"
+blocks x "{\"session_id\":\"s\",\"stop_hook_active\":false,\"transcript_path\":\"$TR_DONE\"}" \
+  && ok "block: all subagents finished (paired) → gate enforces (review pending)" || bad "park-wait: failed open with no in-flight subagent"
+rm -rf "$TMP"
 # tier-aware completion (Issue 4 × gate-done interaction — trivial skips Learn, must NOT wedge)
 new_proj; st set-phase review; review_pass; st set-complexity trivial
 done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: trivial tier — review=pass terminates WITHOUT Learn (no wedge)" || bad "trivial done without learn"
