@@ -31,10 +31,13 @@ mkfx() { # fixture repo + approved phased plan + PRE-GATED state for $SID; echoe
 # Spec: orders + payments
 ## 1. Problem
 Two independent domain services then a controller.
+## 5. Acceptance Criteria
+- AC-001 GIVEN a valid order WHEN createOrder THEN an Order is persisted.
+- AC-002 GIVEN a valid payment WHEN charge THEN a Payment is recorded.
 ## 9. Decision
 Build OrderService and PaymentService independently, then OrderController using both.
 S
-  printf '# Reuse scan\nsearched: order, payment, service\nFOUND: none\nDECISION: new — no existing service\n' > "$d/reuse-scan.md"
+  printf '%s\n' '# Reuse scan' '| Dimension | Existing asset | Decision | Fit | Impact | Effort |' '|---|---|---|---|---|---|' '| order/payment service | none | new | 1 | low | M |' > "$d/reuse-scan.md"
   cat > "$d/plan.md" <<'PL'
 # Plan: orders + payments
 
@@ -48,7 +51,13 @@ Build two INDEPENDENT services (Order, Payment) with real validation logic, then
 ## 2. Technical Context
 Java 17 / Spring Boot. Build: grep/file verify for this demo (do NOT run Gradle).
 
-## 3. Task Breakdown
+## 3. Implementation Flow
+Request → OrderController → OrderService + PaymentService → repos. Build the two services first (independent), then wire the controller.
+**T-001 sketch**: OrderServiceImpl.createOrder(OrderRequest)→Order; validate amount>0 + status transitions.
+**T-002 sketch**: PaymentServiceImpl.charge(PaymentRequest)→Payment; validate amount.
+**T-003 sketch**: OrderController.checkout() calls OrderService then PaymentService.
+
+## 4. Task Breakdown
 
 ### Phase 1 — domain / service  (parallel — independent components)
 | ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
@@ -69,6 +78,7 @@ PL
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-reuse-scan --artifact .claude/claudehut/tasks/0001-orders/reuse-scan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-orders/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-orders/plan.md >/dev/null 2>&1
+    CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-profile feature >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
 }
 

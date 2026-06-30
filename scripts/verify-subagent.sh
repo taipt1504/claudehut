@@ -31,6 +31,20 @@ case "$agent" in
     { ls "$DIR"/tasks/*/plan.md >/dev/null 2>&1 || ls "$DIR"/plans/*.md >/dev/null 2>&1; } \
       || block "claudehut-planner returned without a plan file (.claude/claudehut/tasks/<NNNN-slug>/plan.md). Produce it before proceeding."
     ;;
+  claudehut-plan-reviewer)
+    # WS-2 (issue 2): a DISPATCHED plan-reviewer must return a verdict artifact (tasks/<id>/plan-review.md),
+    # so a spawned-but-empty review is blocked. Proxy for "this session": newer than the state file (which
+    # bootstrap.sh wrote at SessionStart, before any subagent). Fails open when state/session is absent or no
+    # plan-review.md exists at all (never wedge — 06 §5). NB: this proves the agent PRODUCED a verdict when it
+    # ran; the set-plan APPROVE gate is what makes the verdict mandatory before the write gate opens.
+    sid_pr="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
+    STATE_FILE="$DIR/state/$sid_pr.json"
+    if [ -n "$sid_pr" ] && [ -f "$STATE_FILE" ] && ls "$DIR"/tasks/*/plan-review.md >/dev/null 2>&1; then
+      if ! find "$DIR"/tasks/*/plan-review.md -newer "$STATE_FILE" 2>/dev/null | grep -q .; then
+        block "claudehut-plan-reviewer returned without a fresh verdict. Write the coverage table + APPROVE/REVISE to .claude/claudehut/tasks/<id>/plan-review.md before returning, then the main thread records claudehut-state set-plan-review."
+      fi
+    fi
+    ;;
   claudehut-learner)
     # P1-1 FIX (defense-in-depth): the learner's contract is now to EXTRACT candidates — it writes
     # tasks/<id>/learn-candidates.jsonl, and capture-learnings runs merge-learnings.sh on that to write

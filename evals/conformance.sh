@@ -180,16 +180,18 @@ grep -qi 'right-size' "$PT" \
 
 # C13 — v0.7 Enforcement (Issue 6): Review's Standards axis catches semantic-convention defects a lenient
 # review drops (FQN-in-declaration, cross-file duplication) — NOT dismissed as "style nits".
-RVA="$ROOT/agents/claudehut-reviewer.md"; RVS="$ROOT/skills/review/SKILL.md"
-{ grep -qi 'fully-qualified' "$RVA" && grep -qi 'duplicat' "$RVA"; } \
-  && ok "E1: reviewer agent checks FQN-in-declaration + cross-file duplication (Standards axis)" \
-  || bad "E1: reviewer missing FQN/duplication Standards-axis checks (Issue 6)"
-{ grep -qi 'two axes' "$RVA" || grep -qi 'Standards axis' "$RVA"; } \
-  && ok "E2: reviewer scores both Spec/Enforcement and Standards axes" \
-  || bad "E2: reviewer missing the two-axis split"
-{ grep -qi 'Standards' "$RVS" && grep -qi 'duplicat' "$RVS"; } \
-  && ok "E3: review skill rigor contract binds the Standards axis (FQN/duplication/naming)" \
-  || bad "E3: review skill still drops semantic convention as 'style nits'"
+RVS="$ROOT/skills/review/SKILL.md"; RR="$ROOT/skills/review/references/review-rigor.md"
+# WS-9: the rigor contract is the SINGLE SOURCE (references/review-rigor.md), cat into each dispatch prompt;
+# the auditor bodies + the SKILL no longer restate it. Assert the content lives there + is referenced.
+{ grep -qi 'fully-qualified' "$RR" && grep -qi 'duplicat' "$RR"; } \
+  && ok "E1: rigor contract checks FQN-in-declaration + cross-file duplication (Standards axis)" \
+  || bad "E1: rigor contract missing FQN/duplication Standards-axis checks (Issue 6)"
+{ grep -qi 'two axes' "$RR" || grep -qi 'Standards' "$RR"; } \
+  && ok "E2: rigor contract scores both Spec/Enforcement and Standards axes" \
+  || bad "E2: rigor contract missing the two-axis split"
+{ grep -q 'review-rigor' "$RVS" && grep -qi 'verbatim' "$RVS" && grep -qi 'Standards' "$RR"; } \
+  && ok "E3: review skill BINDS the rigor contract into each dispatch (cat verbatim) + Standards axis present" \
+  || bad "E3: review skill no longer binds the rigor contract verbatim into dispatch prompts"
 
 # C14 — v0.7 Cognition (Issue 2): reuse-scan judges Fit + Impact (semantic), not just existence; scanner
 # reasons (ultrathink) at higher effort instead of grep-matching signatures.
@@ -288,10 +290,11 @@ printf '%s' '{"session":"ses-x","review":"pending"}' > "$RSD/state/ses-x.json"
 if CLAUDE_PROJECT_DIR="$RT" "$ROOT/bin/claudehut-state" --session ses-x set-review pass --evidence .claude/claudehut/tasks/0001-x/review.md >/dev/null 2>&1; then
   bad "R2: set-review pass ALLOWED with an unaddressed suspect (gate not firing)"
 else ok "R2: set-review pass REFUSED while a staged suspect is unaddressed"; fi
-printf '%s\n' '| duplication | ✗ violated | src/main/java/com/x/Dup.java:3 dup |' >> "$RV"
+# WS-5: "addressed" now means a RESOLUTION token on the suspect's row, not a bare mention.
+printf '%s\n' '| duplication | ✗ violated | src/main/java/com/x/Dup.java:3 — resolved: extracted shared util |' >> "$RV"
 if CLAUDE_PROJECT_DIR="$RT" "$ROOT/bin/claudehut-state" --session ses-x set-review pass --evidence .claude/claudehut/tasks/0001-x/review.md >/dev/null 2>&1; then
-  ok "R3: set-review pass ALLOWED once the suspect is addressed in review.md"
-else bad "R3: set-review pass still refused after addressing the suspect"; fi
+  ok "R3: set-review pass ALLOWED once the suspect is RESOLVED (WS-5 resolution token)"
+else bad "R3: set-review pass still refused after resolving the suspect"; fi
 rm -rf "$RT"
 
 # C20 — v0.7 P2 LLM-judge tier (money-gated): verifies the cognition claim artifact-grep can't (reuse-scanner
@@ -320,6 +323,216 @@ rm -rf "$SW" "$TD"
 # under `set -u` is an unbound-variable error on bash 3.2 / macOS — broke the run-all default)
 if bash "$ROOT/evals/run.sh" >/dev/null 2>&1; then ok "run.sh dry-run (no args) exits 0 (bash-3.2 empty-array safe)"
 else bad "run.sh dry-run errors with no args (empty-array under set -u — bash 3.2)"; fi
+
+# ============================================================================
+# v0.8 P0 — enforcement teeth (each rich behavior bound to a gate OR auditor). BEHAVIORAL.
+# Closes the meta root cause: gates checked structure-of-a-file, never quality-of-thinking.
+# ============================================================================
+echo "== v0.8 P0 gates =="
+P0="$(mktemp -d)"; PD="$P0/.claude/claudehut/tasks/0001-demo"; mkdir -p "$PD" "$P0/.claude/claudehut/state"
+ST="$ROOT/bin/claudehut-state"
+runp() { CLAUDE_PROJECT_DIR="$P0" "$ST" --session p "$@" >/dev/null 2>&1; }
+
+# WS-4 reuse-scan Fit/Impact content gate (the 0011 legacy 4-col scan would now be rejected)
+printf '%s\n' '| Dimension | Existing | Decision | Effort |' '| slug | none | new | M |' > "$PD/reuse-scan.md"
+runp set-reuse-scan --artifact .claude/claudehut/tasks/0001-demo/reuse-scan.md \
+  && bad "P0/WS-4: reuse-scan ACCEPTED legacy 4-col (no Fit/Impact)" || ok "P0/WS-4: reuse-scan REJECTS legacy format (Fit/Impact required)"
+printf '%s\n' '| Dimension | Existing | Decision | Fit | Impact | Effort |' '|---|---|---|---|---|---|' '| slug | TextUtils.slugify | adopt | 5 | low | S |' > "$PD/reuse-scan.md"
+runp set-reuse-scan --artifact .claude/claudehut/tasks/0001-demo/reuse-scan.md \
+  && ok "P0/WS-4: reuse-scan ACCEPTS v0.7 Fit/Impact format" || bad "P0/WS-4: reuse-scan rejected valid Fit/Impact"
+
+# WS-3 brainstorm content gate (fixes "brainstorm follows no format")
+printf '%s\n' '# B' '| Option | Score |' '|---|---|' '| A | 4 |' '## Premortem' 'x' '## Recommendation' 'A' > "$PD/brainstorm.md"
+runp set-brainstorm .claude/claudehut/tasks/0001-demo/brainstorm.md \
+  && bad "P0/WS-3: brainstorm ACCEPTED <2 options" || ok "P0/WS-3: brainstorm REJECTS <2 scored options"
+printf '%s\n' '# B' '| Option | Score |' '|---|---|' '| A | 4 |' '| B | 3 |' '## Premortem' 'both' '## Recommendation' 'A' > "$PD/brainstorm.md"
+runp set-brainstorm .claude/claudehut/tasks/0001-demo/brainstorm.md \
+  && ok "P0/WS-3: brainstorm ACCEPTS ≥2 options + premortem + recommendation" || bad "P0/WS-3: brainstorm rejected valid deliberation"
+
+# WS-4 spec acceptance-criteria gate
+printf '%s\n' '# S' '## 1. Problem' 'x' '## 9. Decision' 'A' > "$PD/spec.md"
+runp set-spec .claude/claudehut/tasks/0001-demo/spec.md \
+  && bad "P0/WS-4: spec ACCEPTED with no AC-xxx" || ok "P0/WS-4: spec REJECTS missing acceptance criteria"
+printf '%s\n' '# S' '## 1. Problem' 'x' '## 5. AC' '- AC-001 GIVEN a WHEN b THEN c' '## 9. Decision' 'A' > "$PD/spec.md"
+runp set-spec .claude/claudehut/tasks/0001-demo/spec.md \
+  && ok "P0/WS-4: spec ACCEPTS sections + Decision + AC-xxx" || bad "P0/WS-4: spec rejected valid"
+
+# WS-4 plan structural gate (full tier: Implementation Flow + Sketch)
+printf '%s\n' '# P' '| T-001 | x | tf | v | - |' > "$PD/plan.md"
+runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
+  && bad "P0/WS-4: plan ACCEPTED with no Impl-Flow/Sketch (full)" || ok "P0/WS-4: plan REJECTS missing Impl-Flow/Sketch (full tier)"
+
+# WS-2 plan-reviewer hard gate (smart-gated): sensitive plan REQUIRES a fresh APPROVE
+printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PD/plan.md"
+runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
+  && bad "P0/WS-2: sensitive plan ACCEPTED without plan-reviewer APPROVE (issue 2 regressed)" || ok "P0/WS-2: sensitive plan REQUIRES plan-reviewer APPROVE (the issue-2 wire)"
+printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PD/plan-review.md"
+runp set-plan-review APPROVE --evidence .claude/claudehut/tasks/0001-demo/plan-review.md \
+  && ok "P0/WS-2: set-plan-review APPROVE recorded (coverage table)" || bad "P0/WS-2: set-plan-review rejected a valid verdict"
+runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
+  && ok "P0/WS-2: sensitive plan ACCEPTED after fresh plan-review APPROVE" || bad "P0/WS-2: plan rejected despite APPROVE"
+# smart-gate: a simple full-tier plan (1 task, non-sensitive) needs NO auditor (no latency tax — issue 5)
+mkdir -p "$P0/.claude/claudehut/tasks/0002-simple"
+printf '%s\n' '# P' '## Implementation Flow' 'x' '**T-001 sketch**: foo()' '| T-001 | A.java | tf | v | - |' > "$P0/.claude/claudehut/tasks/0002-simple/plan.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session q set-plan .claude/claudehut/tasks/0002-simple/plan.md >/dev/null 2>&1 \
+  && ok "P0/WS-2: simple full-tier plan ACCEPTED without auditor (smart-gate avoids the latency tax)" || bad "P0/WS-2: smart-gate over-fired on a simple plan"
+
+# WS-8a set-review citation gate — a ✓ row must cite a locus
+printf '%s\n' '| item | status | evidence |' '| x | ✓ satisfied | |' './gradlew test — 5 passed' > "$PD/review.md"
+runp set-review pass --evidence .claude/claudehut/tasks/0001-demo/review.md \
+  && bad "P0/WS-8a: review ACCEPTED an uncited ✓ row" || ok "P0/WS-8a: review REJECTS a ✓ row with no evidence locus"
+
+# Fail-open: content gates degrade on a missing file (never wedge — the gate philosophy)
+runp set-brainstorm .claude/claudehut/tasks/0001-demo/nonexistent.md \
+  && ok "P0: fail-open — content gate on a missing file passes (never wedge)" || bad "P0: fail-open broken (missing-file rejected)"
+
+# WS-1 off-path detector (inject-phase advisory): valid JSON, warns off-path, excludes research/
+mkdir -p "$P0/.claude/prompt/0011-x" "$P0/.claude/prompt/research"
+printf 'x\n' > "$P0/.claude/prompt/0011-x/spec.md"; printf 'x\n' > "$P0/.claude/prompt/research/plan.md"
+printf '{"phase":"discover"}' > "$P0/.claude/claudehut/state/off.json"
+echo '{"session_id":"off","prompt":"hi"}' | CLAUDE_PROJECT_DIR="$P0" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" 2>/dev/null > "$P0/ip.json"
+jq -e . < "$P0/ip.json" >/dev/null 2>&1 && ok "P0/WS-1: inject-phase emits VALID JSON with off-path artifacts present" || bad "P0/WS-1: inject-phase invalid JSON (set-e pipefail regression)"
+jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -q "0011-x/spec.md" && ok "P0/WS-1: off-path detector warns on .claude/prompt/0011-x/spec.md" || bad "P0/WS-1: off-path not detected"
+jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -q "research/plan.md" && bad "P0/WS-1: off-path falsely flagged research/" || ok "P0/WS-1: off-path detector excludes research/ (no false positive)"
+
+# --- advisor P0-hardening regressions (B1 dispatch-proof, B2 bypass, M1/M2 freshness, M3 forged citation) ---
+PA="$P0/.claude/claudehut/tasks/0003-adv"; mkdir -p "$PA"
+# B2: the documented bypass escape hatch must unblock the set-plan smart-gate
+printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PA/plan.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-plan .claude/claudehut/tasks/0003-adv/plan.md >/dev/null 2>&1 \
+  && ok "P0/B2: set-bypass true unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
+# M1/M2: content-hash freshness — an unchanged reviewed plan passes; any post-review edit is rejected
+PB="$P0/.claude/claudehut/tasks/0004-fresh"; mkdir -p "$PB"
+printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PB/plan.md"
+printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PB/plan-review.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan-review APPROVE --evidence .claude/claudehut/tasks/0004-fresh/plan-review.md >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan .claude/claudehut/tasks/0004-fresh/plan.md >/dev/null 2>&1 \
+  && ok "P0/WS-2: reviewed plan (byte-identical) ACCEPTED" || bad "P0/WS-2: unchanged reviewed plan rejected"
+printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' '<!-- backdoor added AFTER review -->' > "$PB/plan.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan .claude/claudehut/tasks/0004-fresh/plan.md >/dev/null 2>&1 \
+  && bad "P0/M1+M2: post-review plan EDIT accepted (freshness leak)" || ok "P0/M1+M2: post-review plan edit REJECTED (content-hash freshness, mtime-immune)"
+# M3: a forged ':N' citation is rejected; a real source filename is accepted
+printf '%s\n' '| x | ✓ satisfied | see section 4:9 |' './gradlew test — 1 passed' > "$PA/review.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session m3 set-review pass --evidence .claude/claudehut/tasks/0003-adv/review.md >/dev/null 2>&1 \
+  && bad "P0/M3: forged ':N' citation (section 4:9) accepted" || ok "P0/M3: forged ':N' locus REJECTED (real filename/Test/#method required)"
+printf '%s\n' '| x | ✓ satisfied | AuthService.java:9 |' './gradlew test — 1 passed' > "$PA/review.md"
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session m3 set-review pass --evidence .claude/claudehut/tasks/0003-adv/review.md >/dev/null 2>&1 \
+  && ok "P0/M3: real filename:line locus ACCEPTED" || bad "P0/M3: real filename locus rejected"
+# B1: a dispatched plan-reviewer that returns WITHOUT a verdict is blocked; with a fresh verdict, allowed
+PV="$P0/.claude/claudehut/tasks/0005-pr"; mkdir -p "$PV"; printf '{"phase":"plan"}' > "$P0/.claude/claudehut/state/pr.json"; sleep 1
+echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "P0/B1: plan-reviewer SubagentStop BLOCKS when it returns no fresh verdict (dispatch-proof)" || bad "P0/B1: plan-reviewer empty return not blocked"
+touch "$PV/plan-review.md"
+[ -z "$(echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "P0/B1: plan-reviewer SubagentStop ALLOWS with a fresh verdict file" || bad "P0/B1: fresh verdict still blocked"
+echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":true}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && bad "P0/B1: plan-reviewer ignores stop_hook_active cap (hang risk)" || ok "P0/B1: plan-reviewer respects stop_hook_active cap (fail-open)"
+rm -rf "$P0"
+
+# ============================================================================
+# v0.8 P1 — WS-6 fast-Learn + closed reinforcement loop. BEHAVIORAL.
+# ============================================================================
+echo "== v0.8 P1 WS-6 (fast-Learn + reinforcement) =="
+P1="$(mktemp -d)"; CH="$P1/.claude/claudehut"; mkdir -p "$CH/state" "$CH/tasks/0001-x" "$P1/.claude/rules"
+# harvest: a signature seen >=2x + a review ✗ row → ≥2 candidates, valid JSONL
+printf '%s\n' '{"signature":"could not resolve dependency foo:bar:1.0"}' '{"signature":"could not resolve dependency foo:bar:1.0"}' > "$CH/state/s.failures.jsonl"
+printf '%s\n' '| item | status | evidence |' '| N+1 in OrderRepo | ✗ violated | OrderRepo.java:42 |' > "$CH/tasks/0001-x/review.md"
+hn="$(CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/harvest-candidates.sh" --session s --task-dir .claude/claudehut/tasks/0001-x 2>/dev/null)"
+{ [ "${hn:-0}" -ge 2 ] && jq -se . < "$CH/tasks/0001-x/learn-candidates.jsonl" >/dev/null 2>&1; } \
+  && ok "WS-6: harvest-candidates extracts ≥2 candidates (recurring failure + review ✗) as valid JSONL — no agent" \
+  || bad "WS-6: harvest-candidates did not produce valid candidates"
+# merge writes the per-session learn-receipt (the Stop-gate proof)
+CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$CH/tasks/0001-x/learn-candidates.jsonl" --session s >/dev/null 2>&1
+[ -f "$CH/state/s.learn-receipt.json" ] && jq -e .ts < "$CH/state/s.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "WS-6: merge-learnings writes a per-session learn-receipt" || bad "WS-6: no learn-receipt written by merge"
+# .applied reinforcement loop: an injected learning that resurfaces is stamped
+printf '%s\n' '{"id":"L-0050","ts":"2026-06-01T00:00:00Z","category":"pitfall","trigger":"jpa|n+1|orderrepo","learning":"OrderRepo N+1","evidence":"OrderRepo.java:42","confidence":0.8,"hits":3}' > "$CH/learnings.jsonl"
+printf '%s\n' '["L-0050"]' > "$CH/state/s.injected.json"
+printf '%s\n' '{"category":"pitfall","trigger":"OrderRepo, N+1, jpa","learning":"hit again","evidence":"OrderRepo.java:42","confidence":0.6}' > "$P1/c2.jsonl"
+CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$P1/c2.jsonl" --session s --injected "$CH/state/s.injected.json" >/dev/null 2>&1
+[ "$(jq -sr 'map(select(.id=="L-0050"))[0].applied // 0' "$CH/learnings.jsonl" 2>/dev/null)" = "1" ] \
+  && ok "WS-6: .applied stamped on an injected learning that resurfaced (inject→use loop CLOSED)" || bad "WS-6: .applied not stamped (loop still open)"
+# recurring-promoted re-injection (recurrence>0 keeps being violated → re-surface); clean promoted stays out
+printf '%s\n' '{"id":"L-0060","ts":"2026-06-01T00:00:00Z","category":"pitfall","trigger":"redis|cache|ttl","learning":"set TTL on cache","evidence":"C.java:9","confidence":0.9,"hits":6,"promoted":true,"recurrence":2}' '{"id":"L-0061","ts":"2026-06-01T00:00:00Z","category":"pitfall","trigger":"jdbc|pool","learning":"size the pool","evidence":"P.java:1","confidence":0.9,"hits":6,"promoted":true,"recurrence":0}' > "$CH/learnings.jsonl"
+inj="$(CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/inject-learnings.sh" --top 12 2>/dev/null)"
+echo "$inj" | grep -q "RECURRING-PROMOTED" && ok "WS-6: a recurring promoted rule (recurrence>0) IS re-injected" || bad "WS-6: recurring promoted rule not re-injected"
+echo "$inj" | grep -q "size the pool" && bad "WS-6: clean promoted rule wrongly re-injected (token double-pay)" || ok "WS-6: clean promoted rule (recurrence=0) stays in its rule file (not re-injected)"
+rm -rf "$P1"
+
+# ============================================================================
+# v0.8 P1 — WS-7 task-profile router. BEHAVIORAL.
+# ============================================================================
+echo "== v0.8 P1 WS-7 (task-profile router) =="
+P7="$(mktemp -d)"; mkdir -p "$P7/.claude/claudehut/state"; ST="$ROOT/bin/claudehut-state"
+r7() { CLAUDE_PROJECT_DIR="$P7" "$ST" --session w "$@" >/dev/null 2>&1; }
+# set-profile validates the taxonomy
+r7 set-profile bogus && bad "WS-7: set-profile accepted an invalid shape" || ok "WS-7: set-profile rejects an invalid shape"
+r7 set-profile audit && ok "WS-7: set-profile accepts a valid shape (audit)" || bad "WS-7: set-profile rejected a valid shape"
+# set-phase implement is BLOCKED until a profile is set (auto-classify + hard gate, Issue 6)
+rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
+r7 set-phase implement && bad "WS-7: set-phase implement allowed with NO profile (classification not forced)" || ok "WS-7: set-phase implement BLOCKED until a profile is set (hard gate)"
+r7 set-profile feature; r7 set-phase implement && ok "WS-7: set-phase implement ALLOWED once a profile is set" || bad "WS-7: set-phase implement rejected despite a profile"
+# bypass escape hatch honored
+rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
+r7 set-bypass true; r7 set-phase implement && ok "WS-7: set-bypass true unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
+# gate-done: an AUDIT completes on a findings deliverable, not a code review (genuine adaptivity)
+rm -rf "$P7"; CHD="$P7/.claude/claudehut"; mkdir -p "$CHD/state" "$CHD/tasks/0001-a" "$CHD/tasks/0009-old"
+gdone() { echo '{"session_id":"w","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P7" bash "$ROOT/scripts/gate-done.sh"; }
+# M2: a PURE audit (no reuse-scan, never reaches implement) must STILL arm the findings gate — declaring
+# the shape IS engagement. (phase=discover, reuse_scan=false → would be "not engaged" without the M2 fix.)
+printf '{"session":"w","phase":"discover","profile":"audit","reuse_scan":false,"review":"pending","complexity":"full"}' > "$CHD/state/w.json"
+gdone | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "WS-7/M2: profile=audit alone arms the findings gate (pure audit blocks done with no findings)" || bad "WS-7/M2: audit not armed without reuse-scan (rail never fires)"
+# M1: a PRIOR task's findings.md must NOT satisfy this audit — the gate checks the RECORDED path, not a glob
+printf '# old findings\n- x (A.java:1)\n' > "$CHD/tasks/0009-old/findings.md"
+gdone | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "WS-7/M1: a prior task's findings.md does NOT satisfy this audit (recorded path, not a glob)" || bad "WS-7/M1: stale findings.md from another task passed the gate"
+# record THIS task's findings via set-findings + a fresh receipt → ALLOW (empty output; block() also exits 0)
+printf '# Findings\n- finding 1: X (Foo.java:9)\n' > "$CHD/tasks/0001-a/findings.md"
+CLAUDE_PROJECT_DIR="$P7" "$ST" --session w set-findings .claude/claudehut/tasks/0001-a/findings.md >/dev/null 2>&1
+printf '{"ts":"2026-06-01T00:00:00Z","added":1}' > "$CHD/state/w.learn-receipt.json"
+[ -z "$(gdone)" ] \
+  && ok "WS-7: audit ALLOWS done with a RECORDED findings.md (set-findings) + learn-receipt (no code review)" || bad "WS-7: audit blocked despite recorded findings + receipt"
+rm -rf "$P7"
+
+# ============================================================================
+# v0.8 P1 — WS-8b reasoning loops. STRUCTURAL (prompt-level; convergence is judged by the auditor).
+# ============================================================================
+echo "== v0.8 P1 WS-8b (reasoning loops) =="
+grep -q 'Re-examine loop' "$ROOT/agents/claudehut-brainstormer.md" \
+  && grep -qE 'conv -- .*yes.*--> div' "$ROOT/agents/claudehut-brainstormer.md" \
+  && ok "WS-8b: brainstormer has a re-examine BACK-EDGE (premortem HIGH-risk → re-diverge, not a linear sweep)" \
+  || bad "WS-8b: brainstormer pipeline is still a single linear pass (no re-examine loop)"
+grep -q 'loops:' "$ROOT/skills/brainstorm/references/brainstorm-template.md" \
+  && ok "WS-8b: brainstorm template records the re-examine loop count (loops:)" || bad "WS-8b: brainstorm template has no loops: field"
+grep -q 'plan-review.md' "$ROOT/scripts/verify-subagent.sh" \
+  && ok "WS-8b: plan-reviewer (reasoning/conformance auditor) is gated at SubagentStop" || bad "WS-8b: plan-reviewer not gated"
+
+# ============================================================================
+# v0.8 P2 — WS-9 concision. The rigor contract is extracted ONCE; the dedup cannot drop enforcement
+# (the review re-dispatch loop + set-review citation gate are the runtime backstops).
+# ============================================================================
+echo "== v0.8 P2 WS-9 (concision) =="
+[ -f "$ROOT/skills/review/references/review-rigor.md" ] \
+  && ok "WS-9: shared rigor contract extracted to references/review-rigor.md (single source)" || bad "WS-9: review-rigor.md missing"
+# every code-review auditor body REFERENCES the contract instead of restating it
+ad_ok=true
+for a in claudehut-reviewer claudehut-security-auditor claudehut-perf-reviewer claudehut-db-reviewer; do
+  grep -qi 'rigor contract' "$ROOT/agents/$a.md" || ad_ok=false
+done
+$ad_ok && ok "WS-9: all 4 code-review auditors reference the rigor contract (not a 5th inlined copy)" || bad "WS-9: an auditor still inlines / does not reference the rigor contract"
+# the reviewer kept its minimalism lens (D2) — a cut must not drop an enforced behavior
+grep -qiE 'over-engineering|minimalism' "$ROOT/agents/claudehut-reviewer.md" \
+  && ok "WS-9: reviewer retains the minimalism/over-engineering lens after the trim (no behavior dropped)" || bad "WS-9: reviewer lost the minimalism lens in the trim"
+# no non-English / stray token left in the always-loaded bodies
+grep -rql 'rập-khuôn' "$ROOT/skills" "$ROOT/agents" 2>/dev/null \
+  && bad "WS-9: stray 'rập-khuôn' token still in a body" || ok "WS-9: stray non-English token removed"
+# the length+provenance lint discriminates (self-test) AND the repo is clean (honest: soft, commit-time)
+bash "$ROOT/scripts/lint-prompt-length.sh" --self-test >/dev/null 2>&1 \
+  && ok "WS-9: lint-prompt-length self-test passes (flags over-budget + provenance, no false positive)" || bad "WS-9: lint-prompt-length self-test failed"
+bash "$ROOT/scripts/lint-prompt-length.sh" >/dev/null 2>&1 \
+  && ok "WS-9: repo is within budget + provenance-clean (the WS-9 trim holds)" || bad "WS-9: repo over budget / has provenance noise"
 
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"

@@ -16,58 +16,58 @@ If you learned a project pattern, a pitfall, or a reuse point, record it before 
 blocks "done" until this runs. Runs **inline on the main thread** — the learner agent does the recording in
 isolation; this skill owns the state write (the learner has no Bash).
 
-## Process
+## Flow
 
-0. **Small-tier inline learn (when nothing novel surfaced).** If the tier is `small` AND the task produced
-   no new pitfall, convention, or reuse point (it only confirmed existing patterns), skip the learner
-   dispatch and append ONE line inline to
-   `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (1 tool call — the Stop gate checks content,
-   not author):
+```mermaid
+flowchart TB
+    start(["Learn phase entered — Stop gate blocks done until receipt fresh"]) --> harvest["1 HARVEST inline (no agent): harvest-candidates.sh<br/>→ learn-candidates.jsonl + harvested count"]
+    harvest --> nov{"2 NOVELTY — refute 'is this NEW vs the store?'<br/>genuine new convention/pitfall/reuse/decision<br/>OR supersedes an existing L-####?"}
+    nov -- "no — only confirmed existing patterns (default SKIP)" --> merge
+    nov -- "yes (or harvest surfaced ≥2 candidates)" --> dispatch["dispatch claudehut-learner (sonnet)<br/>appends candidates + updates reuse-index + MEMORY.md"]
+    dispatch --> merge["3 MERGE always: merge-learnings.sh<br/>dedup/quality-gate/promote/prune + write learn-receipt + .applied"]
+    merge --> rcpt{"receipt written fresh THIS session<br/>AND recurred == 0?"}
+    rcpt -- "recurred ≥ 1 (promoted rule re-violated)" --> surf(["escalate: SURFACE recurrence — it re-injects next session"])
+    rcpt -. "no receipt / hand-appended learnings.jsonl" .-> blocked(["BLOCKED: Stop gate denies done — re-run merge"])
+    rcpt -- "yes" --> close["4-6 show scoreboard → set-phase learn"]
+    surf --> close
+    close --> done(["phase closed — Stop gate satisfied; task may end"])
+```
 
-   ```json
-   {"id":"<uuid>","ts":"<iso>","project":"<name>","phase":"learn","category":"convention","trigger":"<file-pattern keywords>","learning":"<one sentence: what was confirmed>","evidence":"<file:line>","confidence":0.6,"hits":1}
-   ```
+## Process — fast path first; the agent runs only on novelty (WS-6, Issue 5)
 
-   Then go to step 4 (skip the learner dispatch AND the merge script — one confirmed line needs neither).
-   Dispatch the full learner ONLY when something genuinely new was found — a learner round-trip to record
-   "nothing new" is pure latency. (Full tier always dispatches: a task that went through Brainstorm/Spec/Plan
-   has decisions worth distilling.)
+v0.8 inverts the old mandatory sonnet round-trip: a deterministic inline harvest runs first (no agent), the
+learner is dispatched **only on genuine novelty**, and the merge always runs (it writes the Stop-gate receipt).
 
-1. **Dispatch `claudehut:claudehut-learner` (Agent tool)** with a short task summary: the task dir
-   (`tasks/NNNN-<slug>/`), the decisions made, surprises hit, reuse points created, and Review findings.
-   **Also pass this session's staged failures if present** — `.claude/claudehut/state/${CLAUDE_SESSION_ID}.failures.jsonl`
-   (captured by the `PostToolUseFailure` hook). Treat it as **candidate signal, not truth**: a recurring,
-   real build/dependency error is a pitfall worth recording; an intentional TDD RED test failure or a one-off
-   typo is **not** — the learner filters these out.
-   The learner does the **judgment** only:
-   - Extracts candidate learnings (decisions, surprises, reuse points, review findings) and writes them to
-     `${task_dir}/learn-candidates.jsonl` — one JSON object per line
-     (`{category, trigger, learning, evidence, confidence?}`). It does **not** dedup, assign ids, promote, or
-     prune (that is the script's job in step 2).
-   - **Updates `reuse-index.json`** with anything newly built.
-   - **Refreshes `MEMORY.md`** (the committed index) when a new topic/category/artifact appears.
-   - Never records secrets or connection strings.
-2. **Run the deterministic merge** on the candidates the learner produced — this is what actually writes the
-   cross-session store, exactly and in milliseconds (the learner must NOT do this math by reasoning):
+1. **Harvest candidates inline (always; no agent).** Run on the main thread:
 
    ```
-   "${CLAUDE_PLUGIN_ROOT}/scripts/merge-learnings.sh" --candidates "${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/learn-candidates.jsonl"
+   "${CLAUDE_PLUGIN_ROOT}/scripts/harvest-candidates.sh" --session ${CLAUDE_SESSION_ID} --task-dir .claude/claudehut/tasks/NNNN-<slug>
    ```
 
-   It dedups against the **canonical** `${CLAUDE_PROJECT_DIR}/.claude/claudehut/learnings.jsonl` (NOT
-   `.claudehut/memory.jsonl` — only the canonical file is injected at the next session's SessionStart) by
-   `category` + normalized `trigger` → merge (`hits++`, `confidence = min(+0.05, 1.0)`, `ts=now`) or append a
-   new `L-####` line; **quality-gates** candidates (drops vague/evidence-less ones below 0.4 — specificity +
-   evidence + triggerability); **promotes** proven pitfalls (`hits≥5 ∧ confidence≥0.85`) into the matching
-   `.claude/rules/` file; **counts recurrence** when an already-promoted pitfall resurfaces (the negative
-   signal — the rule didn't stick); **prunes** decayed noise. It prints
-   `{added, merged, promoted, dropped, rejected, recurred}`. A `recurred > 0` means a promoted rule is being
-   re-violated — surface it.
-3. **Show the learning scoreboard** so memory health is visible this session (measured, not vibes):
+2. **Dispatch `claudehut:claudehut-learner` ONLY on genuine novelty — default to SKIP.** **Tier does NOT
+   force it** — a full-tier task that only confirmed existing patterns records nothing new, so skip the agent
+   even on full tier; when in doubt and the harvest already surfaced ≥2 candidates, dispatch. When dispatched,
+   the learner **appends** to the same `learn-candidates.jsonl`, **updates `reuse-index.json`**, **refreshes
+   `MEMORY.md`**, and never records secrets. It does NOT dedup, assign ids, promote, or prune.
+
+3. **Run the deterministic merge (always — it writes the cross-session store AND the Stop-gate receipt):**
+
+   ```
+   "${CLAUDE_PLUGIN_ROOT}/scripts/merge-learnings.sh" \
+     --candidates .claude/claudehut/tasks/NNNN-<slug>/learn-candidates.jsonl \
+     --session ${CLAUDE_SESSION_ID} \
+     --injected .claude/claudehut/state/${CLAUDE_SESSION_ID}.injected.json
+   ```
+
+   It writes `state/${SID}.learn-receipt.json` (the Stop gate's proof a Learn pass ran THIS task) and prints
+   `{added, merged, promoted, dropped, rejected, recurred, applied}`. `recurred > 0` = a promoted rule is being
+   re-violated (it re-injects next session) — surface it. Never hand-append to `learnings.jsonl`: that skips
+   the receipt and the Stop gate will block.
+4. **Show the learning scoreboard** so memory health is visible this session (measured, not vibes):
    `"${CLAUDE_PLUGIN_ROOT}/scripts/learning-score.sh" --top 5`. Users can re-run it anytime via
    `/claudehut:claudehut-learning-report`.
-4. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
-5. **Main thread closes the phase** after the merge runs:
+5. If native auto-memory is enabled, mirror a short narrative there — convenience only, not the source of truth.
+6. **Main thread closes the phase** after the merge runs:
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-phase learn

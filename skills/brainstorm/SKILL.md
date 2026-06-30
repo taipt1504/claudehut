@@ -14,40 +14,54 @@ narrowed the option space; freeing it widens creative breadth.
 Run **inline on the main thread** (it owns the state write and the user gate; a forked subagent cannot spawn
 subagents).
 
+## Flow
+
+```mermaid
+flowchart TB
+    s(["entered after Discover<br/>(context map + reuse DECISION)"]) --> disp["dispatch claudehut-brainstormer<br/>(problem + Discover context)"]
+    disp --> val{"return conforms to pipeline?<br/>≥2 distinct + scores tied to criteria +<br/>both premortems + option 0 if reuse candidate"}
+    val -- "no (missing piece)" --> disp
+    val -- "yes" --> enf["assemble enforcement set (1% rule):<br/>scan skills + .claude/rules/ tree;<br/>set-enforcement --skills --rules"]
+    enf --> write["write brainstorm.md from template<br/>(main thread writes; agent has no Write)"]
+    write --> gate{"set-brainstorm accepts?<br/>≥2 scored rows + Premortem + Recommendation"}
+    gate -- "no (freeform / thin)" --> write
+    gate -- "yes" --> mode{"interactive run?"}
+    mode -- "yes" --> ask(["AskUserQuestion: scored options<br/>→ structured decision"])
+    mode -. "no (-p / subagent)" .-> auto(["proceed with brainstormer recommendation"])
+    ask --> nxt(["REQUIRED NEXT: claudehut:write-spec"])
+    auto --> nxt
+```
+
 ## Inputs (from Discover)
 
-- The explorer's context map (entry points, key types, structure) and the **Reuse candidates**.
-- The reuse-scan **DECISION** (adopt / extend / new) — option 0 is always "adopt/extend the existing thing"
-  when Discover found a candidate.
+- The explorer's context map (entry points, key types, structure), the **Reuse candidates**, and the
+  reuse-scan **DECISION** (adopt / extend / new) — option 0 is always "adopt/extend the existing thing" when
+  Discover found a candidate.
 
 ## Steps
 
-1. **Dispatch `claudehut:claudehut-brainstormer`** (Agent tool) with the problem statement + Discover's
-   context. The agent runs its **fixed 6-step ideation pipeline** (FRAME criteria → DIVERGE ≥6 raw candidates
-   incl. a wildcard, judgment deferred → CLUSTER to 2–4 structurally distinct → SCORE weighted matrix →
-   PREMORTEM both finalists → RECOMMEND) and returns the options table with weighted scores + premortem risks
-   + a recommendation. **Check the return against the pipeline**: ≥2 structurally distinct options, scores
-   tied to explicit criteria, premortem present — send it back if any is missing. When Discover found a reuse
-   candidate, adopting/extending it must appear as option 0.
+Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagram is the sequence and gates. The load-bearing details:
 
-   **Persist the deliberation** to `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/brainstorm.md`
-   (the task dir from Discover's reuse-scan; the brainstormer has no Write — the main thread writes it): the
-   options table + weighted scores + both premortems + the recommendation. The spec's §9 links it
-   (`> brainstorm:` header). This is the fix for "the deliberation was generated then thrown away" — Spec
-   stays terse (decision + why) while the *reasoning* is one click away, reviewable and auditable.
-2. **Assemble the enforcement set (code tasks).** By the **1% rule** — *if there's even a 1% chance a skill or
-   rule applies, include it* — scan the plugin skills and the project's `.claude/rules/` tree. The brainstormer
-   returns the candidate set; the **main thread** records it:
+1. **Persist** the deliberation to `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/brainstorm.md` by
+   **filling `references/brainstorm-template.md`**, then record it:
+
+   ```
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-brainstorm .claude/claudehut/tasks/NNNN-<slug>/brainstorm.md
+   ```
+
+   `set-brainstorm` REJECTS a freeform note (it requires ≥2 scored option rows + a Premortem + a
+   Recommendation) — the fix for "brainstorm docs follow no format". Spec stays terse; the reasoning is linked
+   from the spec's `> brainstorm:` header.
+2. **Enforcement set (code tasks).** By the **1% rule** — *if there's even a 1% chance a skill or rule applies,
+   include it*:
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
    ```
-   The enforcement set is the auditable checklist Review enforces — and (v0.4) the **primary source for
-   dynamic reviewer selection**: the rules it lists decide which specialist auditors Review spawns. A thin or
-   empty set silently under-reviews — apply the 1% rule honestly.
-3. **Confirm the choice (interactive only).** Call the **`AskUserQuestion` tool** with the scored options as
-   choices (not a free-text ask) — records a structured decision before Spec. On a non-interactive run (`-p`)
-   or inside a subagent (no `AskUserQuestion`), proceed with the brainstormer's recommendation.
+   It is the auditable checklist Review enforces — and (v0.4) the **primary source for dynamic reviewer
+   selection**: the rules it lists decide which specialist auditors Review spawns. A thin set silently
+   under-reviews.
+3. **`AskUserQuestion` tool** (interactive only): scored options as choices, not a free-text ask.
 
 ## Red flags — STOP
 

@@ -9,14 +9,18 @@
 #
 # Subcommands (schema: 01 §4):
 #   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--task T] [--spec P] [--plan P]
-#   set-reuse-scan [--artifact PATH]
+#   set-reuse-scan [--artifact PATH]    # gate: table must carry Fit/Impact cols + a reuse DECISION (WS-4)
 #   set-enforcement --skills a,b,c --rules x.md,y.md
-#   set-spec  <path>              # canonical (04's "set-phase plan --plan" is illustrative shorthand)
-#   set-plan  <path>
+#   set-brainstorm <path>         # gate: ≥2 scored options + Premortem + Recommendation (WS-3)
+#   set-spec  <path>              # gate: ## sections + Decision + AC-xxx; full tier requires a brainstorm (WS-3/4)
+#   set-plan  <path>              # gate: T-xxx rows; full tier requires Impl-Flow + Sketch + (smart) plan APPROVE (WS-2/4)
+#   set-plan-review <APPROVE|REVISE> [--evidence tasks/NNNN-slug/plan-review.md]   # plan-reviewer verdict (WS-2)
 #   set-review <pass|pending|capped> [--evidence PATH]   # pass REQUIRES --evidence review.md (coverage table + test evidence)
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
 #   set-bypass <true|false>
 #   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
+#   set-profile <feature|bugfix|audit|migration|investigation>   # task SHAPE (WS-7); required before set-phase implement
+#   set-findings <path>           # record an audit/investigation's findings deliverable (WS-7); the done gate checks it
 #   mark-skill <name>             # Issue-1 skill rail: records a Skill-tool invocation (written by
 #                                 # record-skill.sh, the PreToolUse(Skill) recorder hook). implement →
 #                                 # implement_skill_ok=true; discover|brainstorm → reset to false (new task).
@@ -49,8 +53,9 @@ else
     session:$s, task:null, phase:"discover",
     reuse_scan:false, reuse_scan_artifact:null,
     enforcement_set:{skills:[],rules:[]},
-    spec_path:null, plan_path:null,
-    review:"pending", outstanding:[], bypass:false, complexity:"full",
+    brainstorm_path:null, spec_path:null, plan_path:null,
+    plan_review:null, plan_review_evidence:null, plan_review_plan_hash:null, findings_path:null,
+    review:"pending", outstanding:[], bypass:false, complexity:"full", profile:null,
     implement_skill_ok:false,
     updated_by:"claudehut-state", ts:null
   }')"
@@ -66,9 +71,11 @@ flag() { # flag --name -> echoes value or empty
     if [ "${shift_args[$i]}" = "$name" ]; then echo "${shift_args[$((i+1))]:-}"; return; fi
   done
 }
-# Reject non-canonical artifact paths (opt #2): every workflow artifact MUST live under
-# .claude/claudehut/ so the gate, @import memory, and cross-session learning can find it.
-canon() { case "$1" in *".claude/claudehut/"*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/ or .claudehut/ path" ;; esac; }
+# Reject non-canonical artifact paths (opt #2): every workflow artifact MUST live under .claude/claudehut/
+# so the gate, @import memory, and cross-session learning can find it. This already rejects the 0011 failure
+# mode (artifacts under .claude/prompt/). The stricter tasks/NNNN-<slug>/ SHAPE is a P1 hardening (it would
+# break the flat-path eval fixtures; deferred with their migration).
+canon() { case "$1" in *".claude/claudehut/"*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
 # Template-structure validation (live-measured: with soft instructions alone, freeform specs/plans slip
 # through — smoke run produced a plan with zero T-xxx rows). Structure is only checkable when the file
 # already exists; existence itself stays the write gate's job (exists_canon), so absent files pass here.
@@ -77,6 +84,9 @@ tmpl() { # $1 path  $2 grep -E pattern  $3 error
   [ -f "$p" ] || return 0
   grep -qE "$2" "$p" || err "$3"
 }
+# Content hash of a file (portable, fail-open: empty string if no hasher). Used for plan-review freshness —
+# a content hash beats an mtime compare (immune to same-second edits and equal-mtime clobbers; WS-2 M1/M2).
+plan_hash() { shasum "$1" 2>/dev/null | awk '{print $1}' || cksum "$1" 2>/dev/null | awk '{print $1"-"$2}' || echo ""; }
 
 # P2-2: inter-phase transition guard — maps phase names to ordinal positions.
 # Defined here (before the dispatch case) so set-phase can call it.
@@ -108,20 +118,49 @@ case "$sub" in
       fi
     fi
 
+    # WS-7 (Issue 6): classifying the task SHAPE is mandatory before implementing — the profile drives the
+    # deliverable rail (audit→findings, not code) + which auditors are mandatory. The model proposes the
+    # profile in Phase 0; this gate makes it non-optional before code. bypass=true is the escape hatch.
+    if [ "$phase" = "implement" ] && [ "$(jq -r '.bypass // false' <<<"$STATE")" != "true" ]; then
+      prof="$(jq -r '.profile // empty' <<<"$STATE")"
+      { [ -n "$prof" ] && [ "$prof" != null ]; } || err "set-phase implement: classify the task SHAPE first — claudehut-state set-profile <feature|bugfix|audit|migration|investigation>. The profile decides the deliverable + the mandatory auditors (agentic routing). (Recovery/headless: set-bypass true.)"
+    fi
+
     STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
     # Issue-1 skill rail: entering discover/brainstorm is the per-TASK boundary — reset the
     # implement-skill proof so EVERY task requires its own Skill(claudehut:implement) invocation.
     # (Measured pre-fix: one session invoked the skill for task 1 only, then wrote 9 more tasks without it.)
-    case "$phase" in discover|brainstorm) STATE="$(jq '.implement_skill_ok=false' <<<"$STATE")" ;; esac
+    # WS-2/WS-7 (M1): also reset the per-task plan-review + findings deliverable proofs so a PRIOR task's
+    # APPROVE / findings.md cannot satisfy a new task's gate.
+    case "$phase" in discover|brainstorm) STATE="$(jq '.implement_skill_ok=false | .plan_review=null | .plan_review_evidence=null | .plan_review_plan_hash=null | .findings_path=null' <<<"$STATE")" ;; esac
     t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
     sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
     pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; tmpl "$pl" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows in $pl — use claudehut:write-plan (plan-template.md)."; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
     ;;
   set-reuse-scan)
-    a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/>"
+    a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/tasks/NNNN-slug/>"
     canon "$a"
+    # WS-4: content gate — the scan must use the v0.7 table with the Fit + Impact columns (the legacy
+    # 4-col format slips a single-pass scan that never reasoned about fit). The header carries them in order.
+    tmpl "$a" '^\|.*[Ff]it.*[Ii]mpact' "reuse-scan rejected: missing the Fit/Impact columns in $a (legacy format?). Use skills/discover/references/reuse-scan-template.md — | Dimension | Existing asset | Decision | Fit | Impact | Effort | — and re-run set-reuse-scan."
+    tmpl "$a" 'adopt|extend|reuse|framework|drop|[Nn]ew' "reuse-scan rejected: no reuse DECISION token in $a (adopt/extend/reuse/framework/drop/new). State the decision per the template and re-run."
     STATE="$(jq '.reuse_scan=true' <<<"$STATE")"
     STATE="$(jq --arg v "$a" '.reuse_scan_artifact=$v' <<<"$STATE")"
+    ;;
+  set-brainstorm)
+    # WS-3: the persisted deliberation (brainstorm.md) gains a content gate. Written by the MAIN THREAD
+    # from skills/brainstorm/references/brainstorm-template.md (the brainstormer returns data; law #7).
+    p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-brainstorm needs <path>"
+    canon "$p"
+    pp="$p"; case "$pp" in /*) : ;; *) pp="$PROJECT_DIR/$pp" ;; esac
+    if [ -f "$pp" ]; then
+      # ≥2 scored options: count table rows (exclude the markdown separator row). header + ≥2 options = ≥3.
+      nopt="$(grep -E '^[[:space:]]*\|' "$pp" 2>/dev/null | grep -vE '^[[:space:]]*\|[ :|-]+\|?[[:space:]]*$' | grep -cE '\|.*\|.*\|' || true)"
+      [ "${nopt:-0}" -ge 3 ] || err "brainstorm rejected: fewer than 2 scored options in the table in $p (need a header row + ≥2 distinct approaches incl. option 0 = adopt/extend). brainstorm-template.md."
+    fi
+    tmpl "$p" '^#+.*[Pp]remortem' "brainstorm rejected: no Premortem section in $p — premortem BOTH finalists under a '## Premortem' heading (the runner-up's premortem often exposes the winner's fatal flaw). brainstorm-template.md."
+    tmpl "$p" '^#+.*[Rr]ecommend' "brainstorm rejected: no Recommendation section in $p — a '## Recommendation' heading naming the chosen option tied to the FRAME criteria. brainstorm-template.md."
+    STATE="$(jq --arg v "$p" '.brainstorm_path=$v' <<<"$STATE")"
     ;;
   set-enforcement)
     skills="$(flag --skills)"; rules="$(flag --rules)"
@@ -134,13 +173,68 @@ case "$sub" in
     canon "$p"
     tmpl "$p" '^## ' "spec rejected: no '## ' template sections found in $p. Write it with claudehut:write-spec from skills/write-spec/references/spec-template.md (Problem & Context, Decision Record, Acceptance Criteria, …) and re-run set-spec."
     tmpl "$p" 'Decision' "spec rejected: no Decision Record found in $p. Every spec carries the MADR-lite decision (template §9) — chosen option + why. Add it and re-run set-spec."
+    # WS-4: acceptance criteria are the machine-checkable contract Review audits — required for every type.
+    tmpl "$p" 'AC-[0-9]' "spec rejected: no acceptance criteria (AC-001 …) in $p. Every spec carries Given/When/Then acceptance criteria with observable outcomes (template §5). Add them and re-run set-spec."
+    # (P1: couple set-spec to a recorded brainstorm on full tier so the `> brainstorm:` link can't dangle.
+    #  Deferred — it cascades into the gate-test fixtures; the set-brainstorm content gate stands alone for now.)
     STATE="$(jq --arg v "$p" '.spec_path=$v' <<<"$STATE")"
     ;;
   set-plan)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-plan needs <path>"
     canon "$p"
-    tmpl "$p" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows found in $p. The plan's breakdown table (template §3 — id, files, test-first, verify, depends-on) is the executable contract; write it with claudehut:write-plan from skills/write-plan/references/plan-template.md and re-run set-plan."
+    tmpl "$p" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows found in $p. The plan's breakdown table (id, files, test-first, verify, depends-on) is the executable contract; write it with claudehut:write-plan from skills/write-plan/references/plan-template.md and re-run set-plan."
+    pp="$p"; case "$pp" in /*) : ;; *) pp="$PROJECT_DIR/$pp" ;; esac
+    tier="$(jq -r '.complexity // "full"' <<<"$STATE")"
+    if [ "$tier" = "full" ]; then
+      # WS-4: a full-tier plan must trace the change (Implementation Flow) and carry per-task Sketches —
+      # the "HOW" the 0011 plan omitted while still passing. (Structural check; the conformance auditor
+      # judges sketch realism — necessary, not sufficient.)
+      tmpl "$p" '^#+.*[Ii]mplementation [Ff]low' "plan rejected: no 'Implementation Flow' section in $p (full tier). Trace the change end-to-end before the task table (plan-template §3). Add it and re-run set-plan."
+      tmpl "$p" '[Ss]ketch' "plan rejected: no per-task Sketch in $p (full tier). Each behavior task carries a Sketch (key signature / control flow / data shape) so the implementer doesn't re-decide design — the no-placeholder rule (plan-template). Add sketches and re-run."
+      # WS-2 smart-gate: a full-tier plan that is SUBSTANTIAL (≥5 tasks) OR touches a sensitive surface
+      # requires a fresh plan-reviewer APPROVE before the write gate opens. Simpler full-tier plans pass on
+      # the structural gates above (no auditor round-trip → no latency tax). The model proposes; the gate
+      # bounds. bypass=true is the documented escape hatch (headless / recovery) — honored here like set-phase.
+      bypass_flag="$(jq -r '.bypass // false' <<<"$STATE")"
+      if [ -f "$pp" ] && [ "$bypass_flag" != "true" ]; then
+        nrows="$(grep -cE '^\| *T-[0-9]' "$pp" 2>/dev/null || true)"; nrows="${nrows:-0}"
+        sensitive=no; grep -qiE 'security|/auth|migration|flyway|liquibase|password|secret|owasp|permitall|deserial' "$pp" 2>/dev/null && sensitive=yes
+        if [ "$nrows" -ge 5 ] || [ "$sensitive" = yes ]; then
+          pr="$(jq -r '.plan_review // empty' <<<"$STATE")"
+          [ "$pr" = "APPROVE" ] || err "set-plan: full-tier plan ($nrows tasks$([ "$sensitive" = yes ] && echo ', sensitive surface')) requires a plan-reviewer APPROVE first. Dispatch claudehut:claudehut-plan-reviewer (it judges coverage / no-placeholder / sketch / reuse vs the spec and WRITES its verdict to tasks/NNNN-<slug>/plan-review.md), then: claudehut-state set-plan-review APPROVE --evidence <that path>. (Headless with no Agent budget: claudehut-state set-bypass true — this unblocks set-plan AND the write gate.)"
+          # Freshness by CONTENT HASH (not mtime): the plan recorded now must be byte-identical to the plan
+          # that was reviewed. Catches a different plan (M1) AND a same-second post-review edit (M2). The hash
+          # was captured at set-plan-review time. Fail-open only if no hasher was available at record time.
+          sh="$(jq -r '.plan_review_plan_hash // empty' <<<"$STATE")"
+          if [ -n "$sh" ] && [ "$sh" != null ]; then
+            ch="$(plan_hash "$pp")"
+            [ -z "$ch" ] || [ "$ch" = "$sh" ] || err "set-plan: $p differs from the plan that was reviewed (content hash mismatch) — it changed after the plan-reviewer's APPROVE. Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE before set-plan."
+          fi
+        fi
+      fi
+    fi
     STATE="$(jq --arg v "$p" '.plan_path=$v' <<<"$STATE")"
+    ;;
+  set-plan-review)
+    # WS-2: the plan-reviewer verdict gate. The MAIN THREAD writes plan-review.md from the reviewer's
+    # returned coverage table + verdict (law #7), then records it here. APPROVE is what set-plan checks.
+    v="${shift_args[0]:-}"
+    case "$v" in APPROVE|REVISE) ;; *) err "set-plan-review needs APPROVE|REVISE" ;; esac
+    if [ "$v" = "APPROVE" ]; then
+      ev="$(flag --evidence)"
+      [ -n "$ev" ] || err "set-plan-review APPROVE requires --evidence <tasks/NNNN-slug/plan-review.md> (the reviewer's coverage table + verdict)."
+      canon "$ev"
+      evp="$ev"; case "$evp" in /*) : ;; *) evp="$PROJECT_DIR/$evp" ;; esac
+      [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — write the reviewer's verdict to plan-review.md (coverage table + APPROVE) before recording."
+      grep -qiE '^[[:space:]]*\|.*(✓|✗|covered|uncovered|placeholder|satisfied)' "$evp" \
+        || err "set-plan-review: $ev has no coverage table — expected the plan-reviewer's rows like '| AC-001 covered | ✓ | T-002 |'. Capture its output contract, not a one-line verdict."
+      STATE="$(jq --arg e "$ev" '.plan_review_evidence=$e' <<<"$STATE")"
+      # Capture the reviewed plan's content hash (sibling plan.md) so set-plan can verify the recorded plan
+      # is byte-identical to what was reviewed (WS-2 freshness — M1/M2). Empty if no plan.md / no hasher.
+      planf="$(dirname "$evp")/plan.md"
+      if [ -f "$planf" ]; then STATE="$(jq --arg h "$(plan_hash "$planf")" '.plan_review_plan_hash=$h' <<<"$STATE")"; fi
+    fi
+    STATE="$(jq --arg v "$v" '.plan_review=$v' <<<"$STATE")"
     ;;
   set-review)
     r="${shift_args[0]:-}"
@@ -162,6 +256,15 @@ case "$sub" in
       # word "passing" in prose.
       grep -qiE '(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|build success|[0-9]+ +(passed|passing|tests?))' "$evp" \
         || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed'). Review requires green evidence, not an assertion."
+      # WS-8a: every SATISFIED coverage row must cite a real locus — a source FILENAME (optionally :line),
+      # a Test class, or Class#method. A bare "✓ satisfied" is the gameable rubber-stamp the auditor found.
+      # NOTE necessary-not-sufficient: a fabricated filename still passes (no FS check) — the P1 conformance
+      # auditor (WS-8b) is the realism backstop. We do NOT accept a bare ':N' (it forges as 'section 4:9').
+      # Rows marked ✗/n-a are exempt. (grep WITHOUT -n: line-number prefixes would themselves forge loci.)
+      if grep -iE '^[[:space:]]*\|.*(✓|satisfied)' "$evp" \
+           | grep -qvE '\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|sql|md|yaml|yml|xml|gradle|sh|properties)\b|[A-Za-z0-9_]+Test\b|[A-Za-z0-9_]+#[A-Za-z0-9_]+'; then
+        err "set-review pass: a '✓ satisfied' coverage row in $ev has no evidence locus. Cite WHERE each item is satisfied (a source filename like Foo.java:42, a Test class, or Class#method) — an uncited ✓ is not review."
+      fi
       # v0.7 reuse-suspect loop gate (R5 AC4 — advisory→gate): the lint-reuse PostToolUse hook stages
       # duplication / reinvented-stdlib suspects this session. set-review pass REFUSES unless review.md
       # ADDRESSED each — the suspect's file must appear in review.md (a Standards-axis coverage row
@@ -172,9 +275,15 @@ case "$sub" in
         miss=""
         while IFS= read -r sfile; do
           [ -n "$sfile" ] || continue
-          grep -qF "$sfile" "$evp" || miss="$miss $sfile"
+          # WS-5: the suspect must not merely APPEAR (grep -qF was satisfiable by naming the file) — its
+          # row must carry a RESOLUTION token: it was fixed, or cleared as a false-positive WITH a reason.
+          if grep -F "$sfile" "$evp" 2>/dev/null | grep -qiE 'resolved|extracted|adopted|reused|de-?dup|false[ -]?positive|n-?/?a *[:-] *[^ ]'; then
+            : # addressed
+          else
+            miss="$miss $sfile"
+          fi
         done < <(jq -r '.file // empty' "$SUS" 2>/dev/null | sort -u)
-        [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) for [$miss ] not addressed in $ev — add a Standards-axis coverage row confirming (✗ duplication/reinvented) or clearing (n-a + reason) each suspect file before passing."
+        [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) [$miss ] not RESOLVED in $ev — each suspect's coverage row must carry a resolution token (resolved | extracted-util | adopted-commons | reused | false-positive:<reason>), not just mention the file."
       fi
       STATE="$(jq --arg v "$ev" '.review_evidence=$v' <<<"$STATE")"
     fi
@@ -194,6 +303,21 @@ case "$sub" in
     c="${shift_args[0]:-}"
     case "$c" in trivial|small|full) ;; *) err "set-complexity needs trivial|small|full" ;; esac
     STATE="$(jq --arg v "$c" '.complexity=$v' <<<"$STATE")"
+    ;;
+  set-profile)
+    # WS-7: the task SHAPE axis, orthogonal to the complexity tier. Decides the deliverable rail + which
+    # auditors are mandatory (the profile×tier matrix in claudehut:claudehut-workflow).
+    pf="${shift_args[0]:-}"
+    case "$pf" in feature|bugfix|audit|migration|investigation) ;; *) err "set-profile needs feature|bugfix|audit|migration|investigation" ;; esac
+    STATE="$(jq --arg v "$pf" '.profile=$v' <<<"$STATE")"
+    ;;
+  set-findings)
+    # WS-7 (M1): record THIS task's findings deliverable (audit/investigation). Mirrors set-spec/set-plan —
+    # the completion gate checks the RECORDED path exists, not a glob that any prior task's findings satisfies.
+    p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-findings needs <path>"
+    canon "$p"
+    tmpl "$p" '^#' "findings rejected: $p has no headings — write the audit's conclusions + file:line evidence as a structured findings report, then re-run set-findings."
+    STATE="$(jq --arg v "$p" '.findings_path=$v' <<<"$STATE")"
     ;;
   mark-skill)
     # Issue-1 skill rail. Written by record-skill.sh on every Skill-tool call (PreToolUse, matcher: Skill).

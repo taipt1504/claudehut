@@ -18,27 +18,29 @@ turn what this task discovered into durable memory so the next task starts smart
 **You do the judgment; a deterministic script does the bookkeeping.** Extract good candidate learnings and
 keep the human-curated indexes current. Do **not** normalize triggers, dedup, bump confidence, promote, or
 prune by reasoning — that math is exact and instant in `scripts/merge-learnings.sh`, which
-`claudehut:capture-learnings` runs on your candidates after you return. Reasoning your way through string
-sorting and threshold checks is slow and error-prone; feed the script instead.
+`claudehut:capture-learnings` runs on your candidates after you return; feed the script instead.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-    a([dispatched by claudehut:capture-learnings]) --> ex["Extract candidates: conventions, pitfalls, reuse points, decisions, review findings"]
-    ex --> wr["Write tasks/&lt;id&gt;/learn-candidates.jsonl (one JSON object per line)"]
-    wr --> ri["Update reuse-index.json with anything newly built (judgment)"]
-    ri --> mem["Refresh MEMORY.md if a new topic/artifact appeared (judgment)"]
-    mem --> out([Return one-line summary — the skill then runs merge-learnings.sh])
+    a(["dispatched by claudehut:capture-learnings"]) --> ex["1 EXTRACT raw candidates — no filtering:<br/>conventions, pitfalls, reuse points, decisions, recurring findings"]
+    ex --> crit["2 REFUTE each candidate — assume merge-learnings.sh will DROP it:<br/>concrete type/method/annotation? real file:line evidence? ≥2 trigger tokens?<br/>dup of an existing L-#### (set supersedes) ?"]
+    crit --> conv{"every RETAINED candidate has evidence + ≥2 triggers<br/>AND no secrets/tokens?"}
+    conv -- "no — vague / evidence-less / under 2 tokens (would score below 0.4)" --> fix["sharpen or DROP it (pitfalls phrased imperatively, rule-ready)"]
+    fix --> crit
+    conv -- "yes (cap: drop rather than pad a weak candidate)" --> wr["3 WRITE retained candidates → tasks/id/learn-candidates.jsonl (one JSON/line)"]
+    wr --> ri["4 update reuse-index.json with anything newly built (judgment)"]
+    ri --> mem{"new topic/category/artifact appeared?"}
+    mem -- "yes" --> rfm["refresh MEMORY.md"] --> out
+    mem -- "no" --> out(["5 return one-line summary (counts by category) — skill runs merge-learnings.sh; it owns dedup/id/promote/prune"])
 ```
 
 ## Procedure
 
-1. **Extract** candidate learnings from the session: conventions discovered, pitfalls hit, reuse points,
-   decisions made, review findings that recurred. Quality over volume — a vague learning ("be careful with
-   JPA") is noise; record specific, triggerable ones.
-2. **Write candidates** to `${task_dir}/learn-candidates.jsonl` (the task dir given in your dispatch), **one
-   JSON object per line**:
+The Flow above is the contract; quality over volume (a vague learning like "be careful with JPA" is noise).
+**Write candidates** to `${task_dir}/learn-candidates.jsonl` (the task dir given in your dispatch), **one
+JSON object per line**:
 
    ```json
    {
@@ -56,20 +58,18 @@ flowchart TB
    - `learning`: one crisp sentence. For `pitfall` entries phrase it **imperatively** — a proven pitfall is
      promoted into a rule file **verbatim**, so write the sentence you'd want a rule to carry.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
-   - **Quality gate (v0.7):** `merge-learnings.sh` now **drops** candidates scoring <0.4 — i.e. ones that are
-     vague (no concrete type/method/annotation), evidence-less, or have <2 trigger tokens. So every candidate
-     must carry a real `evidence` (`file:line`/test) and ≥2 trigger keywords, or it is rejected as noise.
+   - **Quality gate (v0.7):** `merge-learnings.sh` **drops** candidates scoring <0.4 (vague, evidence-less, or
+     <2 trigger tokens), so every candidate must carry real `evidence` (`file:line`/test) and ≥2 trigger keywords.
    - `supersedes` (optional): if this learning **refines/corrects an earlier one**, set `"supersedes":"L-####"`
      (mattpocock Learning Records) — the merge marks the new entry `status:"refines"` so evolution is traceable.
    - Do **not** assign ids, dedup against existing entries, set `promoted`, or compute `recurrence` —
      `merge-learnings.sh` owns all of that.
 
-3. **Update** `.claude/claudehut/reuse-index.json` with anything newly built (`id, kind, path, purpose, tags`)
-   so the next reuse-scan can find it. This stays yours — deciding what is a reusable artifact is judgment.
-4. **Refresh `.claude/claudehut/MEMORY.md`** (the committed always-loaded index) when a new topic/category/
-   artifact appears, so the index keeps naming what is stored where. Also judgment — keep it yours.
-5. **Return a one-line summary** of what you extracted (counts by category). `claudehut:capture-learnings`
-   then runs `merge-learnings.sh`, which against `.claude/claudehut/learnings.jsonl`:
+**Update** `.claude/claudehut/reuse-index.json` with anything newly built (`id, kind, path, purpose, tags`);
+**refresh `.claude/claudehut/MEMORY.md`** (the committed always-loaded index) when a new topic/category/artifact
+appears. Both stay yours — deciding what is reusable / what to name is judgment. Then **return a one-line
+summary** (counts by category). `claudehut:capture-learnings` then runs `merge-learnings.sh`, which against
+`.claude/claudehut/learnings.jsonl`:
    - **dedups** by `category` + normalized `trigger` → **merge** (`hits++`, `confidence = min(+0.05, 1.0)`,
      `ts = now`) or **append** a new `L-####` line;
    - **promotes** proven pitfalls (`category=pitfall` ∧ `hits ≥ 5` ∧ `confidence ≥ 0.85`) into the matching
