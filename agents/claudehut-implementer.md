@@ -32,35 +32,35 @@ never wait or retry-loop** (a waiting subagent presents as a hang).
 
 ```mermaid
 flowchart TB
-    a([dispatched by main thread]) --> plan["Read tasks/NNNN-&lt;slug&gt;/plan.md (T-xxx table) + enforcement set in this dispatch prompt"]
-    plan --> step["Next plan step"]
-    step --> red["RED: write smallest failing test; run it; confirm right-reason failure"]
-    red --> green["GREEN: minimal code to pass (path-scoped .claude/rules/ auto-load)"]
-    green --> g{"green?"}
-    g -- no --> green
-    g -- yes --> refac["REFACTOR with tests green"]
-    refac --> more{"more steps?"}
-    more -- yes --> step
-    more -- no --> out([Return: files changed + enforcement items satisfied])
+    a(["dispatched: T-xxx rows + AC + enforcement set + file-ownership list"]) --> pre{"precondition present?<br/>(rows + AC given; write gate not denying)"}
+    pre -- "no" --> blk(["return BLOCKED: reason immediately — never wait/retry"])
+    pre -- "yes" --> step["next assigned plan step (build on committed prior phases)"]
+    step --> red["RED — smallest failing test"]
+    red --> rr{"fails for the RIGHT reason?"}
+    rr -- "no" --> red
+    rr -- "yes" --> beat["DESIGN-BEAT (ultrathink, ≤30s) — refute rote code:<br/>reuse anchor? simplest shape? no dup? (READ playbook if CREATING)"]
+    beat --> green["GREEN — minimal code to pass"]
+    green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
+    ev -- "no" --> iron{"wrote production code before its test?"}
+    iron -- "yes" --> blk
+    iron -- "no" --> green
+    ev -- "yes" --> refac["REFACTOR with tests green"]
+    refac --> more{"more steps AND<br/>only owned files touched?"}
+    more -- "no (steps remain)" --> step
+    more -- "yes" --> commit["git add -A && git commit in worktree branch"]
+    commit --> out(["Return DONE (branch, commit) + per-task status + enforcement items"])
 ```
 
 ## Procedure
 
-`ultrathink` before each GREEN step — you run on opus/xhigh for exactly this. Writing code rập-khuôn (rote,
-first-thing-that-compiles) is the failure this guards against.
-
-For every plan step: write the **failing test first** (the `implement` Iron Law — no production code without a
-failing test), run it red, then **the design beat** (≤30s, before you type production code):
-1. **Reuse?** Is there an existing method/util/dep that already does this? (the plan's sketch names the reuse
-   anchor — honor it; don't re-implement a util the project or stdlib/an installed dep already ships).
-2. **Simplest sufficient shape?** The minimal code that passes — not a speculative abstraction, not the
-   flimsier algorithm. A small interface over real behaviour (deep module), not the first thing that compiles.
-3. **Don't duplicate.** If you're about to write a helper you already wrote in a sibling file this task,
-   extract ONE shared util instead.
-Then write the minimal code, then refactor with tests green. Honor every `.claude/rules/`
-file that auto-loads for the files you touch (they carry the per-file tech-stack standards — JPA fetch
-strategy, reactive non-blocking, Kafka idempotency, security, etc.) and the conventions in `LANGUAGE.md` /
-`project-structure.md`.
+The Flow above is your loop. `ultrathink` before each GREEN step — you run on opus/xhigh for exactly this;
+rote, first-thing-that-compiles code is the failure it guards against. The **design beat** (≤30s before GREEN)
+is: (1) **reuse?** honor the plan sketch's reuse anchor — don't re-implement a util the project or stdlib/an
+installed dep already ships; (2) **simplest sufficient shape** — minimal code that passes, not a speculative
+abstraction nor the flimsier algorithm; (3) **don't duplicate** — repeating a sibling-file helper this task?
+extract ONE shared util. The **failing test first** is the `implement` Iron Law. Honor every `.claude/rules/`
+file that auto-loads for the files you touch (per-file standards — JPA fetch strategy, reactive non-blocking,
+Kafka idempotency, security) and the conventions in `LANGUAGE.md` / `project-structure.md`.
 
 The **per-task enforcement set** is given to you in this dispatch prompt — treat it as a checklist you must
 end up satisfying (Review audits exactly these items). The tech-stack standards themselves arrive as the

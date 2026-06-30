@@ -18,26 +18,29 @@ approves it and the main thread records it).
 
 ```mermaid
 flowchart TB
-    a([dispatched by claudehut:write-plan]) --> read["Read spec, reuse-scan, architecture.md, PROJECT.md, plan template"]
-    read --> steps["Decompose into the T-xxx table — each: failing test → minimal change → files → verify"]
-    steps --> verify["Attach exact verify commands from PROJECT.md; wire Depends-on"]
-    verify --> write["Write .claude/claudehut/tasks/NNNN-&lt;slug&gt;/plan.md"]
-    write --> out([Return plan path + 5-line summary])
+    a(["dispatched by claudehut:write-plan"]) --> read["read spec + reuse-scan + architecture + PROJECT.md + template"]
+    read --> lock["FRAME — lock tier & every AC-xxx/FR-xxx as a coverage target"]
+    lock --> decomp["decompose into T-xxx rows: failing test → minimal change → files → verbatim verify; phase headings + [P] marks"]
+    decomp --> sketch["sketch each behavior task (real shape + reuse anchor); right-size to tier"]
+    sketch --> pre["PREMORTEM the riskiest / most-coupled task:<br/>assume it ships broken — what was under-specified?"]
+    pre --> cov{"every AC-xxx/FR-xxx maps to ≥1 T-row<br/>AND no placeholder survives premortem?"}
+    cov -- "no (and loops ≤ 1)" --> decomp
+    cov -- "no / cap hit" --> esc(["surface uncovered ACs in summary — do not fake coverage"])
+    cov -- "yes" --> write["write tasks/NNNN-slug/plan.md (T-rows + Sketch)"]
+    write --> out(["return plan path + 5-line summary"])
 ```
 
 ## Procedure
 
-1. Read the spec (`.claude/claudehut/tasks/NNNN-<slug>/spec.md`), the reuse-scan artifact (same dir),
-   `architecture.md`, `PROJECT.md` (for the real build/test commands), and the **plan template** the dispatch
-   prompt names (`skills/write-plan/references/plan-template.md`) — follow its structure exactly.
+1. Read the spec (`.claude/claudehut/tasks/NNNN-<slug>/spec.md`), the reuse-scan (same dir), `architecture.md`,
+   `PROJECT.md` (real build/test commands), and the **plan template** (`skills/write-plan/references/plan-template.md`) — follow its structure exactly.
 2. Write `.claude/claudehut/tasks/NNNN-<slug>/plan.md` per the template:
    - **§1 Decision & Approach** restates the spec §9 decision prominently — the plan stands alone.
    - **§3 Implementation Flow** — the end-to-end change as a SEQUENCE a reviewer can follow: entry → each
      component's job → persist/emit, naming the **data shapes** (new/changed DTO·entity·event fields, name +
      type) and the **reuse anchors** (the existing type/dep each adopt/extend step uses, per the reuse-scan).
-     Add a Mermaid diagram only when >3 steps or ≥2 collaborating components. This section is what makes the
-     plan reviewable; **right-size it to the tier** (full = full sequence + diagram; small/bugfix/refactor =
-     2–3 sentences naming the touched path + the one data-shape change).
+     Add a Mermaid diagram only when >3 steps or ≥2 collaborating components. **Right-size it to the tier**
+     (full = full sequence + diagram; small/bugfix/refactor = 2–3 sentences naming the touched path + the one data-shape change).
    - **§4 task breakdown** — each row uses the exact header
      `| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |`:
      goal, **exact files**, the **failing test to write first**, the minimal change, the **verify command
@@ -70,9 +73,6 @@ flowchart TB
      whole Implement phase** — the implementer can only parallelize what you mark. If two same-phase tasks
      share a file, either keep them sequential (no `[P]`) or split the shared file into its own earlier task.
    - Honor the chosen approach and the reuse decision (adopt/extend means edit the existing type, not a new one).
-   - Sequence so each task is independently testable.
-3. Return the plan path + a 5-line summary (decision, task count, phases, risks) for the main thread's
-   approval question.
 
 ## Constraints
 

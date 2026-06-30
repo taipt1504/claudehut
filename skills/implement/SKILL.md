@@ -25,29 +25,36 @@ reference," don't "adapt" it while writing the test, don't even look at it. Dele
 
 Production writes are denied by the `PreToolUse` gate until: `reuse_scan=true` (**every tier** — Discover
 produces it), plus — **in the `full` tier only** — `spec_path` and `plan_path` set, plus — **every tier,
-the skill rail** — *this skill was invoked for this task*. Invoking `claudehut:implement` is what opens
-that rail (a `PreToolUse(Skill)` recorder hook proves the call; entering Discover/Brainstorm closes it for
-the next task) — so if you are reading this because the gate told you to, the rail is now open. In the
+the skill rail** — *this skill was invoked for this task*. Invoking `claudehut:implement` opens that rail (a
+`PreToolUse(Skill)` recorder hook proves the call; entering Discover/Brainstorm closes it for the next task)
+— so if the gate sent you here, the rail is now open. In the
 `trivial`/`small` fast lanes, reuse-scan + the skill rail open the gate **provided** the change stays
 within the bound (≤2 files, no security/auth/migration path); exceed it and the gate denies, telling you
 to escalate (`set-complexity full` → Spec + Plan). The RED test may be written first — the gate always
-allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). If a write is denied, read the reason: you
-skipped a phase, skipped this skill, or out-grew the fast lane.
+allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). A denied write diagnoses itself (the Flow gate's `no` branches) — complete the missing phase/skill or escalate the fast lane; never route around it.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-    start([Implement phase]) --> plan["Read tasks/NNNN-&lt;slug&gt;/plan.md — the T-xxx table, test-first"]
-    plan --> step["Take next plan step"]
-    step --> red["RED — smallest failing test for the behavior<br/>run it; confirm it fails for the right reason"]
-    red --> green["GREEN — minimal production code to pass<br/>(path-scoped rules in .claude/rules/ auto-load here)"]
-    green --> rung{"tests green?"}
-    rung -- no --> green
-    rung -- yes --> refactor["REFACTOR with tests green"]
-    refactor --> more{"more plan steps?"}
-    more -- yes --> step
-    more -- no --> done([REQUIRED NEXT: claudehut:review])
+    start(["Implement phase — skill rail OPEN"]) --> gate{"write gate clears?<br/>reuse_scan + (full: spec+plan) + skill-rail<br/>+ within fast-lane bound?"}
+    gate -- "no: out-grew fast lane" --> esc(["escalate: set-complexity full → Spec + Plan"])
+    gate -- "no: phase/skill missing" --> esc2(["BLOCKED — complete missing phase, do not route around"])
+    gate -- "yes" --> step["take next plan step (T-xxx), dependency order"]
+    step --> red["RED — smallest failing test for ONE behavior"]
+    red --> rr{"fails for the RIGHT reason?<br/>(ran it; not a compile/typo error)"}
+    rr -- "no" --> red
+    rr -- "yes" --> beat["DESIGN-BEAT (≤30s, ultrathink) — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
+    beat --> green["GREEN — minimal code to pass<br/>(.claude/rules/ auto-load on edit; READ playbook on CREATE)"]
+    green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
+    ev -- "no" --> iron{"production code written before its test?"}
+    iron -- "yes" --> del(["IRON LAW — delete it, restart this step"])
+    iron -- "no — code just wrong, not an Iron-Law violation" --> beat
+    ev -- "yes" --> refactor["REFACTOR with tests green"]
+    refactor --> more{"more plan steps AND<br/>enforcement set fully satisfied?"}
+    more -- "no (steps remain)" --> step
+    more -- "no (enforcement gap)" --> beat
+    more -- "yes (done + green)" --> done(["REQUIRED NEXT: claudehut:review"])
 ```
 
 ## Execution — the main thread orchestrates the plan PHASE BY PHASE
@@ -56,10 +63,10 @@ flowchart TB
 PHASE and fan out within each phase — NEVER hand the whole plan to one implementer.** A real plan is
 *phased and mixed* (a sequential setup phase, then a domain phase with several independent tasks, then an
 API phase…). Collapsing all of it onto a single implementer is the serial bottleneck this rule exists to
-kill (Issue 1): you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
+kill: you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
 
 Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** from the task description and
-skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm** (Issue 3): name ≥2 approaches +
+skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm:** name ≥2 approaches +
 the one you chose and why, in a single line, before the first test. If you can only find one approach and it
 needs defending, the task was really `full` — escalate (`set-complexity full`). `trivial` (comment/rename)
 needs none. For a `full`-tier plan, run this loop on the main thread:
@@ -125,17 +132,12 @@ on a resumed session, re-mirror still-pending T-xxx rows from `plan.md` with `Ta
 
 ## The cycle
 
-1. **RED** — write the smallest failing test for the next behavior. Run it; confirm it fails for the *right*
-   reason (not a compile error you didn't intend).
-2. **GREEN** — `ultrathink` the **design beat** first (≤30s, this is what stops rote code): (a) **reuse?** an
-   existing method/util/dep — honor the plan sketch's reuse anchor, don't re-implement what the project or an
-   installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
-   abstraction nor the flimsier algorithm; (c) **don't duplicate** — about to repeat a helper from a sibling
-   file this task? extract ONE shared util. Then write the minimal production code to pass. Run it; confirm green.
-3. **REFACTOR** — clean up while tests stay green.
+The Flow diagram above is the cycle; the one beat that stops rote code is before GREEN — `ultrathink` the
+**design beat** (≤30s): (a) **reuse?** honor the plan sketch's reuse anchor, don't re-implement what the
+project or an installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
+abstraction nor the flimsier algorithm; (c) **don't duplicate** — repeating a sibling-file helper? extract ONE shared util. (For any NEW component, the design ladder is `references/minimalism.md`.)
 
-Work the plan's T-xxx tasks in dependency order. Honor the **enforcement set** recorded in Brainstorm — every
-listed skill and rule must end up satisfied (Review audits exactly this set).
+Work the plan's T-xxx tasks in dependency order, honoring the **enforcement set** recorded in Brainstorm — every listed skill and rule must end up satisfied (Review audits exactly this set).
 
 | Rationalization | Reality |
 |--------|---------|
@@ -146,9 +148,9 @@ listed skill and rule must end up satisfied (Review audits exactly this set).
 
 ## Tech-stack conventions — rules (edit-time) + playbooks (create-time)
 
-Two surfaces, split by **measured** behavior (EVAL-REPORT #7):
+Two surfaces:
 - **Path-scoped rules** in `.claude/rules/` auto-load when you **read/edit an existing** matching file — terse standards, reliable on edits.
-- **They do NOT fire when you CREATE a new file** (creation ≠ a read). **So when creating a new component, READ the matching playbook below FIRST.** These `references/*` playbooks are **context7-researched current best practice**, preloaded with this skill, and carry the create-time standard the path-rule would otherwise supply. **Completion criterion (not optional):** a new file created *without* its playbook read is an unfinished task — the create-time miss is exactly where duplication and missing-security defects enter (the `lint-reuse.sh` hook and Review's reuse-suspects catch what slips, but the cheap fix is reading the playbook before you type).
+- **They do NOT fire when you CREATE a new file** (creation ≠ a read). **So when creating a new component, READ the matching playbook below FIRST** — these `references/*` playbooks carry the create-time standard the path-rule would otherwise supply. **Completion criterion (not optional):** a new file created *without* its playbook read is an unfinished task — the create-time miss is exactly where duplication and missing-security defects enter.
 
 | Creating / editing… | READ this playbook (create-time) | Rule that auto-loads (edit-time) |
 |---|---|---|
@@ -163,10 +165,8 @@ Two surfaces, split by **measured** behavior (EVAL-REPORT #7):
 | Tests (`*Test`/`*IT`), choosing a test type | `references/testing.md` | `testing/*` |
 | Any Java — records, mappers, DI, style | `references/java-lang.md` | `coding/*`, `framework/mapstruct`·`lombok-*` |
 
-**Create-time must-dos (do these even if you don't open the playbook).** Measured (EVAL-REPORT): at create-time
-the playbook Read fires 13/15, but a *skipped* read is a real defect where the floor below doesn't carry the
-rule — most acutely for security. These non-negotiables are therefore stated here, in the always-loaded skill
-body, not only in the playbook file:
+**Create-time must-dos — the always-loaded floor for when a create-time playbook read is skipped** (a skipped
+read is a real defect, most acutely for security):
 - **Security** — deny-by-default: `anyRequest().authenticated()` / `denyAll()`, then explicitly permit. **Never
   `.anyRequest().permitAll()` as the default** (silent open door). Use a `SecurityFilterChain` bean — never
   `WebSecurityConfigurerAdapter` (removed in Security 6). `@Valid` every `@RequestBody`; bind `*Request` DTOs,

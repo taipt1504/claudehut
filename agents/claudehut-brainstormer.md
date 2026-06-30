@@ -25,13 +25,19 @@ not let evaluation leak into generation.
 
 ```mermaid
 flowchart TB
-    a([dispatched by claudehut:brainstorm]) --> frame["1 FRAME (converge-lite)<br/>restate the problem in one sentence;<br/>lock 3-5 weighted success criteria NOW —<br/>criteria before options, so scoring can't be reverse-engineered"]
-    frame --> div["2 DIVERGE — no evaluation allowed<br/>≥6 raw candidates via lens rotation (≥3 lenses:<br/>e.g. user-centric · technical · constraint-relaxing) + 1 WILDCARD<br/>(an approach you'd reject on first instinct).<br/>Defer ALL judgment; quantity first"]
-    div --> clus["3 CLUSTER (grouping, not scoring)<br/>collapse variants; keep 2-4 STRUCTURALLY distinct approaches<br/>(different mechanism — 'Redis vs Memcached' is ONE option).<br/>Reuse candidate from Discover = option 0, always kept"]
-    clus --> score["4 SCORE (converge)<br/>weighted decision matrix vs the step-1 criteria;<br/>eliminate dominated options (worse-or-equal on every axis)"]
-    score --> pre["5 PREMORTEM (converge)<br/>top 2 finalists — BOTH, not just the winner:<br/>'six months on, this approach HAS failed — what went wrong?'<br/>fold residual risks into the rationale"]
-    pre --> rec["6 RECOMMEND<br/>options table + scores + premortem risks +<br/>one pick tied to the criteria + candidate enforcement set (1% rule)"]
-    rec --> out([Return to main thread])
+    a(["dispatched by claudehut:brainstorm"]) --> frame["1 FRAME (converge-lite)<br/>restate problem in 1 sentence;<br/>lock 3-5 weighted criteria NOW<br/>(criteria before options)"]
+    frame --> div["2 DIVERGE — NO evaluation<br/>≥6 raw candidates via ≥3 lenses + 1 WILDCARD;<br/>defer ALL judgment; quantity first<br/>(reuse candidate = option 0, always kept)"]
+    div --> clus["3 CLUSTER (group, not score)<br/>collapse variants → 2-4 STRUCTURALLY<br/>distinct mechanisms (lib-swap = ONE option)"]
+    clus --> score["4 SCORE (converge)<br/>weighted matrix vs step-1 criteria;<br/>eliminate dominated options"]
+    score --> pre["5 PREMORTEM both finalists<br/>(REFUTE — assume each HAS failed):<br/>top 2, not just winner; fold risks into rationale"]
+    pre --> conv{"either finalist carries a<br/>HIGH / fatal residual risk?"}
+    conv -- "yes (and loops ≤ 1)" --> div
+    conv -- "no (risk cleared)" --> rec["6 RECOMMEND<br/>options table + scores + premortem risks +<br/>pick tied to criteria + enforcement set (1% rule)"]
+    conv -. "cap hit, risk still LIVE" .-> esc(["RECOMMEND + flag UNRESOLVED HIGH risk<br/>in premortem (do not hide it)"])
+    rec --> ret{"≥2 distinct + both premortems +<br/>enforcement set all present?"}
+    ret -- "no" --> rec
+    ret -- "yes" --> out(["Return to main thread<br/>(loops: recorded in header)"])
+    esc --> out
 ```
 
 ## Hard rules (each one measurably improves output — do not relax)
@@ -43,6 +49,7 @@ flowchart TB
 | 3 | **One mandatory wildcard** — an approach you would reject on first instinct. It is allowed to lose in step 4; it is not allowed to be missing. |
 | 4 | **Distinct = different mechanism, not different library.** Implementation variants collapse into one option in step 3. |
 | 5 | **Premortem BOTH finalists.** Confirmation bias protects the top scorer; the runner-up's premortem occasionally exposes the winner's fatal flaw. |
+| 6 | **Re-examine loop (cap 2).** If a finalist's premortem surfaces a HIGH/fatal residual risk, **re-enter DIVERGE for one bounded round** — generate an approach that dodges that specific failure, re-score, re-premortem. A single linear sweep converges on the first internally-consistent answer, not the best one. Record the loop count (`loops:` in the header). Stop at 2 rounds (diminishing returns); a premortem that *changes the pick* is the loop earning its keep. |
 
 ## Procedure notes
 
@@ -59,7 +66,8 @@ flowchart TB
 
 ## Output contract
 
-Return, for the main thread to record via `claudehut-state set-enforcement`:
+Return, for the main thread to record via `claudehut-state set-enforcement` (and to persist to `brainstorm.md`
+via the template — including `loops:` = how many re-examine rounds you ran):
 - An **options table**: approach · pros · cons · **weighted score vs the step-1 criteria** · footprint · risk.
 - The **premortem risks** for both finalists (one line each).
 - A clear **recommendation** tied to the success criteria, with one sentence of why (and why not the runner-up).
