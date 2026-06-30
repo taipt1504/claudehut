@@ -23,8 +23,8 @@ mkfx() {
   [ "$(jq -r '.worktree.baseRef // empty' "$w/.claude/settings.json" 2>/dev/null)" = "head" ] \
     || { echo "FATAL: settings.json baseRef!=head — fixture setup failed, aborting probe" >&2; exit 3; }
   printf '# PROJECT\nBuild: grep/file verify for this demo (do NOT run Gradle). Base package com.x.\n' > "$w/.claude/claudehut/PROJECT.md"
-  printf '# Spec\n## 1. Problem\nA shared base processor, then two handlers that extend it.\n## 9. Decision\nBaseProcessor first, then OrderHandler + PaymentHandler build on it.\n' > "$d/spec.md"
-  printf '# Reuse scan\nsearched: processor, handler\nFOUND: none\nDECISION: new\n' > "$d/reuse-scan.md"
+  printf '# Spec\n## 1. Problem\nA shared base processor, then two handlers that extend it.\n## 5. Acceptance Criteria\n- AC-001 GIVEN valid input WHEN a handler runs THEN BaseProcessor.process drives it.\n## 9. Decision\nBaseProcessor first, then OrderHandler + PaymentHandler build on it.\n' > "$d/spec.md"
+  printf '%s\n' '# Reuse scan' '| Dimension | Existing asset | Decision | Fit | Impact | Effort |' '|---|---|---|---|---|---|' '| processor/handler | none | new | 1 | low | M |' > "$d/reuse-scan.md"
   cat > "$d/plan.md" <<'PL'
 # Plan: spine + dependent handlers
 
@@ -38,7 +38,12 @@ BaseProcessor (Phase A, committed) → two handlers that EXTEND BaseProcessor (P
 ## 2. Technical Context
 Java 17. Build: grep/file verify (do NOT run Gradle).
 
-## 3. Task Breakdown
+## 3. Implementation Flow
+BaseProcessor.process() template method (Phase A) → OrderHandler/PaymentHandler each extend it and override handle() (Phase B).
+**T-002 sketch**: class OrderHandler extends BaseProcessor { handle() } + OrderValidator real checks.
+**T-003 sketch**: class PaymentHandler extends BaseProcessor { handle() } + PaymentValidator real checks.
+
+## 4. Task Breakdown
 
 ### Phase A — foundation  (DONE — already committed on the feature branch)
 | ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
@@ -73,6 +78,7 @@ J
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-reuse-scan --artifact .claude/claudehut/tasks/0001-spine/reuse-scan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-spine/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-spine/plan.md >/dev/null 2>&1
+    CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-profile feature >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
   ( cd "$w" && echo "ahead/behind origin/HEAD: $(git rev-list --left-right --count origin/HEAD...HEAD 2>/dev/null)" ) >&2
 }

@@ -67,6 +67,15 @@ jobs:
       - name: ranker-tests.sh (reuse-ranker)
         run: bash evals/ranker-tests.sh
 
+      - name: merge-learnings-tests.sh (learnings engine + reinforcement loop)
+        run: bash evals/merge-learnings-tests.sh
+
+      - name: artifact-oracle-tests.sh (cognition oracles discriminate)
+        run: bash evals/artifact-oracle-tests.sh
+
+      - name: lint-prompt-length.sh (WS-9 concision budget + provenance — commit-time gate)
+        run: bash scripts/lint-prompt-length.sh
+
   plugin-validate:
     name: claude plugin validate --strict (if CLI present)
     runs-on: ubuntu-latest

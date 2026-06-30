@@ -12,6 +12,9 @@ bad()  { FAIL=$((FAIL+1)); echo "  FAIL - $1"; }
 
 new_proj() { TMP="$(mktemp -d)"; export CLAUDE_PROJECT_DIR="$TMP"; mkdir -p "$TMP/.claude/claudehut/state" "$TMP/.claude/claudehut/plans"; }
 st() { "$ROOT/bin/claudehut-state" --session s "$@" >/dev/null; }
+# WS-6: the Learn Stop-gate now checks a per-session learn-receipt (written by merge-learnings), not a
+# non-empty learnings.jsonl. Helper writes a fresh receipt for session s.
+mk_receipt() { mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"; printf '{"ts":"2026-06-01T00:00:00Z","added":1,"merged":0}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.learn-receipt.json"; }
 # review-rigor v0.5: set-review pass requires --evidence review.md (coverage table + test summary).
 # Helper writes a valid evidence file under the canonical store and passes it.
 review_pass() {
@@ -35,11 +38,11 @@ echo "== gate-write (action gate) =="
 new_proj; st set-phase brainstorm
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
 denies x "$PROD" && ok "deny: no reuse_scan" || bad "deny: no reuse_scan"
-echo scan > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
+printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
 denies x "$PROD" && ok "deny: reuse ok, no spec" || bad "deny: no spec"
-printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
+printf '## 1. Problem & Context\nx\n## 5. Acceptance Criteria\n- AC-001 GIVEN a WHEN b THEN c\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
 denies x "$PROD" && ok "deny: spec ok, no plan" || bad "deny: no plan"
-printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
+printf '## 3. Implementation Flow\nA->B->C\n**T-001 sketch**: foo() control-flow\n## 4. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
 # Issue-1 skill rail: artifacts alone no longer open the gate — the implement skill must be invoked.
 denies x "$PROD" && ok "deny: reuse+spec+plan set but implement skill NOT invoked (skill rail)" || bad "deny: skill rail (full tier)"
 st mark-skill implement
@@ -75,11 +78,11 @@ echo "== gate-done (completion gate) =="
 new_proj; st set-phase brainstorm
 done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: armed-but-not-engaged not blocked (#1)" || bad "engaged-guard"
 rm -rf "$TMP"
-new_proj; st set-phase implement
+new_proj; st set-profile feature; st set-phase implement
 blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pending (engaged)" || bad "block: pending"
 review_pass; blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: review pass but phase!=learn" || bad "block: phase!=learn"
-printf '{"id":"x","learning":"test"}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
-st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: review=pass + phase=learn + non-empty learnings" || bad "allow: done"
+mk_receipt
+st set-phase learn; done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: review=pass + phase=learn + fresh learn-receipt" || bad "allow: done"
 st set-review pending; done_ok x '{"session_id":"s","stop_hook_active":true}' && ok "allow: stop_hook_active cap" || bad "cap allow"
 done_ok x '{"session_id":"none","stop_hook_active":false}' && ok "allow: missing state fails open (no block)" || bad "done fail-open"
 rm -rf "$TMP"
@@ -103,7 +106,7 @@ PRODX='{"session_id":"s","tool_input":{"file_path":"'  # prefix; we append a pat
 
 # small tier, reuse set, within bound (1 changed file), no sensitive path → ALLOW without spec/plan
 # (after the implement skill is invoked — the skill rail applies in EVERY tier, fast lanes included)
-new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+new_gitproj; st set-phase discover; printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"; st set-complexity small
 denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
   && ok "fast lane: small within bound but skill NOT invoked → deny (skill rail in fast lane)" || bad "fast lane skill rail"
@@ -115,14 +118,14 @@ denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_
   && ok "fast lane: small touching SecurityConfig → deny (sensitive path)" || bad "fast lane sensitive deny"
 rm -rf "$TMP"
 # small tier exceeding the file-count bound → DENY
-new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+new_gitproj; st set-phase discover; printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"; st set-complexity small
 ( cd "$CLAUDE_PROJECT_DIR" && for n in 1 2 3; do echo "class B$n{}" > "src/main/java/com/x/B$n.java"; done )  # 3 untracked
 denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/B1.java\"}}" \
   && ok "fast lane: small exceeding file cap → deny (escalate)" || bad "fast lane cap deny"
 rm -rf "$TMP"
 # full tier (default) still requires spec+plan even with reuse set
-new_gitproj; st set-phase discover; echo scan > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
+new_gitproj; st set-phase discover; printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/reuse-scan-x.md"
 denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/main/java/com/x/A.java\"}}" \
   && ok "full tier: reuse only, no spec → still deny" || bad "full tier deny"
@@ -137,9 +140,9 @@ echo "== gate-write: skill rail + recorder (Issue 1) =="
 # Qualified skill name (claudehut:implement) opens the rail too
 new_proj; st set-phase brainstorm
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
-echo scan > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
-printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
-printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
+printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 5. Acceptance Criteria\n- AC-001 GIVEN a WHEN b THEN c\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
+printf '## 3. Implementation Flow\nA->B->C\n**T-001 sketch**: foo() control-flow\n## 4. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
 st mark-skill claudehut:implement
 allows x "$PROD" && ok "skill rail: qualified name claudehut:implement accepted" || bad "skill rail: qualified name"
 # Unrelated skill is a no-op (rail stays open)
@@ -167,9 +170,9 @@ rm -rf "$TMP"
 # (one-deny upgrade cost; the deny message names the recovery: invoke claudehut:implement)
 new_proj
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
-echo scan > "$chd/reuse-scan-x.md"
-printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"
-printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"
+printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 5. Acceptance Criteria\n- AC-001 GIVEN a WHEN b THEN c\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"
+printf '## 3. Implementation Flow\nA->B->C\n**T-001 sketch**: foo() control-flow\n## 4. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"
 jq -n '{session:"s",phase:"implement",reuse_scan:true,reuse_scan_artifact:"'"$chd"'/reuse-scan-x.md",spec_path:"'"$chd"'/specs/x.md",plan_path:"'"$chd"'/plans/x.md",review:"pending",outstanding:[],bypass:false,complexity:"full"}' > "$chd/state/s.json"
 denies x "$PROD" && ok "migration: pre-v0.4 state (field absent) → rail closed, deny with recovery hint" || bad "migration: legacy state not gated"
 st mark-skill implement
@@ -178,9 +181,9 @@ rm -rf "$TMP"
 # Unrelated skill must not OPEN a closed rail either
 new_proj; st set-phase brainstorm
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd/specs" "$chd/plans"
-echo scan > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
-printf '## 1. Problem & Context\nx\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
-printf '## 3. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
+printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$chd/reuse-scan-x.md"; st set-reuse-scan --artifact "$chd/reuse-scan-x.md"
+printf '## 1. Problem & Context\nx\n## 5. Acceptance Criteria\n- AC-001 GIVEN a WHEN b THEN c\n## 9. Decision Record\nOutcome: A\n' > "$chd/specs/x.md"; st set-spec "$chd/specs/x.md"
+printf '## 3. Implementation Flow\nA->B->C\n**T-001 sketch**: foo() control-flow\n## 4. Task Breakdown\n| ID | Goal |\n| T-001 | x |\n' > "$chd/plans/x.md"; st set-plan "$chd/plans/x.md"
 st mark-skill review
 denies x "$PROD" && ok "skill rail: unrelated skill does NOT open a closed rail" || bad "skill rail: unrelated skill opened rail"
 rm -rf "$TMP"
@@ -261,21 +264,28 @@ review_pass && jq -e '.review=="pass" and (.review_evidence|type=="string")' "$C
 "$ROOT/bin/claudehut-state" --session s set-review pending >/dev/null 2>&1 && ok "set-review pending needs no evidence" || bad "pending wrongly required evidence"
 rm -rf "$TMP"
 
-echo "== gate-done: learn gate hollow-learn (P1-1) =="
-# phase=learn but learnings.jsonl empty -> block
-new_proj; st set-phase implement; review_pass
-touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"   # exists but empty
+echo "== gate-done: learn gate via per-session receipt (WS-6) =="
+# phase=learn but NO learn-receipt -> block (hollow learn: capture-learnings/merge did not run this task)
+new_proj; st set-profile feature; st set-phase implement; review_pass
 st set-phase learn
 blocks x '{"session_id":"s","stop_hook_active":false}' \
-  && ok "P1-1: phase=learn + empty learnings.jsonl -> blocked (hollow learn)" || bad "P1-1: hollow learn not blocked"
-# Write one entry -> should allow
-printf '{"id":"x","learning":"test"}\n' > "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+  && ok "WS-6: phase=learn + NO learn-receipt -> blocked (hollow learn)" || bad "WS-6: hollow learn not blocked"
+# Fresh receipt -> allow
+mk_receipt
 done_ok x '{"session_id":"s","stop_hook_active":false}' \
-  && ok "P1-1: phase=learn + non-empty learnings.jsonl -> allowed" || bad "P1-1: valid learn blocked"
-# learnings.jsonl absent -> block
-rm "$CLAUDE_PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+  && ok "WS-6: phase=learn + fresh learn-receipt -> allowed" || bad "WS-6: valid learn blocked"
+# STALE receipt (older than THIS task's reuse-scan) -> block (Learn ran for a prior task, not this one)
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+RS="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+printf '| Dimension | Existing | Decision | Fit | Impact | Effort |\n| x | none | new | 1 | low | S |\n' > "$RS"
+st set-reuse-scan --artifact .claude/claudehut/tasks/0001-x/reuse-scan.md
+touch "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.learn-receipt.json"; sleep 1; touch "$RS"
 blocks x '{"session_id":"s","stop_hook_active":false}' \
-  && ok "P1-1: phase=learn + absent learnings.jsonl -> blocked" || bad "P1-1: absent learnings not blocked"
+  && ok "WS-6: stale receipt (older than this task's reuse-scan) -> blocked" || bad "WS-6: stale receipt not blocked"
+# Re-run learn (fresh receipt) -> allow again
+mk_receipt
+done_ok x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "WS-6: re-run learn (fresh receipt newer than reuse-scan) -> allowed" || bad "WS-6: fresh re-learn blocked"
 rm -rf "$TMP"
 
 echo "== verify-subagent: learner mtime (P1-1 defense-in-depth) =="
@@ -312,10 +322,10 @@ st set-phase plan && ok "P2-2: forward spec->plan allowed" || bad "P2-2: forward
 # Backward: plan -> discover -> ALLOWED (discover is always a valid restart)
 st set-phase discover && ok "P2-2: discover always valid restart" || bad "P2-2: discover restart blocked"
 # bypass=true allows backward jump
-st set-phase implement; st set-bypass true
+st set-profile feature; st set-phase implement; st set-bypass true
 st set-phase brainstorm && ok "P2-2: bypass=true allows backward" || bad "P2-2: bypass=true blocked"
 # Tier skip path: discover -> implement (skipping middle phases) -> ALLOWED (forward)
-new_proj; st set-phase discover
+new_proj; st set-profile feature; st set-phase discover
 st set-phase implement && ok "P2-2: tier-skip discover->implement allowed (forward)" || bad "P2-2: tier-skip blocked"
 rm -rf "$TMP"
 

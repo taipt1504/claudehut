@@ -68,7 +68,9 @@ for t in "${sel[@]}"; do
       fi
       full="$prompt
 
-This project uses the ClaudeHut plugin; its 7-phase workflow is injected at session start. Drive the ClaudeHut workflow to completion: triage the complexity tier FIRST (Phase 0 — set-complexity trivial/small/full), then run exactly that tier's phases, writing all workflow artifacts under .claude/claudehut/. Complete the task."
+This project uses the ClaudeHut plugin; its 7-phase workflow is injected at session start. Drive the ClaudeHut workflow to completion: triage the complexity tier FIRST (Phase 0 — set-complexity trivial/small/full) AND the task profile (set-profile), then run exactly that tier's phases, writing all workflow artifacts under .claude/claudehut/. Complete the task.
+
+NON-INTERACTIVE (-p) RUN: there is no human to answer questions. At every approval gate (Spec, Plan), DO NOT end your turn waiting for approval — take the documented non-interactive path: proceed with your draft, record the 'approval: non-interactive run — proceeded with draft' marker, and continue. Drive all the way through Implement → Review → Learn until the Stop gate is satisfied (review=pass and the Learn pass has run). Never stop at a question."
       ( cd "$work" && CLAUDE_PROJECT_DIR="$work" CLAUDE_PLUGIN_ROOT="$SAN" \
           claude --print --plugin-dir "$SAN" --output-format json --model "$MODEL" --max-budget-usd "$BUDGET" \
           --dangerously-skip-permissions "$full" < /dev/null ) > "$j" 2>"$work/.err" || true
