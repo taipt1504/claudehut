@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.8.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.9.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -23,6 +23,24 @@ prerequisite, not a phase. After that, you describe a task and the workflow driv
 automatically, gating progress so you can't skip reuse, skip tests, or claim "done" without a clean review.
 
 The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md).
+
+---
+
+## What's new in v0.9
+
+- **Memory-engine hardening** — the cross-session learnings store takes a portable advisory lock (no lost
+  updates when two Learn passes overlap), retires reinforced-but-dormant entries and resets stale recurrence
+  flags (bounded growth), deterministically supersedes refined learnings (and **rebuilds**, not appends, the
+  auto-promoted rule blocks so stale lines disappear), and **sanitizes ingested learning text** (neutralizes
+  injection directives, strips URLs) with injected notes wrapped in an untrusted-data delimiter.
+- **`claudehut-observability-reviewer`** — a Review-phase auditor gating metrics/tracing/SLO instrumentation on
+  every new endpoint, listener, job, and outbound client (rule: `observability/instrumentation.md`).
+- **`claudehut-contract-reviewer`** — a Review-phase auditor for Kafka/Avro/Protobuf schema compatibility,
+  consumer-driven contract tests, and REST/gRPC backward-compat (rule: `framework/contract-compat.md`).
+- **Model-driven completion gate** — an additive, fail-open `agent` hook on `Stop` gives a second opinion on
+  completion evidence, alongside the unchanged, authoritative `gate-done.sh`.
+- **Eval self-checks** — a mermaid ultra-flow coverage guard in `conformance.sh`, per-task reference solutions
+  (`evals/reference-check.sh`), and audit/investigation profile-rail gate tests.
 
 ---
 
@@ -123,9 +141,10 @@ Code's `disableAllHooks` setting.
 
 ## Components
 
-- **Agents** (`agents/`) — 11 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
-  `claudehut-reuse-scanner`, `claudehut-planner`, `claudehut-implementer`, `claudehut-test-runner`,
-  `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`,
+- **Agents** (`agents/`) — 14 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
+  `claudehut-reuse-scanner`, `claudehut-planner`, `claudehut-plan-reviewer`, `claudehut-implementer`,
+  `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`,
+  `claudehut-db-reviewer`, `claudehut-observability-reviewer`, `claudehut-contract-reviewer`,
   `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
   via `worktree.baseRef=head`, which `claudehut-init` sets — so a later phase's implementer sees the
   committed work of earlier phases); the reviewers are dispatched by `review`.
@@ -134,7 +153,7 @@ Code's `disableAllHooks` setting.
   `implement`, `review`, `capture-learnings`). The `implement` skill carries the TDD Iron Law and the
   tech-stack playbooks; `bin/claudehut-worktree` manages the parallel-implementer worktree lifecycle
   (check-disjoint / reconcile / sweep).
-- **Rules** (`templates/rules/`, 50 files) — generated per-project into `.claude/rules/` by `claudehut-init`,
+- **Rules** (`templates/rules/`, 55 files — incl. `observability/instrumentation` + `framework/contract-compat`) — generated per-project into `.claude/rules/` by `claudehut-init`,
   organized by domain (architecture / coding / framework / performance / security / testing) plus
   `project-structure.md` and `vocabulary.md`. Stack-gated at init — only the rules matching your detected
   stack (web / reactive / orm / messaging / cache / mapper) are emitted.
