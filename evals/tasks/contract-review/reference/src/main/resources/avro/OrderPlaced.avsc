@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "OrderPlaced",
+  "namespace": "com.example.order.event",
+  "version": 2,
+  "fields": [
+    {"name": "orderId", "type": "string"},
+    {"name": "totalMinor", "type": "long"},
+    {"name": "itemCount", "type": "int"},
+    {"name": "discountCode", "type": ["null", "string"], "default": null}
+  ]
+}

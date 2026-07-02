@@ -57,7 +57,8 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-done.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-done.sh" },
+          { "type": "agent", "model": "claude-haiku-4-5-20251001", "timeout": 45, "statusMessage": "ClaudeHut: verifying completion evidence…", "prompt": "ClaudeHut completion-evidence verifier (ADVISORY — the deterministic gate-done.sh command hook is authoritative; you only add a second opinion and can never wedge the session). Context: $ARGUMENTS.\n\nStep 1 (cheap early-exit): read the most-recent workflow state file at .claude/claudehut/state/<session_id>.json. If it does not exist, or .review is not \"pass\", the task is mid-workflow — respond {\"ok\": true} immediately and do NO further work.\n\nStep 2 (only when .review == \"pass\"): open the review_evidence file the state names. Judge ONLY whether the completion is backed by FRESH test evidence — a real test/build command with actual pass counts recorded for THIS task — and whether every '✓ satisfied' coverage row cites a concrete locus (file:line, a Test class, or Class#method).\n\nBe conservative to avoid false nags: return {\"ok\": true} unless you find a CLEAR evidence gap (review=pass with no test-run evidence at all, or a ✓ row with no cited locus). Only then return {\"ok\": false, \"reason\": \"<the specific missing evidence> — run claudehut:review to add it before finishing\"}. On ANY missing file, parse doubt, or ambiguity, return {\"ok\": true} — never block on uncertainty." }
         ]
       }
     ],

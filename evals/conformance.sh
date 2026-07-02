@@ -33,9 +33,10 @@ chain write-plan implement
 chain implement review
 chain review capture-learnings
 
-# C4 — exactly 12 agents, each with name + description (v0.7 adds claudehut-plan-reviewer)
+# C4 — exactly 14 agents, each with name + description
+# (v0.9 Rec 3 adds claudehut-observability-reviewer; Rec 2 adds claudehut-contract-reviewer)
 AG=$(ls -1 "$ROOT"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AG" = "12" ] && ok "12 agents present" || bad "expected 12 agents, found $AG"
+[ "$AG" = "14" ] && ok "14 agents present" || bad "expected 14 agents, found $AG"
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q '^name:' && fm "$f" | grep -q -E '^description:'; then ok "agent frontmatter: $n"; else bad "agent frontmatter: $n"; fi
 done
@@ -49,10 +50,11 @@ for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
 
-# C6 — rule layer: 2 always-on + 51 domain; every domain rule path-scoped
-# (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation)
+# C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
+# (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
+#  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat)
 RT=$(find "$ROOT/templates/rules" -name '*.md' | wc -l | tr -d ' ')
-[ "$RT" = "53" ] && ok "53 rule templates (51 domain + 2 always-on)" || bad "expected 53 rule templates, found $RT"
+[ "$RT" = "55" ] && ok "55 rule templates (53 domain + 2 always-on)" || bad "expected 55 rule templates, found $RT"
 nopaths=0
 for f in $(find "$ROOT/templates/rules" -mindepth 2 -name '*.md'); do
   fm "$f" | grep -q '^paths:' || { nopaths=$((nopaths+1)); echo "      (no paths: $f)"; }
@@ -533,6 +535,30 @@ bash "$ROOT/scripts/lint-prompt-length.sh" --self-test >/dev/null 2>&1 \
   && ok "WS-9: lint-prompt-length self-test passes (flags over-budget + provenance, no false positive)" || bad "WS-9: lint-prompt-length self-test failed"
 bash "$ROOT/scripts/lint-prompt-length.sh" >/dev/null 2>&1 \
   && ok "WS-9: repo is within budget + provenance-clean (the WS-9 trim holds)" || bad "WS-9: repo over budget / has provenance noise"
+
+# ============================================================================
+# v0.9 Rec 4 — ultra-flow mermaid coverage. The 21 ultra-flow diagrams (one per agent + skill) had no
+# deterministic coverage (audit EVAL-1): deleting/corrupting a block shipped with CI green. INVARIANT: every
+# agents/*.md and skills/*/SKILL.md carries a NON-EMPTY ```mermaid block. If mmdc (@mermaid-js/mermaid-cli) is
+# on PATH each block is also parse-validated; if absent the parse is SKIPPED so the battery stays hermetic.
+# ============================================================================
+echo "== v0.9 Rec 4 (ultra-flow mermaid coverage) =="
+MMDC_OK=false; command -v mmdc >/dev/null 2>&1 && MMDC_OK=true
+# print the first fenced mermaid block of a file (between ```mermaid and the next ```)
+mermaid_block() { awk '/^```mermaid/{f=1;next} f&&/^```/{exit} f' "$1"; }
+for f in "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
+  n=${f#"$ROOT"/}
+  if ! grep -q '^```mermaid' "$f"; then bad "mermaid: $n has no ultra-flow diagram"; continue; fi
+  blk="$(mermaid_block "$f")"
+  if [ -z "$(printf '%s' "$blk" | tr -d '[:space:]')" ]; then bad "mermaid: $n has an EMPTY mermaid block"; continue; fi
+  if $MMDC_OK; then
+    tmp="$(mktemp)"; printf '%s\n' "$blk" > "$tmp.mmd"
+    if mmdc -i "$tmp.mmd" -o "$tmp.svg" >/dev/null 2>&1; then ok "mermaid valid (mmdc): $n"; else bad "mermaid: $n fails mmdc parse"; fi
+    rm -f "$tmp" "$tmp.mmd" "$tmp.svg"
+  else
+    ok "mermaid present+non-empty: $n (mmdc absent — parse skipped)"
+  fi
+done
 
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"

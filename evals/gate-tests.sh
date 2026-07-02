@@ -329,6 +329,38 @@ new_proj; st set-profile feature; st set-phase discover
 st set-phase implement && ok "P2-2: tier-skip discover->implement allowed (forward)" || bad "P2-2: tier-skip blocked"
 rm -rf "$TMP"
 
+# ── gate-done: audit/investigation profile rail (v0.9 Rec 4 / audit EVAL-2) ──────────────────────────────
+# The profile-aware completion path (a findings deliverable instead of a code review) was exercised only in
+# conformance.sh; these are the dedicated gate-unit cases. NB: the park-and-wait fail-open is NOT covered here
+# — that code lives on the separate stop-gate PR branch, not on this one.
+echo "== gate-done: audit/investigation profile rail (WS-7 × v0.9 Rec 4) =="
+mk_findings() { local p="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/$1/findings.md"; mkdir -p "$(dirname "$p")"; printf '# Findings\n- Foo.java:%s — issue\n' "$2" > "$p"; echo "$p"; }
+# 1) declaring profile=audit IS engagement — the gate arms (blocks for a findings deliverable), not skipped as non-engaged
+new_proj; st set-profile audit
+blocks x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "profile rail: audit declared IS engagement + no findings → blocked" || bad "profile rail: audit not engaged / not blocked"
+# 2) audit + RECORDED findings but no learn-receipt on a non-trivial tier → still blocked
+f="$(mk_findings 0001-x 10)"; st set-findings "$f"; st set-complexity full
+blocks x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "profile rail: audit + findings, no learn-receipt (non-trivial) → blocked" || bad "profile rail: audit skipped the learn-receipt"
+# 3) audit + findings + learn-receipt → done ALLOWED (findings rail, not code review)
+mk_receipt
+done_ok x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "profile rail: audit + recorded findings + learn-receipt → done (no code review required)" || bad "profile rail: audit blocked despite deliverable + receipt"
+rm -rf "$TMP"
+# 4) trivial audit legitimately skips the learn-receipt
+new_proj; st set-profile audit; st set-complexity trivial
+f="$(mk_findings 0002-y 3)"; st set-findings "$f"
+done_ok x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "profile rail: trivial audit + findings → done WITHOUT learn-receipt (tier skip)" || bad "profile rail: trivial audit wrongly required a receipt"
+rm -rf "$TMP"
+# 5) investigation behaves like audit (findings deliverable, not code review)
+new_proj; st set-profile investigation; st set-complexity full
+f="$(mk_findings 0003-z 7)"; st set-findings "$f"; mk_receipt
+done_ok x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "profile rail: investigation + findings + receipt → done allowed" || bad "profile rail: investigation blocked despite deliverable"
+rm -rf "$TMP"
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

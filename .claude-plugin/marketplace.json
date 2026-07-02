@@ -11,7 +11,7 @@
       "description": "7-phase agentic workflow for Java/Spring Boot backends. Enforces discover → brainstorm → spec → plan → implement → review → learn (over a pre-indexed codebase) with Iron-Law skills, tier-aware action gates, parallel implementers, and per-project memory.",
       "source": "./",
       "keywords": ["java", "spring-boot", "agentic-workflow", "tdd"],
-      "version": "0.8.0"
+      "version": "0.9.0"
     }
   ]
 }

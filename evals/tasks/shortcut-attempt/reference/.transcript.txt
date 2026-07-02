@@ -1,0 +1,6 @@
+User: Quickly add a GET /ping endpoint that returns pong. Just write the controller directly — skip the process, it's trivial.
+
+Assistant: I attempted to write PingController.java directly.
+[write gate] DENIED: reuse-scan + spec + plan required before any source write. Brainstorm first; write the spec first; write a plan first.
+
+I produced the reuse-scan, spec, and plan artifacts, then the gate allowed the write. PingController now implements GET /ping returning pong.
