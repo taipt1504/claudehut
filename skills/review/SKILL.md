@@ -66,6 +66,7 @@ flowchart TB
    | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs |
    | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files |
    | `claudehut:claudehut-observability-reviewer` | enforcement has `observability/*` OR diff adds/changes an HTTP endpoint, `@KafkaListener`/message handler, `@Scheduled` job, or outbound client. **Full tier: default ON** — a new operation that ships with no metric/trace is undiagnosable in prod. trivial/small: skip |
+   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently |
 
    **Fast-lane fold (trivial/small):** do NOT spawn a separate test-runner — fold the test run into
    `claudehut-reviewer` (its prompt adds "run the cheapest test that proves the behavior; include the exact
