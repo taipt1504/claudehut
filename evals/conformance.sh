@@ -33,9 +33,9 @@ chain write-plan implement
 chain implement review
 chain review capture-learnings
 
-# C4 — exactly 12 agents, each with name + description (v0.7 adds claudehut-plan-reviewer)
+# C4 — exactly 13 agents, each with name + description (v0.9 Rec 3 adds claudehut-observability-reviewer)
 AG=$(ls -1 "$ROOT"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AG" = "12" ] && ok "12 agents present" || bad "expected 12 agents, found $AG"
+[ "$AG" = "13" ] && ok "13 agents present" || bad "expected 13 agents, found $AG"
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q '^name:' && fm "$f" | grep -q -E '^description:'; then ok "agent frontmatter: $n"; else bad "agent frontmatter: $n"; fi
 done
@@ -49,10 +49,11 @@ for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
 
-# C6 — rule layer: 2 always-on + 51 domain; every domain rule path-scoped
-# (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation)
+# C6 — rule layer: 2 always-on + 52 domain; every domain rule path-scoped
+# (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
+#  v0.9 Rec 3 adds observability/instrumentation)
 RT=$(find "$ROOT/templates/rules" -name '*.md' | wc -l | tr -d ' ')
-[ "$RT" = "53" ] && ok "53 rule templates (51 domain + 2 always-on)" || bad "expected 53 rule templates, found $RT"
+[ "$RT" = "54" ] && ok "54 rule templates (52 domain + 2 always-on)" || bad "expected 54 rule templates, found $RT"
 nopaths=0
 for f in $(find "$ROOT/templates/rules" -mindepth 2 -name '*.md'); do
   fm "$f" | grep -q '^paths:' || { nopaths=$((nopaths+1)); echo "      (no paths: $f)"; }
