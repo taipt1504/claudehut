@@ -23,7 +23,7 @@ command -v jq >/dev/null 2>&1 || { echo "  (jq not installed — cannot compute)
 [ -f "$FILE" ] || { echo "  (no learnings store yet — run a task through the Learn phase first)"; exit 0; }
 
 jq -R 'fromjson? // empty' "$FILE" 2>/dev/null | jq -s -r --argjson top "$TOP" '
-  . as $all
+  [ .[] | select((.status // "") != "superseded") ] as $all
   | ($all | length) as $n
   | if $n == 0 then "  (store is empty)" else
     ($all | map(.category // "note")) as $cats
