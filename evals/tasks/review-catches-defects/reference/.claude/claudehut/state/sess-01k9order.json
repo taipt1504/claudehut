@@ -1,0 +1,9 @@
+{
+  "sid": "sess-01k9order",
+  "phase": "review",
+  "profile": "opus+xhigh",
+  "slug": "0001-order-summary-endpoints",
+  "findings_path": ".claude/claudehut/tasks/0001-order-summary-endpoints/review.md",
+  "review": "pass",
+  "review_evidence": "Coverage table + perf call-chain floor engaged: summary read uses a join-fetch query (no N+1), @OneToMany kept LAZY (no FetchType.EAGER), POST body validated via @Valid on CreateOrderRequest DTO (no entity-as-body). All four tempted defects absent."
+}

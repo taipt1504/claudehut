@@ -534,6 +534,30 @@ bash "$ROOT/scripts/lint-prompt-length.sh" --self-test >/dev/null 2>&1 \
 bash "$ROOT/scripts/lint-prompt-length.sh" >/dev/null 2>&1 \
   && ok "WS-9: repo is within budget + provenance-clean (the WS-9 trim holds)" || bad "WS-9: repo over budget / has provenance noise"
 
+# ============================================================================
+# v0.9 Rec 4 — ultra-flow mermaid coverage. The 21 ultra-flow diagrams (one per agent + skill) had no
+# deterministic coverage (audit EVAL-1): deleting/corrupting a block shipped with CI green. INVARIANT: every
+# agents/*.md and skills/*/SKILL.md carries a NON-EMPTY ```mermaid block. If mmdc (@mermaid-js/mermaid-cli) is
+# on PATH each block is also parse-validated; if absent the parse is SKIPPED so the battery stays hermetic.
+# ============================================================================
+echo "== v0.9 Rec 4 (ultra-flow mermaid coverage) =="
+MMDC_OK=false; command -v mmdc >/dev/null 2>&1 && MMDC_OK=true
+# print the first fenced mermaid block of a file (between ```mermaid and the next ```)
+mermaid_block() { awk '/^```mermaid/{f=1;next} f&&/^```/{exit} f' "$1"; }
+for f in "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
+  n=${f#"$ROOT"/}
+  if ! grep -q '^```mermaid' "$f"; then bad "mermaid: $n has no ultra-flow diagram"; continue; fi
+  blk="$(mermaid_block "$f")"
+  if [ -z "$(printf '%s' "$blk" | tr -d '[:space:]')" ]; then bad "mermaid: $n has an EMPTY mermaid block"; continue; fi
+  if $MMDC_OK; then
+    tmp="$(mktemp)"; printf '%s\n' "$blk" > "$tmp.mmd"
+    if mmdc -i "$tmp.mmd" -o "$tmp.svg" >/dev/null 2>&1; then ok "mermaid valid (mmdc): $n"; else bad "mermaid: $n fails mmdc parse"; fi
+    rm -f "$tmp" "$tmp.mmd" "$tmp.svg"
+  else
+    ok "mermaid present+non-empty: $n (mmdc absent — parse skipped)"
+  fi
+done
+
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -1,0 +1,8 @@
+{
+  "sid": "s-0001",
+  "phase": "review",
+  "profile": "standard",
+  "review": "pass",
+  "review_evidence": "Two-axis review passed: Standards axis confirmed no duplicated string→enum converter (logic centralized in StatusConverter, both services delegate) and no inline fully-qualified java.util.List (imported). See tasks/0001-parse-status/review.md coverage table.",
+  "findings_path": "tasks/0001-parse-status/review.md"
+}
