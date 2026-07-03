@@ -164,6 +164,7 @@ Two surfaces:
 | Flyway migration, index, datasource/pool | `references/persistence-ops.md` | `framework/flyway-naming`·`migration-safety`, `performance/indexing`·`connection-pool` |
 | Tests (`*Test`/`*IT`), choosing a test type | `references/testing.md` | `testing/*` |
 | Any Java — records, mappers, DI, style | `references/java-lang.md` | `coding/*`, `framework/mapstruct`·`lombok-*` |
+| **Summer Framework wiring** (`io.f8a.summer` — deps, `f8a.*`/`summer.*` properties, gates, `Ufid`/`Txid` annotations, Summer Kafka contracts, Summer types) | **`docs/summer-kb/<module>.md`** (when the project has `docs/summer-kb/`) — open the module doc the plan/spec cites BEFORE writing; copy property names, gate defaults, and coordinates from its `Activate`/`Config keys`/`Usage` sections, never from memory. KB can't verify a fact → `[unverified]` + surface it, don't guess | `summer-kb` (always-on pointer) |
 
 **Create-time must-dos — the always-loaded floor for when a create-time playbook read is skipped** (a skipped
 read is a real defect, most acutely for security):

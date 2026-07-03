@@ -72,6 +72,36 @@ else
   ctx="$ctx"$'\n\n## understand-anything: absent — Discover uses claudehut-explorer + Grep.'
 fi
 
+# ---------------- Summer Framework KB (service-scoped, deterministic — no model reliance) ----------------
+# Guarantee: a Summer consumer always has the KB pointer in context. Mirrors the plane-init fallback above:
+# (a) zero-touch install when a Summer consumer has no KB; (b) self-heal when the plugin ships a newer
+# bundle (summerCommit mismatch); (c) inject a compact grounding block into additionalContext.
+KB_META="$PROJECT_DIR/docs/summer-kb/.summer-kb-meta.json"
+KB_INSTALL="$PLUGIN_ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
+KB_BUNDLE_META="$PLUGIN_ROOT/skills/summer-kb-setup/references/summer-kb/.bundle-meta.json"
+if command -v python3 >/dev/null 2>&1 && [ -f "$KB_INSTALL" ]; then
+  # (a) zero-touch: Summer deps present but no installed KB → install (bounded scan, stdout suppressed)
+  if [ ! -f "$KB_META" ] \
+     && find "$PROJECT_DIR" -maxdepth 3 -name '*.gradle*' -not -path '*/build/*' 2>/dev/null \
+        | head -20 | xargs grep -ls 'io\.f8a\.summer:' 2>/dev/null | head -1 | grep -q .; then
+    python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || true
+  fi
+  # (b) self-heal: installed summerCommit != bundle summerCommit → refresh from the new bundle
+  if [ -f "$KB_META" ] && [ -f "$KB_BUNDLE_META" ]; then
+    inst="$(jq -r '.summerCommit // empty' "$KB_META" 2>/dev/null || true)"
+    bund="$(jq -r '.summerCommit // empty' "$KB_BUNDLE_META" 2>/dev/null || true)"
+    if [ -n "$inst" ] && [ -n "$bund" ] && [ "$inst" != "$bund" ]; then
+      python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+# (c) inject the grounding block when a KB is installed
+if [ -f "$KB_META" ]; then
+  kb_mods="$(jq -r '(.includedModules // []) | join(", ")' "$KB_META" 2>/dev/null || true)"
+  kb_commit="$(jq -r '.summerCommit // "unknown"' "$KB_META" 2>/dev/null || true)"
+  ctx="$ctx"$'\n\n## Summer Framework KB (MANDATORY grounding — service-scoped, installed locally)\n'"This service consumes Summer (io.f8a.summer). Installed KB modules: ${kb_mods:-unknown} (summerCommit ${kb_commit:0:7})."$'\n'"When a task touches Summer — a summer-* dependency, a f8a.*/summer.* property, an auto-config gate, a Ufid/Txid annotation (@JE/@SE/@TX/@Compact/@UInt128/@UfidPrefix), a Summer Kafka contract, or any Summer type (ApiResponse, ViewableException, outbox/audit, resource-server, rate limiter) — you MUST ground the decision in docs/summer-kb/ (start: USAGE.md → INDEX.md), not memory. Never invent property names, gate defaults, or coordinates; unverifiable facts are marked [unverified], never guessed."
+fi
+
 need_init=false
 { $WAS_ABSENT && ! $INITED; } && need_init=true   # only prompt if absent AND the deterministic fallback couldn't run
 

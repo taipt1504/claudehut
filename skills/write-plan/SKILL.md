@@ -37,6 +37,9 @@ flowchart TB
    the `set-spec` path) — never recompute `NNNN`. Inputs: spec, reuse-scan + brainstorm (same dir), template
    `references/plan-template.md`. It writes `…/tasks/NNNN-<slug>/plan.md`; it does NOT write state. (**`set-plan`
    REJECTS a plan with no `| T-xxx` rows**.)
+   **Summer KB (when the project has `docs/summer-kb/`):** every T-xxx row whose files touch Summer wiring
+   MUST carry the KB citation from the spec (`docs/summer-kb/<module>.md §<section>`) in its verify column —
+   the implementer verifies against it, and the plan-reviewer REVISEs a plan whose Summer tasks cite nothing.
 2. **Dispatch `claudehut:claudehut-plan-reviewer`** — doc gate, BEFORE the user sees the plan; it **writes its
    coverage table + `Verdict: APPROVE|REVISE` to `tasks/NNNN-<slug>/plan-review.md`**. Loop on `REVISE`, then
    **record the verdict** (only the main thread writes state):

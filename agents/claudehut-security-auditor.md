@@ -61,3 +61,16 @@ was inferred, not confirmed from a live broker.
 One row per enforcement-set `security/*` item + per defect class above → `✓|✗|n-a` + `file:line` + the deciding
 evidence / exploit reasoning. A `✓` with no cited line is not satisfied. **Verdict:** `PASS` only if every row
 is `✓`/`n-a`; else `OUTSTANDING` (each `✗` at MED+). Read-only; do not edit.
+
+## Framework KB grounding (when the project has `docs/summer-kb/`)
+
+The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
+Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
+annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
+(`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
+
+- Ground the claim in `docs/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
+  `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
+  section, or the source path it names.
+- Never invent property names, gate defaults, bean names, or Gradle coordinates.
+- Mark anything the KB and its cited source cannot verify as `[unverified]` — never a plausible guess.

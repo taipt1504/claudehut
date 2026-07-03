@@ -167,6 +167,13 @@ Code's `disableAllHooks` setting.
   `templates/mcp-recommendations.md` and _suggests_ `claude mcp add` servers in three buckets (tech-stack:
   postgres/mysql/redis/kafka/github · memory · research). The Review auditors degrade gracefully when none
   is connected (they review statically).
+- **Summer KB** (`skills/summer-kb-setup/`) — service-scoped knowledge base for the Summer Framework
+  (`io.f8a.summer`). The SessionStart hook auto-installs it into any consumer project (Summer deps
+  detected, no `docs/summer-kb/`), self-heals it when the plugin ships a newer bundle (`summerCommit`
+  mismatch), and injects a mandatory grounding block into every session's context. Manual install/refresh:
+  `/claudehut:summer-kb-setup`. Refresh pipeline (maintainer): regenerate the canonical KB in
+  `java-common-ms/docs/summer-kb/` → copy into `skills/summer-kb-setup/references/summer-kb/` + update its
+  `.bundle-meta.json` `summerCommit` → bump the plugin version.
 
 > **Note:** `bin/kafka-mcp` ships as a documented **stub** (a real implementation needs a language
 > toolchain / Kafka client outside this package's build); it is offered as an optional recommendation. The
