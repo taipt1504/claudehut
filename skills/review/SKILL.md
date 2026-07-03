@@ -88,11 +88,11 @@ flowchart TB
      its rows (`jq -c .`) under `## Known reuse suspects (confirm or clear each)`. The reviewer adds a row per
      suspect — **confirm** (a real `✗`) or **clear** (`n-a: <reason>`). **`set-review pass` REFUSES until each
      suspect's row carries a resolution token** — so this is gated, not advisory.
-   - **Summer KB compliance** — when the project has `docs/summer-kb/` AND (enforcement has `summer-kb` OR the
+   - **Summer KB compliance** — when the project has `.claude/summer-kb/` AND (enforcement has `summer-kb` OR the
      diff touches Summer wiring: `io.f8a.summer` deps, `f8a.*`/`summer.*` properties, `Ufid`/`Txid` annotations,
      Summer Kafka contracts, Summer types), paste under `## Summer KB compliance (verify each)` the KB
      citations from the spec/plan. The auditor adds one coverage row per Summer touchpoint: open the cited
-     `docs/summer-kb/<module>.md` and verify the implementation's property names, gate defaults, coordinates,
+     `.claude/summer-kb/<module>.md` and verify the implementation's property names, gate defaults, coordinates,
      and contract shapes against its `Activate`/`Config keys`/`Public API`/`Gotchas` sections — a mismatch or
      an invented name is a real `✗`. Uncited Summer touchpoints in the diff get flagged as missing citations.
 

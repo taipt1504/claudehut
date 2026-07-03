@@ -75,14 +75,14 @@ the fix list). This is your only write — you do **not** edit the plan/spec/cod
 not write state. The `SubagentStop` gate blocks your return until `plan-review.md` exists, and the main thread
 then records `claudehut-state set-plan-review <verdict> --evidence <that path>` (only the main thread writes state).
 
-## Framework KB grounding (when the project has `docs/summer-kb/`)
+## Framework KB grounding (when the project has `.claude/summer-kb/`)
 
 The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
 Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
 annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
 (`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
 
-- Ground the claim in `docs/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
+- Ground the claim in `.claude/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
   `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
   section, or the source path it names.
 - Never invent property names, gate defaults, bean names, or Gradle coordinates.

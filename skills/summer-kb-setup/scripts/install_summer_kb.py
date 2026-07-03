@@ -3,13 +3,13 @@
 install_summer_kb.py — install a service-scoped Summer Framework KB into a consumer service.
 
 Detects io.f8a.summer:summer-* deps in the target service, resolves the KB source
-(sibling java-common-ms/docs/summer-kb if present, else the skill's bundled snapshot),
+(sibling java-common-ms/.claude/summer-kb if present, else the skill's bundled snapshot),
 copies only the module docs that service uses, generates a scoped INDEX.md + local USAGE.md,
 writes a local always-on pointer (.claude/rules/summer-kb.md), and stamps .summer-kb-meta.json.
 
 Usage:  python3 install_summer_kb.py [SERVICE_DIR]   (default: current working directory)
         --dry-run   print the plan, write nothing
-Does NOT git add/commit. Docs are local/untracked.
+Does NOT git add/commit (committing .claude/summer-kb/ is the team's call).
 """
 import sys, os, re, json, shutil, glob, argparse, datetime
 
@@ -51,7 +51,7 @@ def resolve_source(service, skill_dir):
     """Return (source_dir, kind, summer_commit). Prefer sibling java-common-ms, else bundled."""
     d = os.path.abspath(service)
     for _ in range(8):  # walk up to workspace root
-        cand = os.path.join(d, 'java-common-ms', 'docs', 'summer-kb')
+        cand = os.path.join(d, 'java-common-ms', '.claude', 'summer-kb')
         if os.path.isfile(os.path.join(cand, 'INDEX.md')):
             commit = None
             meta = os.path.join(d, 'java-common-ms', '.understand-anything', 'meta.json')
@@ -135,16 +135,16 @@ def scope_index(src_index_text, included, detected_arts):
 
 def localize_usage(src_usage_text):
     """Point USAGE at the local docs path instead of the library sibling."""
-    t = src_usage_text.replace('java-common-ms/docs/summer-kb/', 'docs/summer-kb/')
-    t = t.replace('`docs/summer-kb/` (sibling repo under this workspace)',
-                  '`docs/summer-kb/` (local to this service)')
+    t = src_usage_text.replace('java-common-ms/.claude/summer-kb/', '.claude/summer-kb/')
+    t = t.replace('`.claude/summer-kb/` (sibling repo under this workspace)',
+                  '`.claude/summer-kb/` (local to this service)')
     return t
 
 
 LOCAL_POINTER = """# Summer Framework KB (always-on)
 
 This service consumes Summer (`io.f8a.summer`). A **service-scoped** KB documenting the Summer modules this
-service uses lives locally at **`docs/summer-kb/`**.
+service uses lives locally at **`.claude/summer-kb/`**.
 
 ## Rule
 When a task touches Summer — a `io.f8a.summer:summer-*` dependency, a `f8a.*` / `summer.*` property, an
@@ -153,12 +153,12 @@ Kafka contract, or any Summer type (`ApiResponse`, `ViewableException`, outbox/a
 limiter) — you **MUST** ground the decision in this KB, not memory or guesswork.
 
 ## How
-1. Start at `docs/summer-kb/USAGE.md` (when/how/grounding), then `INDEX.md` (topic → module → source).
+1. Start at `.claude/summer-kb/USAGE.md` (when/how/grounding), then `INDEX.md` (topic → module → source).
 2. Each module doc: banner + `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`.
 3. Cite the graph node id / source path the KB gives. Never invent property names, gate defaults, or coordinates.
 4. If the KB lacks a fact, read the source it points to; if unverifiable, mark `[unverified]` — never guess.
 
-KB is docs-only and local/untracked; do not `git add`/commit it. Refresh with `/summer-kb-setup` after Summer upgrades.
+KB lives under `.claude/` (committable — share with the team; never commit `.claude/claudehut/state/`). Refresh with `/summer-kb-setup` after Summer upgrades.
 """
 
 
@@ -194,7 +194,7 @@ def main():
         print(f"Unknown artifacts (no module doc): {', '.join(unknown)}")
     print(f"Modules:   {', '.join(included)}")
     print(f"Source:    {kind}  ({src})  summerCommit={commit}")
-    dest = os.path.join(service, 'docs', 'summer-kb')
+    dest = os.path.join(service, '.claude', 'summer-kb')
     print(f"Dest:      {dest}")
 
     if args.dry_run:
@@ -243,7 +243,7 @@ def main():
 
     print("\nInstalled (local, untracked — not committed):")
     for w in written:
-        print(f"  docs/summer-kb/{w}" if not w.startswith('.claude') else f"  {w}")
+        print(f"  .claude/summer-kb/{w}" if not w.startswith('.claude') else f"  {w}")
     print(f"\nDone. {len(included)} module docs scoped to this service. "
           f"Agents auto-load via .claude/rules/summer-kb.md.")
     return 0

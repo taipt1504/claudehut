@@ -1,5 +1,5 @@
 {
   "source": "bundled-snapshot",
   "summerCommit": "b6017fb680607a025181445be45b84f6152add32",
-  "bundledFrom": "java-common-ms/docs/summer-kb"
+  "bundledFrom": "java-common-ms/.claude/summer-kb"
 }

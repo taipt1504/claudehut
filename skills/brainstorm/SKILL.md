@@ -62,10 +62,10 @@ Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagra
    selection**: the rules it lists decide which specialist auditors Review spawns. A thin set silently
    under-reviews.
 
-   **Summer KB (when the project has `docs/summer-kb/`):** if the task touches Summer (`io.f8a.summer` —
+   **Summer KB (when the project has `.claude/summer-kb/`):** if the task touches Summer (`io.f8a.summer` —
    any `summer-*` dep, `f8a.*`/`summer.*` property, auto-config gate, `Ufid`/`Txid` annotation, Kafka
    contract, or Summer type), the enforcement set MUST include `--rules summer-kb.md`, and each scored
-   option's Summer wiring MUST be grounded in the relevant `docs/summer-kb/<module>.md` (cite doc + section
+   option's Summer wiring MUST be grounded in the relevant `.claude/summer-kb/<module>.md` (cite doc + section
    in the option row). An option built on invented Summer properties/gates is not a valid option.
 3. **`AskUserQuestion` tool** (interactive only): scored options as choices, not a free-text ask.
 

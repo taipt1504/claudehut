@@ -41,9 +41,9 @@ Derive the task dir from the recorded reuse-scan (`dirname` of `set-reuse-scan -
 9. Decision Record · 10. Out of Scope · 11. Open Questions · 12. Enforcement Manifest`
 (reduced subset = 1, 9, 5, 10, 12). **`claudehut-state set-spec` REJECTS a file with no `## ` sections or no Decision Record** — a freeform spec will not arm the gate.
 
-**Summer KB (when the project has `docs/summer-kb/`):** every FR/AC and Enforcement-Manifest row that
+**Summer KB (when the project has `.claude/summer-kb/`):** every FR/AC and Enforcement-Manifest row that
 touches Summer (`io.f8a.summer` wiring, `f8a.*`/`summer.*` properties, gates, `Ufid`/`Txid` annotations,
-Kafka contracts, Summer types) MUST carry a KB citation — `docs/summer-kb/<module>.md §<section>` — and use
+Kafka contracts, Summer types) MUST carry a KB citation — `.claude/summer-kb/<module>.md §<section>` — and use
 only property names / gate defaults / coordinates that appear there. A Summer requirement with no KB
 citation is incomplete; a fact the KB cannot verify is written `[unverified]`, never guessed.
 
