@@ -53,24 +53,39 @@ if [ -n "$PV" ] && [ -d "$DIR" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ]; th
   fi
 fi
 
-ctx="$(cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null || echo "ClaudeHut workflow orchestrator skill not found.")"
+# Inject the DIGEST (tiers + profiles + laws + phase map), not the whole orchestrator. This block is re-paid on
+# every startup|resume|clear|compact, so the full SKILL.md was the single largest recurring context cost; the
+# model loads it on demand with /claudehut:workflow. Fall back to the full file if the digest is missing.
+DIGEST="$PLUGIN_ROOT/skills/claudehut-workflow/references/digest.md"
+ctx="$(cat "$DIGEST" 2>/dev/null \
+  || cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null \
+  || echo "ClaudeHut workflow orchestrator skill not found.")"
 
 # Top learnings (P7 helper — optional; no-op until present). WS-6: --snapshot records the injected IDs so the
 # Learn phase can stamp .applied on the ones that resurface (closing the inject→use reinforcement loop).
 if [ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -f "$DIR/learnings.jsonl" ]; then
   snap=""; [ -n "$sid" ] && { mkdir -p "$DIR/state" 2>/dev/null || true; snap="$DIR/state/$sid.injected.json"; }
-  learn="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --top 12 ${snap:+--snapshot "$snap"} 2>/dev/null || true)"
+  learn="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --top 12 --max-len 200 ${snap:+--snapshot "$snap"} 2>/dev/null || true)"
   [ -n "$learn" ] && ctx="$ctx"$'\n\n## Learnings for this project (top by confidence x recency x hits)\n'"$learn"
 fi
 
 # understand-anything detection — no native runtime cross-plugin field exists, so read
 # enabledPlugins via the CLI. Default to "absent" when the command/data is unavailable.
-if command -v claude >/dev/null 2>&1 \
-   && claude plugin list --json 2>/dev/null | jq -e '.[]? | select((.id | startswith("understand-anything@")) and (.enabled // false))' >/dev/null 2>&1; then
-  ctx="$ctx"$'\n\n## understand-anything: ENABLED — Discover MUST use its query/search skills.'
+# Cached PER SESSION (not persistently): the CLI spawn costs 1-5s and this hook also fires on every
+# resume/clear/compact, while a persistent cache would go stale the moment the user enables the plugin.
+UA_CACHE=""; [ -n "$sid" ] && UA_CACHE="$DIR/state/$sid.ua-flag"
+if [ -n "$UA_CACHE" ] && [ -f "$UA_CACHE" ]; then
+  ua="$(cat "$UA_CACHE" 2>/dev/null || true)"
 else
-  ctx="$ctx"$'\n\n## understand-anything: absent — Discover uses claudehut-explorer + Grep.'
+  if command -v claude >/dev/null 2>&1 \
+     && claude plugin list --json 2>/dev/null | jq -e '.[]? | select((.id | startswith("understand-anything@")) and (.enabled // false))' >/dev/null 2>&1; then
+    ua="ENABLED — Discover MUST use its query/search skills."
+  else
+    ua="absent — Discover uses claudehut-explorer + Grep."
+  fi
+  [ -n "$UA_CACHE" ] && { mkdir -p "$DIR/state" 2>/dev/null || true; printf '%s' "$ua" > "$UA_CACHE" 2>/dev/null || true; }
 fi
+ctx="$ctx"$'\n\n## understand-anything: '"$ua"
 
 # ---------------- Summer Framework KB (service-scoped, deterministic — no model reliance) ----------------
 # Guarantee: a Summer consumer always has the KB pointer in context. Mirrors the plane-init fallback above:

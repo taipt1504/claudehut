@@ -3,20 +3,31 @@
 # confidence x recency x hits, and emits the top-N as plain-text blocks. Recency is an exponential
 # decay on `ts` with a ~30-day half-life (accepted default E5). Never errors out the caller.
 #
-# Usage: inject-learnings.sh [--top N] [--filter "keywords"]
+# Usage: inject-learnings.sh [--top N] [--filter "keywords"] [--max-len N] [--exclude FILE]
 #   --top N          how many to emit (default 12)
 #   --filter STR     keep only learnings whose trigger/learning matches a word (>2 chars) in STR
+#   --max-len N      truncate each emitted learning text to N chars (0 = no cap) — one uncapped entry could
+#                    otherwise dominate an injected block that is re-paid every session
+#   --exclude FILE   JSON array of ids already injected this session — skip them instead of paying twice
 set -euo pipefail
 
-TOP=12; FILTER=""; SNAPSHOT=""
+TOP=12; FILTER=""; SNAPSHOT=""; MAXLEN=0; EXCLUDE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --top) TOP="${2:-12}"; shift 2 ;;
     --filter) FILTER="${2:-}"; shift 2 ;;
     --snapshot) SNAPSHOT="${2:-}"; shift 2 ;;   # WS-6: also write the injected entry IDs here (for .applied)
+    --max-len) MAXLEN="${2:-0}"; shift 2 ;;
+    --exclude) EXCLUDE="${2:-}"; shift 2 ;;
     *) shift ;;
   esac
 done
+
+# ids already injected this session (empty array when absent/unreadable → nothing excluded)
+EXIDS='[]'
+if [ -n "$EXCLUDE" ] && [ -f "$EXCLUDE" ]; then
+  EXIDS="$(jq -c 'if type=="array" then map(select(type=="string")) else [] end' "$EXCLUDE" 2>/dev/null || echo '[]')"
+fi
 
 command -v jq >/dev/null 2>&1 || exit 0
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -28,7 +39,8 @@ now="$(date -u +%s)"
 # Half-life 30 days: recency = 0.5 ^ (age_days / 30) = exp( ln(0.5) * age_days / 30 ).
 NONCE="$(head -c4 /dev/urandom 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')"; [ -n "$NONCE" ] || NONCE="$$"
 BODY="$(jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
-| jq -s -r --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" '
+| jq -s -r --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" \
+     --argjson maxlen "$MAXLEN" --argjson exids "$EXIDS" '
     ( ["the","and","for","fix","add","use","this","that","with","into","from","run","new","get","set","you","are","can","its","but"] ) as $stop
     | ( $filter | ascii_downcase | gsub("[^a-z0-9+ ]";" ") | split(" ")
         | map(. as $w | select(($w | length) > 2 and ($stop | index($w)) == null)) ) as $words
@@ -50,10 +62,12 @@ BODY="$(jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
     # double-pay the tokens. EXCEPTION (WS-6): a promoted rule with recurrence>0 keeps being violated, so the
     # always-on rule is NOT working — re-inject it (boosted above) so the agent sees it again.
     | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
+    | map(select((.id // "") as $i | ($exids | index($i)) == null))
     | sort_by(-._score)
     | .[0:$top]
     | .[]
-    | "- [\(.category // "note")] \(.learning)  (\(.evidence // "no evidence")) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
+    | ( (.learning // "") | if ($maxlen > 0 and (length > $maxlen)) then .[0:$maxlen] + "…" else . end ) as $txt
+    | "- [\(.category // "note")] \($txt)  (\(.evidence // "no evidence")) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
   ' 2>/dev/null || true)"
 
 # v0.9 Rec 1 (audit SEC-1): wrap retrieved learnings in a randomized untrusted-data delimiter (the
