@@ -1,7 +1,7 @@
 ---
 name: claudehut-explorer
 description: Read-only codebase query agent for Discover — locates implementations and maps the modules a task touches. Reports only; never proposes fixes.
-model: sonnet
+model: haiku
 effort: medium
 tools: Read, Grep, Glob, Bash
 color: cyan

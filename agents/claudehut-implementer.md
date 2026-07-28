@@ -2,7 +2,7 @@
 name: claudehut-implementer
 description: Executes the plan test-first under the project's conventions, in an isolated worktree. Honors every rule that auto-loads for the files it touches.
 model: opus
-effort: xhigh
+effort: high
 tools: Read, Edit, Write, Bash, Grep, Glob
 skills:
   - implement

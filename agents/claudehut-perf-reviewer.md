@@ -1,8 +1,8 @@
 ---
 name: claudehut-perf-reviewer
 description: JVM and data-access performance review — N+1 queries, missing indexes, blocking calls on reactive paths, allocation hot spots. Read-only.
-model: opus
-effort: xhigh
+model: sonnet
+effort: high
 tools: Read, Grep, Bash, mcp__postgres__query, mcp__mysql__mysql_query, mcp__kafka__list_topics, mcp__kafka__describe_topic, mcp__kafka__consumer_group_lag, mcp__kafka__list_consumer_groups, mcp__kafka__get_offsets, mcp__kafka__peek_messages
 color: pink
 ---

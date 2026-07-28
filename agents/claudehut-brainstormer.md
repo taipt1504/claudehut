@@ -2,7 +2,7 @@
 name: claudehut-brainstormer
 description: Generates 2+ genuinely distinct solution options and recommends one; returns the candidate enforcement set. Any problem type. Never writes code.
 model: opus
-effort: xhigh
+effort: high
 tools: Read, Grep, Glob, WebFetch
 color: purple
 ---

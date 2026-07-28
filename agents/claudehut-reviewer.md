@@ -1,8 +1,8 @@
 ---
 name: claudehut-reviewer
 description: General code review — correctness, readability, conventions, dead code, over-engineering — against the enforcement set and project rules.
-model: opus
-effort: xhigh
+model: sonnet
+effort: high
 tools: Read, Grep, Bash
 color: blue
 ---

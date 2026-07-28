@@ -1,8 +1,8 @@
 ---
 name: claudehut-contract-reviewer
 description: Message + API contract review — Kafka/Avro/Protobuf compatibility, consumer-driven contract tests, REST/gRPC back-compat. Read-only; spawned by claudehut:review.
-model: opus
-effort: xhigh
+model: sonnet
+effort: high
 tools: Read, Grep, Glob
 color: blue
 ---

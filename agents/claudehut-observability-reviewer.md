@@ -1,8 +1,8 @@
 ---
 name: claudehut-observability-reviewer
 description: Observability review — metrics, tracing, and SLO instrumentation on new/changed endpoints, listeners, jobs, and outbound clients. Read-only.
-model: opus
-effort: xhigh
+model: sonnet
+effort: high
 tools: Read, Grep, Glob
 color: yellow
 ---

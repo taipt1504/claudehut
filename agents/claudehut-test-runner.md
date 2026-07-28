@@ -1,7 +1,7 @@
 ---
 name: claudehut-test-runner
 description: Runs the test suite and diagnoses failures with real output — the fresh evidence a completion claim requires.
-model: sonnet
+model: haiku
 effort: low
 tools: Bash, Read, Grep
 color: yellow
