@@ -41,8 +41,10 @@ flowchart TB
    MUST carry the KB citation from the spec (`.claude/summer-kb/<module>.md §<section>`) in its verify column —
    the implementer verifies against it, and the plan-reviewer REVISEs a plan whose Summer tasks cite nothing.
 2. **Dispatch `claudehut:claudehut-plan-reviewer`** — doc gate, BEFORE the user sees the plan; it **writes its
-   coverage table + `Verdict: APPROVE|REVISE` to `tasks/NNNN-<slug>/plan-review.md`**. Loop on `REVISE`, then
-   **record the verdict** (only the main thread writes state):
+   coverage table + `Verdict: APPROVE|REVISE` to `tasks/NNNN-<slug>/plan-review.md`**. Loop on `REVISE` —
+   **cap 2 rounds**: each round re-drafts and re-reviews the whole plan, so a third `REVISE` means the spec is
+   the problem, not the plan. Take it to the user with `AskUserQuestion` (the surviving gaps + the two attempts)
+   instead of looping. Then **record the verdict** (only the main thread writes state):
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan-review APPROVE --evidence .claude/claudehut/tasks/NNNN-<slug>/plan-review.md
    ```

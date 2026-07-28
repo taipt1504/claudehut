@@ -63,10 +63,10 @@ flowchart TB
    | `claudehut:claudehut-test-runner` | always (full tier) — evidence is non-negotiable |
    | `claudehut:claudehut-reviewer` | always — correctness/conventions apply to any change |
    | `claudehut:claudehut-security-auditor` | enforcement has `security/*` OR diff touches controllers/auth/security/deserialization/secrets. **Full tier: when in doubt, run it** (a false-skip ships a vuln). trivial/small: skip by default (the fast-lane bound already denied any security/auth path) |
-   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs |
-   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files |
+   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Full tier: default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs. trivial/small: skip (the reviewer's fast-lane fallback table carries the same N+1/EAGER/`.block()` floor) |
+   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files. trivial/small: skip — the fast-lane bound already denied any migration path, and the reviewer's fallback table covers `@Entity` LAZY/Lombok |
    | `claudehut:claudehut-observability-reviewer` | enforcement has `observability/*` OR diff adds/changes an HTTP endpoint, `@KafkaListener`/message handler, `@Scheduled` job, or outbound client. **Full tier: default ON** — a new operation that ships with no metric/trace is undiagnosable in prod. trivial/small: skip |
-   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently |
+   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently. trivial/small: only when a schema/public contract file is actually in the diff |
 
    **Fast-lane fold (trivial/small):** do NOT spawn a separate test-runner — fold the test run into
    `claudehut-reviewer` (its prompt adds "run the cheapest test that proves the behavior; include the exact
@@ -76,6 +76,8 @@ flowchart TB
    which reviewers you selected and why (one line each) so any skip is auditable.
 
    **Every code-review dispatch prompt MUST carry** (none of this is auto-present in the isolated subagent):
+   - **The diff itself** — paste `git diff` hunks (not just names) for the files that auditor owns. Each subagent
+     starts cold: without the hunks they all re-Read the same files, once per auditor.
    - **`references/review-rigor.md`** verbatim + the auditor's defect-class floor. (test-runner: only "run the
      suite fresh this turn; report the exact command + real pass/fail counts".)
    - **Enforcement set, verbatim** — `jq -c '.enforcement_set' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
@@ -127,23 +129,20 @@ flowchart TB
 
 ## Test evidence (the test-runner enforces this)
 
-Pick the **cheapest test that proves the behavior**:
-
-| Need | Use |
-|------|-----|
-| Pure logic, no Spring | plain JUnit 5 + Mockito |
-| Web layer only | `@WebMvcTest` / `@WebFluxTest` |
-| Persistence only | `@DataJpaTest` / `@DataR2dbcTest` + Testcontainers |
-| Full wiring | `@SpringBootTest` (slowest — last resort) |
-| External HTTP | WireMock (assert the request) |
-| Real DB / Kafka / Redis | Testcontainers — not embedded fakes |
-
-No `Thread.sleep` for async — use Awaitility / `StepVerifier`. Full matrix: `references/test-matrix.md`.
+Pick the **cheapest test that proves the behavior**: pure logic → plain JUnit 5 + Mockito · web layer →
+`@WebMvcTest`/`@WebFluxTest` · persistence → `@DataJpaTest`/`@DataR2dbcTest` + Testcontainers · external HTTP →
+WireMock · real DB/Kafka/Redis → Testcontainers, not embedded fakes · full wiring → `@SpringBootTest` (slowest,
+last resort). No `Thread.sleep` for async — Awaitility / `StepVerifier`. Full matrix: `references/test-matrix.md`.
 
 ## Exit
 
 `outstanding == []` + evidence green → `set-review pass`. **OR** the consecutive-`Stop` cap
 (`stop_hook_active`) reached → `set-review capped` + surface the remaining items, rather than loop forever.
+
+**Round cap — 2 fix→re-spawn rounds.** Each round re-pays every dispatch from a cold context, so an uncapped
+loop is the workflow's most expensive failure mode. On round 3: `set-review capped` + surface the surviving
+items and what you tried. Within a round, re-dispatch **only the auditors owning a surviving `✗`**, scoped to
+those items.
 
 ## Red flags — STOP
 

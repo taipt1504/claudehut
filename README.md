@@ -179,6 +179,32 @@ Code's `disableAllHooks` setting.
 > toolchain / Kafka client outside this package's build); it is offered as an optional recommendation. The
 > workflow runs fully without any MCP server connected — MCP enriches, it does not gate.
 
+### Token cost (v0.9.2)
+
+The workflow's cost is dominated by what is paid *repeatedly* — per session, per prompt, per subagent
+dispatch — not by any single prompt. v0.9.2 attacks those paths:
+
+- **Model routing.** Checklist and mechanical agents run on cheaper models: `test-runner` and `explorer` on
+  Haiku, the five review auditors + `plan-reviewer` on Sonnet. Opus is reserved for open-ended judgment
+  (`brainstormer`, `planner`, `implementer`) and the security floor (`security-auditor`). `effort: xhigh`
+  survives only on `planner` and `security-auditor` — thinking tokens bill at output rates.
+- **Session start** injects `skills/claudehut-workflow/references/digest.md` (~2 KB: tiers, profiles, laws,
+  phase map) instead of the full 10 KB orchestrator, which is re-paid on every resume/clear/compact. Load the
+  full skill on demand with `/claudehut:workflow`.
+- **Per-prompt injection is delta-only.** The full re-anchor + Phase-0 triage block fires on a phase *change*;
+  repeat prompts in the same phase get a one-line anchor. Learnings already injected at session start are
+  excluded rather than re-sent, and each entry is length-capped.
+- **Review fan-out is tier-aware.** trivial/small skip the perf, db, and contract specialists — the general
+  reviewer's fast-lane fallback table carries the same N+1 / EAGER / `.block()` / `@Entity` floor. Fix→re-spawn
+  is capped at 2 rounds (plan REVISE likewise), and dispatch prompts carry the diff hunks so auditors don't
+  each re-read the same files.
+- **No per-Stop model call.** The advisory Haiku completion-verifier hook is gone; its two checks were already
+  enforced deterministically by `claudehut-state set-review pass`.
+
+**Recommended project settings.** Since Claude Code v2.1.198 the built-in `Explore` agent inherits the session
+model instead of running on Haiku. To keep exploration cheap, add a project agent at
+`.claude/agents/Explore.md` with `model: haiku` — it overrides the built-in.
+
 ---
 
 ## Evals
