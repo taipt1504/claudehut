@@ -1,8 +1,6 @@
 ---
 name: claudehut-test-runner
-description: >
-  Runs the test suite and diagnoses failures with real output. Use in the Review phase, spawned by
-  claudehut:review each iteration, to produce the fresh evidence a completion claim requires.
+description: Runs the test suite and diagnoses failures with real output — the fresh evidence a completion claim requires.
 model: sonnet
 effort: low
 tools: Bash, Read, Grep

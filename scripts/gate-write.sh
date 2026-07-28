@@ -12,7 +12,9 @@ in="$(cat || true)"
 command -v jq >/dev/null 2>&1 || exit 0   # degrade: fail open
 
 allow() { exit 0; }   # no decision = proceed normally
-deny()  { jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r,additionalContext:$r}}'; exit 0; }
+# permissionDecisionReason alone reaches the model; also sending it as additionalContext paid for the same
+# text twice on a path that fires on every denied production write.
+deny()  { jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'; exit 0; }
 
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 

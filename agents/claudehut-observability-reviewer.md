@@ -1,9 +1,6 @@
 ---
 name: claudehut-observability-reviewer
-description: >
-  Observability review — metrics, distributed tracing, and SLO instrumentation on new/changed
-  endpoints, listeners, scheduled jobs, and outbound clients. Use in the Review phase, spawned by
-  claudehut:review, when the diff adds or changes an observable operation. Read-only; returns a verdict.
+description: Observability review — metrics, tracing, and SLO instrumentation on new/changed endpoints, listeners, jobs, and outbound clients. Read-only.
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob

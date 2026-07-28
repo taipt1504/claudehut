@@ -1,9 +1,6 @@
 ---
 name: claudehut-explorer
-description: >
-  Read-only codebase query agent for the Discover phase. Use when you need to understand an
-  unfamiliar area, locate where something is implemented, or map the modules a task will touch so
-  candidate solutions adapt to this codebase. Do NOT use to write code or propose fixes — it only reports.
+description: Read-only codebase query agent for Discover — locates implementations and maps the modules a task touches. Reports only; never proposes fixes.
 model: sonnet
 effort: medium
 tools: Read, Grep, Glob, Bash

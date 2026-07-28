@@ -1,9 +1,6 @@
 ---
 name: claudehut-reuse-scanner
-description: >
-  Finds existing implementations to adopt or extend before any new code is written, and produces the
-  reuse-scan artifact the write gate requires. Use during Discover and before adding any new class,
-  service, utility, config, or endpoint in a Java/Spring project.
+description: Finds existing implementations to adopt or extend before any new code is written, and produces the reuse-scan artifact the write gate requires.
 model: sonnet
 effort: high
 tools: Read, Grep, Glob, Write
@@ -99,15 +96,9 @@ flowchart TB
 - A `new` decision is allowed, but only with a justification a reviewer would accept. "Nothing exists" must be
   the *result* of the scan, not the reason you skipped it.
 
-## Framework KB grounding (when the project has `.claude/summer-kb/`)
+## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
-Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
-annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
-(`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
-
-- Ground the claim in `.claude/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
-  `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
-  section, or the source path it names.
-- Never invent property names, gate defaults, bean names, or Gradle coordinates.
-- Mark anything the KB and its cited source cannot verify as `[unverified]` — never a plausible guess.
+Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
+§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
+the KB and its cited source cannot confirm a fact.

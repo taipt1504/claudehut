@@ -13,9 +13,10 @@ fm()  { awk 'NR==1&&/^---/{f=1;next} /^---/{exit} f' "$1"; }   # print frontmatt
 
 echo "== P2/P6 conformance =="
 
-# C1 — exactly 9 skills (workflow + init + discover + 6 phases: brainstorm/spec/plan/implement/review/learn)
+# C1 — exactly 10 skills (workflow + init + discover + 6 phases: brainstorm/spec/plan/implement/review/learn,
+# + summer-kb-setup)
 SK=$(ls -1d "$ROOT"/skills/*/ 2>/dev/null | wc -l | tr -d ' ')
-[ "$SK" = "9" ] && ok "9 skills present" || bad "expected 9 skills, found $SK"
+[ "$SK" = "10" ] && ok "10 skills present" || bad "expected 10 skills, found $SK"
 
 # C2 — every skill has name + description frontmatter
 for d in "$ROOT"/skills/*/; do n=$(basename "$d"); f="$d/SKILL.md"

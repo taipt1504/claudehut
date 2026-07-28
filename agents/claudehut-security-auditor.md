@@ -1,8 +1,6 @@
 ---
 name: claudehut-security-auditor
-description: >
-  Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Use in the Review
-  phase, spawned by claudehut:review, on changes to controllers, security config, auth, or data exposure.
+description: Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Spawned by claudehut:review on controller/auth/security/data-exposure changes.
 model: opus
 effort: xhigh
 tools: Read, Grep, Bash, mcp__postgres__query, mcp__mysql__mysql_query, mcp__kafka__list_topics, mcp__kafka__describe_topic, mcp__kafka__consumer_group_lag, mcp__kafka__list_consumer_groups, mcp__kafka__get_offsets, mcp__kafka__peek_messages
@@ -62,15 +60,9 @@ One row per enforcement-set `security/*` item + per defect class above → `✓|
 evidence / exploit reasoning. A `✓` with no cited line is not satisfied. **Verdict:** `PASS` only if every row
 is `✓`/`n-a`; else `OUTSTANDING` (each `✗` at MED+). Read-only; do not edit.
 
-## Framework KB grounding (when the project has `.claude/summer-kb/`)
+## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
-Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
-annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
-(`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
-
-- Ground the claim in `.claude/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
-  `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
-  section, or the source path it names.
-- Never invent property names, gate defaults, bean names, or Gradle coordinates.
-- Mark anything the KB and its cited source cannot verify as `[unverified]` — never a plausible guess.
+Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
+§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
+the KB and its cited source cannot confirm a fact.

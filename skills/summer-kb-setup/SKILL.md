@@ -13,6 +13,22 @@ agents ground Summer decisions in local docs. Invoked as `/claudehut:summer-kb-s
 > Summer consumer with no `.claude/summer-kb/` and installs the KB automatically. Use this skill for manual
 > installs, explicit refreshes, targeting another directory, or diagnosing a failed auto-install.
 
+## Flow
+
+```mermaid
+flowchart TB
+    start([summer-kb-setup]) --> det["detect io.f8a.summer:summer-* deps<br/>(*.gradle, *.gradle.kts, *.toml — excluding build/)"]
+    det --> any{"any summer-* dep?"}
+    any -- "no" --> stop(["exit 1 — not a Summer consumer, write nothing"])
+    any -- "yes" --> src{"sibling java-common-ms/.claude/summer-kb/ present?"}
+    src -- "yes" --> fresh["source = sibling (fresher)"]
+    src -- "no" --> bundled["source = bundled snapshot<br/>(references/summer-kb/, stamped summerCommit)"]
+    fresh --> copy["copy the USED module docs + core<br/>→ &lt;service&gt;/.claude/summer-kb/"]
+    bundled --> copy
+    copy --> gen["generate scoped INDEX.md + localize USAGE.md<br/>write .claude/rules/summer-kb.md (always-on pointer)"]
+    gen --> stamp(["stamp .summer-kb-meta.json<br/>(source · summerCommit · modules · artifacts)"])
+```
+
 ## What it does (one deterministic script)
 1. Detects `io.f8a.summer:summer-*` deps in the service (`*.gradle`, `*.gradle.kts`, `*.toml`, excluding `build/`).
 2. Maps them to module docs; **always includes `core`, `INDEX`, `USAGE`**.

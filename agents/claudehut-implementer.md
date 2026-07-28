@@ -1,9 +1,6 @@
 ---
 name: claudehut-implementer
-description: >
-  Executes the plan test-first under the project's conventions. Use in the Implement phase for
-  multi-file changes that benefit from an isolated worktree. Honors every rule that auto-loads for the
-  files it touches.
+description: Executes the plan test-first under the project's conventions, in an isolated worktree. Honors every rule that auto-loads for the files it touches.
 model: opus
 effort: xhigh
 tools: Read, Edit, Write, Bash, Grep, Glob
@@ -93,15 +90,9 @@ native Claude Code task list (you don't update that list yourself — you have n
 
 Never claim DONE with a red test. **REQUIRED NEXT (main thread): `claudehut:review`.**
 
-## Framework KB grounding (when the project has `.claude/summer-kb/`)
+## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
-Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
-annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
-(`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
-
-- Ground the claim in `.claude/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
-  `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
-  section, or the source path it names.
-- Never invent property names, gate defaults, bean names, or Gradle coordinates.
-- Mark anything the KB and its cited source cannot verify as `[unverified]` — never a plausible guess.
+Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
+§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
+the KB and its cited source cannot confirm a fact.

@@ -1,10 +1,6 @@
 ---
 name: claudehut-brainstormer
-description: >
-  Generates two or more genuinely distinct solution options for a problem and recommends one.
-  General-purpose ideation — any problem type (feature, bug, refactor, performance, design). Consumes
-  the Discover phase's context + reuse decision; returns the candidate enforcement set for code tasks.
-  Do NOT write code.
+description: Generates 2+ genuinely distinct solution options and recommends one; returns the candidate enforcement set. Any problem type. Never writes code.
 model: opus
 effort: xhigh
 tools: Read, Grep, Glob, WebFetch
@@ -42,14 +38,14 @@ flowchart TB
 
 ## Hard rules (each one measurably improves output — do not relax)
 
-| # | Rule |
-|---|------|
-| 1 | **No evaluation during step 2.** A single "that won't scale" during generation terminates divergence — park judgments until step 4. |
-| 2 | **≥6 raw candidates before any scoring.** Single-session LLM ideation mode-collapses fast; the floor forces breadth. |
-| 3 | **One mandatory wildcard** — an approach you would reject on first instinct. It is allowed to lose in step 4; it is not allowed to be missing. |
-| 4 | **Distinct = different mechanism, not different library.** Implementation variants collapse into one option in step 3. |
-| 5 | **Premortem BOTH finalists.** Confirmation bias protects the top scorer; the runner-up's premortem occasionally exposes the winner's fatal flaw. |
-| 6 | **Re-examine loop (cap 2).** If a finalist's premortem surfaces a HIGH/fatal residual risk, **re-enter DIVERGE for one bounded round** — generate an approach that dodges that specific failure, re-score, re-premortem. A single linear sweep converges on the first internally-consistent answer, not the best one. Record the loop count (`loops:` in the header). Stop at 2 rounds (diminishing returns); a premortem that *changes the pick* is the loop earning its keep. |
+| #   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **No evaluation during step 2.** A single "that won't scale" during generation terminates divergence — park judgments until step 4.                                                                                                                                                                                                                                                                                                                                             |
+| 2   | **≥6 raw candidates before any scoring.** Single-session LLM ideation mode-collapses fast; the floor forces breadth.                                                                                                                                                                                                                                                                                                                                                            |
+| 3   | **One mandatory wildcard** — an approach you would reject on first instinct. It is allowed to lose in step 4; it is not allowed to be missing.                                                                                                                                                                                                                                                                                                                                  |
+| 4   | **Distinct = different mechanism, not different library.** Implementation variants collapse into one option in step 3.                                                                                                                                                                                                                                                                                                                                                          |
+| 5   | **Premortem BOTH finalists.** Confirmation bias protects the top scorer; the runner-up's premortem occasionally exposes the winner's fatal flaw.                                                                                                                                                                                                                                                                                                                                |
+| 6   | **Re-examine loop (cap 2).** If a finalist's premortem surfaces a HIGH/fatal residual risk, **re-enter DIVERGE for one bounded round** — generate an approach that dodges that specific failure, re-score, re-premortem. A single linear sweep converges on the first internally-consistent answer, not the best one. Record the loop count (`loops:` in the header). Stop at 2 rounds (diminishing returns); a premortem that _changes the pick_ is the loop earning its keep. |
 
 ## Procedure notes
 
@@ -58,7 +54,7 @@ flowchart TB
 - Reason from first principles; bring in stack/library specifics only where they shape an option (use
   `WebFetch` for current guidance when your knowledge may be stale).
 - **Code tasks only — the candidate enforcement set (step 6).** Apply the **1% rule**: scan the plugin skills
-  and the project's `.claude/rules/` tree; *if there is even a 1% chance an item applies, include it.* For a
+  and the project's `.claude/rules/` tree; _if there is even a 1% chance an item applies, include it._ For a
   JPA write path: `framework/jpa.md`, `performance/n-plus-one.md`, `testing/*`; for an endpoint:
   `framework/spring-mvc.md`/`webflux.md`, `security/input-validation.md`, `security/owasp-top10.md`; etc.
   This set also drives which **specialist reviewers** Review spawns, so completeness matters. (Non-code or
@@ -68,6 +64,7 @@ flowchart TB
 
 Return, for the main thread to record via `claudehut-state set-enforcement` (and to persist to `brainstorm.md`
 via the template — including `loops:` = how many re-examine rounds you ran):
+
 - An **options table**: approach · pros · cons · **weighted score vs the step-1 criteria** · footprint · risk.
 - The **premortem risks** for both finalists (one line each).
 - A clear **recommendation** tied to the success criteria, with one sentence of why (and why not the runner-up).
@@ -82,15 +79,9 @@ via the template — including `loops:` = how many re-examine rounds you ran):
 
 Never write production code.
 
-## Framework KB grounding (when the project has `.claude/summer-kb/`)
+## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-The service-scoped Summer Framework KB is authoritative for everything `io.f8a.summer`. If your work touches
-Summer — a `summer-*` dependency, a `f8a.*`/`summer.*` property, an auto-config gate, a `Ufid`/`Txid`
-annotation (`@JE`/`@SE`/`@TX`/`@Compact`/`@UInt128`/`@UfidPrefix`), a Summer Kafka contract, or a Summer type
-(`ApiResponse`, `ViewableException`, outbox/audit, resource-server, rate limiter) — you MUST:
-
-- Ground the claim in `.claude/summer-kb/` (start `INDEX.md`; every module doc has the same sections:
-  `TL;DR · Activate · Config keys · Public API · Usage · Gotchas · Graph refs`) and cite the module doc +
-  section, or the source path it names.
-- Never invent property names, gate defaults, bean names, or Gradle coordinates.
-- Mark anything the KB and its cited source cannot verify as `[unverified]` — never a plausible guess.
+Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
+§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
+the KB and its cited source cannot confirm a fact.
