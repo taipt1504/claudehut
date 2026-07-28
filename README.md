@@ -201,9 +201,11 @@ dispatch — not by any single prompt. v0.9.2 attacks those paths:
 - **No per-Stop model call.** The advisory Haiku completion-verifier hook is gone; its two checks were already
   enforced deterministically by `claudehut-state set-review pass`.
 
-**Recommended project settings.** Since Claude Code v2.1.198 the built-in `Explore` agent inherits the session
-model instead of running on Haiku. To keep exploration cheap, add a project agent at
-`.claude/agents/Explore.md` with `model: haiku` — it overrides the built-in.
+**Recommended project setting.** Since Claude Code v2.1.198 the built-in `Explore` agent inherits the session
+model (capped at Opus) instead of always running on Haiku, so exploration silently costs whatever the session
+costs. A user or project subagent named `Explore` overrides the built-in and keeps its own `model` field — add
+`.claude/agents/Explore.md` with `model: haiku` to keep exploration on a lower-cost model.
+See [Claude Code › subagents](https://code.claude.com/docs/en/sub-agents).
 
 ---
 
