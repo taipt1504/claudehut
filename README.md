@@ -200,8 +200,14 @@ gates were not running at all.
   Both shipped in the repo and emitted nowhere. Tags now accept alternatives, and a `test=` axis exists.
 - **Three contradictory architecture rules** (DDD, hexagonal, CQRS) shipped together into every project.
   There is no reliable detector, so the default now emits none and a project declares its style with
-  `CLAUDEHUT_ARCH=ddd|hexagonal|cqrs`. `--refresh-rules` retires stranded copies, keeping any file the
-  learner promoted pitfalls into.
+  `CLAUDEHUT_ARCH=ddd|hexagonal|cqrs`. Upgrading never deletes anything: `--refresh-rules` (which
+  `bootstrap.sh` runs automatically on a version bump) only *reports* rules whose stack tag went inactive.
+  Removing them is opt-in with `claudehut-init --refresh-rules --retire-inactive`, and even then a file the
+  learner promoted pitfalls into is kept.
+- **Stack detection reads submodule build files.** It read only the root `pom.xml`/`build.gradle`, so a
+  multi-module Spring project — the plugin's core audience — detected no dependencies and every stack-gated
+  rule was treated as inactive. Tags also accept alternatives now (`cache=redis,caffeine`), with bare values
+  inheriting the axis.
 - **Plan orchestration left the per-implementer preload.** `skills/implement/SKILL.md` is injected whole into
   every implementer, which has no Agent or task tools; the phase-walk machinery moved to
   `references/orchestration.md`, read by the main thread.

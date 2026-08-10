@@ -80,13 +80,26 @@ WU="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WU/"
 mkdir -p "$WU/.claude/rules/architecture"
 for s in ddd hexagonal cqrs; do cp "$ROOT/templates/rules/architecture/$s.md" "$WU/.claude/rules/architecture/$s.md"; done
 printf '\n## Learned pitfalls\n- project knowledge\n' >> "$WU/.claude/rules/architecture/cqrs.md"
-CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules >/dev/null 2>&1
+# --refresh-rules runs AUTOMATICALLY from scripts/bootstrap.sh on every plugin version bump, with output
+# discarded. So it must never delete: a user who upgrades has typed no command and sees no message. It
+# REPORTS stale rules; removal is opt-in via --retire-inactive.
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules 2>&1)"
+{ [ -f "$WU/.claude/rules/architecture/ddd.md" ] && [ -f "$WU/.claude/rules/architecture/hexagonal.md" ]; } \
+  && ok "arch: --refresh-rules alone NEVER deletes a rule (safe automatic upgrade path)" \
+  || bad "arch: automatic refresh deleted rules without consent"
+printf '%s' "$out" | grep -q 'stale: architecture/ddd.md' \
+  && ok "arch: --refresh-rules REPORTS stale rules instead of silently keeping them" \
+  || bad "arch: stale rules are not reported"
+grep -q 'project knowledge' "$WU/.claude/rules/architecture/cqrs.md" \
+  && ok "arch: refresh preserves learner-promoted pitfalls" || bad "arch: refresh damaged learned pitfalls"
+# ...and the explicit flag does remove them, still never touching a file holding learned pitfalls
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules --retire-inactive >/dev/null 2>&1
 { [ ! -f "$WU/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WU/.claude/rules/architecture/hexagonal.md" ]; } \
-  && ok "arch: --refresh-rules RETIRES stranded inactive rules (upgrade path)" \
-  || bad "arch: refresh left stranded contradictory rules behind"
+  && ok "arch: --retire-inactive removes stranded rules when asked by name" \
+  || bad "arch: --retire-inactive did not remove stranded rules"
 { [ -f "$WU/.claude/rules/architecture/cqrs.md" ] && grep -q 'project knowledge' "$WU/.claude/rules/architecture/cqrs.md"; } \
-  && ok "arch: refresh never destroys learner-promoted pitfalls" \
-  || bad "arch: refresh deleted a rule holding learned pitfalls"
+  && ok "arch: --retire-inactive still never destroys learner-promoted pitfalls" \
+  || bad "arch: --retire-inactive deleted a rule holding learned pitfalls"
 rm -rf "$WU"
 
 echo "== stack-gating (servlet-jpa: mvc + jpa + postgres) =="
@@ -110,9 +123,20 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WD" >/dev/null 2>&1
   && ok "tags: test=testcontainers axis exists and emits for a testcontainers project" \
   || bad "tags: testcontainers.md is dead — no test= axis"
 [ -f "$WD/.claude/rules/performance/caching.md" ] \
-  && ok "tags: a comma-list tag (cache=redis,caffeine) matches on ANY listed value" \
+  && ok "tags: comma-list tag matches on its FIRST listed value (cache=redis)" \
   || bad "tags: comma-list tag never matches — caching.md is dead"
 rm -rf "$WD"
+# The second element is the one that actually proves alternatives work: a bare `caffeine` has no axis prefix,
+# so before axis-inheritance it could never match an ACTIVE token, and a redis-only fixture could not tell.
+WC="$(mktemp -d)"
+printf 'plugins { id "java" }\ndependencies { implementation "com.github.ben-manes.caffeine:caffeine:3.1.8" }\n' > "$WC/build.gradle"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+[ -f "$WC/.claude/rules/performance/caching.md" ] \
+  && ok "tags: comma-list tag matches on a NON-first value too (cache=caffeine)" \
+  || bad "tags: only the first listed value ever matches — alternatives are a false claim"
+[ ! -f "$WC/.claude/rules/framework/redis.md" ] \
+  && ok "tags: a caffeine project does not receive redis rules" || bad "tags: caffeine project got redis rules"
+rm -rf "$WC"
 WN="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"
 { [ ! -f "$WN/.claude/rules/testing/testcontainers.md" ] && [ ! -f "$WN/.claude/rules/performance/caching.md" ]; } \
   && ok "tags: neither emits for a project that uses neither" || bad "tags: emitted a rule for an inactive axis"
