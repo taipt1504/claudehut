@@ -6,12 +6,15 @@
 # Usage: inject-learnings.sh [--top N] [--filter "keywords"] [--max-len N] [--exclude FILE]
 #   --top N          how many to emit (default 12)
 #   --filter STR     keep only learnings whose trigger/learning matches a word (>2 chars) in STR
-#   --max-len N      truncate each emitted learning text to N chars (0 = no cap) — one uncapped entry could
+#   --max-len N      truncate each emitted learning text to N chars (default 200; 0 = no cap) — one uncapped entry could
 #                    otherwise dominate an injected block that is re-paid every session
 #   --exclude FILE   JSON array of ids already injected this session — skip them instead of paying twice
 set -euo pipefail
 
-TOP=12; FILTER=""; SNAPSHOT=""; MAXLEN=0; EXCLUDE=""
+# MAXLEN defaults to a CAP, not to unlimited: every runtime caller injects into a context window, and the one
+# caller that forgot the flag (the review dispatch, multiplied across auditors and rounds) is exactly the
+# failure this default prevents. Pass --max-len 0 to opt out.
+TOP=12; FILTER=""; SNAPSHOT=""; MAXLEN=200; EXCLUDE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --top) TOP="${2:-12}"; shift 2 ;;

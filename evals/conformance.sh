@@ -103,6 +103,21 @@ grep -qi 'PHASE BY PHASE' "$IMP" \
 grep -qi 'phase-batch boundaries' "$IMP" \
   && ok "implement: native task list updated at phase boundaries (main-thread only)" \
   || bad "implement: missing phase-boundary task-update rule"
+# C8b — the orchestration mechanism moved to references/orchestration.md so it stops being preloaded into
+# every implementer (which has no Agent or task tools and cannot act on it). The greps above then match a
+# SUMMARY, so they would stay green even if the skill degraded into a bare pointer. These three assertions are
+# what keep that from happening: the reference must exist, carry the mechanism, and be reachable by a hard
+# precondition in the skill body — not an optional "see also".
+ORCH="$ROOT/skills/implement/references/orchestration.md"
+{ [ -f "$ORCH" ] && grep -qi 'check-disjoint' "$ORCH" && grep -qi 'reconcile' "$ORCH"; } \
+  && ok "implement: references/orchestration.md exists and carries the phase-walk mechanism" \
+  || bad "implement: orchestration.md missing or does not carry the mechanism"
+grep -qi 'Read `references/orchestration.md` BEFORE dispatching' "$IMP" \
+  && ok "implement: skill body states the HARD precondition to read orchestration.md before dispatch" \
+  || bad "implement: precondition to read orchestration.md is missing — the stub is a bare pointer"
+grep -qi 'never hand a whole plan to one implementer' "$IMP" \
+  && ok "implement: single-implementer collapse still forbidden in the always-loaded body" \
+  || bad "implement: the no-collapse rule was lost in the extraction (Issue 1 regression)"
 # planner must mark EVERY intra-phase-independent task [P], not just one (avoids serialized Implement)
 grep -qi 'EVERY task that has no dependency' "$ROOT/agents/claudehut-planner.md" \
   && ok "planner: marks every intra-phase-independent task [P]" \
