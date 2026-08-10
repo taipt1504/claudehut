@@ -196,6 +196,34 @@ out="$(CLAUDE_PROJECT_DIR="$T" bash "$INJ" 2>/dev/null)"
   && ok "SEC-1: injected learnings wrapped in untrusted-data delimiter" || bad "SEC-1: no untrusted delimiter around injection"
 rm -rf "$T"
 
+echo "== merge-learnings: dedup key separator (NUL regression) =="
+# The dedup key is category + SEP + normalized-trigger. SEP used to be a RAW 0x00 byte in the source, and bash
+# DROPS a NUL when parsing it — so the live separator was the empty string and the key was a bare
+# concatenation, which can alias two different (category, trigger) pairs onto one key. Honest scope: the
+# quality gate below requires >=2 trigger tokens, so the simple aliasing case never reaches this code; the
+# fixture here is a boundary case, and the real payoff of the fix is that the file stops being binary to git
+# and grep (it was hiding its own flock lock from `grep -rn flock`). SEP is now jq's backslash-u-0-0-0-0.
+new_proj
+: > "$(store)"
+cat > "$T/cand-sep.jsonl" <<'JSON'
+{"category":"x","trigger":"aa bb cc","learning":"first distinct entry","evidence":"A.java:1","confidence":0.6}
+{"category":"xaa|","trigger":"bb cc","learning":"second distinct entry","evidence":"B.java:2","confidence":0.6}
+JSON
+R="$("$SH" --candidates "$T/cand-sep.jsonl" --ts 2026-06-17T10:00:00Z)"
+[ "$(jq -r '.added' <<<"$R")" = 2 ] \
+  && ok "sep: keys that alias under an empty separator stay DISTINCT" \
+  || bad "sep: category+trigger aliasing merged two unrelated learnings ($R)"
+rm -rf "$T"
+
+# The byte itself must never come back: a NUL re-binaries the file and re-hides it from git diff and grep.
+NUL_FILES=""
+for f in "$ROOT"/scripts/*.sh "$ROOT"/bin/*; do
+  [ -f "$f" ] || continue
+  tr -d '\000' < "$f" | cmp -s - "$f" || NUL_FILES="$NUL_FILES $(basename "$f")"
+done
+[ -z "${NUL_FILES// /}" ] && ok "no NUL bytes in scripts/ or bin/ (files stay diffable + greppable)" \
+  || bad "NUL byte present in:$NUL_FILES"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

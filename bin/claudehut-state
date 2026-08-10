@@ -45,6 +45,49 @@ STATE_DIR="$PROJECT_DIR/.claude/claudehut/state"
 FILE="$STATE_DIR/$SESSION.json"
 mkdir -p "$STATE_DIR"
 
+# ── ADVISORY LOCK. Everything from the read below to the atomic write at the end of this file is ONE
+#    read-modify-write. The `mv -f` protects READERS from a torn file; it does not serialize WRITERS, and this
+#    tool is invoked concurrently from hooks (record-skill.sh, record-skill-expansion.sh, gate-*.sh) as well as
+#    from skills. Measured before this lock: two orthogonal updates raced 15 times lost the first write 15/15 —
+#    the field silently reverted to its default. Same failure the learnings store already fixed (commit
+#    963cee8); the fix was never generalized to the file every gate reads, because the prior art is invisible
+#    to grep (a stray NUL byte makes scripts/merge-learnings.sh binary — see item 12).
+#    Portable: flock when available (a real blocking wait), else an atomic mkdir-lock with a stale-lock breaker
+#    so a crashed writer cannot wedge the workflow. Bounded by WALL CLOCK, then proceeds — fail-open, never hang.
+LOCK="$FILE.lock"
+_lock_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+_lock_held=""
+release_lock() {
+  case "$_lock_held" in
+    mkdir) rm -rf "$LOCK" 2>/dev/null ;;
+    flock) exec 9>&- 2>/dev/null ;;   # closing the fd releases the flock
+  esac
+  _lock_held=""
+}
+acquire_lock() {
+  if command -v flock >/dev/null 2>&1; then
+    if exec 9>"$LOCK.flock" 2>/dev/null && flock -w 10 9 2>/dev/null; then
+      _lock_held="flock"; trap 'release_lock' EXIT INT TERM
+    fi
+    return 0
+  fi
+  local start; start="$(date -u +%s)"
+  while ! mkdir "$LOCK" 2>/dev/null; do
+    local now lm; now="$(date -u +%s)"; lm="$(_lock_mtime "$LOCK")"
+    # Steal ONLY on a real, genuinely old mtime. _lock_mtime falls back to 0 when stat fails — which happens
+    # naturally when the holder removes the dir between the -d test and the stat. Treating that 0 as "ancient"
+    # steals a lock that is actively held, and both writers then race: measured 11/25 lost updates under 4-way
+    # contention before this guard. (scripts/merge-learnings.sh carries the same unguarded pattern.)
+    if [ -d "$LOCK" ] && [ "${lm:-0}" -gt 0 ] && [ "$(( now - lm ))" -ge 30 ]; then
+      rm -rf "$LOCK" 2>/dev/null; continue          # steal a stale lock (crashed/killed writer)
+    fi
+    if [ "$(( now - start ))" -ge 10 ]; then return 0; fi   # wall-clock cap → proceed (fail-open)
+    sleep 0.02 2>/dev/null || true                  # yield instead of a hot spin
+  done
+  _lock_held="mkdir"; trap 'release_lock' EXIT INT TERM
+}
+acquire_lock
+
 # Load current state, or the documented default skeleton.
 if [ -f "$FILE" ]; then
   STATE="$(cat "$FILE")"

@@ -17,7 +17,13 @@ block() { jq -n --arg r "$1" '{decision:"block",reason:$r}'; exit 0; }
 # Same native cap gate-done.sh uses: when stop_hook_active is true, stop blocking and fail open.
 [ "$(jq -r '.stop_hook_active // false' <<<"$in" 2>/dev/null || echo false)" = "true" ] && exit 0
 
+# agent_type arrives PLUGIN-SCOPED for plugin-shipped subagents — "claudehut:claudehut-reuse-scanner", not the
+# bare frontmatter name (https://code.claude.com/docs/en/hooks: "For subagents shipped by a plugin, this is the
+# plugin-scoped identifier such as my-plugin:reviewer, not the bare frontmatter name"). Matching bare names
+# alone meant every branch below fell through to *) and NONE of these four contracts ever fired in production.
+# Strip the scope prefix so both forms match (a user-scope copy of an agent still arrives bare).
 agent="$(jq -r '.agent_type // empty' <<<"$in" 2>/dev/null || true)"
+agent="${agent##*:}"
 DIR="$PROJECT_DIR/.claude/claudehut"
 
 case "$agent" in

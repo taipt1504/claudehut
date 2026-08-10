@@ -211,6 +211,22 @@ echo '{"agent_type":"claudehut-planner","stop_hook_active":false}' | "$ROOT/scri
   && ok "block: planner, no artifact, below cap" || bad "block: planner below cap"
 rm -rf "$TMP"
 
+# PRODUCTION PAYLOAD SHAPE. Every assertion above feeds the BARE frontmatter name, but the runtime delivers the
+# plugin-scoped identifier for plugin-shipped subagents ("claudehut:claudehut-planner" —
+# https://code.claude.com/docs/en/hooks). Those tests therefore passed for years against a code path that never
+# executed in production: the case arms matched bare names only, so every real dispatch fell through to *).
+# These assertions pin the REAL shape, so a regression of the prefix-strip is caught.
+new_proj
+echo '{"agent_type":"claudehut:claudehut-reuse-scanner"}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "scoped: plugin-scoped reuse-scanner is enforced (not a no-op)" || bad "scoped: reuse-scanner falls through"
+echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":false}' | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "scoped: plugin-scoped planner is enforced (not a no-op)" || bad "scoped: planner falls through"
+[ -z "$(echo '{"agent_type":"claudehut:claudehut-reviewer"}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "scoped: plugin-scoped text agent still exempt (no false block)" || bad "scoped: text agent falsely blocked"
+[ -z "$(echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
+  && ok "scoped: stop_hook_active cap still fails open" || bad "scoped: cap broken"
+rm -rf "$TMP"
+
 echo "== gate-write: MultiEdit (P1-2) =="
 new_proj; st set-phase brainstorm
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd"
@@ -229,6 +245,48 @@ denies x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/
   && ok "P1-2: MultiEdit real shape (top-level file_path) prod file gated" || bad "P1-2: MultiEdit top-level file_path NOT gated (gate bypass)"
 allows x '{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_path":"/p/src/test/java/FooTest.java","edits":[{"old_string":"a","new_string":"b"}]}}' \
   && ok "P1-2: MultiEdit real shape test file exempt" || bad "P1-2: MultiEdit real-shape test file wrongly gated"
+rm -rf "$TMP"
+
+# EXEMPTION NORMALISATION. The exemption used to match raw substrings (`*"/test/"*`, `*"/.claude/claudehut/"*`),
+# so two classes of production write reached ALLOW against an armed gate. Both reproduced before the fix.
+echo "== gate-write: exemption is anchored, not substring =="
+new_proj; st set-phase brainstorm
+denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/com/acme/test/PaymentService.java"}}' \
+  && ok "exempt: production class in a package named 'test' is GATED" || bad "exempt: package 'test' bypasses the gate"
+denies x '{"session_id":"s","tool_input":{"file_path":"/p/.claude/claudehut/../../../src/main/java/Evil.java"}}' \
+  && ok "exempt: path traversal out of an exempt dir is GATED" || bad "exempt: traversal bypasses the gate"
+# and the legitimate paths must survive normalisation
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/test/java/com/acme/OrderServiceTest.java"}}' \
+  && ok "exempt: standard test root still allowed" || bad "exempt: test root wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/integrationTest/java/com/acme/PayIT.java"}}' \
+  && ok "exempt: gradle integrationTest root allowed" || bad "exempt: integrationTest wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/./.claude/claudehut/tasks/0001-x/spec.md"}}' \
+  && ok "exempt: artifact path with a '.' segment allowed" || bad "exempt: '.' segment wrongly gated"
+rm -rf "$TMP"
+
+echo "== claudehut-state: concurrent writers (lost-update) =="
+# bin/claudehut-state is a read-modify-write: it reads the whole state file, patches one field, and writes it
+# back. The atomic `mv` protects readers from a torn file but does NOT serialize writers, and hooks
+# (record-skill.sh, record-skill-expansion.sh, gate-*.sh) invoke it concurrently with the main thread.
+# Measured before the advisory lock: 15/15 lost updates on two orthogonal fields, 11/25 on four.
+new_proj
+lost=0
+for _i in 1 2 3 4 5; do
+  rm -f "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json"
+  st_c() { CLAUDE_PROJECT_DIR="$CLAUDE_PROJECT_DIR" "$ROOT/bin/claudehut-state" --session c "$@" >/dev/null 2>&1; }
+  st_c set-phase discover
+  st_c set-complexity small &
+  st_c set-profile bugfix &
+  st_c set-bypass true &
+  st_c set-outstanding '["x"]' &
+  wait
+  jq -e '.complexity=="small" and .profile=="bugfix" and .bypass==true and (.outstanding|length)==1' \
+    "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json" >/dev/null 2>&1 || lost=$((lost+1))
+done
+[ "$lost" -eq 0 ] && ok "lock: 4 concurrent writers, 5 trials, zero lost updates" \
+  || bad "lock: lost updates in $lost/5 trials (state writer is not serialized)"
+[ -z "$(find "$CLAUDE_PROJECT_DIR/.claude/claudehut/state" -name '*.lock' -o -name '*.lock.flock' 2>/dev/null)" ] \
+  && ok "lock: released cleanly (no lock files left behind)" || bad "lock: stale lock file left behind"
 rm -rf "$TMP"
 
 echo "== claudehut-state: set-review pass earned-evidence (review-rigor v0.5) =="

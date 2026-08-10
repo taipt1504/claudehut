@@ -29,14 +29,41 @@ sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 fp_list="$(jq -r '[.tool_input.file_path, (.tool_input.edits[]?.file_path), (.tool_input.file_edits[]?.file_path)] | map(select(. != null and . != "")) | .[]' <<<"$in" 2>/dev/null || true)"
 fp="$(printf '%s\n' "$fp_list" | head -1)"
 
+# Resolve "." / ".." / duplicate slashes WITHOUT requiring the file to exist (the target is usually a new
+# file, so realpath/readlink -f are unusable here). Pure bash 3.2 — this runs on every Write/Edit.
+canon_path() {
+  local p="$1" out="" seg rest
+  case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
+  rest="$p"
+  while [ -n "$rest" ]; do
+    seg="${rest%%/*}"
+    if [ "$seg" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    case "$seg" in
+      ''|.) : ;;
+      ..)   out="${out%/*}" ;;
+      *)    out="$out/$seg" ;;
+    esac
+  done
+  printf '%s' "${out:-/}"
+}
+
 # Non-production targets are always allowed (reuse-scan/spec/plan files; tests during TDD RED).
 # For MultiEdit: ALL paths in the batch must be exempt for the call to bypass the gate.
 # Empty fp_list (malformed payload) keeps all_exempt=true and falls through to allow — fail-open (06 §5).
+#
+# Matched on the CANONICAL path against anchored patterns, not raw substrings. The old
+# `*"/.claude/claudehut/"*|*"/test/"*` form exempted two things it never meant to:
+#   - any production class under a package component named `test` (src/main/java/com/acme/test/Pay.java)
+#   - any path traversing out through an exempt substring (.claude/claudehut/../../../src/main/java/X.java)
+# Both reached ALLOW against an armed gate. exists_canon() below already normalised; these two now agree.
 all_exempt=true
 while IFS= read -r p; do
   [ -z "$p" ] && continue
-  case "$p" in
-    *"/.claude/claudehut/"*|*"/test/"*|*Test.java|*IT.java) : ;;
+  cp_="$(canon_path "$p")"
+  case "$cp_" in
+    */.claude/claudehut/*) : ;;                                               # workflow artifacts
+    */src/test/*|*/src/integrationTest/*|*/src/testFixtures/*) : ;;           # standard JVM test roots
+    *Test.java|*Tests.java|*IT.java) : ;;                                     # test classes by name
     *) all_exempt=false; break ;;
   esac
 done <<<"$fp_list"

@@ -14,9 +14,24 @@ fm()  { awk 'NR==1&&/^---/{f=1;next} /^---/{exit} f' "$1"; }   # print frontmatt
 echo "== P2/P6 conformance =="
 
 # C1 — exactly 10 skills (workflow + init + discover + 6 phases: brainstorm/spec/plan/implement/review/learn,
-# + summer-kb-setup)
-SK=$(ls -1d "$ROOT"/skills/*/ 2>/dev/null | wc -l | tr -d ' ')
-[ "$SK" = "10" ] && ok "10 skills present" || bad "expected 10 skills, found $SK"
+# + summer-kb-setup). Counts what the plugin SHIPS (git-tracked), not whatever happens to sit in the working
+# tree: an untracked work-in-progress skill is not part of the package, and reddening the whole suite over one
+# is a false failure. Untracked dirs are still surfaced below as a notice, so a forgotten `git add` is visible.
+# Falls back to the filesystem glob when git is unavailable (sanitized copies, tarball installs).
+skill_dirs() {
+  local d
+  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    git -C "$ROOT" ls-files skills/ 2>/dev/null | awk -F/ 'NF>1 {print $2}' | sort -u
+  else
+    for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done
+  fi
+}
+SK=$(skill_dirs | grep -c . | tr -d ' ')
+[ "$SK" = "10" ] && ok "10 skills present (tracked)" || bad "expected 10 tracked skills, found $SK"
+UNTRACKED_SKILLS="$(comm -13 <(skill_dirs) <(for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done | sort -u) 2>/dev/null | tr '\n' ' ')"
+[ -z "${UNTRACKED_SKILLS// /}" ] \
+  && ok "no untracked skill directories" \
+  || echo "  note - untracked skill dir(s) present, not part of the package: ${UNTRACKED_SKILLS}"
 
 # C2 — every skill has name + description frontmatter
 for d in "$ROOT"/skills/*/; do n=$(basename "$d"); f="$d/SKILL.md"
@@ -547,7 +562,11 @@ echo "== v0.9 Rec 4 (ultra-flow mermaid coverage) =="
 MMDC_OK=false; command -v mmdc >/dev/null 2>&1 && MMDC_OK=true
 # print the first fenced mermaid block of a file (between ```mermaid and the next ```)
 mermaid_block() { awk '/^```mermaid/{f=1;next} f&&/^```/{exit} f' "$1"; }
-for f in "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
+# Tracked skills only — same reasoning as C1: an untracked WIP skill is not shipped, so it owes no diagram.
+MERMAID_FILES="$ROOT/agents/*.md"
+for s in $(skill_dirs); do MERMAID_FILES="$MERMAID_FILES $ROOT/skills/$s/SKILL.md"; done
+for f in $MERMAID_FILES; do
+  [ -f "$f" ] || continue
   n=${f#"$ROOT"/}
   if ! grep -q '^```mermaid' "$f"; then bad "mermaid: $n has no ultra-flow diagram"; continue; fi
   blk="$(mermaid_block "$f")"
