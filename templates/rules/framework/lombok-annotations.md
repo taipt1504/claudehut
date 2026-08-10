@@ -41,7 +41,8 @@ lombok.addLombokGeneratedAnnotation = true
 
 Without `config.stopBubbling`, behaviour can change when the project is checked out under a parent directory that ships its own `lombok.config`. Without `lombok.addLombokGeneratedAnnotation`, JaCoCo / SonarQube count generated code against coverage / complexity metrics.
 
-The plugin ships a recommended baseline at `skills/lombok/assets/templates/lombok.config.tmpl` — copy it to project root if missing.
+If the project root has no `lombok.config`, create one with at least `config.stopBubbling = true` and
+`lombok.addLombokGeneratedAnnotation = true`.
 
 ## Examples
 

@@ -55,15 +55,22 @@ canon_path() {
 # `*"/.claude/claudehut/"*|*"/test/"*` form exempted two things it never meant to:
 #   - any production class under a package component named `test` (src/main/java/com/acme/test/Pay.java)
 #   - any path traversing out through an exempt substring (.claude/claudehut/../../../src/main/java/X.java)
-# Both reached ALLOW against an armed gate. exists_canon() below already normalised; these two now agree.
+# Both reached ALLOW against an armed gate. exists_canon() below shares canon_path for the same reason.
 all_exempt=true
 while IFS= read -r p; do
   [ -z "$p" ] && continue
   cp_="$(canon_path "$p")"
+  # Order matters: production sources are excluded FIRST, so the test patterns below can stay broad without
+  # re-opening the `src/main/java/com/acme/test/Pay.java` hole. Naming a package `test` no longer buys an
+  # exemption, but every real test layout keeps one.
   case "$cp_" in
     */.claude/claudehut/*) : ;;                                               # workflow artifacts
-    */src/test/*|*/src/integrationTest/*|*/src/testFixtures/*) : ;;           # standard JVM test roots
-    *Test.java|*Tests.java|*IT.java) : ;;                                     # test classes by name
+    */src/main/*) all_exempt=false; break ;;                                  # production code, whatever it is named
+    */src/*[Tt]est*/*) : ;;                                                   # src/test, integrationTest, testFixtures,
+                                                                              # commonTest, jvmTest, androidTest, functionalTest
+    */src/it/*|*/test/*|*/tests/*) : ;;                                       # sbt/failsafe it, and non-JVM test roots
+    *Test.java|*Tests.java|*IT.java|*Test.kt|*Spec.kt|*Spec.scala) : ;;       # test classes by name
+    *_test.go|*_test.py|*.spec.ts|*.test.ts|*.spec.js|*.test.js) : ;;
     *) all_exempt=false; break ;;
   esac
 done <<<"$fp_list"
@@ -84,10 +91,13 @@ tier="$(jq -r '.complexity // "full"' <<<"$s")"   # trivial|small|full; default 
 
 # opt #4: a recorded artifact must actually EXIST as a file under .claude/claudehut/ — a set flag
 # pointing at a missing or non-canonical path does NOT open the gate.
+# Canonicalised, not merely absolutised: a recorded artifact path of the form
+# `.claude/claudehut/../../src/main/java/Evil.md` used to satisfy the substring test while the file it names
+# lives in the production tree, which opened the gate on artifacts stored outside the store.
 exists_canon() {
   local p="$1"; [ -n "$p" ] && [ "$p" != null ] || return 1
-  case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
-  case "$p" in *"/.claude/claudehut/"*) [ -f "$p" ] && return 0 ;; esac
+  p="$(canon_path "$p")"
+  case "$p" in */.claude/claudehut/*) [ -f "$p" ] && return 0 ;; esac
   return 1
 }
 
@@ -99,7 +109,7 @@ FAST_MAX_FILES="${CLAUDEHUT_FAST_MAX_FILES:-2}"
 fastlane_bound_ok() {
   command -v git >/dev/null 2>&1 || return 1          # can't verify → deny fast lane (force full)
   local changed rel sensitive count
-  rel="${fp#$PROJECT_DIR/}"
+  rel="$(canon_path "$fp")"; rel="${rel#$PROJECT_DIR/}"   # canonical, so a traversal path is counted in the form it resolves to
   changed="$( { ( cd "$PROJECT_DIR" && git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null ); printf '%s\n' "$rel"; } \
     | grep -vE '(^|/)\.claude/|(/test/|Test\.java$|IT\.java$)' | sort -u | grep -vE '^$' )"
   count="$(printf '%s\n' "$changed" | grep -cE '.' || true)"

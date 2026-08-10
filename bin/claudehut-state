@@ -60,19 +60,28 @@ _lock_held=""
 release_lock() {
   case "$_lock_held" in
     mkdir) rm -rf "$LOCK" 2>/dev/null ;;
-    flock) exec 9>&- 2>/dev/null ;;   # closing the fd releases the flock
+    flock) { exec 9>&-; } 2>/dev/null; rm -f "$LOCK.flock" 2>/dev/null ;;  # closing the fd releases the flock
   esac
   _lock_held=""
 }
 acquire_lock() {
   if command -v flock >/dev/null 2>&1; then
-    if exec 9>"$LOCK.flock" 2>/dev/null && flock -w 10 9 2>/dev/null; then
+    # The redirection MUST be brace-grouped. `exec 9>file 2>/dev/null` applies BOTH redirections to the shell
+    # for the remainder of the script, so every err() diagnostic and the success receipt would be silently
+    # discarded for the whole run — on Linux (which ships flock) that means the model gets a bare exit 1 with
+    # no reason for every rejected spec/plan/review. The brace group scopes 2>/dev/null to the exec alone
+    # while fd 9 still persists.
+    if { exec 9>"$LOCK.flock"; } 2>/dev/null && flock -w 10 9 2>/dev/null; then
       _lock_held="flock"; trap 'release_lock' EXIT INT TERM
     fi
     return 0
   fi
   local start; start="$(date -u +%s)"
+  # A mkdir failure that is NOT "already exists" (read-only or full filesystem, no permission) can never
+  # succeed by waiting: retrying would burn the entire wall-clock cap on every single invocation, and these
+  # hooks run with 10-15s timeouts. Proceed immediately instead (fail-open, same as the cap).
   while ! mkdir "$LOCK" 2>/dev/null; do
+    [ -d "$LOCK" ] || return 0
     local now lm; now="$(date -u +%s)"; lm="$(_lock_mtime "$LOCK")"
     # Steal ONLY on a real, genuinely old mtime. _lock_mtime falls back to 0 when stat fails — which happens
     # naturally when the holder removes the dir between the -d test and the stat. Treating that 0 as "ancient"
@@ -118,7 +127,24 @@ flag() { # flag --name -> echoes value or empty
 # so the gate, @import memory, and cross-session learning can find it. This already rejects the 0011 failure
 # mode (artifacts under .claude/prompt/). The stricter tasks/NNNN-<slug>/ SHAPE is a P1 hardening (it would
 # break the flat-path eval fixtures; deferred with their migration).
-canon() { case "$1" in *".claude/claudehut/"*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
+# Resolve "." / ".." before testing, so `.claude/claudehut/../../src/main/java/Evil.md` cannot satisfy the
+# store test while naming a file in the production tree (the write gate's exists_canon does the same).
+canon_path_state() {
+  local p="$1" out="" seg rest
+  case "$p" in /*) : ;; *) p="${CLAUDE_PROJECT_DIR:-$PWD}/$p" ;; esac
+  rest="$p"
+  while [ -n "$rest" ]; do
+    seg="${rest%%/*}"
+    if [ "$seg" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    case "$seg" in
+      ''|.) : ;;
+      ..)   out="${out%/*}" ;;
+      *)    out="$out/$seg" ;;
+    esac
+  done
+  printf '%s' "${out:-/}"
+}
+canon() { case "$(canon_path_state "$1")" in */.claude/claudehut/*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
 # Template-structure validation (live-measured: with soft instructions alone, freeform specs/plans slip
 # through — smoke run produced a plan with zero T-xxx rows). Structure is only checkable when the file
 # already exists; existence itself stays the write gate's job (exists_canon), so absent files pass here.

@@ -106,7 +106,7 @@ Without `ALGORITHM=INPLACE, LOCK=NONE`, MySQL falls back to copy + rebuild (bloc
 
 ## Validation
 
-`scripts/validate-migration.sh` (in `claudehut:implement` skill) enforces:
+Verify each of these by reading the migration — nothing enforces them automatically:
 
 - Naming pattern.
 - No `CREATE INDEX` without CONCURRENTLY.

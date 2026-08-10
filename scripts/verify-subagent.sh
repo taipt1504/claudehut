@@ -23,7 +23,9 @@ block() { jq -n --arg r "$1" '{decision:"block",reason:$r}'; exit 0; }
 # alone meant every branch below fell through to *) and NONE of these four contracts ever fired in production.
 # Strip the scope prefix so both forms match (a user-scope copy of an agent still arrives bare).
 agent="$(jq -r '.agent_type // empty' <<<"$in" 2>/dev/null || true)"
-agent="${agent##*:}"
+# Strip ONLY this plugin's scope. `##*:` would strip the longest prefix, so "otherplugin:claudehut-planner"
+# would fire claudehut's contract against another plugin's agent.
+agent="${agent#claudehut:}"
 DIR="$PROJECT_DIR/.claude/claudehut"
 
 case "$agent" in
@@ -39,8 +41,10 @@ case "$agent" in
     ;;
   claudehut-plan-reviewer)
     # WS-2 (issue 2): a DISPATCHED plan-reviewer must return a verdict artifact (tasks/<id>/plan-review.md),
-    # so a spawned-but-empty review is blocked. Proxy for "this session": newer than the state file (which
-    # bootstrap.sh wrote at SessionStart, before any subagent). Fails open when state/session is absent or no
+    # so a spawned-but-empty review is blocked. Freshness proxy: newer than the state file. NB the state file
+    # is rewritten by every claudehut-state call, so this means "since the last state mutation", NOT "since
+    # SessionStart" — a tighter window than the original comment claimed, and it errs toward blocking a stale
+    # verdict rather than accepting one. Fails open when state/session is absent or no
     # plan-review.md exists at all (never wedge — 06 §5). NB: this proves the agent PRODUCED a verdict when it
     # ran; the set-plan APPROVE gate is what makes the verdict mandatory before the write gate opens.
     sid_pr="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
@@ -55,9 +59,9 @@ case "$agent" in
     # P1-1 FIX (defense-in-depth): the learner's contract is now to EXTRACT candidates — it writes
     # tasks/<id>/learn-candidates.jsonl, and capture-learnings runs merge-learnings.sh on that to write
     # learnings.jsonl (so the learner no longer touches learnings.jsonl directly). Verify the learner
-    # produced a candidates file this session. Proxy for "this session": the state file is created by
-    # bootstrap.sh at SessionStart, before any subagent is dispatched — a candidates file newer than it
-    # was written this task. Fails open when session_id or state file is absent, or no candidates file
+    # produced a candidates file this session. Freshness proxy: newer than the state file — which every
+    # claudehut-state call rewrites, so this actually means "since the last state mutation", not "since
+    # SessionStart". Fails open when session_id or state file is absent, or no candidates file
     # exists at all (the inline small-tier path writes none) — never wedge on unexpected state (06 §5).
     sid_l="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
     STATE_FILE="$DIR/state/$sid_l.json"

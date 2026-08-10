@@ -255,11 +255,22 @@ denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/com/acme
   && ok "exempt: production class in a package named 'test' is GATED" || bad "exempt: package 'test' bypasses the gate"
 denies x '{"session_id":"s","tool_input":{"file_path":"/p/.claude/claudehut/../../../src/main/java/Evil.java"}}' \
   && ok "exempt: path traversal out of an exempt dir is GATED" || bad "exempt: traversal bypasses the gate"
-# and the legitimate paths must survive normalisation
-allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/test/java/com/acme/OrderServiceTest.java"}}' \
-  && ok "exempt: standard test root still allowed" || bad "exempt: test root wrongly gated"
-allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/integrationTest/java/com/acme/PayIT.java"}}' \
-  && ok "exempt: gradle integrationTest root allowed" || bad "exempt: integrationTest wrongly gated"
+# The legitimate paths must survive normalisation. These fixtures deliberately have NO *Test.java / *IT.java
+# name rescue, so they exercise the test-ROOT arms specifically — with name-matching fixtures the assertions
+# stayed green even when the whole test-root arm was deleted.
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/test/resources/schema.sql"}}' \
+  && ok "exempt: src/test resource (no name rescue) allowed" || bad "exempt: test root wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/integrationTest/kotlin/com/acme/Pay.kt"}}' \
+  && ok "exempt: integrationTest root (no name rescue) allowed" || bad "exempt: integrationTest wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/testFixtures/java/com/acme/Builder.java"}}' \
+  && ok "exempt: testFixtures root (no name rescue) allowed" || bad "exempt: testFixtures wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/commonTest/kotlin/com/acme/Pay.kt"}}' \
+  && ok "exempt: kotlin-multiplatform commonTest allowed" || bad "exempt: commonTest wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/tests/test_payment.py"}}' \
+  && ok "exempt: non-JVM tests/ root allowed" || bad "exempt: tests/ wrongly gated"
+# ...but a production source is never exempt, however it is named or nested
+denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/com/acme/testing/TestDataTest.java"}}' \
+  && ok "exempt: src/main wins over every test pattern" || bad "exempt: src/main file slipped through a test pattern"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/./.claude/claudehut/tasks/0001-x/spec.md"}}' \
   && ok "exempt: artifact path with a '.' segment allowed" || bad "exempt: '.' segment wrongly gated"
 rm -rf "$TMP"

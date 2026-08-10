@@ -18,13 +18,18 @@ echo "== P2/P6 conformance =="
 # tree: an untracked work-in-progress skill is not part of the package, and reddening the whole suite over one
 # is a false failure. Untracked dirs are still surfaced below as a notice, so a forgotten `git add` is visible.
 # Falls back to the filesystem glob when git is unavailable (sanitized copies, tarball installs).
+# Falls back to the glob whenever git yields NOTHING, not merely when git is absent: if the plugin sits
+# inside an enclosing repo that does not track skills/, `rev-parse` succeeds while `ls-files` returns empty,
+# which would both fail C1 spuriously and silently drop every mermaid assertion (they share this list).
 skill_dirs() {
-  local d
+  local d out=""
   if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
-    git -C "$ROOT" ls-files skills/ 2>/dev/null | awk -F/ 'NF>1 {print $2}' | sort -u
-  else
-    for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done
+    out="$(git -C "$ROOT" ls-files skills/ 2>/dev/null | awk -F/ 'NF>1 {print $2}' | sort -u)"
   fi
+  if [ -z "$out" ]; then
+    out="$(for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done | sort -u)"
+  fi
+  printf '%s\n' "$out" | grep -v '^$' || true
 }
 SK=$(skill_dirs | grep -c . | tr -d ' ')
 [ "$SK" = "10" ] && ok "10 skills present (tracked)" || bad "expected 10 tracked skills, found $SK"
@@ -108,6 +113,20 @@ grep -qi 'phase-batch boundaries' "$IMP" \
 # SUMMARY, so they would stay green even if the skill degraded into a bare pointer. These three assertions are
 # what keep that from happening: the reference must exist, carry the mechanism, and be reachable by a hard
 # precondition in the skill body — not an optional "see also".
+# C8c — shipped rule templates must not cite plugin files that do not exist. bin/claudehut-init copies these
+# into every initialized project, so a dangling path is advice the reader cannot follow, and three of them
+# described enforcement (a validate-migration.sh, a lombok.config.tmpl) that was never built. Only
+# plugin-root-relative prefixes are checked; .claude/** and src/** are project paths, not plugin paths.
+DANGLING=""
+for f in "$ROOT"/templates/rules/*/*.md "$ROOT"/templates/rules/*.md; do
+  [ -f "$f" ] || continue
+  for ref in $(grep -oE '`(scripts|skills|bin|agents|hooks|commands|evals|templates)/[A-Za-z0-9._/-]+`' "$f" 2>/dev/null | tr -d '`' | sort -u); do
+    [ -e "$ROOT/$ref" ] || DANGLING="$DANGLING ${f#"$ROOT"/}:$ref"
+  done
+done
+[ -z "${DANGLING// /}" ] && ok "rule templates cite no missing plugin files" \
+  || bad "rule template cites a nonexistent plugin path:$DANGLING"
+
 ORCH="$ROOT/skills/implement/references/orchestration.md"
 { [ -f "$ORCH" ] && grep -qi 'check-disjoint' "$ORCH" && grep -qi 'reconcile' "$ORCH"; } \
   && ok "implement: references/orchestration.md exists and carries the phase-walk mechanism" \
@@ -578,9 +597,11 @@ MMDC_OK=false; command -v mmdc >/dev/null 2>&1 && MMDC_OK=true
 # print the first fenced mermaid block of a file (between ```mermaid and the next ```)
 mermaid_block() { awk '/^```mermaid/{f=1;next} f&&/^```/{exit} f' "$1"; }
 # Tracked skills only — same reasoning as C1: an untracked WIP skill is not shipped, so it owes no diagram.
-MERMAID_FILES="$ROOT/agents/*.md"
-for s in $(skill_dirs); do MERMAID_FILES="$MERMAID_FILES $ROOT/skills/$s/SKILL.md"; done
-for f in $MERMAID_FILES; do
+# An ARRAY, because a space anywhere in $ROOT (e.g. "~/Library/Application Support/...") would word-split a
+# plain string and silently drop every assertion in this loop with no compensating failure.
+MERMAID_FILES=("$ROOT"/agents/*.md)
+for s in $(skill_dirs); do MERMAID_FILES+=("$ROOT/skills/$s/SKILL.md"); done
+for f in "${MERMAID_FILES[@]}"; do
   [ -f "$f" ] || continue
   n=${f#"$ROOT"/}
   if ! grep -q '^```mermaid' "$f"; then bad "mermaid: $n has no ultra-flow diagram"; continue; fi
