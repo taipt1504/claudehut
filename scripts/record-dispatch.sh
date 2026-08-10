@@ -14,7 +14,7 @@
 # one measured surprise already — scripts/verify-subagent.sh matched bare agent names for months while the
 # runtime delivers the plugin-scoped form, and every eval passed because the fixtures fed the bare name.
 #
-# Sidecar: .claude/claudehut/state/<sid>.dispatches.jsonl  (ephemeral, gitignored with the rest of state/)
+# Sidecar: .claude/claudehut/state/<sid>.dispatches.jsonl (ephemeral; claudehut-init gitignores state/)
 set -uo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"

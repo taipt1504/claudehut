@@ -9,7 +9,7 @@
 # was not declared is a gap worth surfacing; a rule declared but not observed may simply not have matched a
 # path glob yet. Neither blocks.
 #
-# Sidecar: .claude/claudehut/state/<sid>.rules-loaded.jsonl  (ephemeral, gitignored with the rest of state/)
+# Sidecar: .claude/claudehut/state/<sid>.rules-loaded.jsonl (ephemeral; claudehut-init gitignores state/)
 set -uo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"

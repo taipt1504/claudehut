@@ -167,7 +167,7 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
         # three contradictory files, and a version-bump refresh would report success while leaving them.
         # On an explicit --refresh-rules, retire the stale copy — unless the learner promoted pitfalls into
         # it, which are project knowledge this script must never destroy.
-        if $RULES_REFRESH && [ -f "$dest" ]; then
+        if $RULES_REFRESH && [ -e "$dest" ]; then   # -e, not -f: a dir/symlink here must be REPORTED, not skipped
           if ! $RETIRE; then
             # REPORT ONLY. The stale copy stays until the user asks for its removal by name.
             echo "  stale: $rel (stack tag '$tag' not active — remove with --retire-inactive)"
@@ -176,6 +176,10 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
             echo "  kept: $rel (no longer active, but holds learned pitfalls — remove by hand if unwanted)"
           elif [ -f "$dest" ] && [ ! -L "$dest" ]; then
             rm -f "$dest" && echo "  retired: $rel (stack tag '$tag' not active)"
+          else
+            # a symlink or a directory where a rule file was expected: never remove it blindly, and never
+            # stay silent about it either — the `&&` above used to swallow the case entirely
+            echo "  skipped: $rel (not a regular file — remove by hand if unwanted)"
           fi
         fi
         continue ;;
@@ -245,6 +249,20 @@ if ! grep -q "$MARK" "$CM" 2>/dev/null; then
   echo "  wired @import slice into $CM"
 else
   echo "  @import slice already present in $CM"
+fi
+
+# ---------------- state/ is ephemeral: ignore it, rather than only SAYING so ----------------
+# The plane is meant to be committed except for state/, which holds per-session sidecars — ten kinds now
+# (phase state, snapshots, injected-learning ids, dispatch and rule-load ledgers, failures, suspects,
+# receipts) that accumulate for the life of a session and mean nothing to anyone else. Printing that advice
+# at the end of init left the work to the reader; write the rule instead. Idempotent.
+GI="$PROJ/.gitignore"
+if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/state/?$' "$GI" 2>/dev/null; then
+  : # already ignored
+else
+  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
+  { printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' >> "$GI"; } 2>/dev/null \
+    && echo "  gitignored: .claude/claudehut/state/"
 fi
 
 echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."
