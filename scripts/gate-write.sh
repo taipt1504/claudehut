@@ -71,6 +71,11 @@ while IFS= read -r p; do
     */src/it/*|*/test/*|*/tests/*) : ;;                                       # sbt/failsafe it, and non-JVM test roots
     *Test.java|*Tests.java|*IT.java|*Test.kt|*Spec.kt|*Spec.scala) : ;;       # test classes by name
     *_test.go|*_test.py|*.spec.ts|*.test.ts|*.spec.js|*.test.js) : ;;
+    # Prose is not production code. A README or ADR edit is not what the reuse-scan/spec/plan rail exists to
+    # govern, and gating it only teaches the model that the gate is noise. Safe because the */src/main/* arm
+    # above already claimed anything inside a source tree, and because every gated surface the fast lane
+    # protects (migrations .sql, security config .java/.yml/.properties) is a different extension.
+    *.md|*.txt|*.adoc|*.rst) : ;;
     *) all_exempt=false; break ;;
   esac
 done <<<"$fp_list"

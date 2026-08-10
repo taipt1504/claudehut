@@ -271,6 +271,16 @@ allows x '{"session_id":"s","tool_input":{"file_path":"/p/tests/test_payment.py"
 # ...but a production source is never exempt, however it is named or nested
 denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/com/acme/testing/TestDataTest.java"}}' \
   && ok "exempt: src/main wins over every test pattern" || bad "exempt: src/main file slipped through a test pattern"
+# Prose is exempt; the exemption must not become an evasion path, and $all_exempt short-circuits BEFORE the
+# fast-lane security/migration check, so the gated surfaces are re-asserted here explicitly.
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/README.md"}}' \
+  && ok "docs: README.md is not gated" || bad "docs: prose write wrongly gated"
+allows x '{"session_id":"s","tool_input":{"file_path":"/p/docs/adr/0001-choose-kafka.md"}}' \
+  && ok "docs: an ADR is not gated" || bad "docs: ADR wrongly gated"
+denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/resources/README.md"}}' \
+  && ok "docs: a .md inside src/main is still gated" || bad "docs: src/main .md became an evasion path"
+denies x '{"session_id":"s","tool_input":{"file_path":"/p/db/migration/V2__add_index.sql"}}' \
+  && ok "docs: migrations remain gated" || bad "docs: migration slipped through"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/./.claude/claudehut/tasks/0001-x/spec.md"}}' \
   && ok "exempt: artifact path with a '.' segment allowed" || bad "exempt: '.' segment wrongly gated"
 rm -rf "$TMP"
