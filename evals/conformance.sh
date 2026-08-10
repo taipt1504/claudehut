@@ -193,25 +193,37 @@ if grep -rqn 'branches from `origin/HEAD`' "$ROOT/skills" "$ROOT/agents" 2>/dev/
   bad "stale 'branches from origin/HEAD' in skills/agents — model will preemptively inline dependent phases"
 else ok "no stale 'branches from origin/HEAD' in skills/agents"; fi
 
-# C10 — MCP tool names in agent frontmatter match real server tool names.
-# postgres MCP (@modelcontextprotocol/server-postgres v0.6.2) exposes exactly ONE tool: "query".
-# mysql MCP (mcp-server-mysql v1.0.42) exposes exactly ONE tool: "mysql_query".
-# list_tables and describe_table are MCP Resources (ListResourcesRequestSchema), NOT Tools —
-# referencing them as tool names in the allowlist silently fails at runtime (tool calls rejected).
-# perf-reviewer and security-auditor must declare kafka tools (they are the Kafka primary reviewers).
+# C10 — MCP tool names in agent frontmatter must match the REAL tool names of the recommended servers.
+# A wrong name is not an error anyone sees: the call is rejected at runtime, so the reviewer silently
+# degrades to a static review while appearing configured. Verified against tagged releases:
+#   postgres  crystaldba/postgres-mcp v0.3.0 — there is NO tool named "query"; it is execute_sql. The
+#             previously recommended @modelcontextprotocol/server-postgres is DEPRECATED on npm.
+#   kafka     @confluentinc/mcp-confluent v1.5.0 — tool names are HYPHENATED and survive into the
+#             mcp__kafka__<tool> string. No describe-topic equivalent exists on a self-managed cluster.
+#   mysql     mcp-server-mysql v1.0.42 — exactly one tool: mysql_query.
+# list_tables/describe_table are MCP Resources, not Tools, under either postgres server.
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q 'mcp__postgres__list_tables\|mcp__postgres__describe_table'; then
-    bad "agent $n: mcp__postgres__list_tables/describe_table are MCP Resources not Tools — use mcp__postgres__query with SQL"
+    bad "agent $n: mcp__postgres__list_tables/describe_table are MCP Resources not Tools — use mcp__postgres__execute_sql"
   else ok "agent $n: no bogus postgres resource-as-tool names"; fi
   if fm "$f" | grep -q 'mcp__mysql__list_tables\|mcp__mysql__describe_table'; then
     bad "agent $n: mcp__mysql__list_tables/describe_table are MCP Resources not Tools — use mcp__mysql__mysql_query with SQL"
   else ok "agent $n: no bogus mysql resource-as-tool names"; fi
 done
 for a in claudehut-perf-reviewer claudehut-security-auditor; do
-  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__consumer_group_lag' \
-    && ok "$a: kafka tool allowlist present" \
-    || bad "$a: missing mcp__kafka__consumer_group_lag — Kafka review is zero at runtime when server connected"
+  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__get-consumer-group-lag' \
+    && ok "$a: kafka tool allowlist present (consumer-group lag)" \
+    || bad "$a: missing mcp__kafka__get-consumer-group-lag — Kafka review is zero at runtime when connected"
 done
+# No agent may declare a kafka tool the recommended server does not expose: describe-topic has no
+# self-managed equivalent (get-topic-config is Confluent Cloud only and returns config, not partition
+# layout), and get-partition-offsets appears in neither availability table.
+if grep -rq 'mcp__kafka__[a-z]*_' "$ROOT"/agents/*.md 2>/dev/null; then
+  bad "agent declares an underscored mcp__kafka__ tool — mcp-confluent tool names are hyphenated"
+else ok "kafka tool names are hyphenated (match mcp-confluent v1.5.0)"; fi
+if grep -rqE 'mcp__kafka__describe-topic|mcp__kafka__get-partition-offsets|mcp__postgres__query([^_-]|$)' "$ROOT"/agents/*.md 2>/dev/null; then
+  bad "agent declares an MCP tool the recommended server does not expose"
+else ok "no agent declares a nonexistent MCP tool"; fi
 # bootstrap.sh must use .id field (not .name) for understand-anything detection
 grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
   && ok "bootstrap.sh: understand-anything detection uses .id field (correct)" \

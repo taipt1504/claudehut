@@ -185,7 +185,6 @@ claudehut/                         # static plugin plane (${CLAUDE_PLUGIN_ROOT})
 ├── scripts/*.sh                   # 06 hook scripts (bootstrap detects understand-anything)
 ├── bin/claudehut-state            # the state writer (01 §4)
 ├── bin/claudehut-worktree         # worktree lifecycle helper: status/check-disjoint/reconcile/sweep (11 §6)
-├── bin/kafka-mcp                  # 08 custom MCP
 ├── templates/rules/*.md           # 05 rule templates (copied into projects)
 ├── templates/*.tmpl               # 07 memory + index templates
 └── .mcp.json                      # 08

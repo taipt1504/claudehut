@@ -212,6 +212,12 @@ gates were not running at all.
 - **Plan orchestration left the per-implementer preload.** `skills/implement/SKILL.md` is injected whole into
   every implementer, which has no Agent or task tools; the phase-walk machinery moved to
   `references/orchestration.md`, read by the main thread.
+- **MCP recommendations point at servers that exist.** `mcp__postgres__query` was in three agents' tool
+  lists; the recommended server has no tool by that name (it is `execute_sql`), and the package itself is
+  deprecated on npm — so a "configured" db reviewer silently degraded to a static review. postgres now
+  targets `postgres-mcp` with `--access-mode=restricted`, whose default is *unrestricted*, i.e. full write.
+  The unimplemented `bin/kafka-mcp` stub is replaced by Confluent's `@confluentinc/mcp-confluent`, pinned
+  with its own `--allow-tools` flag to five read-only tools (`claude mcp add` has no tool filter).
 - **Two observation hooks** (`SubagentStart`, `InstructionsLoaded`) record what the runtime actually
   dispatches and loads, into session sidecars. Nothing acts on them yet — that is the point. Moving the
   auditor payload into a hook is only safe once there is evidence the hook fires.

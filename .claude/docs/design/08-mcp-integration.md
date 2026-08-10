@@ -9,7 +9,7 @@ ClaudeHut gives the agentic workflow **live inspection of the running stack** �
 
 - [1. Why MCP (and where it sits in the workflow)](#1-why-mcp-and-where-it-sits-in-the-workflow)
 - [2. Recommended servers](#2-recommended-servers)
-- [3. The custom Kafka MCP](#3-the-custom-kafka-mcp)
+- [3. Kafka MCP](#3-kafka-mcp)
 - [4. How suggestions are delivered](#4-how-suggestions-are-delivered)
 - [5. Servers ClaudeHut does not recommend](#5-servers-claudehut-does-not-recommend)
 - [6. Security & failure posture](#6-security--failure-posture)
@@ -81,7 +81,7 @@ flowchart TB
     BR --> CTX
 ```
 
-In the three-plane model ([02 §2](./02-architecture.md#2-the-three-planes)), the plugin no longer ships a `.mcp.json`. Recommended servers reside in the **project plane** — a developer who accepts a suggestion runs `claude mcp add --scope project …`, which writes the *project's own* `.mcp.json` (not a plugin file). Tools invoked against those servers produce output that lives only in the **session plane** — it is never written to disk unless an agent explicitly records a finding. Only the `bin/kafka-mcp` binary stub remains in the static plugin plane, offered as an optional recommendation.
+In the three-plane model ([02 §2](./02-architecture.md#2-the-three-planes)), the plugin no longer ships a `.mcp.json`. Recommended servers reside in the **project plane** — a developer who accepts a suggestion runs `claude mcp add --scope project …`, which writes the *project's own* `.mcp.json` (not a plugin file). Tools invoked against those servers produce output that lives only in the **session plane** — it is never written to disk unless an agent explicitly records a finding. Since v0.10.0 the plugin plane holds no MCP binary at all: the Kafka stub was removed in favour of a maintained third-party server.
 
 ---
 
@@ -95,9 +95,9 @@ Emitted when `claudehut-init` detects the corresponding dependency in the projec
 
 | Server | Phase(s) | Type | Package / binary | Primary agents | Trigger |
 |--------|----------|------|-----------------|----------------|---------|
-| `postgres` | Discover + Review | stdio | `@modelcontextprotocol/server-postgres` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | Postgres driver detected |
+| `postgres` | Discover + Review | stdio | `postgres-mcp` (crystaldba) | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | Postgres driver detected |
 | `mysql` | Discover + Review | stdio | `mcp-server-mysql` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | MySQL driver detected |
-| `kafka` | Implement, Review | stdio | `${CLAUDE_PLUGIN_ROOT}/bin/kafka-mcp` | `claudehut-perf-reviewer`, `claudehut-security-auditor` | Kafka client detected |
+| `kafka` | Implement, Review | stdio | `@confluentinc/mcp-confluent` | `claudehut-perf-reviewer`, `claudehut-security-auditor` | Kafka client detected |
 | `github` | Plan, Review, Learn | http | `@modelcontextprotocol/server-github` | `claudehut-planner`, `claudehut-reviewer` | git remote is GitHub |
 
 #### 2.1.1 `postgres`
@@ -110,7 +110,7 @@ Emitted when `claudehut-init` detects the corresponding dependency in the projec
 
 ```sh
 claude mcp add --scope project postgres -- \
-  npx -y @modelcontextprotocol/server-postgres "$POSTGRES_URL"
+  uvx postgres-mcp --access-mode=restricted     # DATABASE_URI in the environment
 ```
 
 #### 2.1.2 `mysql`
@@ -124,9 +124,9 @@ claude mcp add --scope project mysql -- \
   npx -y mcp-server-mysql --url "$MYSQL_URL"
 ```
 
-#### 2.1.3 `kafka` (custom — see [§3](#3-the-custom-kafka-mcp))
+#### 2.1.3 `kafka` (see [§3](#3-kafka-mcp))
 
-**Purpose.** Exposes topic metadata, consumer-group lag, partition offsets, and message peek. The binary ships in `bin/kafka-mcp` (see [§3](#3-the-custom-kafka-mcp)) — it is offered as a suggestion, not auto-wired.
+**Purpose.** Exposes topic metadata, consumer groups and lag, and message reads. Provided by Confluent's `@confluentinc/mcp-confluent` (see [§3](#3-kafka-mcp)) — offered as a suggestion, never auto-wired.
 
 **Suggestion command:**
 
@@ -134,7 +134,7 @@ claude mcp add --scope project mysql -- \
 claude mcp add --scope project kafka \
   -e KAFKA_BOOTSTRAP_SERVERS="$KAFKA_BOOTSTRAP_SERVERS" \
   -e KAFKA_SECURITY_PROTOCOL="${KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}" -- \
-  "$CLAUDE_PLUGIN_ROOT/bin/kafka-mcp"
+  npx -y @confluentinc/mcp-confluent --config ./config.yaml --allow-tools list-topics,list-consumer-groups,describe-consumer-group,get-consumer-group-lag,consume-messages
 ```
 
 #### 2.1.4 `github`
@@ -170,35 +170,21 @@ claude mcp add --scope project context7 -- \
 
 ---
 
-## 3. The custom Kafka MCP
+## 3. Kafka MCP
 
-### 3.1 Justification
+ClaudeHut shipped a custom `bin/kafka-mcp` stub here. It was never implemented — a real one needs a
+Kafka client outside this package's build — so it was a recommendation nobody could act on. Removed in
+v0.10.0 in favour of Confluent's maintained server, `@confluentinc/mcp-confluent`.
 
-As of this writing, no production-ready public MCP server for Apache Kafka exists in the `@modelcontextprotocol` catalog or in the widely-cited community catalogs. The closest alternatives are generic shell-command bridges or project-specific scripts that bypass the permission model and return unstructured text. For a Java-backend plugin that explicitly targets Spring Boot + Kafka projects (the `framework/kafka-consumer.md`/`kafka-producer.md` rules in [05](./05-rules.md) and the `implement` skill in [04](./04-skills.md) confirm this is a first-class concern), the gap is material: agents cannot diagnose consumer-group lag, inspect partition offsets, or verify DLQ behaviour without it. ClaudeHut fills the gap by shipping a minimal, read-biased Kafka MCP at `${CLAUDE_PLUGIN_ROOT}/bin/kafka-mcp`.
+That server is **not** read-only: unfiltered it exposes `create-topics`, `delete-topics` and
+`produce-message`. It is pinned with its own `--allow-tools` flag to the five read-only tools the
+reviewers declare (see `templates/mcp-recommendations.md`). `claude mcp add` itself has no tool filter,
+so the pin must be passed to the server binary after the `--`.
 
-The binary is the only plugin-shipped component that is not sourced from a public package registry, and it is justified solely by the absence of a viable alternative. It is offered as a recommendation in bucket 1, not auto-wired — the developer runs `claude mcp add --scope project kafka …` to enable it.
-
-### 3.2 Tools the Kafka MCP exposes
-
-| Tool | Description | Destructive? |
-|------|-------------|-------------|
-| `list_topics` | List all topics on the broker, with partition count and replication factor | No |
-| `describe_topic` | Partition leaders, replicas, ISR, config overrides for one topic | No |
-| `consumer_group_lag` | Per-partition lag (current offset vs end offset) for a named consumer group | No |
-| `list_consumer_groups` | All consumer groups and their states | No |
-| `get_offsets` | Current and end offsets for each partition of a topic | No |
-| `peek_messages` | Fetch up to N messages from a topic-partition from a given offset (for debugging DLQs) | No |
-| `reset_offsets` | Reset a consumer group's offsets to earliest/latest/specific | **Yes — gated** |
-
-`reset_offsets` is the only destructive operation. Developers are advised to configure a `permissions.ask` rule in their project settings for `mcp__kafka__reset_offsets` so Claude Code prompts before execution. All other tools are unconditionally read-only.
-
-### 3.3 Interface contract
-
-The binary at `${CLAUDE_PLUGIN_ROOT}/bin/kafka-mcp` communicates over stdio using the standard MCP JSON-RPC protocol. It reads `KAFKA_BOOTSTRAP_SERVERS` and `KAFKA_SECURITY_PROTOCOL` from the environment (supplied via `-e` flags when the developer runs `claude mcp add`). It exposes the seven tools above as its `tools/list` response. Error responses (broker unreachable, topic not found, insufficient ACLs) are returned as MCP error objects, not stderr noise, so the agent receives structured failure information and can include it in its diagnostic report.
-
-The implementation language and library choice for the binary are deferred to [09](./09-plugin-structure.md); this document specifies only the interface.
-
----
+There is no `reset_offsets` tool under any spelling, so the `permissions.ask` rule this section used to
+recommend for `mcp__kafka__reset_offsets` matched nothing. `consume-messages` is safe for a read-only
+reviewer: it uses a random consumer group per call and never commits, so it cannot move an
+application group's offsets.
 
 ## 4. How suggestions are delivered
 
@@ -244,7 +230,7 @@ Since servers are project-scoped rather than plugin-managed, the permission rule
     "allow": [
       "mcp__postgres__list_tables",
       "mcp__postgres__describe_table",
-      "mcp__postgres__query",
+      "mcp__postgres__execute_sql",
       "mcp__mysql__list_tables",
       "mcp__mysql__describe_table",
       "mcp__mysql__query",
@@ -253,19 +239,17 @@ Since servers are project-scoped rather than plugin-managed, the permission rule
       "mcp__redis__ttl",
       "mcp__redis__hgetall",
       "mcp__redis__info",
-      "mcp__kafka__list_topics",
-      "mcp__kafka__describe_topic",
-      "mcp__kafka__consumer_group_lag",
-      "mcp__kafka__list_consumer_groups",
-      "mcp__kafka__get_offsets",
-      "mcp__kafka__peek_messages",
+      "mcp__kafka__list-topics",
+      "mcp__kafka__list-consumer-groups",
+      "mcp__kafka__describe-consumer-group",
+      "mcp__kafka__get-consumer-group-lag",
+      "mcp__kafka__consume-messages",
       "mcp__github__.*",
       "mcp__memory__.*",
       "mcp__context7__.*"
     ],
     "ask": [
-      "mcp__kafka__reset_offsets",
-      "mcp__postgres__query_write",
+      "mcp__postgres__execute_sql_write",
       "mcp__mysql__query_write"
     ]
   }
@@ -294,9 +278,9 @@ The selection criterion is: **a server is worth recommending only if it gives th
 
 ### 6.1 Read-only defaults
 
-All database MCP servers (`postgres`, `mysql`) should be connected with read-only credentials where possible. The `@modelcontextprotocol/server-postgres` server exposes a `query` tool that executes arbitrary SQL; the recommended permission posture (see [§4.5](#45-security-guidance-for-project-scoped-servers)) pre-allows `mcp__postgres__query` but places write variants in `ask`. Agents are instructed in their system prompts ([03](./03-agents.md)) to use only `SELECT`, `EXPLAIN`, and schema-inspection queries. The same principle applies to `redis`: `SET`, `DEL`, and flush commands are not in the pre-allowed list.
+All database MCP servers (`postgres`, `mysql`) should be connected with read-only credentials where possible. The `postgres-mcp` server exposes an `execute_sql` tool that runs arbitrary SQL, so it MUST be started with `--access-mode=restricted` (the default is `unrestricted`, i.e. full write); the recommended posture (see [§4.5](#45-security-guidance-for-project-scoped-servers)) pre-allows `mcp__postgres__execute_sql` under that flag. Agents are instructed in their system prompts ([03](./03-agents.md)) to use only `SELECT`, `EXPLAIN`, and schema-inspection queries.
 
-The custom Kafka MCP enforces read-only behavior at the binary level for all tools except `reset_offsets`, which should be placed in `ask` as described in [§3.2](#32-tools-the-kafka-mcp-exposes).
+The Kafka server is constrained by its own `--allow-tools` pin to read-only tools ([§3](#3-kafka-mcp)); the destructive ones are never exposed to Claude Code at all.
 
 ### 6.2 Secrets in project `.mcp.json`
 
