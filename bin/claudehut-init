@@ -55,6 +55,10 @@ else MSG=none; fi
 
 if has 'data-redis|lettuce|jedis'; then CACHE=redis; CACHE_S="Redis"; else CACHE=none; CACHE_S="(none)"; fi
 if has 'mapstruct'; then MAPPER=mapstruct; else MAPPER=none; fi
+# testing/testcontainers.md has carried `stack: "test=testcontainers"` since it shipped, but there was no
+# `test=` axis for it to match — so the rule that enforces real containers over embedded fakes never
+# reached a single project, while skills/review's test matrix mandates exactly that.
+if has 'testcontainers'; then TEST=testcontainers; else TEST=none; fi
 
 PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<artifactId>//')"
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(grep -hm1 -oE "rootProject.name[^=]*=[^'\"]*['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]//")"
@@ -124,7 +128,7 @@ render reuse-index.json.tmpl "$CHD/reuse-index.json"
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
 ARCH="${CLAUDEHUT_ARCH:-none}"
 case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
-ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH"
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"
@@ -133,8 +137,14 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
   tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
   if [ -n "$tag" ]; then
-    case " $ACTIVE " in
-      *" $tag "*) : ;;
+    # A tag may list ALTERNATIVES (`stack: "cache=redis,caffeine"`) — the rule applies if ANY of them is
+    # active. Matching the whole string as one token meant such a rule could never fire.
+    tag_hit=false
+    for one in $(printf '%s' "$tag" | tr ',' ' '); do
+      case " $ACTIVE " in *" $one "*) tag_hit=true; break ;; esac
+    done
+    case "$tag_hit" in
+      true) : ;;
       *)
         # Tagged + INACTIVE. Skipping alone strands a rule that a PREVIOUS init emitted: the three
         # architecture styles shipped untagged, so every project made before the arch axis still holds all

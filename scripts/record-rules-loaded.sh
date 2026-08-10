@@ -25,9 +25,13 @@ DIR="$PROJECT_DIR/.claude/claudehut/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.rules-loaded.jsonl"
 
-# This hook runs ASYNCHRONOUSLY, so several instances can append at once. A single short append is safe:
-# O_APPEND writes below PIPE_BUF are atomic, so lines cannot interleave. That is why this does not take the
-# advisory lock bin/claudehut-state uses — that lock exists for read-modify-write, which this is not.
+# This hook runs ASYNCHRONOUSLY, so several instances append at once. A single SHORT O_APPEND write does not
+# interleave in practice, but that is a property of the write staying inside one buffer, not the PIPE_BUF
+# guarantee (which governs pipes, not regular files). Measured with 60 concurrent writers: ~561 B lines gave 0
+# corrupt lines, ~1681 B lines gave 6 spliced, invalid-JSON lines. So the length is CAPPED below rather than
+# assumed — a rule path is normally ~60 B, but nothing stopped a pathological one from silently corrupting a
+# ledger a later version is meant to trust. No lock: that exists for read-modify-write, which this is not.
+fp="${fp:0:400}"; reason="${reason:0:64}"   # keep the record well inside one buffered write
 line="$(jq -nc --arg p "$fp" --arg r "$reason" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{ts:$t, file_path:$p, load_reason:$r}' 2>/dev/null || true)"
 [ -n "$line" ] && printf '%s\n' "$line" >> "$F" 2>/dev/null

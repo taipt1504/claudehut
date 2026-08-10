@@ -179,6 +179,45 @@ Code's `disableAllHooks` setting.
 > toolchain / Kafka client outside this package's build); it is offered as an optional recommendation. The
 > workflow runs fully without any MCP server connected — MCP enriches, it does not gate.
 
+### v0.10.0 — enforcement plane
+
+v0.9.2 cut what the workflow *costs*. v0.10.0 fixes what it *enforces*, after an audit found that several
+gates were not running at all.
+
+- **SubagentStop verification had never executed.** It matched bare agent names, but the runtime delivers the
+  plugin-scoped identifier (`claudehut:claudehut-planner`) for plugin-shipped subagents, so all four artifact
+  contracts fell through to a no-op. The evals passed because every fixture fed the bare name — they certified
+  a code path that never ran. Fixed, and the production payload shape is now pinned.
+- **The write gate could be bypassed, and could also wedge.** Exemptions matched the absolute path, so a
+  directory *above* the checkout decided the outcome: a repo under `~/Projects/tests/` had the gate disabled
+  wholesale, one under any `.../src/main/...` had every write denied. Exemptions are now matched
+  project-relative, test roots are named explicitly rather than substring-matched, and `state/` is excluded
+  from the store exemption — it holds the file the gate reads for `bypass`, so one write could disable it.
+- **`bin/claudehut-state` lost concurrent updates** (measured 15/15 on two orthogonal fields). It now takes
+  the same advisory lock the learnings store uses, plus a guard that store was missing.
+- **Rules that never reached a project.** `testing/testcontainers.md` was tagged for a `test=` axis that did
+  not exist, and `performance/caching.md` listed two cache values in a tag matched as one literal token.
+  Both shipped in the repo and emitted nowhere. Tags now accept alternatives, and a `test=` axis exists.
+- **Three contradictory architecture rules** (DDD, hexagonal, CQRS) shipped together into every project.
+  There is no reliable detector, so the default now emits none and a project declares its style with
+  `CLAUDEHUT_ARCH=ddd|hexagonal|cqrs`. `--refresh-rules` retires stranded copies, keeping any file the
+  learner promoted pitfalls into.
+- **Plan orchestration left the per-implementer preload.** `skills/implement/SKILL.md` is injected whole into
+  every implementer, which has no Agent or task tools; the phase-walk machinery moved to
+  `references/orchestration.md`, read by the main thread.
+- **Two observation hooks** (`SubagentStart`, `InstructionsLoaded`) record what the runtime actually
+  dispatches and loads, into session sidecars. Nothing acts on them yet — that is the point. Moving the
+  auditor payload into a hook is only safe once there is evidence the hook fires.
+
+The eval suite went from 406 passing with 2 failures to **457 passing with none**. Every fix in this release
+has a test that fails when the fix is reverted; that check surfaced two assertions which had been passing for
+the wrong reason.
+
+**Optional: cheaper Java exploration.** ClaudeHut does not ship a language-server config, because validating
+jdtls against a real Spring project is not something the eval suite can do. If you want it, add a `.lsp.json`
+mapping `.java` to jdtls with `diagnostics: false` in your own project and confirm it resolves before relying
+on it.
+
 ### Token cost (v0.9.2)
 
 The workflow's cost is dominated by what is paid *repeatedly* — per session, per prompt, per subagent

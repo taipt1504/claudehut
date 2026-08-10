@@ -99,6 +99,25 @@ for no in framework/webflux.md framework/r2dbc.md framework/redis.md testing/ste
 done
 rm -rf "$W"
 
+echo "== tag axes that never matched (dead rules) =="
+# testing/testcontainers.md carried `test=testcontainers` with no `test=` axis to match, and
+# performance/caching.md carried `cache=redis,caffeine` matched as ONE literal token against an ACTIVE
+# holding `cache=redis`. Both rules shipped in the repo and reached zero projects.
+WD="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/reactive-kafka/." "$WD/"
+printf '\ndependencies { testImplementation "org.testcontainers:postgresql" }\n' >> "$WD/build.gradle"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WD" >/dev/null 2>&1
+[ -f "$WD/.claude/rules/testing/testcontainers.md" ] \
+  && ok "tags: test=testcontainers axis exists and emits for a testcontainers project" \
+  || bad "tags: testcontainers.md is dead — no test= axis"
+[ -f "$WD/.claude/rules/performance/caching.md" ] \
+  && ok "tags: a comma-list tag (cache=redis,caffeine) matches on ANY listed value" \
+  || bad "tags: comma-list tag never matches — caching.md is dead"
+rm -rf "$WD"
+WN="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"
+{ [ ! -f "$WN/.claude/rules/testing/testcontainers.md" ] && [ ! -f "$WN/.claude/rules/performance/caching.md" ]; } \
+  && ok "tags: neither emits for a project that uses neither" || bad "tags: emitted a rule for an inactive axis"
+rm -rf "$WN"
+
 echo "== --detect (servlet-jpa) =="
 D="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$ROOT/evals/tasks/_fixtures/servlet-jpa" --detect 2>/dev/null)"
 echo "$D" | jq -e '.web=="mvc" and .orm=="jpa" and .db=="postgresql" and .base_package=="com.acme.web"' >/dev/null 2>&1 \

@@ -28,9 +28,11 @@ agent="$(jq -r '.agent_type // empty' <<<"$in" 2>/dev/null || true)"
 DIR="$PROJECT_DIR/.claude/claudehut/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 
+agent="${agent:0:128}"
 line="$(jq -nc --arg a "$agent" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{ts:$t, agent_type:$a}' 2>/dev/null || true)"
-# Single short append: O_APPEND writes below PIPE_BUF are atomic, so concurrent dispatches cannot interleave
-# a partial line. No lock needed, and none wanted on a hook that runs before every subagent.
+# Single short append. Concurrent dispatches do not interleave while the record stays inside one buffered
+# write; agent_type is capped for that reason rather than assumed short. No lock, and none wanted on a hook
+# that runs before every subagent.
 [ -n "$line" ] && printf '%s\n' "$line" >> "$DIR/$sid.dispatches.jsonl" 2>/dev/null
 exit 0
