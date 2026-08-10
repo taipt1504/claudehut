@@ -117,7 +117,14 @@ render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
 
 # ---------------- rule tree (stack-gated) ----------------
-ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER"
+# Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three
+# shipped untagged — so every project received three contradictory rule files at once (9,385 B of guidance
+# that argues with itself). There is no trustworthy detector: package layouts overlap, and guessing wrong
+# silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
+# Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
+ARCH="${CLAUDEHUT_ARCH:-none}"
+case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"

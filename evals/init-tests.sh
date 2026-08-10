@@ -44,6 +44,29 @@ done
 grep -q 'com\.acme\.app' "$W/.claude/claudehut/PROJECT.md" && ok "base package (com.acme.app)" || bad "base package wrong (reactive-kafka)"
 rm -rf "$W"
 
+echo "== architecture axis (arch=): declared, never guessed =="
+# ddd / hexagonal / cqrs are mutually exclusive. All three shipped untagged, so every project received three
+# contradictory architecture rules at once. There is no trustworthy detector, so the default emits NONE and a
+# project opts in with CLAUDEHUT_ARCH. These assertions pin both halves of that behaviour.
+W="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
+for no in architecture/ddd.md architecture/hexagonal.md architecture/cqrs.md; do
+  [ -f "$R/$no" ] && bad "arch: should NOT emit by default: $no" || ok "arch: gated out by default: $no"
+done
+[ -f "$R/architecture/package-layout.md" ] && ok "arch: untagged architecture rules still emitted" \
+  || bad "arch: the axis gated out an UNTAGGED architecture rule"
+rm -rf "$W"
+W="$(CLAUDEHUT_ARCH=hexagonal run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
+[ -f "$R/architecture/hexagonal.md" ] && ok "arch: CLAUDEHUT_ARCH=hexagonal emits hexagonal.md" \
+  || bad "arch: opt-in did not emit the declared style"
+{ [ ! -f "$R/architecture/ddd.md" ] && [ ! -f "$R/architecture/cqrs.md" ]; } \
+  && ok "arch: opt-in emits ONLY the declared style" || bad "arch: opt-in emitted a competing style"
+rm -rf "$W"
+W="$(CLAUDEHUT_ARCH=bogus run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
+{ [ ! -f "$R/architecture/ddd.md" ] && [ ! -f "$R/architecture/hexagonal.md" ] && [ ! -f "$R/architecture/cqrs.md" ]; } \
+  && ok "arch: an unrecognised CLAUDEHUT_ARCH falls back to none (never guesses)" \
+  || bad "arch: unrecognised CLAUDEHUT_ARCH emitted a style"
+rm -rf "$W"
+
 echo "== stack-gating (servlet-jpa: mvc + jpa + postgres) =="
 W="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
 for want in framework/spring-mvc.md framework/jpa.md coding/naming.md security/owasp-top10.md; do
