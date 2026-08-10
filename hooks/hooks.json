@@ -61,6 +61,20 @@
         ]
       }
     ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-dispatch.sh", "async": true }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-rules-loaded.sh", "async": true }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [

@@ -211,7 +211,15 @@ jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill
 jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failure"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3: PostToolUseFailure → record-failure.sh wired (failure signal capture)" \
   || bad "C3: PostToolUseFailure not wired to record-failure.sh"
-for s in record-skill-expansion.sh record-failure.sh load-probe.sh; do
+# C3b/C3c — the two observation hooks. Both are advisory recorders that inject nothing and never block, so a
+# wiring mistake is otherwise invisible: the sidecar just stays empty while every eval still passes.
+jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))' "$HJ" >/dev/null 2>&1 \
+  && ok "C3b: SubagentStart → record-dispatch.sh wired (dispatch observation)" \
+  || bad "C3b: SubagentStart not wired to record-dispatch.sh"
+jq -e '[.hooks.InstructionsLoaded[]?.hooks[]?.command] | any(test("record-rules-loaded"))' "$HJ" >/dev/null 2>&1 \
+  && ok "C3c: InstructionsLoaded → record-rules-loaded.sh wired (rule-load ledger)" \
+  || bad "C3c: InstructionsLoaded not wired to record-rules-loaded.sh"
+for s in record-skill-expansion.sh record-failure.sh load-probe.sh record-dispatch.sh record-rules-loaded.sh; do
   [ -x "$ROOT/scripts/$s" ] && ok "script present+exec: $s" || bad "missing or non-exec: scripts/$s"
 done
 { [ -f "$ROOT/skills/implement/references/minimalism.md" ] && grep -q 'minimalism.md' "$IMP"; } \
