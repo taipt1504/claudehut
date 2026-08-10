@@ -12,6 +12,15 @@
   "homepage": "https://github.com/taipt1504/claudehut",
   "repository": "https://github.com/taipt1504/claudehut",
   "license": "MIT",
-  "keywords": ["java", "spring-boot", "agentic-workflow", "tdd", "kafka", "jpa", "reactive"],
-  "defaultEnabled": true
+  "keywords": [
+    "java",
+    "spring-boot",
+    "agentic-workflow",
+    "tdd",
+    "kafka",
+    "jpa",
+    "reactive"
+  ],
+  "defaultEnabled": true,
+  "lspServers": "./.lsp.json"
 }

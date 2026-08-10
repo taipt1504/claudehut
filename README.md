@@ -220,10 +220,20 @@ The eval suite went from 406 passing with 2 failures to **457 passing with none*
 has a test that fails when the fix is reverted; that check surfaced two assertions which had been passing for
 the wrong reason.
 
-**Optional: cheaper Java exploration.** ClaudeHut does not ship a language-server config, because validating
-jdtls against a real Spring project is not something the eval suite can do. If you want it, add a `.lsp.json`
-mapping `.java` to jdtls with `diagnostics: false` in your own project and confirm it resolves before relying
-on it.
+**Java code intelligence (jdtls).** The plugin ships `.lsp.json` wiring `.java` to
+[jdtls](https://github.com/eclipse-jdtls/eclipse.jdt.ls) with `diagnostics: false` — navigation without
+pushing diagnostics into context after every edit.
+
+**You must install the binary yourself**; a plugin configures the connection, it does not bundle the server.
+If `jdtls` is not on `PATH` you will see `Executable not found in $PATH` in the `/plugin` Errors tab, and
+nothing else changes — Claude Code skips a server it cannot start and the rest of the plugin is unaffected.
+`restartOnCrash`/`shutdownTimeout` are deliberately unset: they need Claude Code v2.1.205+, and on older
+versions setting either makes Claude Code skip the server entirely, with the reason visible only under
+`claude --debug`.
+
+This config has not been exercised against a live Spring service by the maintainers — the eval suite cannot
+verify that a language server actually starts. Verify with `claude --debug` on a real project before relying
+on it, and report back if jdtls needs `args` on your setup.
 
 ### Token cost (v0.9.2)
 

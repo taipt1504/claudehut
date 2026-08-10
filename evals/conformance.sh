@@ -98,6 +98,20 @@ jq -e '(has("mcpServers")|not) and (has("userConfig")|not)' "$PJ" >/dev/null 2>&
 [ -f "$ROOT/hooks/hooks.json" ] && ok "default hooks/hooks.json present (auto-discovered)" || bad "hooks/hooks.json missing"
 [ -d "$ROOT/agents" ] && ok "default agents/ present (auto-discovered)" || bad "agents/ missing"
 [ ! -f "$ROOT/.mcp.json" ] && ok "no shipped .mcp.json" || bad ".mcp.json should not be shipped"
+# LSP: the manifest may point at .lsp.json, which must carry the two REQUIRED fields — Claude Code silently
+# SKIPS a server missing `command` or `extensionToLanguage`, visible only under `claude --debug`. It must also
+# NOT set restartOnCrash/shutdownTimeout: those need v2.1.205+, and on older versions setting either makes
+# Claude Code skip the server entirely, again silently.
+if [ -f "$ROOT/.lsp.json" ]; then
+  jq -e 'to_entries | all(.value | has("command") and has("extensionToLanguage"))' "$ROOT/.lsp.json" >/dev/null 2>&1 \
+    && ok "LSP: every server declares command + extensionToLanguage (else silently skipped)" \
+    || bad "LSP: a server in .lsp.json is missing command/extensionToLanguage"
+  jq -e 'to_entries | all(.value | (has("restartOnCrash") or has("shutdownTimeout")) | not)' "$ROOT/.lsp.json" >/dev/null 2>&1 \
+    && ok "LSP: no restartOnCrash/shutdownTimeout (pre-2.1.205 would skip the server)" \
+    || bad "LSP: restartOnCrash/shutdownTimeout set — skipped entirely before CC v2.1.205"
+  [ "$(jq -r '.lspServers // empty' "$PJ" 2>/dev/null)" = "./.lsp.json" ] \
+    && ok "LSP: plugin.json points at ./.lsp.json" || bad "LSP: .lsp.json shipped but manifest does not reference it"
+fi
 [ -f "$ROOT/templates/mcp-recommendations.md" ] && ok "MCP recommendation catalog present" || bad "mcp-recommendations.md missing"
 
 # C8 — Implement orchestrates PHASE BY PHASE (Issue 1 fix: no single-implementer collapse on multi-task plans)
