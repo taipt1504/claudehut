@@ -117,6 +117,26 @@ grep -qi 'phase-batch boundaries' "$IMP" \
 # into every initialized project, so a dangling path is advice the reader cannot follow, and three of them
 # described enforcement (a validate-migration.sh, a lombok.config.tmpl) that was never built. Only
 # plugin-root-relative prefixes are checked; .claude/** and src/** are project paths, not plugin paths.
+# C8d — background-subagent tool allowlist. Subagents run in the background by default, and a background
+# subagent keeps only a fixed set of built-in tools; Claude Code removes any other built-in from the `tools:`
+# list SILENTLY (no error unless the list resolves to nothing). So a declared tool outside this set is a
+# capability the agent quietly does not have. MCP tools (mcp__*) are always kept. Encodes
+# https://code.claude.com/docs/en/sub-agents as fetched 2026-08-10 — re-check when that page changes.
+BG_OK=" Read Grep Glob Bash PowerShell Edit Write NotebookEdit WebFetch WebSearch TodoWrite Skill ToolSearch EnterWorktree ExitWorktree Monitor TaskStop SendMessage Artifact Agent ExitPlanMode "
+BAD_TOOLS=""
+for f in "$ROOT"/agents/*.md; do
+  [ -f "$f" ] || continue
+  fm "$f" | grep -q '^background: *true' && continue          # foreground agents keep the full set
+  tl="$(fm "$f" | sed -n 's/^tools: *//p' | head -1)"
+  [ -n "$tl" ] || continue
+  for tool in $(printf '%s' "$tl" | tr ',' ' '); do
+    case "$tool" in mcp__*|'') continue ;; esac
+    case "$BG_OK" in *" $tool "*) : ;; *) BAD_TOOLS="$BAD_TOOLS $(basename "$f" .md):$tool" ;; esac
+  done
+done
+[ -z "${BAD_TOOLS// /}" ] && ok "agent tools: are all kept for background subagents" \
+  || bad "agent declares a tool silently dropped in the background:$BAD_TOOLS"
+
 DANGLING=""
 for f in "$ROOT"/templates/rules/*/*.md "$ROOT"/templates/rules/*.md; do
   [ -f "$f" ] || continue

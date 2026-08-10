@@ -10,7 +10,7 @@ Ground the task in **this codebase** and settle the reuse question before any id
 out of Brainstorm (decision reversal, v0.4): exploration + reuse-scan are *discovery*, not *ideation* —
 folding them into Brainstorm over-fit it and killed creative breadth. Discover does the grounding; Brainstorm
 (phase 2) then ideates freely on top of it. Runs **inline on the main thread** (it owns the state write; a
-forked subagent cannot spawn subagents).
+forked subagent cannot write state or ask the user).
 
 ## Iron Law
 

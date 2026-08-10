@@ -1,12 +1,12 @@
 ---
 name: review
-description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it must spawn subagents.
+description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it owns the set-review state write.
 ---
 
 # Review (phase 6 of 7)
 
 Prove the change is done — against the enforcement set, the project rules, and fresh test evidence — before
-any completion claim. Runs **inline on the main thread** (a subagent cannot spawn subagents).
+any completion claim. Runs **inline on the main thread** — Law 7: it owns the `set-review pass` state write.
 
 ## Iron Law
 
