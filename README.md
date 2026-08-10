@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.9.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.10.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -37,8 +37,9 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
   every new endpoint, listener, job, and outbound client (rule: `observability/instrumentation.md`).
 - **`claudehut-contract-reviewer`** — a Review-phase auditor for Kafka/Avro/Protobuf schema compatibility,
   consumer-driven contract tests, and REST/gRPC backward-compat (rule: `framework/contract-compat.md`).
-- **Model-driven completion gate** — an additive, fail-open `agent` hook on `Stop` gives a second opinion on
-  completion evidence, alongside the unchanged, authoritative `gate-done.sh`.
+- **Deterministic completion gate** — `gate-done.sh` is the single authority. (v0.9.1 also ran an advisory
+  `agent` hook on every `Stop`; v0.9.2 removed it — its two checks were already enforced by
+  `claudehut-state set-review pass`, so it paid for a model call per turn to re-derive a settled decision.)
 - **Eval self-checks** — a mermaid ultra-flow coverage guard in `conformance.sh`, per-task reference solutions
   (`evals/reference-check.sh`), and audit/investigation profile-rail gate tests.
 
@@ -87,11 +88,11 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 | Phase          | Skill               | Drives                                                                                                                                                                                                                                                                     | Output                                                                                                   |
 | -------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **Discover**   | `discover`          | `claudehut-explorer` ∥ `claudehut-reuse-scanner` (one message, concurrent)                                                                                                                                                                                                 | codebase grounding + the **reuse-scan** artifact (required in every tier)                                |
-| **Brainstorm** | `brainstorm`        | `claudehut-brainstormer` (opus, `xhigh` — fixed 6-step ideation pipeline: diverge ≥6 → cluster → score → premortem → recommend)                                                                                                                                            | ≥2 structurally distinct options + the per-task _enforcement set_                                        |
+| **Brainstorm** | `brainstorm`        | `claudehut-brainstormer` (opus, `high` — fixed 6-step ideation pipeline: diverge ≥6 → cluster → score → premortem → recommend)                                                                                                                                            | ≥2 structurally distinct options + the per-task _enforcement set_                                        |
 | **Spec**       | `write-spec`        | main thread                                                                                                                                                                                                                                                                | a templated spec (`tasks/<id>/spec.md`), **user-approved** before the gate arms                          |
 | **Plan**       | `write-plan`        | `claudehut-planner` (opus)                                                                                                                                                                                                                                                 | a templated, test-first plan (`tasks/<id>/plan.md`), **user-approved**, mirrored to the native task list |
 | **Implement**  | `implement`         | main thread **walks the plan phase by phase** (sequential spine); within each phase, disjoint `[P]` tasks → **parallel implementers** (one per task, concurrent, gated by `claudehut-worktree check-disjoint`); the native task list is updated at each **phase boundary** | code written **test-first** (RED → GREEN → REFACTOR), honoring the rules/playbooks                       |
-| **Review**     | `review`            | **dynamically selected** auditors: `test-runner` + `reviewer` always; `security-auditor` (over-included), `perf-reviewer`, `db-reviewer` by actual impact                                                                                                                  | a verdict that audits exactly the enforcement set                                                        |
+| **Review**     | `review`            | **dynamically selected** auditors: `test-runner` + `reviewer` always; the specialists by actual impact, and on `trivial`/`small` the reviewer's fast-lane floor covers them                                                                                                                  | a verdict that audits exactly the enforcement set                                                        |
 | **Learn**      | `capture-learnings` | `claudehut-learner`                                                                                                                                                                                                                                                        | append-only `learnings.jsonl` re-injected into future sessions                                           |
 
 ---
