@@ -266,8 +266,12 @@ allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/testFixtures/java/
   && ok "exempt: testFixtures root (no name rescue) allowed" || bad "exempt: testFixtures wrongly gated"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/commonTest/kotlin/com/acme/Pay.kt"}}' \
   && ok "exempt: kotlin-multiplatform commonTest allowed" || bad "exempt: commonTest wrongly gated"
-allows x '{"session_id":"s","tool_input":{"file_path":"/p/tests/test_payment.py"}}' \
+# tests/ is exempt at the REPO ROOT only, so this fixture must sit under the real project dir. Matching
+# absolutely used to mean any ancestor named tests/ exempted the whole checkout.
+allows x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/tests/test_payment.py\"}}" \
   && ok "exempt: non-JVM tests/ root allowed" || bad "exempt: tests/ wrongly gated"
+denies x '{"session_id":"s","tool_input":{"file_path":"/elsewhere/tests/test_payment.py"}}' \
+  && ok "exempt: a tests/ dir OUTSIDE the project does not exempt" || bad "exempt: ancestor tests/ still exempts"
 # ...but a production source is never exempt, however it is named or nested
 denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/com/acme/testing/TestDataTest.java"}}' \
   && ok "exempt: src/main wins over every test pattern" || bad "exempt: src/main file slipped through a test pattern"
@@ -279,6 +283,16 @@ allows x '{"session_id":"s","tool_input":{"file_path":"/p/docs/adr/0001-choose-k
   && ok "docs: an ADR is not gated" || bad "docs: ADR wrongly gated"
 denies x '{"session_id":"s","tool_input":{"file_path":"/p/src/main/resources/README.md"}}' \
   && ok "docs: a .md inside src/main is still gated" || bad "docs: src/main .md became an evasion path"
+# A blanket *.md would disable the gate for any project whose production artifacts ARE markdown - this plugin
+# being the obvious one. Only conventional doc locations are exempt.
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/agents/claudehut-reviewer.md\"}}" \
+  && ok "docs: a production .md (agents/) is still gated" || bad "docs: blanket .md exemption disables the gate"
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/requirements.txt\"}}" \
+  && ok "docs: a .txt build manifest is still gated" || bad "docs: .txt exempted a dependency manifest"
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json\"}}" \
+  && ok "store: the gate's own state file is NOT exempt (no one-Write bypass)" || bad "store: state file exempt - gate can disable itself"
+denies x "{\"session_id\":\"s\",\"tool_input\":{\"file_path\":\"$CLAUDE_PROJECT_DIR/src/com/acme/latest/Pay.java\"}}" \
+  && ok "exempt: a 'latest' package does not match the test-root arms" || bad "exempt: substring test-dir match is back"
 denies x '{"session_id":"s","tool_input":{"file_path":"/p/db/migration/V2__add_index.sql"}}' \
   && ok "docs: migrations remain gated" || bad "docs: migration slipped through"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/./.claude/claudehut/tasks/0001-x/spec.md"}}' \

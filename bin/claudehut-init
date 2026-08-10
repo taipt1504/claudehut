@@ -133,7 +133,23 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
   tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
   if [ -n "$tag" ]; then
-    case " $ACTIVE " in *" $tag "*) : ;; *) continue ;; esac   # tagged + inactive → skip
+    case " $ACTIVE " in
+      *" $tag "*) : ;;
+      *)
+        # Tagged + INACTIVE. Skipping alone strands a rule that a PREVIOUS init emitted: the three
+        # architecture styles shipped untagged, so every project made before the arch axis still holds all
+        # three contradictory files, and a version-bump refresh would report success while leaving them.
+        # On an explicit --refresh-rules, retire the stale copy — unless the learner promoted pitfalls into
+        # it, which are project knowledge this script must never destroy.
+        if $RULES_REFRESH && [ -f "$dest" ]; then
+          if grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
+            echo "  kept: $rel (no longer active, but holds learned pitfalls — remove by hand if unwanted)"
+          else
+            rm -f "$dest" && echo "  retired: $rel (stack tag '$tag' not active)"
+          fi
+        fi
+        continue ;;
+    esac
   fi
   if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
   mkdir -p "$(dirname "$dest")"

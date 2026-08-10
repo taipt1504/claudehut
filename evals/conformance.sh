@@ -222,6 +222,22 @@ jq -e '[.hooks.InstructionsLoaded[]?.hooks[]?.command] | any(test("record-rules-
 for s in record-skill-expansion.sh record-failure.sh load-probe.sh record-dispatch.sh record-rules-loaded.sh; do
   [ -x "$ROOT/scripts/$s" ] && ok "script present+exec: $s" || bad "missing or non-exec: scripts/$s"
 done
+# ...and the two recorders must actually RECORD. Asserting only on wiring + [ -x ] left them unfalsifiable:
+# replacing either body with `exit 0` kept every assertion green, while the sidecar they exist to produce
+# stayed empty. These drive the real scripts and check the line lands.
+HKT="$(mktemp -d)"
+echo '{"session_id":"h","agent_type":"claudehut:claudehut-reviewer"}' \
+  | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
+jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/state/h.dispatches.jsonl" >/dev/null 2>&1 \
+  && ok "record-dispatch.sh writes the observed agent_type to its sidecar" \
+  || bad "record-dispatch.sh produced no usable dispatch record"
+echo '{"session_id":"h","file_path":".claude/rules/framework/jpa.md","load_reason":"path_glob_match"}' \
+  | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-rules-loaded.sh" >/dev/null 2>&1
+jq -e '.file_path==".claude/rules/framework/jpa.md" and .load_reason=="path_glob_match"' \
+  "$HKT/.claude/claudehut/state/h.rules-loaded.jsonl" >/dev/null 2>&1 \
+  && ok "record-rules-loaded.sh writes file_path + load_reason to its sidecar" \
+  || bad "record-rules-loaded.sh produced no usable rule-load record"
+rm -rf "$HKT"
 { [ -f "$ROOT/skills/implement/references/minimalism.md" ] && grep -q 'minimalism.md' "$IMP"; } \
   && ok "D3: minimalism playbook present + wired into implement table" \
   || bad "D3: minimalism playbook missing or not referenced in implement skill"

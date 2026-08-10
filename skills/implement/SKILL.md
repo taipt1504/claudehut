@@ -69,7 +69,9 @@ Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** f
 skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm:** name ≥2 approaches +
 the one you chose and why, in a single line, before the first test. If you can only find one approach and it
 needs defending, the task was really `full` — escalate (`set-complexity full`). `trivial` (comment/rename)
-needs none. For a `full`-tier plan, run this loop on the main thread:
+needs none.
+
+**Main thread only — if you have no Agent tool, skip this section; it is not yours to run.**
 
 **`plan.md` exists → Read `references/orchestration.md` BEFORE dispatching.** It carries the phase walk, the
 `check-disjoint` batch schedule, worktree reconcile/sweep, and the task-mirror rules. Dispatching a plan

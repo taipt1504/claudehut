@@ -61,11 +61,33 @@ W="$(CLAUDEHUT_ARCH=hexagonal run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa"
 { [ ! -f "$R/architecture/ddd.md" ] && [ ! -f "$R/architecture/cqrs.md" ]; } \
   && ok "arch: opt-in emits ONLY the declared style" || bad "arch: opt-in emitted a competing style"
 rm -rf "$W"
-W="$(CLAUDEHUT_ARCH=bogus run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
-{ [ ! -f "$R/architecture/ddd.md" ] && [ ! -f "$R/architecture/hexagonal.md" ] && [ ! -f "$R/architecture/cqrs.md" ]; } \
-  && ok "arch: an unrecognised CLAUDEHUT_ARCH falls back to none (never guesses)" \
-  || bad "arch: unrecognised CLAUDEHUT_ARCH emitted a style"
-rm -rf "$W"
+# Assert on the WARNING, not just on the absence of files: `arch=bogus` matches no template tag either way,
+# so file-absence alone stays green even if the validation is deleted outright.
+WT="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WT/"
+warn_out="$(CLAUDEHUT_ARCH=bogus CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WT" 2>&1)"
+printf '%s' "$warn_out" | grep -qi "CLAUDEHUT_ARCH='bogus'" \
+  && ok "arch: an unrecognised CLAUDEHUT_ARCH is REJECTED with a warning (not silently passed through)" \
+  || bad "arch: unrecognised CLAUDEHUT_ARCH produced no warning — validation missing"
+{ [ ! -f "$WT/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WT/.claude/rules/architecture/hexagonal.md" ] \
+  && [ ! -f "$WT/.claude/rules/architecture/cqrs.md" ]; } \
+  && ok "arch: an unrecognised CLAUDEHUT_ARCH emits no style" || bad "arch: unrecognised CLAUDEHUT_ARCH emitted a style"
+rm -rf "$WT"
+
+# Upgrade path: projects created before the arch axis hold all three styles. bootstrap.sh runs
+# --refresh-rules automatically on a version bump, so a refresh that only SKIPS inactive rules would report
+# success while leaving the exact contradiction the axis removes.
+WU="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WU/"
+mkdir -p "$WU/.claude/rules/architecture"
+for s in ddd hexagonal cqrs; do cp "$ROOT/templates/rules/architecture/$s.md" "$WU/.claude/rules/architecture/$s.md"; done
+printf '\n## Learned pitfalls\n- project knowledge\n' >> "$WU/.claude/rules/architecture/cqrs.md"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules >/dev/null 2>&1
+{ [ ! -f "$WU/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WU/.claude/rules/architecture/hexagonal.md" ]; } \
+  && ok "arch: --refresh-rules RETIRES stranded inactive rules (upgrade path)" \
+  || bad "arch: refresh left stranded contradictory rules behind"
+{ [ -f "$WU/.claude/rules/architecture/cqrs.md" ] && grep -q 'project knowledge' "$WU/.claude/rules/architecture/cqrs.md"; } \
+  && ok "arch: refresh never destroys learner-promoted pitfalls" \
+  || bad "arch: refresh deleted a rule holding learned pitfalls"
+rm -rf "$WU"
 
 echo "== stack-gating (servlet-jpa: mvc + jpa + postgres) =="
 W="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
