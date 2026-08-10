@@ -82,8 +82,10 @@ flowchart TB
      suite fresh this turn; report the exact command + real pass/fail counts".)
    - **Enforcement set, verbatim** — `jq -c '.enforcement_set' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
      One coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
-   - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8`,
-     pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each.
+   - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8 --max-len 200`,
+     pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each. Keep `--max-len`:
+     this block is pasted into every selected auditor and re-paid each round, so it is the one caller where an
+     uncapped entry is multiplied — the session-start and per-prompt callers already cap at 200.
    - **Vocabulary** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, paste it under
      `## Project Vocabulary`. If absent, omit.
    - **Known reuse suspects** — if `.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl` exists, paste
