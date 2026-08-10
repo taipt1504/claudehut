@@ -97,7 +97,6 @@ Emitted when `claudehut-init` detects the corresponding dependency in the projec
 |--------|----------|------|-----------------|----------------|---------|
 | `postgres` | Discover + Review | stdio | `@modelcontextprotocol/server-postgres` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | Postgres driver detected |
 | `mysql` | Discover + Review | stdio | `mcp-server-mysql` | `claudehut-db-reviewer`, `claudehut-perf-reviewer` | MySQL driver detected |
-| `redis` | Implement, Review | stdio | `redis-mcp-server` | orchestrator, auditors | Redis client detected |
 | `kafka` | Implement, Review | stdio | `${CLAUDE_PLUGIN_ROOT}/bin/kafka-mcp` | `claudehut-perf-reviewer`, `claudehut-security-auditor` | Kafka client detected |
 | `github` | Plan, Review, Learn | http | `@modelcontextprotocol/server-github` | `claudehut-planner`, `claudehut-reviewer` | git remote is GitHub |
 
@@ -125,20 +124,7 @@ claude mcp add --scope project mysql -- \
   npx -y mcp-server-mysql --url "$MYSQL_URL"
 ```
 
-#### 2.1.3 `redis`
-
-**Purpose.** Allows agents to inspect cache keys, TTLs, and data structures during Implement and Review. The `implement` skill and the `framework/redis.md` rule ([04](./04-skills.md), [05](./05-rules.md)) instruct the agent to confirm a `@Cacheable` result materialised correctly. During Review, `claudehut-perf-reviewer` can check cache hit ratios by reading Redis `INFO stats`.
-
-**Key tools exposed.** `get`, `keys`, `ttl`, `hgetall`, `info`.
-
-**Suggestion command:**
-
-```sh
-claude mcp add --scope project redis -e REDIS_URL="$REDIS_URL" -- \
-  npx -y redis-mcp-server
-```
-
-#### 2.1.4 `kafka` (custom — see [§3](#3-the-custom-kafka-mcp))
+#### 2.1.3 `kafka` (custom — see [§3](#3-the-custom-kafka-mcp))
 
 **Purpose.** Exposes topic metadata, consumer-group lag, partition offsets, and message peek. The binary ships in `bin/kafka-mcp` (see [§3](#3-the-custom-kafka-mcp)) — it is offered as a suggestion, not auto-wired.
 
@@ -151,7 +137,7 @@ claude mcp add --scope project kafka \
   "$CLAUDE_PLUGIN_ROOT/bin/kafka-mcp"
 ```
 
-#### 2.1.5 `github`
+#### 2.1.4 `github`
 
 **Purpose.** Enables agents to query PRs, issues, branch protection rules, and CI check statuses without leaving the Claude Code session. During Plan, `claudehut-planner` checks for open PRs that touch the same modules before committing to a change strategy. During Review, `claudehut-reviewer` confirms the implementation's CI checks pass before allowing a done-claim. During Learn, branch ops (create/merge) can be performed as part of the delivery handoff.
 
@@ -167,22 +153,7 @@ claude mcp add --scope project github \
 
 The `http` transport variant (`https://api.githubcopilot.com/mcp/`) is also viable for teams with GitHub Copilot entitlements; the stdio form above works with a personal access token and no subscription dependency.
 
-### 2.2 Bucket 2 — Memory server
-
-Recommended unconditionally for any project; complements ClaudeHut's committed `.claude/claudehut/` memory ([07](./07-memory-architecture.md)).
-
-**Purpose.** A knowledge-graph memory MCP (`@modelcontextprotocol/server-memory`) stores entities and relations that persist across sessions as a queryable graph. This is richer than `learnings.jsonl` for cross-session entity recall: during Brainstorm, the agent can ask "what did we learn about the payment service's retry strategy?" and receive structured graph output rather than scanning flat JSONL. During Learn, the agent records new entities (domain concepts, architectural decisions, known constraints) as nodes and edges. The two memory systems are complementary — the committed JSONL is inspectable by humans, the graph is queryable by agents.
-
-**Key tools exposed.** `create_entities`, `create_relations`, `add_observations`, `search_nodes`, `open_nodes`.
-
-**Suggestion command:**
-
-```sh
-claude mcp add --scope project memory -- \
-  npx -y @modelcontextprotocol/server-memory
-```
-
-### 2.3 Bucket 3 — Research server
+### 2.2 Bucket 2 — Research server
 
 Recommended for projects that benefit from up-to-date library documentation; used by `claudehut-brainstormer`.
 
@@ -249,8 +220,7 @@ When `claudehut-init` runs on a new project, it:
 2. Reads `templates/mcp-recommendations.md`.
 3. **Emits `claude mcp add --scope project …` suggestions** in three buckets, one command per server:
    - **Bucket 1 (tech-stack):** postgres, mysql, redis, kafka, or github, emitted per detected dependency.
-   - **Bucket 2 (memory):** `@modelcontextprotocol/server-memory` — always emitted.
-   - **Bucket 3 (research):** context7 — always emitted.
+   - **Bucket 2 (research):** context7 — always emitted.
 4. The developer **chooses which commands to run**. Each accepted server is added to the project's `.mcp.json` with project scope and requires per-server approval from Claude Code.
 
 The principle is "suggest, don't force." A project that uses only Postgres and GitHub adds only those two. A project that has no Kafka dependency never sees the Kafka suggestion.
@@ -339,7 +309,6 @@ MCP enriches the workflow but is not required for it to run. Every phase can com
 | Server unavailable | Effect |
 |-------------------|--------|
 | `postgres` / `mysql` | `claudehut-db-reviewer` runs on JPA annotations + migration files only; notes in its output that live schema was unavailable. |
-| `redis` | Cache-related review in Review is skipped with a logged notice; code review continues. |
 | `kafka` | Consumer-group lag and offset inspection are unavailable; `claudehut-perf-reviewer` notes this and limits analysis to code patterns. |
 | `github` | Plan phase proceeds without open-PR context; Review cannot confirm CI check status — `claudehut:review` records it as an outstanding item for the user to confirm manually ([06](./06-hooks.md)). |
 | `memory` | Agents fall back to `learnings.jsonl` and `MEMORY.md` for cross-session recall. |
