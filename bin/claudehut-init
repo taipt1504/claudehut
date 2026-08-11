@@ -14,10 +14,14 @@ set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
-REFRESH=false; RULES_REFRESH=false; DETECT=false; PROJ=""
+REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; PROJ=""; RETIRED_LIST=""
 for a in "$@"; do case "$a" in
   --refresh) REFRESH=true; RULES_REFRESH=true ;;
   --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
+  # Deleting a rule a previous version emitted is DESTRUCTIVE and must be asked for by name. --refresh-rules
+  # is run automatically by scripts/bootstrap.sh on every plugin version bump, with output discarded, so
+  # anything it does happens without the user typing a command or seeing a message. Retirement is opt-in.
+  --retire-inactive) RETIRE=true ;;
   --detect)  DETECT=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
@@ -26,7 +30,13 @@ PROJ="${PROJ:-${CLAUDE_PROJECT_DIR:-$PWD}}"
 cd "$PROJ" 2>/dev/null || { echo "claudehut-init: cannot cd '$PROJ'" >&2; exit 1; }
 
 # ---------------- detection (grep/sed on build files) ----------------
-BF="$(cat pom.xml build.gradle build.gradle.kts 2>/dev/null || true)"
+# Root build files PLUS submodule ones: a multi-module Spring project declares its dependencies in module
+# poms/build files, so reading only the root detected nothing and treated every stack-gated rule as inactive.
+# Bounded depth and count so this stays cheap on a large monorepo.
+BF="$(cat pom.xml build.gradle build.gradle.kts 2>/dev/null || true)
+$(find . -mindepth 2 -maxdepth 3 \( -name pom.xml -o -name 'build.gradle' -o -name 'build.gradle.kts' \) \
+    -not -path '*/build/*' -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null \
+    | head -40 | tr '\n' '\0' | xargs -0 cat 2>/dev/null || true)"
 has() { printf '%s' "$BF" | grep -qiE "$1"; }
 
 if [ -f pom.xml ]; then BUILD_TOOL=maven; { [ -f mvnw ] && VERIFY="./mvnw verify"; } || VERIFY="mvn verify"
@@ -53,8 +63,14 @@ elif has 'starter-amqp|rabbit';        then MSG=rabbitmq
 elif has 'io\.nats|[^a-z.]nats[^a-z]'; then MSG=nats
 else MSG=none; fi
 
-if has 'data-redis|lettuce|jedis'; then CACHE=redis; CACHE_S="Redis"; else CACHE=none; CACHE_S="(none)"; fi
+if   has 'data-redis|lettuce|jedis'; then CACHE=redis;    CACHE_S="Redis"
+elif has 'caffeine';                  then CACHE=caffeine; CACHE_S="Caffeine"
+else CACHE=none; CACHE_S="(none)"; fi
 if has 'mapstruct'; then MAPPER=mapstruct; else MAPPER=none; fi
+# testing/testcontainers.md has carried `stack: "test=testcontainers"` since it shipped, but there was no
+# `test=` axis for it to match — so the rule that enforces real containers over embedded fakes never
+# reached a single project, while skills/review's test matrix mandates exactly that.
+if has 'testcontainers'; then TEST=testcontainers; else TEST=none; fi
 
 PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<artifactId>//')"
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(grep -hm1 -oE "rootProject.name[^=]*=[^'\"]*['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]//")"
@@ -75,9 +91,12 @@ if [ "$BUILD_TOOL" = maven ]; then MODULE_LIST="$(grep -oE '<module>[^<]+' pom.x
 TEST_STRATEGY="JUnit 5"; has 'testcontainers' && TEST_STRATEGY="$TEST_STRATEGY + Testcontainers"; has 'wiremock' && TEST_STRATEGY="$TEST_STRATEGY + WireMock"
 LAYER_CONVENTION="web -> service -> domain -> persistence (domain depends on nothing)"
 
+ARCH="${CLAUDEHUT_ARCH:-none}"
+case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+
 if $DETECT; then
-  printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","project":"%s","base_package":"%s"}\n' \
-    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$PROJECT_NAME" "$BASE_PACKAGE"
+  printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s"}\n' \
+    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$TEST" "$ARCH" "$PROJECT_NAME" "$BASE_PACKAGE"
   exit 0
 fi
 
@@ -117,7 +136,12 @@ render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
 
 # ---------------- rule tree (stack-gated) ----------------
-ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER"
+# Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three
+# shipped untagged — so every project received three contradictory rule files at once (9,385 B of guidance
+# that argues with itself). There is no trustworthy detector: package layouts overlap, and guessing wrong
+# silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
+# Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"
@@ -126,7 +150,40 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
   tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
   if [ -n "$tag" ]; then
-    case " $ACTIVE " in *" $tag "*) : ;; *) continue ;; esac   # tagged + inactive → skip
+    # A tag may list ALTERNATIVES (`stack: "cache=redis,caffeine"`) — the rule applies if ANY of them is
+    # active. Matching the whole string as one token meant such a rule could never fire.
+    tag_hit=false; tag_axis="${tag%%=*}"
+    IFS=',' read -r -a _alts <<< "$tag"
+    for one in "${_alts[@]}"; do
+      one="${one# }"; one="${one% }"; [ -n "$one" ] || continue
+      case "$one" in *=*) : ;; *) one="$tag_axis=$one" ;; esac   # bare alternative inherits the axis
+      case " $ACTIVE " in *" $one "*) tag_hit=true; break ;; esac
+    done
+    case "$tag_hit" in
+      true) : ;;
+      *)
+        # Tagged + INACTIVE. Skipping alone strands a rule that a PREVIOUS init emitted: the three
+        # architecture styles shipped untagged, so every project made before the arch axis still holds all
+        # three contradictory files, and a version-bump refresh would report success while leaving them.
+        # On an explicit --refresh-rules, retire the stale copy — unless the learner promoted pitfalls into
+        # it, which are project knowledge this script must never destroy.
+        if $RULES_REFRESH && [ -e "$dest" ]; then   # -e, not -f: a dir/symlink here must be REPORTED, not skipped
+          if ! $RETIRE; then
+            # REPORT ONLY. The stale copy stays until the user asks for its removal by name.
+            echo "  stale: $rel (stack tag '$tag' not active — remove with --retire-inactive)"
+            RETIRED_LIST="$RETIRED_LIST $rel"
+          elif grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
+            echo "  kept: $rel (no longer active, but holds learned pitfalls — remove by hand if unwanted)"
+          elif [ -f "$dest" ] && [ ! -L "$dest" ]; then
+            rm -f "$dest" && echo "  retired: $rel (stack tag '$tag' not active)"
+          else
+            # a symlink or a directory where a rule file was expected: never remove it blindly, and never
+            # stay silent about it either — the `&&` above used to swallow the case entirely
+            echo "  skipped: $rel (not a regular file — remove by hand if unwanted)"
+          fi
+        fi
+        continue ;;
+    esac
   fi
   if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
   mkdir -p "$(dirname "$dest")"
@@ -192,6 +249,20 @@ if ! grep -q "$MARK" "$CM" 2>/dev/null; then
   echo "  wired @import slice into $CM"
 else
   echo "  @import slice already present in $CM"
+fi
+
+# ---------------- state/ is ephemeral: ignore it, rather than only SAYING so ----------------
+# The plane is meant to be committed except for state/, which holds per-session sidecars — ten kinds now
+# (phase state, snapshots, injected-learning ids, dispatch and rule-load ledgers, failures, suspects,
+# receipts) that accumulate for the life of a session and mean nothing to anyone else. Printing that advice
+# at the end of init left the work to the reader; write the rule instead. Idempotent.
+GI="$PROJ/.gitignore"
+if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/state/?$' "$GI" 2>/dev/null; then
+  : # already ignored
+else
+  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
+  { printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' >> "$GI"; } 2>/dev/null \
+    && echo "  gitignored: .claude/claudehut/state/"
 fi
 
 echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."

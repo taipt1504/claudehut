@@ -84,7 +84,7 @@ src/main/resources/db/migration/
 
 ## Detection
 
-Phase 5 + PreToolUse hook run `scripts/validate-migration.sh`:
+Check these yourself when adding or editing a migration — there is no script or hook that enforces them:
 
 - Naming pattern.
 - Online safety.

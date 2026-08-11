@@ -29,14 +29,68 @@ sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 fp_list="$(jq -r '[.tool_input.file_path, (.tool_input.edits[]?.file_path), (.tool_input.file_edits[]?.file_path)] | map(select(. != null and . != "")) | .[]' <<<"$in" 2>/dev/null || true)"
 fp="$(printf '%s\n' "$fp_list" | head -1)"
 
+# Resolve "." / ".." / duplicate slashes WITHOUT requiring the file to exist (the target is usually a new
+# file, so realpath/readlink -f are unusable here). Pure bash 3.2 — this runs on every Write/Edit.
+canon_path() {
+  local p="$1" out="" seg rest
+  case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
+  rest="$p"
+  while [ -n "$rest" ]; do
+    seg="${rest%%/*}"
+    if [ "$seg" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+    case "$seg" in
+      ''|.) : ;;
+      ..)   out="${out%/*}" ;;
+      *)    out="$out/$seg" ;;
+    esac
+  done
+  printf '%s' "${out:-/}"
+}
+
 # Non-production targets are always allowed (reuse-scan/spec/plan files; tests during TDD RED).
 # For MultiEdit: ALL paths in the batch must be exempt for the call to bypass the gate.
 # Empty fp_list (malformed payload) keeps all_exempt=true and falls through to allow — fail-open (06 §5).
+#
+# Matched on the CANONICAL path against anchored patterns, not raw substrings. The old
+# `*"/.claude/claudehut/"*|*"/test/"*` form exempted two things it never meant to:
+#   - any production class under a package component named `test` (src/main/java/com/acme/test/Pay.java)
+#   - any path traversing out through an exempt substring (.claude/claudehut/../../../src/main/java/X.java)
+# Both reached ALLOW against an armed gate. exists_canon() below shares canon_path for the same reason.
 all_exempt=true
 while IFS= read -r p; do
   [ -z "$p" ] && continue
-  case "$p" in
-    *"/.claude/claudehut/"*|*"/test/"*|*Test.java|*IT.java) : ;;
+  cp_="$(canon_path "$p")"
+  # The workflow store is matched on the ABSOLUTE path, because an implementer's worktree lives outside
+  # PROJECT_DIR and still writes artifacts. `state/` is carved out first: it holds the very file this gate
+  # reads for `bypass`, so exempting it would let one Write disable the gate.
+  case "$cp_" in
+    */.claude/claudehut/state/*) all_exempt=false; break ;;
+    */.claude/claudehut/*) : ;;
+  esac
+  case "$cp_" in */.claude/claudehut/*) continue ;; esac
+
+  # EVERYTHING ELSE is matched PROJECT-RELATIVE. Matching absolutely meant `*` spanned `/`, so an ancestor
+  # directory above the checkout decided the outcome: a repo cloned under ~/Projects/tests/ had the gate
+  # disabled wholesale, and one cloned under any .../src/main/... had every write — including README and
+  # tests — denied. A path outside PROJECT_DIR keeps its leading `/`, matches no arm below, and is denied.
+  rel="${cp_#"$PROJECT_DIR"/}"
+  case "$rel" in
+    # production sources first, so the test arms cannot re-open the `src/main/java/com/acme/test/` hole
+    src/main/*|*/src/main/*) all_exempt=false; break ;;
+    # test roots, named explicitly — `*[Tt]est*` was a substring match that also exempted `latest/`,
+    # `contest/` and `attestation/`, and missed nothing these cover
+    src/test/*|src/testFixtures/*|src/integrationTest/*|src/functionalTest/*|src/androidTest/*) : ;;
+    src/commonTest/*|src/jvmTest/*|src/nativeTest/*|src/it/*) : ;;
+    */src/test/*|*/src/testFixtures/*|*/src/integrationTest/*|*/src/functionalTest/*) : ;;
+    */src/androidTest/*|*/src/commonTest/*|*/src/jvmTest/*|*/src/nativeTest/*|*/src/it/*) : ;;
+    test/*|tests/*|spec/*) : ;;                                               # non-JVM test roots, at the repo root only
+    *Test.java|*Tests.java|*IT.java|*Test.kt|*Spec.kt|*Spec.scala) : ;;       # test classes by name
+    *_test.go|*_test.py|*.spec.ts|*.test.ts|*.spec.js|*.test.js) : ;;
+    # Documentation, named narrowly. A blanket *.md exemption is wrong: for a plugin like this one the
+    # production artifacts ARE markdown (agents/*.md, skills/*/SKILL.md, templates/rules/**), and a blanket
+    # *.txt would exempt CMakeLists.txt and requirements.txt. Only conventional doc locations are exempt.
+    README*|CHANGELOG*|CONTRIBUTING*|LICENSE*|AUTHORS*|NOTICE*) : ;;
+    docs/*|doc/*|*/README.md|*/CHANGELOG.md|*/docs/adr/*) : ;;
     *) all_exempt=false; break ;;
   esac
 done <<<"$fp_list"
@@ -57,10 +111,13 @@ tier="$(jq -r '.complexity // "full"' <<<"$s")"   # trivial|small|full; default 
 
 # opt #4: a recorded artifact must actually EXIST as a file under .claude/claudehut/ — a set flag
 # pointing at a missing or non-canonical path does NOT open the gate.
+# Canonicalised, not merely absolutised: a recorded artifact path of the form
+# `.claude/claudehut/../../src/main/java/Evil.md` used to satisfy the substring test while the file it names
+# lives in the production tree, which opened the gate on artifacts stored outside the store.
 exists_canon() {
   local p="$1"; [ -n "$p" ] && [ "$p" != null ] || return 1
-  case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
-  case "$p" in *"/.claude/claudehut/"*) [ -f "$p" ] && return 0 ;; esac
+  p="$(canon_path "$p")"
+  case "$p" in */.claude/claudehut/*) [ -f "$p" ] && return 0 ;; esac
   return 1
 }
 
@@ -72,7 +129,7 @@ FAST_MAX_FILES="${CLAUDEHUT_FAST_MAX_FILES:-2}"
 fastlane_bound_ok() {
   command -v git >/dev/null 2>&1 || return 1          # can't verify → deny fast lane (force full)
   local changed rel sensitive count
-  rel="${fp#$PROJECT_DIR/}"
+  rel="$(canon_path "$fp")"; rel="${rel#$PROJECT_DIR/}"   # canonical, so a traversal path is counted in the form it resolves to
   changed="$( { ( cd "$PROJECT_DIR" && git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null ); printf '%s\n' "$rel"; } \
     | grep -vE '(^|/)\.claude/|(/test/|Test\.java$|IT\.java$)' | sort -u | grep -vE '^$' )"
   count="$(printf '%s\n' "$changed" | grep -cE '.' || true)"

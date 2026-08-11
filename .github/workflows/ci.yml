@@ -73,6 +73,12 @@ jobs:
       - name: artifact-oracle-tests.sh (cognition oracles discriminate)
         run: bash evals/artifact-oracle-tests.sh
 
+      - name: reference-check.sh (each task's reference solution passes its own oracle)
+        run: bash evals/reference-check.sh
+
+      - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
+        run: bash evals/worktree-tests.sh
+
       - name: lint-prompt-length.sh (WS-9 concision budget + provenance — commit-time gate)
         run: bash scripts/lint-prompt-length.sh
 

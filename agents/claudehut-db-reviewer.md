@@ -3,7 +3,7 @@ name: claudehut-db-reviewer
 description: Persistence correctness — JPA mappings, fetch strategies, migration safety, transaction boundaries. Read-only; spawned by claudehut:review.
 model: sonnet
 effort: high
-tools: Read, Grep, mcp__postgres__query, mcp__mysql__mysql_query
+tools: Read, Grep, mcp__postgres__execute_sql, mcp__postgres__list_schemas, mcp__postgres__list_objects, mcp__postgres__get_object_details, mcp__mysql__mysql_query
 color: cyan
 ---
 

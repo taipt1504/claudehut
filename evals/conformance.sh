@@ -14,9 +14,29 @@ fm()  { awk 'NR==1&&/^---/{f=1;next} /^---/{exit} f' "$1"; }   # print frontmatt
 echo "== P2/P6 conformance =="
 
 # C1 — exactly 10 skills (workflow + init + discover + 6 phases: brainstorm/spec/plan/implement/review/learn,
-# + summer-kb-setup)
-SK=$(ls -1d "$ROOT"/skills/*/ 2>/dev/null | wc -l | tr -d ' ')
-[ "$SK" = "10" ] && ok "10 skills present" || bad "expected 10 skills, found $SK"
+# + summer-kb-setup). Counts what the plugin SHIPS (git-tracked), not whatever happens to sit in the working
+# tree: an untracked work-in-progress skill is not part of the package, and reddening the whole suite over one
+# is a false failure. Untracked dirs are still surfaced below as a notice, so a forgotten `git add` is visible.
+# Falls back to the filesystem glob when git is unavailable (sanitized copies, tarball installs).
+# Falls back to the glob whenever git yields NOTHING, not merely when git is absent: if the plugin sits
+# inside an enclosing repo that does not track skills/, `rev-parse` succeeds while `ls-files` returns empty,
+# which would both fail C1 spuriously and silently drop every mermaid assertion (they share this list).
+skill_dirs() {
+  local d out=""
+  if command -v git >/dev/null 2>&1 && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+    out="$(git -C "$ROOT" ls-files skills/ 2>/dev/null | awk -F/ 'NF>1 {print $2}' | sort -u)"
+  fi
+  if [ -z "$out" ]; then
+    out="$(for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done | sort -u)"
+  fi
+  printf '%s\n' "$out" | grep -v '^$' || true
+}
+SK=$(skill_dirs | grep -c . | tr -d ' ')
+[ "$SK" = "10" ] && ok "10 skills present (tracked)" || bad "expected 10 tracked skills, found $SK"
+UNTRACKED_SKILLS="$(comm -13 <(skill_dirs) <(for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done | sort -u) 2>/dev/null | tr '\n' ' ')"
+[ -z "${UNTRACKED_SKILLS// /}" ] \
+  && ok "no untracked skill directories" \
+  || echo "  note - untracked skill dir(s) present, not part of the package: ${UNTRACKED_SKILLS}"
 
 # C2 — every skill has name + description frontmatter
 for d in "$ROOT"/skills/*/; do n=$(basename "$d"); f="$d/SKILL.md"
@@ -78,6 +98,20 @@ jq -e '(has("mcpServers")|not) and (has("userConfig")|not)' "$PJ" >/dev/null 2>&
 [ -f "$ROOT/hooks/hooks.json" ] && ok "default hooks/hooks.json present (auto-discovered)" || bad "hooks/hooks.json missing"
 [ -d "$ROOT/agents" ] && ok "default agents/ present (auto-discovered)" || bad "agents/ missing"
 [ ! -f "$ROOT/.mcp.json" ] && ok "no shipped .mcp.json" || bad ".mcp.json should not be shipped"
+# LSP: the manifest may point at .lsp.json, which must carry the two REQUIRED fields — Claude Code silently
+# SKIPS a server missing `command` or `extensionToLanguage`, visible only under `claude --debug`. It must also
+# NOT set restartOnCrash/shutdownTimeout: those need v2.1.205+, and on older versions setting either makes
+# Claude Code skip the server entirely, again silently.
+if [ -f "$ROOT/.lsp.json" ]; then
+  jq -e 'to_entries | all(.value | has("command") and has("extensionToLanguage"))' "$ROOT/.lsp.json" >/dev/null 2>&1 \
+    && ok "LSP: every server declares command + extensionToLanguage (else silently skipped)" \
+    || bad "LSP: a server in .lsp.json is missing command/extensionToLanguage"
+  jq -e 'to_entries | all(.value | (has("restartOnCrash") or has("shutdownTimeout")) | not)' "$ROOT/.lsp.json" >/dev/null 2>&1 \
+    && ok "LSP: no restartOnCrash/shutdownTimeout (pre-2.1.205 would skip the server)" \
+    || bad "LSP: restartOnCrash/shutdownTimeout set — skipped entirely before CC v2.1.205"
+  [ "$(jq -r '.lspServers // empty' "$PJ" 2>/dev/null)" = "./.lsp.json" ] \
+    && ok "LSP: plugin.json points at ./.lsp.json" || bad "LSP: .lsp.json shipped but manifest does not reference it"
+fi
 [ -f "$ROOT/templates/mcp-recommendations.md" ] && ok "MCP recommendation catalog present" || bad "mcp-recommendations.md missing"
 
 # C8 — Implement orchestrates PHASE BY PHASE (Issue 1 fix: no single-implementer collapse on multi-task plans)
@@ -88,6 +122,55 @@ grep -qi 'PHASE BY PHASE' "$IMP" \
 grep -qi 'phase-batch boundaries' "$IMP" \
   && ok "implement: native task list updated at phase boundaries (main-thread only)" \
   || bad "implement: missing phase-boundary task-update rule"
+# C8b — the orchestration mechanism moved to references/orchestration.md so it stops being preloaded into
+# every implementer (which has no Agent or task tools and cannot act on it). The greps above then match a
+# SUMMARY, so they would stay green even if the skill degraded into a bare pointer. These three assertions are
+# what keep that from happening: the reference must exist, carry the mechanism, and be reachable by a hard
+# precondition in the skill body — not an optional "see also".
+# C8c — shipped rule templates must not cite plugin files that do not exist. bin/claudehut-init copies these
+# into every initialized project, so a dangling path is advice the reader cannot follow, and three of them
+# described enforcement (a validate-migration.sh, a lombok.config.tmpl) that was never built. Only
+# plugin-root-relative prefixes are checked; .claude/** and src/** are project paths, not plugin paths.
+# C8d — background-subagent tool allowlist. Subagents run in the background by default, and a background
+# subagent keeps only a fixed set of built-in tools; Claude Code removes any other built-in from the `tools:`
+# list SILENTLY (no error unless the list resolves to nothing). So a declared tool outside this set is a
+# capability the agent quietly does not have. MCP tools (mcp__*) are always kept. Encodes
+# https://code.claude.com/docs/en/sub-agents as fetched 2026-08-10 — re-check when that page changes.
+BG_OK=" Read Grep Glob Bash PowerShell Edit Write NotebookEdit WebFetch WebSearch TodoWrite Skill ToolSearch EnterWorktree ExitWorktree Monitor TaskStop SendMessage Artifact Agent ExitPlanMode "
+BAD_TOOLS=""
+for f in "$ROOT"/agents/*.md; do
+  [ -f "$f" ] || continue
+  fm "$f" | grep -q '^background: *true' && continue          # foreground agents keep the full set
+  tl="$(fm "$f" | sed -n 's/^tools: *//p' | head -1)"
+  [ -n "$tl" ] || continue
+  for tool in $(printf '%s' "$tl" | tr ',' ' '); do
+    case "$tool" in mcp__*|'') continue ;; esac
+    case "$BG_OK" in *" $tool "*) : ;; *) BAD_TOOLS="$BAD_TOOLS $(basename "$f" .md):$tool" ;; esac
+  done
+done
+[ -z "${BAD_TOOLS// /}" ] && ok "agent tools: are all kept for background subagents" \
+  || bad "agent declares a tool silently dropped in the background:$BAD_TOOLS"
+
+DANGLING=""
+for f in "$ROOT"/templates/rules/*/*.md "$ROOT"/templates/rules/*.md; do
+  [ -f "$f" ] || continue
+  for ref in $(grep -oE '`(scripts|skills|bin|agents|hooks|commands|evals|templates)/[A-Za-z0-9._/-]+`' "$f" 2>/dev/null | tr -d '`' | sort -u); do
+    [ -e "$ROOT/$ref" ] || DANGLING="$DANGLING ${f#"$ROOT"/}:$ref"
+  done
+done
+[ -z "${DANGLING// /}" ] && ok "rule templates cite no missing plugin files" \
+  || bad "rule template cites a nonexistent plugin path:$DANGLING"
+
+ORCH="$ROOT/skills/implement/references/orchestration.md"
+{ [ -f "$ORCH" ] && grep -qi 'check-disjoint' "$ORCH" && grep -qi 'reconcile' "$ORCH"; } \
+  && ok "implement: references/orchestration.md exists and carries the phase-walk mechanism" \
+  || bad "implement: orchestration.md missing or does not carry the mechanism"
+grep -qi 'Read `references/orchestration.md` BEFORE dispatching' "$IMP" \
+  && ok "implement: skill body states the HARD precondition to read orchestration.md before dispatch" \
+  || bad "implement: precondition to read orchestration.md is missing — the stub is a bare pointer"
+grep -qi 'never hand a whole plan to one implementer' "$IMP" \
+  && ok "implement: single-implementer collapse still forbidden in the always-loaded body" \
+  || bad "implement: the no-collapse rule was lost in the extraction (Issue 1 regression)"
 # planner must mark EVERY intra-phase-independent task [P], not just one (avoids serialized Implement)
 grep -qi 'EVERY task that has no dependency' "$ROOT/agents/claudehut-planner.md" \
   && ok "planner: marks every intra-phase-independent task [P]" \
@@ -110,25 +193,37 @@ if grep -rqn 'branches from `origin/HEAD`' "$ROOT/skills" "$ROOT/agents" 2>/dev/
   bad "stale 'branches from origin/HEAD' in skills/agents — model will preemptively inline dependent phases"
 else ok "no stale 'branches from origin/HEAD' in skills/agents"; fi
 
-# C10 — MCP tool names in agent frontmatter match real server tool names.
-# postgres MCP (@modelcontextprotocol/server-postgres v0.6.2) exposes exactly ONE tool: "query".
-# mysql MCP (mcp-server-mysql v1.0.42) exposes exactly ONE tool: "mysql_query".
-# list_tables and describe_table are MCP Resources (ListResourcesRequestSchema), NOT Tools —
-# referencing them as tool names in the allowlist silently fails at runtime (tool calls rejected).
-# perf-reviewer and security-auditor must declare kafka tools (they are the Kafka primary reviewers).
+# C10 — MCP tool names in agent frontmatter must match the REAL tool names of the recommended servers.
+# A wrong name is not an error anyone sees: the call is rejected at runtime, so the reviewer silently
+# degrades to a static review while appearing configured. Verified against tagged releases:
+#   postgres  crystaldba/postgres-mcp v0.3.0 — there is NO tool named "query"; it is execute_sql. The
+#             previously recommended @modelcontextprotocol/server-postgres is DEPRECATED on npm.
+#   kafka     @confluentinc/mcp-confluent v1.5.0 — tool names are HYPHENATED and survive into the
+#             mcp__kafka__<tool> string. No describe-topic equivalent exists on a self-managed cluster.
+#   mysql     mcp-server-mysql v1.0.42 — exactly one tool: mysql_query.
+# list_tables/describe_table are MCP Resources, not Tools, under either postgres server.
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q 'mcp__postgres__list_tables\|mcp__postgres__describe_table'; then
-    bad "agent $n: mcp__postgres__list_tables/describe_table are MCP Resources not Tools — use mcp__postgres__query with SQL"
+    bad "agent $n: mcp__postgres__list_tables/describe_table are MCP Resources not Tools — use mcp__postgres__execute_sql"
   else ok "agent $n: no bogus postgres resource-as-tool names"; fi
   if fm "$f" | grep -q 'mcp__mysql__list_tables\|mcp__mysql__describe_table'; then
     bad "agent $n: mcp__mysql__list_tables/describe_table are MCP Resources not Tools — use mcp__mysql__mysql_query with SQL"
   else ok "agent $n: no bogus mysql resource-as-tool names"; fi
 done
 for a in claudehut-perf-reviewer claudehut-security-auditor; do
-  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__consumer_group_lag' \
-    && ok "$a: kafka tool allowlist present" \
-    || bad "$a: missing mcp__kafka__consumer_group_lag — Kafka review is zero at runtime when server connected"
+  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__get-consumer-group-lag' \
+    && ok "$a: kafka tool allowlist present (consumer-group lag)" \
+    || bad "$a: missing mcp__kafka__get-consumer-group-lag — Kafka review is zero at runtime when connected"
 done
+# No agent may declare a kafka tool the recommended server does not expose: describe-topic has no
+# self-managed equivalent (get-topic-config is Confluent Cloud only and returns config, not partition
+# layout), and get-partition-offsets appears in neither availability table.
+if grep -rq 'mcp__kafka__[a-z]*_' "$ROOT"/agents/*.md 2>/dev/null; then
+  bad "agent declares an underscored mcp__kafka__ tool — mcp-confluent tool names are hyphenated"
+else ok "kafka tool names are hyphenated (match mcp-confluent v1.5.0)"; fi
+if grep -rqE 'mcp__kafka__describe-topic|mcp__kafka__get-partition-offsets|mcp__postgres__query([^_-]|$)' "$ROOT"/agents/*.md 2>/dev/null; then
+  bad "agent declares an MCP tool the recommended server does not expose"
+else ok "no agent declares a nonexistent MCP tool"; fi
 # bootstrap.sh must use .id field (not .name) for understand-anything detection
 grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
   && ok "bootstrap.sh: understand-anything detection uses .id field (correct)" \
@@ -142,9 +237,33 @@ jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill
 jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failure"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3: PostToolUseFailure → record-failure.sh wired (failure signal capture)" \
   || bad "C3: PostToolUseFailure not wired to record-failure.sh"
-for s in record-skill-expansion.sh record-failure.sh load-probe.sh; do
+# C3b/C3c — the two observation hooks. Both are advisory recorders that inject nothing and never block, so a
+# wiring mistake is otherwise invisible: the sidecar just stays empty while every eval still passes.
+jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))' "$HJ" >/dev/null 2>&1 \
+  && ok "C3b: SubagentStart → record-dispatch.sh wired (dispatch observation)" \
+  || bad "C3b: SubagentStart not wired to record-dispatch.sh"
+jq -e '[.hooks.InstructionsLoaded[]?.hooks[]?.command] | any(test("record-rules-loaded"))' "$HJ" >/dev/null 2>&1 \
+  && ok "C3c: InstructionsLoaded → record-rules-loaded.sh wired (rule-load ledger)" \
+  || bad "C3c: InstructionsLoaded not wired to record-rules-loaded.sh"
+for s in record-skill-expansion.sh record-failure.sh load-probe.sh record-dispatch.sh record-rules-loaded.sh; do
   [ -x "$ROOT/scripts/$s" ] && ok "script present+exec: $s" || bad "missing or non-exec: scripts/$s"
 done
+# ...and the two recorders must actually RECORD. Asserting only on wiring + [ -x ] left them unfalsifiable:
+# replacing either body with `exit 0` kept every assertion green, while the sidecar they exist to produce
+# stayed empty. These drive the real scripts and check the line lands.
+HKT="$(mktemp -d)"
+echo '{"session_id":"h","agent_type":"claudehut:claudehut-reviewer"}' \
+  | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
+jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/state/h.dispatches.jsonl" >/dev/null 2>&1 \
+  && ok "record-dispatch.sh writes the observed agent_type to its sidecar" \
+  || bad "record-dispatch.sh produced no usable dispatch record"
+echo '{"session_id":"h","file_path":".claude/rules/framework/jpa.md","load_reason":"path_glob_match"}' \
+  | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-rules-loaded.sh" >/dev/null 2>&1
+jq -e '.file_path==".claude/rules/framework/jpa.md" and .load_reason=="path_glob_match"' \
+  "$HKT/.claude/claudehut/state/h.rules-loaded.jsonl" >/dev/null 2>&1 \
+  && ok "record-rules-loaded.sh writes file_path + load_reason to its sidecar" \
+  || bad "record-rules-loaded.sh produced no usable rule-load record"
+rm -rf "$HKT"
 { [ -f "$ROOT/skills/implement/references/minimalism.md" ] && grep -q 'minimalism.md' "$IMP"; } \
   && ok "D3: minimalism playbook present + wired into implement table" \
   || bad "D3: minimalism playbook missing or not referenced in implement skill"
@@ -547,7 +666,13 @@ echo "== v0.9 Rec 4 (ultra-flow mermaid coverage) =="
 MMDC_OK=false; command -v mmdc >/dev/null 2>&1 && MMDC_OK=true
 # print the first fenced mermaid block of a file (between ```mermaid and the next ```)
 mermaid_block() { awk '/^```mermaid/{f=1;next} f&&/^```/{exit} f' "$1"; }
-for f in "$ROOT"/agents/*.md "$ROOT"/skills/*/SKILL.md; do
+# Tracked skills only — same reasoning as C1: an untracked WIP skill is not shipped, so it owes no diagram.
+# An ARRAY, because a space anywhere in $ROOT (e.g. "~/Library/Application Support/...") would word-split a
+# plain string and silently drop every assertion in this loop with no compensating failure.
+MERMAID_FILES=("$ROOT"/agents/*.md)
+for s in $(skill_dirs); do MERMAID_FILES+=("$ROOT/skills/$s/SKILL.md"); done
+for f in "${MERMAID_FILES[@]}"; do
+  [ -f "$f" ] || continue
   n=${f#"$ROOT"/}
   if ! grep -q '^```mermaid' "$f"; then bad "mermaid: $n has no ultra-flow diagram"; continue; fi
   blk="$(mermaid_block "$f")"

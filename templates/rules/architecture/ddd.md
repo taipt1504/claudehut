@@ -4,6 +4,7 @@ paths:
   - "**/*.java"
 severity: medium
 tags: [ddd, aggregate, value-object, domain-event]
+stack: "arch=ddd"
 ---
 <!-- ClaudeHut rule template — generated into .claude/rules/architecture/ddd.md by claudehut-init. Reused & enhanced from committed rules/architecture/ddd.md. -->
 

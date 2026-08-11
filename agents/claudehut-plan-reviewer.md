@@ -60,7 +60,7 @@ Return a coverage table, then a verdict:
 | AC-001 covered | ✓ | T-002 (Req col) |
 | AC-003 covered | ✗ | no task references AC-003 |
 | no-placeholder | ✗ | T-004 sketch: "add validation logic" — not implementable |
-| reuse honored  | ✓ | T-002 sketch uses Resilience4j RateLimiter per scan |
+| reuse honored | ✓ | T-002 sketch uses Resilience4j RateLimiter per scan |
 ```
 
 - **Verdict: `APPROVE`** only if every row is `✓`. Otherwise **`REVISE`** — list each `✗` as a concrete,

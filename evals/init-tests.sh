@@ -44,6 +44,64 @@ done
 grep -q 'com\.acme\.app' "$W/.claude/claudehut/PROJECT.md" && ok "base package (com.acme.app)" || bad "base package wrong (reactive-kafka)"
 rm -rf "$W"
 
+echo "== architecture axis (arch=): declared, never guessed =="
+# ddd / hexagonal / cqrs are mutually exclusive. All three shipped untagged, so every project received three
+# contradictory architecture rules at once. There is no trustworthy detector, so the default emits NONE and a
+# project opts in with CLAUDEHUT_ARCH. These assertions pin both halves of that behaviour.
+W="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
+for no in architecture/ddd.md architecture/hexagonal.md architecture/cqrs.md; do
+  [ -f "$R/$no" ] && bad "arch: should NOT emit by default: $no" || ok "arch: gated out by default: $no"
+done
+[ -f "$R/architecture/package-layout.md" ] && ok "arch: untagged architecture rules still emitted" \
+  || bad "arch: the axis gated out an UNTAGGED architecture rule"
+rm -rf "$W"
+W="$(CLAUDEHUT_ARCH=hexagonal run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
+[ -f "$R/architecture/hexagonal.md" ] && ok "arch: CLAUDEHUT_ARCH=hexagonal emits hexagonal.md" \
+  || bad "arch: opt-in did not emit the declared style"
+{ [ ! -f "$R/architecture/ddd.md" ] && [ ! -f "$R/architecture/cqrs.md" ]; } \
+  && ok "arch: opt-in emits ONLY the declared style" || bad "arch: opt-in emitted a competing style"
+rm -rf "$W"
+# Assert on the WARNING, not just on the absence of files: `arch=bogus` matches no template tag either way,
+# so file-absence alone stays green even if the validation is deleted outright.
+WT="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WT/"
+warn_out="$(CLAUDEHUT_ARCH=bogus CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WT" 2>&1)"
+printf '%s' "$warn_out" | grep -qi "CLAUDEHUT_ARCH='bogus'" \
+  && ok "arch: an unrecognised CLAUDEHUT_ARCH is REJECTED with a warning (not silently passed through)" \
+  || bad "arch: unrecognised CLAUDEHUT_ARCH produced no warning — validation missing"
+{ [ ! -f "$WT/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WT/.claude/rules/architecture/hexagonal.md" ] \
+  && [ ! -f "$WT/.claude/rules/architecture/cqrs.md" ]; } \
+  && ok "arch: an unrecognised CLAUDEHUT_ARCH emits no style" || bad "arch: unrecognised CLAUDEHUT_ARCH emitted a style"
+rm -rf "$WT"
+
+# Upgrade path: projects created before the arch axis hold all three styles. bootstrap.sh runs
+# --refresh-rules automatically on a version bump, so a refresh that only SKIPS inactive rules would report
+# success while leaving the exact contradiction the axis removes.
+WU="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WU/"
+mkdir -p "$WU/.claude/rules/architecture"
+for s in ddd hexagonal cqrs; do cp "$ROOT/templates/rules/architecture/$s.md" "$WU/.claude/rules/architecture/$s.md"; done
+printf '\n## Learned pitfalls\n- project knowledge\n' >> "$WU/.claude/rules/architecture/cqrs.md"
+# --refresh-rules runs AUTOMATICALLY from scripts/bootstrap.sh on every plugin version bump, with output
+# discarded. So it must never delete: a user who upgrades has typed no command and sees no message. It
+# REPORTS stale rules; removal is opt-in via --retire-inactive.
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules 2>&1)"
+{ [ -f "$WU/.claude/rules/architecture/ddd.md" ] && [ -f "$WU/.claude/rules/architecture/hexagonal.md" ]; } \
+  && ok "arch: --refresh-rules alone NEVER deletes a rule (safe automatic upgrade path)" \
+  || bad "arch: automatic refresh deleted rules without consent"
+printf '%s' "$out" | grep -q 'stale: architecture/ddd.md' \
+  && ok "arch: --refresh-rules REPORTS stale rules instead of silently keeping them" \
+  || bad "arch: stale rules are not reported"
+grep -q 'project knowledge' "$WU/.claude/rules/architecture/cqrs.md" \
+  && ok "arch: refresh preserves learner-promoted pitfalls" || bad "arch: refresh damaged learned pitfalls"
+# ...and the explicit flag does remove them, still never touching a file holding learned pitfalls
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WU" --refresh-rules --retire-inactive >/dev/null 2>&1
+{ [ ! -f "$WU/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WU/.claude/rules/architecture/hexagonal.md" ]; } \
+  && ok "arch: --retire-inactive removes stranded rules when asked by name" \
+  || bad "arch: --retire-inactive did not remove stranded rules"
+{ [ -f "$WU/.claude/rules/architecture/cqrs.md" ] && grep -q 'project knowledge' "$WU/.claude/rules/architecture/cqrs.md"; } \
+  && ok "arch: --retire-inactive still never destroys learner-promoted pitfalls" \
+  || bad "arch: --retire-inactive deleted a rule holding learned pitfalls"
+rm -rf "$WU"
+
 echo "== stack-gating (servlet-jpa: mvc + jpa + postgres) =="
 W="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; R="$W/.claude/rules"
 for want in framework/spring-mvc.md framework/jpa.md coding/naming.md security/owasp-top10.md; do
@@ -53,6 +111,36 @@ for no in framework/webflux.md framework/r2dbc.md framework/redis.md testing/ste
   [ -f "$R/$no" ] && bad "should NOT emit: $no" || ok "gated out: $no"
 done
 rm -rf "$W"
+
+echo "== tag axes that never matched (dead rules) =="
+# testing/testcontainers.md carried `test=testcontainers` with no `test=` axis to match, and
+# performance/caching.md carried `cache=redis,caffeine` matched as ONE literal token against an ACTIVE
+# holding `cache=redis`. Both rules shipped in the repo and reached zero projects.
+WD="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/reactive-kafka/." "$WD/"
+printf '\ndependencies { testImplementation "org.testcontainers:postgresql" }\n' >> "$WD/build.gradle"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WD" >/dev/null 2>&1
+[ -f "$WD/.claude/rules/testing/testcontainers.md" ] \
+  && ok "tags: test=testcontainers axis exists and emits for a testcontainers project" \
+  || bad "tags: testcontainers.md is dead — no test= axis"
+[ -f "$WD/.claude/rules/performance/caching.md" ] \
+  && ok "tags: comma-list tag matches on its FIRST listed value (cache=redis)" \
+  || bad "tags: comma-list tag never matches — caching.md is dead"
+rm -rf "$WD"
+# The second element is the one that actually proves alternatives work: a bare `caffeine` has no axis prefix,
+# so before axis-inheritance it could never match an ACTIVE token, and a redis-only fixture could not tell.
+WC="$(mktemp -d)"
+printf 'plugins { id "java" }\ndependencies { implementation "com.github.ben-manes.caffeine:caffeine:3.1.8" }\n' > "$WC/build.gradle"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+[ -f "$WC/.claude/rules/performance/caching.md" ] \
+  && ok "tags: comma-list tag matches on a NON-first value too (cache=caffeine)" \
+  || bad "tags: only the first listed value ever matches — alternatives are a false claim"
+[ ! -f "$WC/.claude/rules/framework/redis.md" ] \
+  && ok "tags: a caffeine project does not receive redis rules" || bad "tags: caffeine project got redis rules"
+rm -rf "$WC"
+WN="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"
+{ [ ! -f "$WN/.claude/rules/testing/testcontainers.md" ] && [ ! -f "$WN/.claude/rules/performance/caching.md" ]; } \
+  && ok "tags: neither emits for a project that uses neither" || bad "tags: emitted a rule for an inactive axis"
+rm -rf "$WN"
 
 echo "== --detect (servlet-jpa) =="
 D="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$ROOT/evals/tasks/_fixtures/servlet-jpa" --detect 2>/dev/null)"

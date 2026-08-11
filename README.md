@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.9.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.10.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -37,8 +37,9 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
   every new endpoint, listener, job, and outbound client (rule: `observability/instrumentation.md`).
 - **`claudehut-contract-reviewer`** — a Review-phase auditor for Kafka/Avro/Protobuf schema compatibility,
   consumer-driven contract tests, and REST/gRPC backward-compat (rule: `framework/contract-compat.md`).
-- **Model-driven completion gate** — an additive, fail-open `agent` hook on `Stop` gives a second opinion on
-  completion evidence, alongside the unchanged, authoritative `gate-done.sh`.
+- **Deterministic completion gate** — `gate-done.sh` is the single authority. (v0.9.1 also ran an advisory
+  `agent` hook on every `Stop`; v0.9.2 removed it — its two checks were already enforced by
+  `claudehut-state set-review pass`, so it paid for a model call per turn to re-derive a settled decision.)
 - **Eval self-checks** — a mermaid ultra-flow coverage guard in `conformance.sh`, per-task reference solutions
   (`evals/reference-check.sh`), and audit/investigation profile-rail gate tests.
 
@@ -87,11 +88,11 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 | Phase          | Skill               | Drives                                                                                                                                                                                                                                                                     | Output                                                                                                   |
 | -------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | **Discover**   | `discover`          | `claudehut-explorer` ∥ `claudehut-reuse-scanner` (one message, concurrent)                                                                                                                                                                                                 | codebase grounding + the **reuse-scan** artifact (required in every tier)                                |
-| **Brainstorm** | `brainstorm`        | `claudehut-brainstormer` (opus, `xhigh` — fixed 6-step ideation pipeline: diverge ≥6 → cluster → score → premortem → recommend)                                                                                                                                            | ≥2 structurally distinct options + the per-task _enforcement set_                                        |
+| **Brainstorm** | `brainstorm`        | `claudehut-brainstormer` (opus, `high` — fixed 6-step ideation pipeline: diverge ≥6 → cluster → score → premortem → recommend)                                                                                                                                            | ≥2 structurally distinct options + the per-task _enforcement set_                                        |
 | **Spec**       | `write-spec`        | main thread                                                                                                                                                                                                                                                                | a templated spec (`tasks/<id>/spec.md`), **user-approved** before the gate arms                          |
 | **Plan**       | `write-plan`        | `claudehut-planner` (opus)                                                                                                                                                                                                                                                 | a templated, test-first plan (`tasks/<id>/plan.md`), **user-approved**, mirrored to the native task list |
 | **Implement**  | `implement`         | main thread **walks the plan phase by phase** (sequential spine); within each phase, disjoint `[P]` tasks → **parallel implementers** (one per task, concurrent, gated by `claudehut-worktree check-disjoint`); the native task list is updated at each **phase boundary** | code written **test-first** (RED → GREEN → REFACTOR), honoring the rules/playbooks                       |
-| **Review**     | `review`            | **dynamically selected** auditors: `test-runner` + `reviewer` always; `security-auditor` (over-included), `perf-reviewer`, `db-reviewer` by actual impact                                                                                                                  | a verdict that audits exactly the enforcement set                                                        |
+| **Review**     | `review`            | **dynamically selected** auditors: `test-runner` + `reviewer` always; the specialists by actual impact, and on `trivial`/`small` the reviewer's fast-lane floor covers them                                                                                                                  | a verdict that audits exactly the enforcement set                                                        |
 | **Learn**      | `capture-learnings` | `claudehut-learner`                                                                                                                                                                                                                                                        | append-only `learnings.jsonl` re-injected into future sessions                                           |
 
 ---
@@ -178,6 +179,67 @@ Code's `disableAllHooks` setting.
 > **Note:** `bin/kafka-mcp` ships as a documented **stub** (a real implementation needs a language
 > toolchain / Kafka client outside this package's build); it is offered as an optional recommendation. The
 > workflow runs fully without any MCP server connected — MCP enriches, it does not gate.
+
+### v0.10.0 — enforcement plane
+
+v0.9.2 cut what the workflow *costs*. v0.10.0 fixes what it *enforces*, after an audit found that several
+gates were not running at all.
+
+- **SubagentStop verification had never executed.** It matched bare agent names, but the runtime delivers the
+  plugin-scoped identifier (`claudehut:claudehut-planner`) for plugin-shipped subagents, so all four artifact
+  contracts fell through to a no-op. The evals passed because every fixture fed the bare name — they certified
+  a code path that never ran. Fixed, and the production payload shape is now pinned.
+- **The write gate could be bypassed, and could also wedge.** Exemptions matched the absolute path, so a
+  directory *above* the checkout decided the outcome: a repo under `~/Projects/tests/` had the gate disabled
+  wholesale, one under any `.../src/main/...` had every write denied. Exemptions are now matched
+  project-relative, test roots are named explicitly rather than substring-matched, and `state/` is excluded
+  from the store exemption — it holds the file the gate reads for `bypass`, so one write could disable it.
+- **`bin/claudehut-state` lost concurrent updates** (measured 15/15 on two orthogonal fields). It now takes
+  the same advisory lock the learnings store uses, plus a guard that store was missing.
+- **Rules that never reached a project.** `testing/testcontainers.md` was tagged for a `test=` axis that did
+  not exist, and `performance/caching.md` listed two cache values in a tag matched as one literal token.
+  Both shipped in the repo and emitted nowhere. Tags now accept alternatives, and a `test=` axis exists.
+- **Three contradictory architecture rules** (DDD, hexagonal, CQRS) shipped together into every project.
+  There is no reliable detector, so the default now emits none and a project declares its style with
+  `CLAUDEHUT_ARCH=ddd|hexagonal|cqrs`. Upgrading never deletes anything: `--refresh-rules` (which
+  `bootstrap.sh` runs automatically on a version bump) only *reports* rules whose stack tag went inactive.
+  Removing them is opt-in with `claudehut-init --refresh-rules --retire-inactive`, and even then a file the
+  learner promoted pitfalls into is kept.
+- **Stack detection reads submodule build files.** It read only the root `pom.xml`/`build.gradle`, so a
+  multi-module Spring project — the plugin's core audience — detected no dependencies and every stack-gated
+  rule was treated as inactive. Tags also accept alternatives now (`cache=redis,caffeine`), with bare values
+  inheriting the axis.
+- **Plan orchestration left the per-implementer preload.** `skills/implement/SKILL.md` is injected whole into
+  every implementer, which has no Agent or task tools; the phase-walk machinery moved to
+  `references/orchestration.md`, read by the main thread.
+- **MCP recommendations point at servers that exist.** `mcp__postgres__query` was in three agents' tool
+  lists; the recommended server has no tool by that name (it is `execute_sql`), and the package itself is
+  deprecated on npm — so a "configured" db reviewer silently degraded to a static review. postgres now
+  targets `postgres-mcp` with `--access-mode=restricted`, whose default is *unrestricted*, i.e. full write.
+  The unimplemented `bin/kafka-mcp` stub is replaced by Confluent's `@confluentinc/mcp-confluent`, pinned
+  with its own `--allow-tools` flag to five read-only tools (`claude mcp add` has no tool filter).
+- **Two observation hooks** (`SubagentStart`, `InstructionsLoaded`) record what the runtime actually
+  dispatches and loads, into session sidecars. Nothing acts on them yet — that is the point. Moving the
+  auditor payload into a hook is only safe once there is evidence the hook fires.
+
+The eval suite went from 406 passing with 2 failures to **457 passing with none**. Every fix in this release
+has a test that fails when the fix is reverted; that check surfaced two assertions which had been passing for
+the wrong reason.
+
+**Java code intelligence (jdtls).** The plugin ships `.lsp.json` wiring `.java` to
+[jdtls](https://github.com/eclipse-jdtls/eclipse.jdt.ls) with `diagnostics: false` — navigation without
+pushing diagnostics into context after every edit.
+
+**You must install the binary yourself**; a plugin configures the connection, it does not bundle the server.
+If `jdtls` is not on `PATH` you will see `Executable not found in $PATH` in the `/plugin` Errors tab, and
+nothing else changes — Claude Code skips a server it cannot start and the rest of the plugin is unaffected.
+`restartOnCrash`/`shutdownTimeout` are deliberately unset: they need Claude Code v2.1.205+, and on older
+versions setting either makes Claude Code skip the server entirely, with the reason visible only under
+`claude --debug`.
+
+This config has not been exercised against a live Spring service by the maintainers — the eval suite cannot
+verify that a language server actually starts. Verify with `claude --debug` on a real project before relying
+on it, and report back if jdtls needs `args` on your setup.
 
 ### Token cost (v0.9.2)
 

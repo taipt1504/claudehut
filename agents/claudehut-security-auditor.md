@@ -3,7 +3,7 @@ name: claudehut-security-auditor
 description: Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Spawned by claudehut:review on controller/auth/security/data-exposure changes.
 model: opus
 effort: xhigh
-tools: Read, Grep, Bash, mcp__postgres__query, mcp__mysql__mysql_query, mcp__kafka__list_topics, mcp__kafka__describe_topic, mcp__kafka__consumer_group_lag, mcp__kafka__list_consumer_groups, mcp__kafka__get_offsets, mcp__kafka__peek_messages
+tools: Read, Grep, Bash, mcp__postgres__execute_sql, mcp__mysql__mysql_query, mcp__kafka__list-topics, mcp__kafka__list-consumer-groups, mcp__kafka__describe-consumer-group, mcp__kafka__get-consumer-group-lag, mcp__kafka__consume-messages
 color: red
 ---
 

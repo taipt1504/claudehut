@@ -1,12 +1,12 @@
 ---
 name: review
-description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it must spawn subagents.
+description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it owns the set-review state write.
 ---
 
 # Review (phase 6 of 7)
 
 Prove the change is done — against the enforcement set, the project rules, and fresh test evidence — before
-any completion claim. Runs **inline on the main thread** (a subagent cannot spawn subagents).
+any completion claim. Runs **inline on the main thread** — Law 7: it owns the `set-review pass` state write.
 
 ## Iron Law
 
@@ -82,8 +82,10 @@ flowchart TB
      suite fresh this turn; report the exact command + real pass/fail counts".)
    - **Enforcement set, verbatim** — `jq -c '.enforcement_set' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
      One coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
-   - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8`,
-     pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each.
+   - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8 --max-len 200`,
+     pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each. Keep `--max-len`:
+     this block is pasted into every selected auditor and re-paid each round, so it is the one caller where an
+     uncapped entry is multiplied — the session-start and per-prompt callers already cap at 200.
    - **Vocabulary** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, paste it under
      `## Project Vocabulary`. If absent, omit.
    - **Known reuse suspects** — if `.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl` exists, paste

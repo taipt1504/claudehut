@@ -94,7 +94,6 @@ claudehut/                                  # static plugin plane
 │   ├── claudehut-init                      # deterministic project-plane generator (renders memory templates + stack-gated rules + @import) [05/07]
 │   ├── claudehut-state                     # state writer [01 §4]
 │   ├── claudehut-worktree                  # worktree lifecycle helper: status/check-disjoint/reconcile/sweep; scope-guarded to .claude/worktrees/ [11 §6]
-│   └── kafka-mcp                           # custom Kafka MCP server [08]
 │
 ├── templates/
 │   ├── rules/                              # rule templates (tech-stack domains) — generated into project by claudehut-init, stack-gated [05]
@@ -281,7 +280,6 @@ Every file in the static plugin plane, with its type, purpose, and the document 
 | `bin/claudehut-init` | CLI binary | Deterministic project-plane generator: detects the stack (grep/sed on build files), renders the memory templates + stack-gated `.claude/rules/` tree into `.claude/claudehut/` + `.claude/rules/`, wires the `@import` slice; creates `tasks/` dir (one-per-task artifact home); idempotent (`--refresh`, never clobbers `learnings.jsonl`), `--detect` prints stack JSON. Invoked by the `claudehut-init` skill. | [05](./05-rules.md), [07 §3](./07-memory-architecture.md#3-bootstrapping-a-new-project) |
 | `bin/claudehut-state` | CLI binary | Phase-state writer (takes `--session`); the only process that mutates the per-session `state/<session_id>.json` (atomic temp+rename) | [01 §4.1](./01-agentic-workflow.md#41-concurrency-and-worktree-isolation-collision-safe-state) |
 | `bin/claudehut-worktree` | CLI binary | Worktree lifecycle helper for managed agent worktrees under `.claude/worktrees/`; subcommands: `status`, `check-disjoint` (safety gate for parallel dispatch), `reconcile` (serialized merge with conflict-abort + red-test rollback), `sweep` (clean+merged removal only); scope-guarded — cannot touch worktrees outside the managed root | [11 §6](./11-execution-model-and-artifacts.md#6-parallel-execution--worktree-lifecycle) |
-| `bin/kafka-mcp` | MCP server | Custom Kafka MCP: topics/consumer-groups/offsets | [08](./08-mcp-integration.md) |
 | **Templates** | | | |
 | `templates/rules/project-structure.md` | Rule template | Always-on: module layout, package conventions (templated) | [05](./05-rules.md) |
 | `templates/rules/vocabulary.md` | Rule template | Always-on: canonical term lock (templated) | [05](./05-rules.md) |
