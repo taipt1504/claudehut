@@ -231,6 +231,47 @@ acted on, and every fix pinned by an assertion that goes red when the fix is rev
 - **`claudehut-init --audit`** reports rule drift read-only, and CI now checks MCP tool names, skill
   descriptions, and every documentation anchor.
 
+A second pass then audited the surfaces the first one did not touch — the 14 agents, the parallel-worktree
+tool, the manifest, and the eval harness itself. The recurring finding is the same one v0.11 started with:
+**a mechanism that is configured, green, and does nothing.**
+
+- **The parallel-implementer tool could destroy committed work.** A detached-HEAD worktree was classified
+  "merged" — the branch-name comparison resolved to the *main* repo's HEAD, so the question became "is
+  main's HEAD an ancestor of main's HEAD" — and `sweep` deleted it while printing "kept = dirty or
+  unmerged". The commit became unreachable and GC-eligible. Nine more defects in the same file, all
+  reproduced end to end: repo-root files like `pom.xml` were invisible to the collision check (so two
+  parallel tasks editing it were scheduled concurrently), a refused plan still printed the refused phase
+  as a parallel batch, `[P]`'s dependency half was never checked at all, a project path containing a space
+  hid every worktree from `status` and `sweep`, and a verified merge with an empty test command merged
+  without running a test while reporting success. The suite covering that file went from 23 assertions
+  to 53.
+- **The authoritative load check had never once produced a verdict.** `scripts/load-probe.sh` — named
+  "the authoritative load check" twice in CI config — passed `--output-format stream-json` without
+  `--verbose`, which the CLI rejects outright, so it failed on a healthy plugin every time it was ever
+  run. Its gate was vacuous besides: it read `plugin_errors` from an event that has no such key, so a `//`
+  default turned "field missing" into "everything is fine". It now diffs the runtime's actual component
+  roster against the tree, and it is the first item on the release checklist.
+- **Every review loop is bounded.** Six auditors and the explorer had a self-loop with no counter — the
+  worst of them on the most expensive agent in the corpus. Each now caps at two rounds and emits its
+  coverage table with unresolved rows marked unverified, which *blocks* at the review gate rather than
+  passing. A turn cap would have done the opposite; that is why it is still refused.
+- **The plugin stopped contradicting itself.** The rigor contract told five of six auditors they run on a
+  model they do not run on, in the sentence that sets reasoning depth. The discover skill said three
+  different things about whether a `small` task dispatches subagents. Three shipped rule files named an
+  agent that has never existed and put review in the wrong phase. All corrected, each with an assertion.
+- **Capability trimmed to what the bodies actually use.** The security auditor could read live Kafka
+  message payloads with no procedure that called it. Two other auditors were asked to do things their
+  tool lists made impossible. And "read-only, do not edit" named file edits but not git state, while up
+  to six auditors share one checkout — one `git stash` to "compare against main" corrupts what the other
+  five are reading.
+- **The dispatch ledger survives.** It had been written into a directory `claudehut-init` gitignores, so
+  across every repo on this machine exactly two ledger files existed — which is why no dispatch-frequency
+  claim in the audit is empirical. It now persists, and pairs each start with its stop. Every field was
+  measured from a real payload first; `effort` is deliberately not recorded at dispatch time because the
+  start event does not carry it.
+- **Install and update guidance now matches how the tool is meant to be used** — user scope by the shell
+  form, with the project-scope consequences and the manual-update default both stated.
+
 ### v0.10.0 — enforcement plane
 
 v0.9.2 cut what the workflow *costs*. v0.10.0 fixes what it *enforces*, after an audit found that several
