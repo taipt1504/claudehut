@@ -2,8 +2,7 @@
 name: claudehut-db-reviewer
 description: Persistence correctness — JPA mappings, fetch strategies, migration safety, transaction boundaries. Read-only; spawned by claudehut:review.
 model: sonnet
-effort: high
-tools: Read, Grep, mcp__postgres__execute_sql, mcp__postgres__list_schemas, mcp__postgres__list_objects, mcp__postgres__get_object_details, mcp__mysql__mysql_query
+tools: Read, Grep, Glob, mcp__postgres__list_schemas, mcp__postgres__list_objects, mcp__postgres__get_object_details, mcp__mysql__mysql_query
 color: cyan
 ---
 
@@ -33,6 +32,9 @@ flowchart TB
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
 
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
+
 ## What to check
 
 - **Mappings** — `@Entity`/`@Column` types, nullability, lengths, and FK constraints match the schema/migration;
@@ -51,13 +53,7 @@ migration SQL and entity code and **state** you reviewed against the migration, 
 
 ## Output — coverage table (per the rigor contract)
 
-One row per enforcement-set item + per defect class above → `✓|✗|n-a` + `file:line` (entity or migration) + the
-deciding evidence. A `✓` with no cited line is not satisfied. **Verdict:** `PASS` only if every row is `✓`/`n-a`;
-else `OUTSTANDING` (each `✗` at MED+). Read-only; do not edit.
+One row per enforcement-set item + per defect class above, cited at **the entity or the migration** with the
+deciding evidence.
 
-## Summer KB grounding (when `.claude/summer-kb/` exists)
-
-Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
-annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
-§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
-the KB and its cited source cannot confirm a fact.
+Read-only; do not edit.

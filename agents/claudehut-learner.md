@@ -3,7 +3,7 @@ name: claudehut-learner
 description: Extracts candidate learnings for the Learn phase and keeps the reuse + memory indexes current. Carries project-scoped auto-memory.
 model: sonnet
 effort: medium
-tools: Read, Write, Grep
+tools: Read, Write
 memory: project
 color: green
 ---

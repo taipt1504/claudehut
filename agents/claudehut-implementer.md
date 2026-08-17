@@ -50,7 +50,7 @@ flowchart TB
 
 ## Procedure
 
-The Flow above is your loop. `ultrathink` before each GREEN step — you run on opus/xhigh for exactly this;
+The Flow above is your loop. `ultrathink` before each GREEN step — you run on opus for exactly this;
 rote, first-thing-that-compiles code is the failure it guards against. The **design beat** (≤30s before GREEN)
 is: (1) **reuse?** honor the plan sketch's reuse anchor — don't re-implement a util the project or stdlib/an
 installed dep already ships; (2) **simplest sufficient shape** — minimal code that passes, not a speculative

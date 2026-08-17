@@ -26,6 +26,9 @@ flowchart TB
     conv -- "yes" --> out([Return map + 'Reuse candidates' list,<br/>each with per-item relevance])
 ```
 
+**Map/refute loop: cap 2 rounds.** On the 2nd exit, return the map as-is — name each unresolved gap inline as
+`[unverified — refute cap reached]` rather than looping again, and still end with the `Reuse candidates:` line.
+
 ## Procedure
 
 1. Load the prerequisite index: `.claude/claudehut/PROJECT.md`, `architecture.md`, `reuse-index.json`.

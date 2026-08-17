@@ -1,7 +1,7 @@
 ---
 name: claudehut-reviewer
 description: General code review — correctness, readability, conventions, dead code, over-engineering — against the enforcement set and project rules.
-model: sonnet
+model: opus
 effort: high
 tools: Read, Grep, Bash
 color: blue
@@ -31,6 +31,9 @@ flowchart TB
     verdict -- "no" --> out(["OUTSTANDING — list each ✗ at MED+"])
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
+
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
 
 ## Defect-class floor (one coverage row each)
 
@@ -79,12 +82,6 @@ One row per enforcement-set item + per defect class above, grouped by axis (Spec
 | constructor injection | ✓ satisfied | — | OrderService.java:18 `private final OrderRepo repo;` |
 ```
 
-Every `✓` cites `file:line`+quote (a name-inference is not satisfied). Silence ≠ pass. **Verdict:** `PASS` only if every
-row is `✓`/`n-a` with evidence; else `OUTSTANDING` — list each `✗` at MED+. Read-only; do not edit.
-
-## Summer KB grounding (when `.claude/summer-kb/` exists)
-
-Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
-annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
-§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
-the KB and its cited source cannot confirm a fact.
+Read-only; do not edit — and do not mutate the working tree, index, HEAD, stash, or branch state. Use `git
+show`/`git diff`/`git log` to inspect other revisions; if you need a working copy of another revision, `git
+worktree add` it to a temp dir — never move HEAD on this checkout.

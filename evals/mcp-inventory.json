@@ -6,7 +6,6 @@
     "kafka": "Confluent kafka MCP"
   },
   "tools": [
-    "mcp__kafka__consume-messages",
     "mcp__kafka__describe-consumer-group",
     "mcp__kafka__get-consumer-group-lag",
     "mcp__kafka__list-consumer-groups",

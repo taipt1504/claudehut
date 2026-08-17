@@ -2,8 +2,7 @@
 name: claudehut-perf-reviewer
 description: JVM and data-access performance review — N+1 queries, missing indexes, blocking calls on reactive paths, allocation hot spots. Read-only.
 model: sonnet
-effort: high
-tools: Read, Grep, Bash, mcp__postgres__execute_sql, mcp__postgres__explain_query, mcp__mysql__mysql_query, mcp__kafka__list-topics, mcp__kafka__list-consumer-groups, mcp__kafka__describe-consumer-group, mcp__kafka__get-consumer-group-lag, mcp__kafka__consume-messages
+tools: Read, Grep, Bash, mcp__postgres__execute_sql, mcp__postgres__explain_query, mcp__mysql__mysql_query, mcp__kafka__list-consumer-groups, mcp__kafka__describe-consumer-group, mcp__kafka__get-consumer-group-lag
 color: pink
 ---
 
@@ -42,6 +41,9 @@ flowchart TB
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
 
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
+
 ## What to check
 
 - **N+1** — a finder called inside a loop/stream; lazy collection accessed per element. Fix with `JOIN FETCH`
@@ -57,13 +59,16 @@ DB MCP connected → run **read-only** `EXPLAIN`/`EXPLAIN ANALYZE` (or schema in
 real query plans — never destructive SQL. No MCP (default; opt-in per project) → reason from the code +
 migration/schema files and **state** the plan is inferred, not measured. Never hard-fail on a missing server.
 
-Kafka MCP connected (opt-in via `claudehut-init`) → use `consumer_group_lag`, `list_consumer_groups`,
-`get_offsets` to ground consumer-lag/throughput claims with live broker data. No Kafka MCP → reason from the
+Kafka MCP connected (opt-in via `claudehut-init`) → use `mcp__kafka__get-consumer-group-lag` and
+`mcp__kafka__list-consumer-groups` to ground consumer-lag claims with live broker data. No Kafka MCP → reason from the
 Spring Kafka `@KafkaListener`, `KafkaTemplate`, and producer/consumer config in code and **state explicitly**
 that consumer-group lag was inferred from code patterns, not measured from a live broker.
 
 ## Output — coverage table (per the rigor contract)
 
-One row per enforcement-set `performance/*` item + per call-chain-floor class above → `✓|✗|n-a` + `file:line` +
-the deciding evidence (query plan / fetch count / traced call site). A `✓` with no cited line is not satisfied.
-**Verdict:** `PASS` only if every row is `✓`/`n-a`; else `OUTSTANDING` (each `✗` at MED+). Read-only; do not edit.
+One row per enforcement-set `performance/*` item + per call-chain-floor class above, cited with the deciding
+evidence — **the query plan, the fetch count, or the traced call site**.
+
+Read-only; do not edit — and do not mutate the working tree, index, HEAD, stash, or branch state. Use `git
+show`/`git diff`/`git log` to inspect other revisions; if you need a working copy of another revision, `git
+worktree add` it to a temp dir — never move HEAD on this checkout.
