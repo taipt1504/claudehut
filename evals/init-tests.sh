@@ -76,7 +76,9 @@ rm -rf "$W"
 # so file-absence alone stays green even if the validation is deleted outright.
 WT="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WT/"
 warn_out="$(CLAUDEHUT_ARCH=bogus CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WT" 2>&1)"
-printf '%s' "$warn_out" | grep -qi "CLAUDEHUT_ARCH='bogus'" \
+# The style may now come from PROJECT.md as well as the env var, so the warning names the value rather than
+# claiming a source. The assertion still requires a warn line that quotes the rejected value back.
+printf '%s' "$warn_out" | grep -qi "warn:.*'bogus'" \
   && ok "arch: an unrecognised CLAUDEHUT_ARCH is REJECTED with a warning (not silently passed through)" \
   || bad "arch: unrecognised CLAUDEHUT_ARCH produced no warning — validation missing"
 { [ ! -f "$WT/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WT/.claude/rules/architecture/hexagonal.md" ] \
@@ -198,6 +200,33 @@ printf 'custom-secret.json\n' > "$W3/.worktreeinclude"
 CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
+
+echo; echo "== RULE-16: the architecture style is declarable and durable =="
+# The arch axis was reachable only through CLAUDEHUT_ARCH, and no real install sets it -- so the three
+# architecture rules never emit on a fresh init, while every project made before the axis existed still
+# carries all three contradictory files. The choice now lives in PROJECT.md, which survives re-runs.
+WC="$(mktemp -d)/repo"; mkdir -p "$WC/src/main/java/com/x"; touch "$WC/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WC/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+grep -q '^- Architecture style: none' "$WC/.claude/claudehut/PROJECT.md" \
+  && ok "RULE-16: PROJECT.md carries a declarable architecture style, defaulting to none" \
+  || bad "RULE-16: PROJECT.md has no architecture-style line"
+[ -f "$WC/.claude/rules/architecture/ddd.md" ] \
+  && bad "RULE-16: an arch rule was emitted with no style declared" \
+  || ok "RULE-16: no arch rule emitted while the style is none (styles are mutually exclusive)"
+perl -pi -e 's/^- Architecture style: none/- Architecture style: ddd/' "$WC/.claude/claudehut/PROJECT.md"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+[ -f "$WC/.claude/rules/architecture/ddd.md" ] \
+  && ok "RULE-16: a style declared in PROJECT.md is read back on the next run (no env var needed)" \
+  || bad "RULE-16: the declared style was ignored — the axis is still env-var-only"
+rm -rf "$WC"
+# db must use the same bare `none` as every other axis; "(none)" could never match a db=none tag
+WD="$(mktemp -d)/repo"; mkdir -p "$WD/src/main/java/com/x"; touch "$WD/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WD/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WD" --detect | grep -q '"db":"none"' \
+  && ok "RULE-16: the db axis reports bare none, consistent with every other axis" \
+  || bad "RULE-16: the db axis still reports (none) — a db=none tag could never match it"
+rm -rf "$WD"
 
 echo; echo "== RULE-15: the java= axis gates version-specific rules =="
 # JAVA_VERSION was detected and printed but never entered ACTIVE, so framework/virtual-threads.md (Java 21)

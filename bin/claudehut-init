@@ -76,7 +76,7 @@ else ORM=none; ORM_S="(none)"; fi
 
 if   has 'postgresql'; then DB=postgresql
 elif has 'mysql';      then DB=mysql
-else DB="(none)"; fi
+else DB=none; fi   # RULE-16: bare `none`, matching every other axis — `(none)` could never match a `db=none` tag
 
 if   has 'spring-kafka|kafka-clients'; then MSG=kafka
 elif has 'starter-amqp|rabbit';        then MSG=rabbitmq
@@ -141,8 +141,18 @@ else
   LAYER_CONVENTION="(not detected — no conventional layer packages found; record the real convention here)"
 fi
 
-ARCH="${CLAUDEHUT_ARCH:-none}"
-case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+# RULE-16 — the arch axis was reachable ONLY through an env var, and no real install sets it. So the three
+# architecture rules never emit on a fresh init, while every project created before the axis existed still
+# carries all three contradictory files. Make the choice durable and visible: env var wins, else whatever
+# PROJECT.md declares (it survives re-runs and is the file a human actually edits), else none.
+CHD_EARLY=".claude/claudehut"
+ARCH_DECLARED="$(grep -m1 -oE '^- Architecture style: *[a-z]+' "$CHD_EARLY/PROJECT.md" 2>/dev/null | sed -E 's/.*: *//')"
+ARCH="${CLAUDEHUT_ARCH:-${ARCH_DECLARED:-none}}"
+case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH/PROJECT.md architecture style '$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+# --detect prints JSON to stdout and nothing else may go there, or every parser of it breaks.
+if [ "$ARCH" = none ] && ! $DETECT; then
+  echo "  note: no architecture style declared — set 'Architecture style:' in .claude/claudehut/PROJECT.md (ddd|hexagonal|cqrs) to activate the matching rule"
+fi
 
 if $DETECT; then
   printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s"}\n' \
@@ -159,7 +169,7 @@ add PROJECT_NAME "$PROJECT_NAME"; add BUILD_TOOL "$BUILD_TOOL"; add VERIFY_COMMA
 add JAVA_VERSION "$JAVA_VERSION"; add SPRING_MODULES "$SPRING_MODULES"; add REACTIVE_OR_MVC "$REACTIVE_OR_MVC"
 add ORM "$ORM_S"; add DATABASE "$DB"; add MESSAGING "$MSG"; add CACHE "$CACHE_S"
 add BASE_PACKAGE "$BASE_PACKAGE"; add LAYER_CONVENTION "$LAYER_CONVENTION"; add ENTRY_POINTS "$ENTRY_POINTS"
-add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_LIST"; add PACKAGE_TREE "$PACKAGE_TREE"
+add ARCH "$ARCH"; add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_LIST"; add PACKAGE_TREE "$PACKAGE_TREE"
 add CONTROLLER_TERM controller; add SERVICE_TERM service; add REPOSITORY_TERM repository
 add CONTROLLER_MEANING "inbound web adapter; thin"; add SERVICE_MEANING "application/use-case layer; owns the transaction"
 add REPOSITORY_MEANING "persistence port"; add ADAPTER_MEANING "concrete impl of a port"; add AGGREGATE_MEANING "DDD root (if used)"
