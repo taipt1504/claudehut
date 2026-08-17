@@ -351,6 +351,29 @@ printf '{"session_id":"CUR","source":"startup"}' \
   || bad "ST-1: cleanup removed a fresh sidecar or the durable store"
 rm -rf "$TE"
 
+echo "== LRN-10: version counters must not fork one lesson into many =="
+# The real store holds two entries whose triggers are "flyway|free|migration|next|v42" and "...|v43" --
+# the same lesson, one fresh copy per migration forever, because the version number keeps them distinct.
+mk() { mkdir -p "$1/.claude/claudehut/state" "$1/.claude/rules"; }
+TF="$(mktemp -d)"; mk "$TF"
+printf '%s\n' '{"id":"L-0001","category":"convention","trigger":"flyway|migration|next|v42","learning":"the next free Flyway version must be checked against the migration folder before writing one","evidence":"db/migration:1","confidence":0.7,"hits":2,"ts":"2026-08-15T00:00:00Z"}' > "$TF/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"convention","trigger":"flyway|migration|next|v43","learning":"the next free Flyway version must be checked against the migration folder before writing one","evidence":"db/migration:2"}' > "$TF/c.jsonl"
+CLAUDE_PROJECT_DIR="$TF" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TF/c.jsonl" --session s >/dev/null 2>&1
+[ "$(grep -c '' "$TF/.claude/claudehut/learnings.jsonl")" = "1" ] \
+  && ok "LRN-10: v42 and v43 of the same lesson merge into one live entry" \
+  || bad "LRN-10: the Flyway lesson still forks one entry per migration version"
+rm -rf "$TF"
+# The control matters more than the fix: collapsing ALL digits would merge lessons about different
+# SQLSTATE codes, which this codebase actually has.
+TG="$(mktemp -d)"; mk "$TG"
+printf '%s\n' '{"id":"L-0001","category":"pitfall","trigger":"sqlstate|25006|readonly","learning":"a write routed to a replica fails with SQLSTATE 25006 read-only transaction and must be pinned to primary","evidence":"a.java:1","confidence":0.7,"hits":2,"ts":"2026-08-15T00:00:00Z"}' > "$TG/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"pitfall","trigger":"sqlstate|40001|readonly","learning":"a serialization failure surfaces as SQLSTATE 40001 and must be retried by the caller with backoff","evidence":"b.java:1"}' > "$TG/c.jsonl"
+CLAUDE_PROJECT_DIR="$TG" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TG/c.jsonl" --session s >/dev/null 2>&1
+[ "$(grep -c '' "$TG/.claude/claudehut/learnings.jsonl")" = "2" ] \
+  && ok "LRN-10: two different SQLSTATE codes stay separate (normalisation is version-only)" \
+  || bad "LRN-10: over-merged — distinct error codes collapsed into one entry"
+rm -rf "$TG"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

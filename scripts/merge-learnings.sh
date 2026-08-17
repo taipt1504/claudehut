@@ -132,7 +132,14 @@ CANDS="$(jq -c '[ .[] | select(._q >= 0.4) | del(._q) ]' <<<"$QSCORED" 2>/dev/nu
 # ── MERGE: dedup by (category + normalized trigger); merge or append. Normalization is the same rule
 #    the schema documents: lowercase, split on | / space / comma / hyphen, drop empties, sort, rejoin "|".
 STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts "$TS" --arg project "$PROJECT" --argjson injected "$INJ_IDS" '
-  def norm($t): ($t // "") | ascii_downcase | [scan("[a-z0-9+_]+")] | sort | join("|");
+  # LRN-10: collapse VERSION-like tokens before dedup. Two entries in the real store carry the triggers
+  # "flyway|free|migration|next|v42" and "...|v43" — the same lesson, one fresh copy per migration forever,
+  # because the version number keeps them distinct. Only v<digits> (and Flyway V<digits>__name) collapse:
+  # normalising ALL digits would merge genuinely different lessons, such as two about different SQLSTATE
+  # codes, which this codebase actually has (25006 vs 40001).
+  def norm($t): ($t // "") | ascii_downcase
+    | gsub("(?<a>[^a-z0-9]|^)v[0-9]+(__[a-z0-9_]*)?"; .a + "vN")
+    | [scan("[a-z0-9+_]+")] | sort | join("|");
   def keyf($e): (($e.category // "note")) + "\u0000" + norm($e.trigger);
   def lpad4($n): ($n|tostring) as $s | (if (4 - ($s|length)) > 0 then ("0" * (4 - ($s|length))) else "" end) + $s;
 
