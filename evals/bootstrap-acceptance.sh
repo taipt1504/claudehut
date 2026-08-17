@@ -35,9 +35,15 @@ printf 'dependencies { implementation("org.springframework.boot:spring-boot-star
 
 echo "== IDEA-R16: one ordinary Java request, real session =="
 R="$W/.stream.jsonl"
+# A whole real session under bypassPermissions — the riskiest headless call in this repo, and the one that
+# most needs a ceiling. The number is a LITERAL and deliberately generous (it matches run.sh's whole-session
+# default): a cap that truncates the session mid-run leaves a short-but-non-empty stream, which sails past
+# the empty-stream SKIP below and reports the probe's assertions as FAIL. Do not lower it, and do not wire it to
+# CLAUDEHUT_EVAL_BUDGET — the playbook probes default that knob to 1.00, which would false-RED this probe.
 ( cd "$W" && claude -p "Add a retry to the payment client." \
     --plugin-dir "$ROOT" \
     --permission-mode bypassPermissions \
+    --max-budget-usd 3.00 \
     --output-format stream-json --verbose > "$R" 2>/dev/null )
 
 if [ ! -s "$R" ]; then

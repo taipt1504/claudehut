@@ -30,6 +30,59 @@ live_description() { # $1 skill name — the description exactly as the runtime 
   sed -n 's/^description: *//p' "$ROOT/skills/$1/SKILL.md" | head -1
 }
 
+# 95% Wilson score interval for k successes in n trials, printed beside every fraction the model arm
+# reports. A bare "17/24" invites a decision the sample cannot support: two runs of the `review` fixture
+# returned 17/24 then 18/24 and both were discarded as noise BY HAND, with no statistic behind the call.
+# Their intervals — [0.508, 0.851] and [0.551, 0.880] — overlap almost entirely, so the discard is now
+# mechanical rather than a judgement.
+# Wilson and not the normal approximation, because recall measurements land on the boundaries: at 0/n and
+# n/n the normal approximation collapses to a zero-width interval and can leave [0,1] altogether.
+# Read the WIDTH as a trial budget: at n=24 the interval spans ~0.34, so nothing short of a ~30-point
+# recall swing is distinguishable from noise, and detecting less needs more runs. Honest caveat — n here is
+# queries × runs and the runs of one query are correlated, not iid, so the true interval is somewhat WIDER
+# than what this prints. Treat it as a floor on the uncertainty, never a ceiling.
+wilson() { # $1 successes  $2 trials -> "[lo, hi]"
+  awk -v k="$1" -v n="$2" 'BEGIN{
+    if (n <= 0) { printf "[n/a]"; exit }
+    z = 1.96; z2 = z * z; p = k / n; d = 1 + z2 / n
+    c = (p + z2 / (2 * n)) / d
+    h = (z / d) * sqrt(p * (1 - p) / n + z2 / (4 * n * n))
+    lo = c - h; hi = c + h
+    if (lo < 0) lo = 0   # float noise only — Wilson is analytically inside [0,1], which is why it is used
+    if (hi > 1) hi = 1
+    printf "[%.3f, %.3f]", lo, hi
+  }'
+}
+
+wilson_selftest() {
+  # The arithmetic must be checkable WITHOUT the model arm — that arm costs tokens and is excluded from CI.
+  # Hand-computed at z=1.96 and asserted as exact strings, not as membership in [0,1]: a range check would
+  # not catch a normal-approximation regression, which is the one mistake this instrument exists to avoid
+  # (it answers [0.000, 0.000] for 0/10 and [1.000, 1.000] for 10/10 and passes any range check).
+  local k n want got
+  while read -r k n want; do
+    got="$(wilson "$k" "$n")"
+    [ "$got" = "$want" ] \
+      && ok "wilson $k/$n = $got" \
+      || bad "wilson $k/$n = $got, expected $want"
+  done <<'CASES'
+0 10 [0.000, 0.278]
+10 10 [0.722, 1.000]
+17 24 [0.508, 0.851]
+18 24 [0.551, 0.880]
+CASES
+  # The motivating case, asserted instead of argued: the two `review` runs are one measurement.
+  local a_hi b_lo
+  a_hi="$(wilson 17 24)"; a_hi="${a_hi##*, }"; a_hi="${a_hi%\]}"
+  b_lo="$(wilson 18 24)"; b_lo="${b_lo#\[}";   b_lo="${b_lo%%,*}"
+  awk -v x="$b_lo" -v y="$a_hi" 'BEGIN{ exit !(x + 0 < y + 0) }' \
+    && ok "17/24 and 18/24 overlap ($b_lo < $a_hi) — noise, not a regression" \
+    || bad "17/24 and 18/24 no longer overlap ($b_lo >= $a_hi) — a discard made by hand would now read as signal"
+  # A fixture with an empty arm would otherwise divide by zero and print inf.
+  got="$(wilson 0 0)"
+  [ "$got" = "[n/a]" ] && ok "wilson on an empty sample reports n/a" || bad "wilson 0/0 = $got, expected [n/a]"
+}
+
 validate() {
   echo "== trigger-eval fixtures (deterministic) =="
   local n=0
@@ -63,6 +116,8 @@ validate() {
   [ "${dup:-0}" = "0" ] \
     && ok "every positive query maps to exactly one intended skill" \
     || bad "$dup quer(y/ies) are positives for more than one skill — the set cannot discriminate"
+  echo "-- Wilson interval arithmetic (the statistic the model arm prints; no model call needed) --"
+  wilson_selftest
   echo; echo "TRIGGER-EVAL(validate): $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
 }
 
@@ -85,7 +140,12 @@ model_arm() {
         # </dev/null is load-bearing: `claude -p` reads stdin, and inside a `while read` loop it consumes
         # the loop's remaining queries. Without it exactly ONE query runs and the run reports 3/3 — a
         # perfect score measured on one eighth of the set.
-        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text </dev/null 2>/dev/null | tr -d '[:space:]')"
+        # --max-budget-usd is PER INVOCATION, and this loop floors at ~288 of them per full run (6 fixtures
+        # × >=16 queries × 3 runs), so it caps a single runaway call, not the run total. Literal, like
+        # llm-judge.sh:90's one-shot judge call, and deliberately loose for the shape: the answer is one
+        # word, so a tighter cap would truncate a legitimate call to empty — which this loop records as a
+        # MISS, silently corrupting the very recall number the eval exists to measure.
+        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text --max-budget-usd 1.00 </dev/null 2>/dev/null | tr -d '[:space:]')"
         if [ "$ans" = "$name" ]; then hit=$((hit+1)); qhit=$((qhit+1)); else lost="$lost ${ans:-empty}"; fi
       done
       # Record WHAT it answered instead. Hit/miss alone cannot be diagnosed: a first diagnostic run showed
@@ -100,12 +160,13 @@ model_arm() {
       local qfp=0
       for _ in $(seq 1 "$runs"); do
         ntot=$((ntot+1))
-        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text </dev/null 2>/dev/null | tr -d '[:space:]')"
+        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text --max-budget-usd 1.00 </dev/null 2>/dev/null | tr -d '[:space:]')"
         [ "$ans" = "$name" ] && { fp=$((fp+1)); qfp=$((qfp+1)); }
       done
       [ "$qfp" = "0" ] || printf '    POACH %s/%s  %s\n' "$qfp" "$runs" "${q:0:72}"
     done < <(jq -r '.should_not_trigger[]' "$f")
-    printf '  %-20s recall %s/%s   false-positives %s/%s\n' "$name" "$hit" "$tot" "$fp" "$ntot"
+    printf '  %-20s recall %s/%s %s   false-positives %s/%s %s\n' \
+      "$name" "$hit" "$tot" "$(wilson "$hit" "$tot")" "$fp" "$ntot" "$(wilson "$fp" "$ntot")"
   done
 }
 
