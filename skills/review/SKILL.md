@@ -133,8 +133,8 @@ flowchart TB
 
 Pick the **cheapest test that proves the behavior**, and reject a test that proves less than it claims:
 Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last resort, and never
-`Thread.sleep` for async (Awaitility / `StepVerifier`). **Read the SLICE, not the whole file** — `references/test-matrix.md#web-slice-mvc`,
-`references/test-matrix.md#web-slice-webflux`, `references/test-matrix.md#async-without-sleep`.
+`Thread.sleep` for async (Awaitility / `StepVerifier`).
+**`references/test-matrix.md` is the ladder — read it before judging a test choice, and read the SLICE, not the whole file:** `references/test-matrix.md#web-slice-mvc`, `references/test-matrix.md#web-slice-webflux`, `references/test-matrix.md#async-without-sleep`.
 
 ## Exit
 
