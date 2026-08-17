@@ -44,6 +44,30 @@ else
   echo "  FAIL - MCP inventory: evals/mcp-inventory.json missing"; FAIL=$((FAIL+1))
 fi
 
+# TOOLS-01 — the inventory check above is structurally blind to the defect it exists to catch. It greps for
+# the `mcp__server__tool` shape, so an agent body that tells its reader to "use `describe_topic`" matches
+# nothing and ships green — while the runtime has no tool by that bare name and the call is rejected. Two
+# bodies shipped exactly that. Scope this to `## MCP` sections: a repo-wide sweep for tool-shaped identifiers
+# false-positives on ordinary prose (`KafkaTemplate`, `application.yml`, SQL keywords). Match hyphen AND
+# underscore forms — the real Kafka names are hyphenated (`mcp__kafka__list-topics`), so an underscore-only
+# pattern would be blind to the likeliest next slip. Tokens naming a real agent or bin/ executable
+# (`claudehut-init`) are plugin references, not tool calls.
+BARE=""
+for f in "$ROOT"/agents/*.md; do
+  sec="$(awk '/^## MCP/{p=1;next} /^## /{p=0} p' "$f" 2>/dev/null)"
+  [ -n "$sec" ] || continue
+  for tok in $(printf '%s\n' "$sec" | grep -ohE '`[a-z0-9]+([_-][a-z0-9]+)+`' | tr -d '`' | sort -u); do
+    case "$tok" in mcp__*) continue ;; esac
+    { [ -f "$ROOT/agents/$tok.md" ] || [ -e "$ROOT/bin/$tok" ]; } && continue
+    BARE="$BARE $(basename "$f" .md):$tok"
+  done
+done
+if [ -z "${BARE// /}" ]; then
+  echo "  ok   - MCP prose: every tool named in a '## MCP' section is fully qualified"; PASS=$((PASS+1))
+else
+  echo "  FAIL - MCP prose: bare tool name(s) with no mcp__server__tool prefix (the runtime has no such tool):$BARE"; FAIL=$((FAIL+1))
+fi
+
 # MCP-PIN: every catalog row must constrain the server it recommends. postgres pins --access-mode, kafka
 # pins --allow-tools, and github was the exception — added at the default endpoint, which serves
 # create_pull_request / merge_pull_request / push_files / delete_file to a reviewer agent whose stated need
