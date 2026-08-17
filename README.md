@@ -300,16 +300,39 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed)
-evals/conformance.sh          # 49 structural/wiring checks
-evals/gate-tests.sh           # 21 tests of the write/done enforcement gates
-evals/init-tests.sh           # 36 tests of claudehut-init (detect + plane generation)
-evals/ranker-tests.sh         # 5 reuse-ranker tests
+# deterministic (free, no Claude needed) — 603 assertions, all green on the release commit
+evals/conformance.sh              # 270  structural + behavioural wiring checks
+evals/gate-tests.sh               # 105  write/done enforcement gates
+evals/init-tests.sh               # 102  claudehut-init: detection, plane generation, migrations
+evals/merge-learnings-tests.sh    #  51  learnings merge, prune, injection, federation
+evals/reference-check.sh          #  16  reference oracles, MCP inventory, doc anchors, NUL bytes,
+                                  #       and the freshness of the counts in this very list
+evals/trigger-eval.sh --validate  #  19  skill-description trigger fixtures
+evals/worktree-tests.sh           #  18  parallel-implementer worktree lifecycle
+evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
+evals/ranker-tests.sh             #   8  reuse ranker
+scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
-# live (drives Claude headlessly; costs tokens)
-evals/run.sh [--live]         # scenario runner over fixtures (answer-key-leak guarded, dry-runs without --live)
-evals/playbook-read-probe.sh  # measures create-time playbook-read behavior
-evals/p7-init.sh              # confirms init invocation produces the project plane
+# live (drives Claude headlessly; costs tokens) — NOT in CI
+evals/run.sh [--live]             # scenario runner over fixtures (answer-key-leak guarded; dry-runs without --live)
+evals/trigger-eval.sh --skill X   # does a skill's DESCRIPTION actually trigger it? 16 queries x 3 runs
+evals/bootstrap-acceptance.sh     # one real session, one ordinary request: did SessionStart fire at all?
+evals/playbook-read-probe.sh      # create-time playbook-read behaviour
+evals/p7-init.sh                  # init invocation produces the project plane
+```
+
+**Release checklist** — the deterministic suite runs in CI; these do not, and a release should not ship
+without them:
+
+```bash
+bash evals/bootstrap-acceptance.sh          # the highest-consequence single point of failure: if the
+                                            # SessionStart hook stops firing, the write gate, the skill
+                                            # rail and the profile gate are all silently inert, and every
+                                            # other eval still passes because they call the scripts directly
+bash evals/trigger-eval.sh --skill <skill>  # required after ANY change to a skill's description:
+                                            # --validate goes red until the fixture is refreshed, and
+                                            # refreshing it without re-running this is a false green
+claude plugin validate . --strict
 ```
 
 Measured findings and the prioritized optimization log are in [`evals/EVAL-REPORT.md`](evals/EVAL-REPORT.md).

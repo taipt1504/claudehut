@@ -123,6 +123,50 @@ else
   echo "  FAIL - $dd_bad of $dd_n design-doc anchor(s) do not resolve"; FAIL=$((FAIL+1))
 fi
 
+# A literal NUL makes a file BINARY to git, grep and every review tool — the content is still there and
+# every search silently stops finding it. This project shipped that once in v0.10 (merge-learnings.sh and
+# record-failure.sh, where a NUL separator was written raw instead of as \u0000), and the v0.11 plan file
+# arrived with one for the same reason: prose DESCRIBING the separator. Cheap to check, invisible without it.
+nul_bad=0
+while IFS= read -r f; do
+  case "$f" in *.png|*.jpg|*.gif|*.ico|*.zip) continue ;; esac
+  [ -f "$ROOT/$f" ] || continue
+  if LC_ALL=C tr -d '\000' < "$ROOT/$f" | cmp -s - "$ROOT/$f"; then : ; else
+    echo "  FAIL - NUL byte in tracked text file: $f (git will treat it as binary)"; nul_bad=$((nul_bad+1))
+  fi
+done < <(cd "$ROOT" && git ls-files 2>/dev/null)
+if [ "$nul_bad" = "0" ]; then
+  echo "  ok   - no tracked text file contains a NUL byte"; PASS=$((PASS+1))
+else
+  echo "  FAIL - $nul_bad tracked file(s) contain a NUL byte"; FAIL=$((FAIL+1))
+fi
+
+# The README's eval counts were stale by an order of magnitude — it advertised "49 structural checks" for a
+# suite that had grown to 270. A count in prose rots the moment a test is added, so pin the claim: every
+# number the README states for a suite must match what that suite actually reports.
+# reference-check.sh is deliberately NOT in this list: a suite that asserts its own advertised count would
+# have to run itself. Its README number is maintained by hand and is the one entry this check cannot cover.
+rd_bad=0
+while IFS='|' read -r script claimed; do
+  [ -n "$claimed" ] || continue
+  actual="$(bash "$ROOT/evals/$script" 2>/dev/null | grep -oE '[0-9]+ passed' | head -1 | grep -oE '[0-9]+')"
+  [ "$actual" = "$claimed" ] \
+    || { echo "  FAIL - README claims $claimed assertions for $script, it reports ${actual:-none}"; rd_bad=$((rd_bad+1)); }
+done <<'PAIRS'
+conformance.sh|270
+gate-tests.sh|105
+init-tests.sh|102
+merge-learnings-tests.sh|51
+worktree-tests.sh|18
+artifact-oracle-tests.sh|14
+ranker-tests.sh|8
+PAIRS
+if [ "$rd_bad" = "0" ]; then
+  echo "  ok   - README eval counts match the suites"; PASS=$((PASS+1))
+else
+  echo "  FAIL - $rd_bad README eval count(s) are stale"; FAIL=$((FAIL+1))
+fi
+
 echo
 echo "REFERENCE-CHECK: $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ]
