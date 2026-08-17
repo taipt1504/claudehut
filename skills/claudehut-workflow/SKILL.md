@@ -43,7 +43,7 @@ lane.**
 | Tier | When (your assessment) | Phases run | Skips |
 |------|------------------------|------------|-------|
 | **trivial** | comment/doc/rename/config-value; no logic change | Discover (quick) → Implement → Review (min) | Brainstorm, Spec, Plan |
-| **small** | ≤2 files, no new component, **no security/auth/migration surface**, **and one obvious approach** | Discover → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
+| **small** | ≤2 files, no new component, **no security/auth/migration surface**, **and one obvious approach** | Discover (inline) → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
 | **full** (default) | new component, multi-file, architectural, security/auth/migration surface, **OR a non-obvious design choice / ≥2 viable approaches** | all 7 | — |
 
 **Tier by the hardest QUESTION, not the diff size** — *you* escalate on reasoning-complexity. **The fast lane

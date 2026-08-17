@@ -424,6 +424,27 @@ HJ="$ROOT/hooks/hooks.json"
 # … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
 # process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
 # reading its own guard. One rule per handler, so two handlers become four.
+# RES-M14/IDEA-F2 — `small` paid the ~26s two-subagent dispatch floor for a change bounded at two files.
+# The carve-out is INLINE WITH ARTIFACT: it replaces the dispatch, never the scan. Both halves are asserted,
+# because "small skips the scan" is the failure this must not become — the reuse-scan rail is unconditional
+# in every tier and the write gate still requires the file.
+DSC="$ROOT/skills/discover/SKILL.md"
+grep -q '`trivial` and `small` tiers → INLINE DISCOVER' "$DSC" \
+  && ok "RES-M14: small runs discover inline (no dispatch floor)" \
+  || bad "RES-M14: small still pays the two-subagent dispatch floor"
+grep -q 'Inline replaces the \*dispatch\*, never the \*scan\*' "$DSC" \
+  && ok "IDEA-F2: the artifact is still mandatory on the inline path" \
+  || bad "IDEA-F2: the inline carve-out no longer states that the scan itself is unconditional"
+# the tier table is duplicated in the injected digest and in SKILL.md; row 11 pins them to agree
+for f in "$ROOT/skills/claudehut-workflow/references/digest.md" "$ROOT/skills/claudehut-workflow/SKILL.md"; do
+  grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$f" \
+    || bad "RES-M14: $(basename "$f") tier table still routes small through a dispatched Discover"
+done
+grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/references/digest.md" \
+  && grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/SKILL.md" \
+  && ok "RES-M14: both copies of the tier table route small through an inline Discover" \
+  || bad "RES-M14: the two tier tables disagree about small"
+
 # PLUMB-F-02/F-06 — SubagentStart does not carry the requested subagent_type, so record-dispatch.sh could
 # log that something was dispatched but not what. The Agent tool call carries it, with a tool_use_id both
 # sides share. This hook records the identity half.

@@ -227,6 +227,30 @@ echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":false}' | "
   && ok "scoped: stop_hook_active cap still fails open" || bad "scoped: cap broken"
 rm -rf "$TMP"
 
+echo "== PLUMB-F-11: the fast-lane bound counts the WHOLE write batch =="
+# The bound counted only head -1 of the extracted path list, so a MultiEdit creating five production files
+# contributed ONE toward a cap of two — the fast lane passed exactly the change it is sized to reject.
+new_proj
+( cd "$CLAUDE_PROJECT_DIR" && git init -q 2>/dev/null )
+mkdir -p "$CLAUDE_PROJECT_DIR/src/main/java" "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+# set-reuse-scan validates the artifact's SHAPE (Fit/Impact columns), so a stub file is rejected and the
+# gate then denies for a missing scan rather than for the cap — which is what made the first version of
+# this test green with the fix reverted.
+printf '# reuse scan\n| Dimension | Existing asset | Decision | Fit | Impact | Effort |\n|---|---|---|---|---|---|\n| util | none | build | n/a | low | S |\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st set-phase discover
+st set-complexity small
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st mark-skill implement
+_fe() { printf '{"file_path":"%s/src/main/java/%s.java","changes":[]}' "$CLAUDE_PROJECT_DIR" "$1"; }
+BATCH5='{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_edits":['"$(_fe A),$(_fe B),$(_fe C),$(_fe D),$(_fe E)"']}}'
+# Assert the REASON, not just the decision: a bare "denies" stayed green with the fix reverted, because the
+# fixture was denying for an unrelated reason and the test proved nothing about the cap.
+b5reason="$(printf '%s' "$BATCH5" | "$ROOT/scripts/gate-write.sh" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')"
+printf '%s' "$b5reason" | grep -q 'touches 5 files' \
+  && ok "PLUMB-F-11: a 5-file MultiEdit is denied BY THE CAP (reason names all 5)" \
+  || bad "PLUMB-F-11: denial reason was '$(printf '%s' "$b5reason" | cut -c1-70)' — the cap counted fewer than 5"
+
 echo "== gate-write: MultiEdit (P1-2) =="
 new_proj; st set-phase brainstorm
 chd="$CLAUDE_PROJECT_DIR/.claude/claudehut"; mkdir -p "$chd"

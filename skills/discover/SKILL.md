@@ -65,12 +65,16 @@ flowchart TB
 
 2. **Tier branch — how the scan runs depends on the recorded complexity tier** (the diagram's `tier` diamond):
 
-   **`trivial` tier → INLINE DISCOVER (no subagents).** A no-logic change does not justify the ~26s
+   **`trivial` and `small` tiers → INLINE DISCOVER (no subagents).** Neither justifies the ~26s
    2-subagent dispatch floor (measured). The main thread does the scan itself (≤3 targeted Grep
    calls — the class, its annotations/signature shape, the config prefix), writes
    `tasks/NNNN-<slug>/reuse-scan.md` following the Summary-table format of `references/reuse-scan-template.md`,
    then proceeds straight to Implement — **still invoking `claudehut:implement` first; the gate's skill rail
    applies in every tier.** Inline replaces the *dispatch*, never the *scan* — the gate still requires the file.
+   On `small`, widen the sweep to ~5 Greps (the change is bounded at 2 files, not at 1 concept) and keep the
+   same artifact. If the scan turns up a reusable asset that changes the shape of the work, or the change
+   grows past the fast-lane bound, escalate to `full` and dispatch properly — inline is a cost decision, not
+   a licence to scan less.
 
    **`small`/`full` tiers → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
    calls in a single response — the native concurrency mechanism; their inputs are independent). **In these

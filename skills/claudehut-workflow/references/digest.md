@@ -12,7 +12,7 @@ change cannot be routed into a fast lane.
 | Tier | When | Phases run | Skips |
 |------|------|------------|-------|
 | **trivial** | comment/doc/rename/config value; no logic change | Discover (inline) → Implement → Review (min) | Brainstorm, Spec, Plan |
-| **small** | ≤2 files, no new component, no security/auth/migration surface, one obvious approach | Discover → Implement → Review → Learn | Brainstorm, Spec, Plan |
+| **small** | ≤2 files, no new component, no security/auth/migration surface, one obvious approach | Discover (inline) → Implement → Review → Learn | Brainstorm, Spec, Plan |
 | **full** (default) | new component, multi-file, architectural, security/auth/migration, OR ≥2 viable approaches | all 7 | — |
 
 `claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity <tier>`. Tier by the **hardest question**, not
