@@ -254,6 +254,47 @@ jq -e '.applied == 1' "$T9/.claude/claudehut/state/sx.learn-receipt.json" >/dev/
   || bad "LRN-2: .applied is still 0 unless the caller passes --injected — the loop stays open"
 rm -rf "$T9"
 
+echo "== LRN-5/6/8: injection budget — diversity, capped citations, contentless rows =="
+TA="$(mktemp -d)"; mkdir -p "$TA/.claude/claudehut/state"
+# a store skewed the way the real one is: payment-gateway-ms holds 167 pitfalls out of 360, and a pure
+# top-12 by score returned 8 pitfalls / 3 conventions / 1 finding.
+: > "$TA/.claude/claudehut/learnings.jsonl"
+for i in $(seq 1 10); do
+  printf '{"id":"P-%02d","category":"pitfall","trigger":"t%02d|alpha","learning":"pitfall lesson %02d with enough substance to score above the quality floor for injection","evidence":"Some/Very/Long/Path/To/A/File%02d.java:123 and another/file/path/Here%02d.java:456 plus a third citation Third%02d.java:789","confidence":0.9,"hits":9,"ts":"2026-08-15T00:00:00Z"}\n' "$i" "$i" "$i" "$i" "$i" "$i" >> "$TA/.claude/claudehut/learnings.jsonl"
+done
+for c in convention finding decision reuse; do
+  for i in 1 2; do
+    printf '{"id":"%s-%d","category":"%s","trigger":"%s%d|beta","learning":"%s lesson %d with enough substance to score above the quality floor for injection","evidence":"Short%d.java:1","confidence":0.8,"hits":5,"ts":"2026-08-15T00:00:00Z"}\n' "$c" "$i" "$c" "$c" "$i" "$c" "$i" "$i" >> "$TA/.claude/claudehut/learnings.jsonl"
+  done
+done
+blk="$(CLAUDE_PROJECT_DIR="$TA" bash "$ROOT/scripts/inject-learnings.sh" --top 12 --max-len 200 2>/dev/null)"
+maxcat="$(printf '%s\n' "$blk" | grep -oE '^- \[[a-z]+\]' | sort | uniq -c | sort -rn | head -1 | awk '{print $1}')"
+ncat="$(printf '%s\n' "$blk" | grep -oE '^- \[[a-z]+\]' | sort -u | grep -c .)"
+# The cap is 3 per category, applied to the diverse PREFIX. When the store is skewed hard enough that
+# three-per-category cannot fill the block, the remaining slots are filled from what is left rather than
+# emitting a shorter block — the budget is already paid for. So the guarantee is: every available category
+# is represented, and the dominant one no longer owns the block. This fixture is deliberately more skewed
+# than the real store, where the result was 3/3/3/2/1 with no overflow at all.
+{ [ "${ncat:-0}" -ge 5 ] && [ "${maxcat:-99}" -le 4 ]; } \
+  && ok "LRN-6: top-12 spans ${ncat} categories, largest ${maxcat} (was 3 categories, largest 8)" \
+  || bad "LRN-6: ${ncat} categories with the largest at ${maxcat} — diversity constraint not effective"
+[ "$(printf '%s\n' "$blk" | grep -c '^- \[')" = "12" ] \
+  && ok "LRN-6: diversity does not shorten the block (still 12 entries)" \
+  || bad "LRN-6: the diversity constraint dropped entries instead of reordering them"
+longest_ev="$(printf '%s\n' "$blk" | grep -oE '\([^()]*\) \[conf' | awk '{print length}' | sort -rn | head -1)"
+[ "${longest_ev:-999}" -le 100 ] \
+  && ok "LRN-5: citations are capped (longest ${longest_ev} chars; real entries carried 150+)" \
+  || bad "LRN-5: an uncapped citation of ${longest_ev} chars is still spending the injection budget"
+rm -rf "$TA"
+TB="$(mktemp -d)"; mkdir -p "$TB/.claude/claudehut/tasks/0001-x" "$TB/.claude/claudehut/state"
+printf '%s\n' '| item | status | evidence |' '| x | ✗ violated | |' '| N+1 in OrderRepo | ✗ violated | OrderRepo.java:42 |' > "$TB/.claude/claudehut/tasks/0001-x/review.md"
+CLAUDE_PROJECT_DIR="$TB" bash "$ROOT/scripts/harvest-candidates.sh" --session s --task-dir .claude/claudehut/tasks/0001-x >/dev/null 2>&1
+cn="$(grep -c '' "$TB/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl" 2>/dev/null || echo 0)"
+{ [ "$cn" = "1" ] && grep -q 'OrderRepo.java:42' "$TB/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl"; } \
+  && ok "LRN-8: a contentless ✗ row is rejected while the cited one is kept" \
+  || bad "LRN-8: expected exactly the cited row to survive, got $cn candidate(s)"
+rm -rf "$TB"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

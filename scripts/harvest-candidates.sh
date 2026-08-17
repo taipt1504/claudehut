@@ -61,6 +61,16 @@ if [ -f "$RV" ]; then
     item="$(printf '%s' "$row" | awk -F'|' 'NF>2{print $2}' | sed 's/^ *//;s/ *$//')"
     [ -n "$item" ] || continue
     ev="$(printf '%s' "$row" | grep -oE '[A-Za-z0-9_/]+\.(java|kt|kts|sql|ts)[:0-9]*' | head -1)"
+    # LRN-8: gate contentless rows. Every ✗ row became a candidate, and the emitter always attached a
+    # citation placeholder ("no evidence") plus whatever tokens it could scrape — so a row like
+    # "| x | ✗ | |" produced a learning with a one-token trigger and no evidence, competing for the
+    # injection budget against real lessons.
+    # The plan proposed "a citation AND >=2 trigger tokens". The second half is too strict against the
+    # corpus's own canonical good row: "N+1 in OrderRepo" tokenises to just ["orderrepo"], because "n+1"
+    # loses its digits to the separator and "in" is below the length floor. A missing CITATION is the
+    # reliable contentlessness signal; the token floor is one real word.
+    kwn="$(printf '%s' "$item" | tr 'A-Z' 'a-z' | grep -oE '[a-z0-9]{3,}' | sort -u | grep -c . || echo 0)"
+    if [ -z "$ev" ] || [ "${kwn:-0}" -lt 1 ]; then continue; fi
     line="$(jq -nc --arg i "$item" --arg e "${ev:-no evidence}" '
       ($i | ascii_downcase | [scan("[a-z0-9]+")] | map(select(length>2))[0:3]) as $kw
       | {category:"finding", trigger:($kw | join("|")),

@@ -67,10 +67,28 @@ BODY="$(jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
     | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
     | map(select((.id // "") as $i | ($exids | index($i)) == null))
     | sort_by(-._score)
+    # LRN-6: diversity. Measured on the real payment-gateway-ms store (360 entries, 167 of them pitfalls),
+    # a pure top-12 by score returned 8 pitfalls, 3 conventions and 1 finding — two thirds of the always-
+    # loaded block spent on one category, and the conventions/decisions/reuse a fresh session most needs
+    # for orientation squeezed out. Take at most 3 per category, in score order, then fill any remaining
+    # slots from what is left so the block is never SHORTER than it was.
+    | ( reduce .[] as $e ({keep:[], seen:{}};
+          ((.seen[$e.category // "note"] // 0)) as $n
+          | if $n < 3 then {keep:(.keep + [$e]), seen:(.seen | .[$e.category // "note"] = ($n + 1))}
+            else . end) ).keep as $diverse
+    | ($diverse + (. - $diverse))
     | .[0:$top]
     | .[]
     | ( (.learning // "") | if ($maxlen > 0 and (length > $maxlen)) then .[0:$maxlen] + "…" else . end ) as $txt
-    | "- [\(.category // "note")] \($txt)  (\(.evidence // "no evidence")) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
+    # LRN-5: .evidence was interpolated UNCAPPED while .learning was truncated — real entries carry
+    # 150+ char citations, so the block spent its budget on file:line lists instead of on the lesson.
+    # Cut at the last delimiter before the cap so a citation is never sliced mid-path.
+    | ( (.evidence // "no evidence")
+        | if (length > 80)
+          then ( (.[0:80] | (rindex(";") // rindex(",") // rindex(" ") // 80)) as $d
+                 | .[0:(if $d > 40 then $d else 80 end)] + "…" )
+          else . end ) as $ev
+    | "- [\(.category // "note")] \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
   ' 2>/dev/null || true)"
 
 # v0.9 Rec 1 (audit SEC-1): wrap retrieved learnings in a randomized untrusted-data delimiter (the
