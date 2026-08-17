@@ -84,7 +84,14 @@ case "$sub" in
       $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]+[0-9A-Za-z]/ && ($0 ~ /#/ || $0 ~ /\*\*/) { phase++; next }
       $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ {
         n=split($4, f, /[,[:space:]]+/)
-        for (i=1;i<=n;i++) { p=f[i]; gsub(/`/,"",p); if (p ~ /\//) print phase "\t" p }
+        for (i=1;i<=n;i++) { p=f[i]; gsub(/`/,"",p); gsub(/[)(,;]+$/,"",p)
+          # A path was recognised by "contains a /". That dropped the [P] annotation as intended, and ALSO
+          # dropped every repo-root file — pom.xml, build.gradle, build.gradle.kts, settings.gradle — which
+          # is exactly what a "add dependency X" task edits, and exactly where two [P] tasks collide.
+          # Reproduced: two [P] tasks both listing pom.xml were reported as a safe PARALLEL BATCH.
+          # Recognise a FILE instead: a dotted extension, optionally nested. Prose cells ("—", "_(migration)_")
+          # and the annotation carry no such token and still drop out.
+          if (p ~ /^[A-Za-z0-9_.@+-]+(\/[A-Za-z0-9_.@+-]+)*\.[A-Za-z0-9]+$/) print phase "\t" p }
       }' "$plan")"
     overlaps="$(printf '%s\n' "$pairs" | grep -v '^$' | sort | uniq -d)"
     # per-phase parallel-batch schedule (task IDs) — the deterministic plan the implement skill follows

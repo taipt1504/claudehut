@@ -163,6 +163,31 @@ CLAUDE_PROJECT_DIR="$WD" "$ROOT/bin/claudehut-worktree" sweep >/dev/null 2>&1
   || ok "W3 control: a merged-branch worktree is still swept"
 rm -rf "$WD"
 
+echo "== W4: check-disjoint must see repo-ROOT files, not just nested ones =="
+# A path was recognised by "contains a /", which dropped the [P] annotation as intended and ALSO dropped
+# every repo-root file. Reproduced: two [P] tasks both listing pom.xml were reported as a safe PARALLEL
+# BATCH — and "add dependency X" is precisely the task that edits a build file, so this was the collision
+# most likely to happen. orchestration.md calls this command AUTHORITATIVE for the batch schedule.
+CD="$(mktemp -d)"
+( cd "$CD" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo x > f && git add -A && git commit -qm b ) >/dev/null 2>&1
+mkp() { printf '## Phase 1\n| ID | Goal | Files | Test first | Verify |\n|---|---|---|---|---|\n%s\n' "$2" > "$CD/$1"; }
+mkp root.md '| T-001 [P] | a | `pom.xml`, `src/main/java/A.java` | T1 | v |
+| T-002 [P] | b | `pom.xml`, `src/main/java/B.java` | T2 | v |'
+mkp ok.md '| T-001 [P] | a | `src/main/java/A.java` | T1 | v |
+| T-002 [P] | b | `src/main/java/B.java` | T2 | v |'
+mkp prose.md '| T-001 [P] | migration | db/migration/V2__add.sql | — _(migration)_ | v |
+| T-002 [P] | other | src/main/java/B.java | T2 | v |'
+cdj() { CLAUDE_PROJECT_DIR="$CD" "$ROOT/bin/claudehut-worktree" check-disjoint "$CD/$1" 2>&1 | head -1; }
+out_root="$(cdj root.md)"
+case "$out_root" in OVERLAP*) ok "W4: two [P] tasks both editing pom.xml are reported as an OVERLAP" ;; *) bad "W4: a root-file collision was reported as a safe parallel batch" ;; esac
+# Two controls, because a predicate that flags everything would pass the first assertion on its own.
+out_ok="$(cdj ok.md)"
+case "$out_ok" in disjoint*) ok "W4 control: genuinely disjoint nested files stay disjoint" ;; *) bad "W4 control: false overlap — the file predicate is too broad" ;; esac
+out_prose="$(cdj prose.md)"
+case "$out_prose" in disjoint*) ok "W4 control: prose cells (— _(migration)_) create no phantom overlap" ;; *) bad "W4 control: a non-path cell was treated as a file" ;; esac
+rm -rf "$CD"
+
 echo
 echo "WORKTREE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
