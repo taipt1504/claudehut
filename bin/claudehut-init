@@ -363,7 +363,10 @@ if command -v jq >/dev/null 2>&1; then
       echo "  worktree.baseRef=head already set in $SETTINGS"
     else
       tmp="$(mktemp)"
-      if jq '.worktree = (.worktree // {}) | .worktree.baseRef = "head"' "$SETTINGS" > "$tmp" 2>/dev/null; then
+      if jq --arg svc "service.name=$PROJECT_NAME" \
+           '.worktree = (.worktree // {}) | .worktree.baseRef = "head"
+            | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)' \
+           "$SETTINGS" > "$tmp" 2>/dev/null; then
         # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
         # because worktrees then fork from the wrong ref with no sign anything went wrong.
         if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
@@ -377,8 +380,15 @@ if command -v jq >/dev/null 2>&1; then
       fi
     fi
   else
-    printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
-    echo "  created $SETTINGS (worktree.baseRef=head — agent worktrees fork from current HEAD)"
+    # RES-M12: stamp the repo name so telemetry can be sliced per service. Fifteen sibling services all
+    # report as one undifferentiated stream otherwise, and "which repo burned the tokens" is exactly the
+    # question the team is asking. ONLY the resource attribute is written here. OTEL_EXPORTER_OTLP_HEADERS
+    # carries a bearer token and must never enter a committed settings file; the endpoint and headers stay
+    # in the user's own environment.
+    jq -n --arg svc "service.name=$PROJECT_NAME" \
+      '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc}}' > "$SETTINGS" 2>/dev/null \
+      || printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
+    echo "  created $SETTINGS (worktree.baseRef=head; OTEL service.name=$PROJECT_NAME)"
   fi
 else
   echo "  NOTE: jq missing — set worktree.baseRef=\"head\" in $SETTINGS manually (parallel implementers need it)" >&2

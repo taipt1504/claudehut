@@ -201,6 +201,28 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RES-M12: per-repo OTel service.name, and no secrets in a committed file =="
+# Fifteen sibling services report as one undifferentiated telemetry stream otherwise, and "which repo burned
+# the tokens" is the question the team is actually asking.
+WM="$(mktemp -d)/repo"; mkdir -p "$WM/src/main/java/com/x"; touch "$WM/src/main/java/com/x/A.java"
+printf 'rootProject.name = "party-ms"\n' > "$WM/settings.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WM" >/dev/null 2>&1
+jq -e '.env.OTEL_RESOURCE_ATTRIBUTES == "service.name=party-ms"' "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: settings.json stamps service.name from the project name" \
+  || bad "RES-M12: no per-repo service.name — telemetry from 15 services stays one stream"
+# The security constraint is the point, not a detail: OTEL_EXPORTER_OTLP_HEADERS carries a bearer token.
+jq -e '(.env | keys) - ["OTEL_RESOURCE_ATTRIBUTES"] | length == 0' "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: only the resource attribute is written (no endpoint, no headers, no token)" \
+  || bad "RES-M12: init wrote an extra env key into a COMMITTED settings file — check for credentials"
+# A hand-set value is the user's decision and must survive a re-run.
+printf '{"permissions":{"allow":["Bash(ls:*)"]},"env":{"OTEL_RESOURCE_ATTRIBUTES":"service.name=hand-set"}}' > "$WM/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WM" >/dev/null 2>&1
+jq -e '.env.OTEL_RESOURCE_ATTRIBUTES == "service.name=hand-set" and (.permissions.allow | length == 1) and .worktree.baseRef == "head"' \
+   "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: a hand-set service.name and unrelated settings survive a re-run" \
+  || bad "RES-M12: init clobbered a user-set value or an unrelated key"
+rm -rf "$WM"
+
 echo; echo "== RES-X1: a failed write must be reported, not swallowed =="
 # render() chained `sed > tmp && mv -f && echo "wrote"`. On a read-only .claude the chain short-circuited
 # and printed NOTHING — no "wrote", no error — so init reported success while the plane was never written.

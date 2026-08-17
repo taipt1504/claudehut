@@ -374,6 +374,34 @@ CLAUDE_PROJECT_DIR="$TG" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$
   || bad "LRN-10: over-merged — distinct error codes collapsed into one entry"
 rm -rf "$TG"
 
+echo "== IDEA-F4: opt-in learnings federation across sibling services =="
+# Fifteen services in one workspace learn the same lesson fifteen times: each store starts empty and stays
+# local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms. Measured on the real workspace,
+# va-ms holds ZERO learnings and injects nothing.
+FR="$(mktemp -d)"
+for svc in alpha-ms beta-ms; do mkdir -p "$FR/$svc/.claude/claudehut"; done
+printf '%s\n' '{"id":"L-1","category":"pitfall","trigger":"outbox|publish","learning":"the outbox publisher must claim rows with SKIP LOCKED or two pods double-publish the same event","evidence":"Outbox.java:42","confidence":0.9,"hits":6,"ts":"2026-08-15T00:00:00Z"}' \
+  > "$FR/alpha-ms/.claude/claudehut/learnings.jsonl"
+: > "$FR/beta-ms/.claude/claudehut/learnings.jsonl"
+# grep -c returns 0 AND exits 1 on no match, so a `|| echo 0` fallback appends a SECOND zero and the
+# comparison then sees two digits instead of one. Take the count alone, stripped to digits.
+n_local="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null | grep -c '^- \[')"; n_local="${n_local//[^0-9]/}"
+[ "${n_local:-0}" = "0" ] \
+  && ok "IDEA-F4: a service with an empty store injects nothing without federation" \
+  || bad "IDEA-F4: the control is wrong — beta-ms injected $n_local entries from its own empty store"
+fed="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" CLAUDEHUT_FEDERATION_ROOT="$FR" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null)"
+printf '%s' "$fed" | grep -q '@alpha-ms' \
+  && ok "IDEA-F4: with federation on, a sibling's lesson reaches beta-ms TAGGED with its origin" \
+  || bad "IDEA-F4: federation produced nothing, or produced an untagged entry that reads as beta-ms's own"
+# Borrowed knowledge must never outrank the project's own at equal strength.
+printf '%s\n' '{"id":"L-9","category":"pitfall","trigger":"local|thing","learning":"a local lesson of exactly the same strength as the borrowed one above, stated at the same length","evidence":"Local.java:1","confidence":0.9,"hits":6,"ts":"2026-08-15T00:00:00Z"}' \
+  > "$FR/beta-ms/.claude/claudehut/learnings.jsonl"
+first="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" CLAUDEHUT_FEDERATION_ROOT="$FR" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null | grep -m1 '^- \[')"
+printf '%s' "$first" | grep -q '@' \
+  && bad "IDEA-F4: a borrowed lesson outranked an equally strong local one" \
+  || ok "IDEA-F4: an equally strong LOCAL lesson outranks the borrowed one"
+rm -rf "$FR"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

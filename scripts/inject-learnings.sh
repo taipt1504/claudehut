@@ -35,6 +35,32 @@ fi
 command -v jq >/dev/null 2>&1 || exit 0
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 FILE="$PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+
+# IDEA-F4: federation. Fifteen sibling services in one workspace learn the same lesson fifteen times —
+# each store starts empty and stays local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms.
+# Opt-in only, via CLAUDEHUT_FEDERATION_ROOT: a sibling's learnings are someone else's project knowledge,
+# and adopting them silently would be worse than not sharing at all.
+#
+# Federated entries are TAGGED with their origin and their confidence is halved before ranking, so a local
+# lesson always outranks a borrowed one of equal strength. Promoted entries are excluded: a promotion means
+# the lesson already landed in THAT project's rule file, which this project does not have.
+FED="${CLAUDEHUT_FEDERATION_ROOT:-}"
+FEDTMP=""
+if [ -n "$FED" ] && [ -d "$FED" ]; then
+  FEDTMP="$(mktemp)"; [ -f "$FILE" ] && cat "$FILE" > "$FEDTMP" 2>/dev/null
+  while IFS= read -r peer; do
+    [ -n "$peer" ] || continue
+    case "$peer" in "$FILE") continue ;; esac          # never fold the local store in twice
+    origin="$(basename "$(dirname "$(dirname "$(dirname "$peer")")")")"
+    jq -Rc --arg o "$origin" 'fromjson? // empty
+      | select((.promoted // false) | not)
+      | .federated_from = $o
+      | .confidence = (((.confidence // 0.5) * 0.5))' "$peer" 2>/dev/null >> "$FEDTMP"
+  done < <(find "$FED" -maxdepth 4 -path '*/.claude/claudehut/learnings.jsonl' 2>/dev/null | head -40)
+  [ -s "$FEDTMP" ] && FILE="$FEDTMP" || { rm -f "$FEDTMP"; FEDTMP=""; }
+fi
+trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
+
 [ -f "$FILE" ] || exit 0
 
 now="$(date -u +%s)"
@@ -88,7 +114,7 @@ BODY="$(jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
           then ( (.[0:80] | (rindex(";") // rindex(",") // rindex(" ") // 80)) as $d
                  | .[0:(if $d > 40 then $d else 80 end)] + "…" )
           else . end ) as $ev
-    | "- [\(.category // "note")] \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
+    | "- [\(.category // "note")\(if .federated_from then " @" + .federated_from else "" end)] \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
   ' 2>/dev/null || true)"
 
 # v0.9 Rec 1 (audit SEC-1): wrap retrieved learnings in a randomized untrusted-data delimiter (the
