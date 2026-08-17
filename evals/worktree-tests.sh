@@ -188,6 +188,96 @@ out_prose="$(cdj prose.md)"
 case "$out_prose" in disjoint*) ok "W4 control: prose cells (— _(migration)_) create no phantom overlap" ;; *) bad "W4 control: a non-path cell was treated as a file" ;; esac
 rm -rf "$CD"
 
+echo "== W9: a repo path containing a space must not hide its managed worktrees =="
+# `git worktree list --porcelain` emits `worktree <path>`; the path was read with awk '{print $2}', which
+# truncates at the first space. A repo under ~/My Projects/ therefore matched no directory, every managed
+# worktree under it silently disappeared from `status` AND from `sweep`, and the tool reported an empty
+# repo. Every other fixture here lives under mktemp -d, which never contains a space.
+SPD="$(mktemp -d)/My Projects"; mkdir -p "$SPD"
+SR="$SPD/repo"; mkdir -p "$SR"
+( cd "$SR" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo base > f.txt && git add -A && git commit -qm base ) >/dev/null 2>&1
+mkdir -p "$SR/.claude/worktrees"
+git -C "$SR" worktree add -q -b wt-space "$SR/.claude/worktrees/agent-space" HEAD >/dev/null 2>&1
+git -C "$SR" worktree add -q -b wt-space-out "$SPD/outside-wt" HEAD >/dev/null 2>&1   # outside MROOT
+st_space="$(CLAUDE_PROJECT_DIR="$SR" "$WT" status 2>&1)"
+case "$st_space" in *agent-space*) ok "W9: status sees a managed worktree under a path with a space" ;;
+  *) bad "W9: a spaced repo path hid its managed worktrees from status" ;; esac
+# Listing it is not enough — the path has to survive all the way into `git worktree remove`, so assert the
+# clean+merged worktree is actually gone. A fix that only repaired the echo would pass the status check.
+CLAUDE_PROJECT_DIR="$SR" "$WT" sweep >/dev/null 2>&1
+[ -d "$SR/.claude/worktrees/agent-space" ] \
+  && bad "W9: sweep listed the spaced worktree but could not remove it" \
+  || ok "W9: sweep removes a clean+merged worktree under a spaced path"
+# Control: widening the parse must not widen the SCOPE GUARD. A worktree outside .claude/worktrees/ is
+# still untouchable even though its path now parses correctly.
+[ -d "$SPD/outside-wt" ] && ok "W9 control: scope guard still holds for a spaced path outside MROOT" \
+  || bad "W9 control: the spaced-path fix broke the managed-root filter"
+rm -rf "$(dirname "$SPD")"
+
+echo "== W10: reconcile merges local BRANCHES only, not any committish =="
+# The header advertised "every mutating operation validates its target", but the managed() guard had exactly
+# one call site, inside sweep. reconcile resolved its argument with `git rev-parse --verify`, which accepts
+# any committish — so a tag or a raw SHA naming work that was never an agent branch got --no-ff merged into
+# the current branch at exit 0.
+NR="$(mktemp -d)/repo"; mkdir -p "$NR"
+( cd "$NR" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo base > f.txt && git add -A && git commit -qm base \
+  && git checkout -q -b not-an-agent-branch && echo t > t.txt && git add -A && git commit -qm tagged \
+  && git tag v-random && git checkout -q main ) >/dev/null 2>&1
+NSHA="$(git -C "$NR" rev-parse v-random)"
+( cd "$NR" && CLAUDE_PROJECT_DIR="$NR" "$WT" reconcile v-random >/dev/null 2>&1 ); rc_tag=$?
+[ $rc_tag -ne 0 ] && [ ! -f "$NR/t.txt" ] && ok "W10: reconcile refuses a TAG" \
+  || bad "W10: reconcile merged a tag (rc=$rc_tag)"
+( cd "$NR" && CLAUDE_PROJECT_DIR="$NR" "$WT" reconcile "$NSHA" >/dev/null 2>&1 ); rc_sha=$?
+[ $rc_sha -ne 0 ] && [ ! -f "$NR/t.txt" ] && ok "W10: reconcile refuses a raw SHA" \
+  || bad "W10: reconcile merged a raw SHA (rc=$rc_sha)"
+# Control: the narrowing is to refs/heads/, NOT to "has a live managed worktree". A branch whose worktree
+# was already swept must still reconcile — that is the normal end of an agent's life. A guard that demanded
+# a managed worktree would pass both assertions above and break the real workflow.
+git -C "$NR" worktree add -q -b wt-swept "$NR/.claude/worktrees/agent-swept" main >/dev/null 2>&1
+( cd "$NR/.claude/worktrees/agent-swept" && echo s > s.txt && git add -A && git commit -qm swept ) >/dev/null 2>&1
+git -C "$NR" worktree remove --force "$NR/.claude/worktrees/agent-swept" >/dev/null 2>&1
+( cd "$NR" && CLAUDE_PROJECT_DIR="$NR" "$WT" reconcile wt-swept >/dev/null 2>&1 ); rc_sw=$?
+[ $rc_sw -eq 0 ] && [ -f "$NR/s.txt" ] \
+  && ok "W10 control: a local branch whose worktree was already swept still reconciles" \
+  || bad "W10 control: the branch guard is too narrow — it now needs a live worktree (rc=$rc_sw)"
+rm -rf "$(dirname "$NR")"
+
+echo "== W11: an EMPTY --test-cmd must not merge unverified =="
+# `--test-cmd ""` — what a caller gets from interpolating an unset variable — collapsed into the same empty
+# $tcmd as "no flag at all". The branch merged, no command ever ran, and the success line was byte-identical
+# to an untested merge, so the caller believed the merge was verified. Refused now, and refused BEFORE the
+# merge: erroring afterwards would leave behind exactly the merge we are preventing.
+TR="$(mktemp -d)/repo"; mkdir -p "$TR"
+( cd "$TR" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo base > f.txt && git add -A && git commit -qm base ) >/dev/null 2>&1
+mkdir -p "$TR/.claude/worktrees"
+mkbr() { # $1 branch, $2 file
+  git -C "$TR" worktree add -q -b "$1" "$TR/.claude/worktrees/$1" HEAD >/dev/null 2>&1
+  ( cd "$TR/.claude/worktrees/$1" && echo x > "$2" && git add -A && git commit -qm "$1" ) >/dev/null 2>&1
+}
+mkbr wt-empty e.txt; mkbr wt-noflag n.txt; mkbr wt-green g.txt
+out_empty="$( cd "$TR" && CLAUDE_PROJECT_DIR="$TR" "$WT" reconcile wt-empty --test-cmd "" 2>&1 )"; rc_e=$?
+[ $rc_e -ne 0 ] && [ ! -f "$TR/e.txt" ] \
+  && ok "W11: --test-cmd \"\" is refused and the branch is NOT merged" \
+  || bad "W11: an empty --test-cmd merged unverified (rc=$rc_e)"
+# Control: the refusal must be about the EMPTY value, not about the flag. A fix that rejected --test-cmd
+# outright, or one that refused every reconcile, would satisfy the assertion above on its own.
+out_noflag="$( cd "$TR" && CLAUDE_PROJECT_DIR="$TR" "$WT" reconcile wt-noflag 2>&1 )"; rc_n=$?
+[ $rc_n -eq 0 ] && [ -f "$TR/n.txt" ] && ok "W11 control: omitting --test-cmd still merges" \
+  || bad "W11 control: a flagless reconcile was wrongly refused (rc=$rc_n)"
+out_green="$( cd "$TR" && CLAUDE_PROJECT_DIR="$TR" "$WT" reconcile wt-green --test-cmd "true" 2>&1 )"; rc_g=$?
+[ $rc_g -eq 0 ] && [ -f "$TR/g.txt" ] && ok "W11 control: a non-empty --test-cmd still merges" \
+  || bad "W11 control: --test-cmd \"true\" was wrongly refused (rc=$rc_g)"
+# The two success lines used to differ by three words, both reading as plain success. Assert they now state
+# which one happened — a verified merge and an unverified one must not look alike.
+case "$out_green" in *"(tests green)"*) ok "W11: a verified merge says so" ;;
+  *) bad "W11: the tested-merge line no longer names its test result" ;; esac
+case "$out_noflag" in *"nothing was verified"*) ok "W11: an untested merge names itself as unverified" ;;
+  *) bad "W11: an untested merge still reads as a plain success" ;; esac
+rm -rf "$(dirname "$TR")"
+
 echo
 echo "WORKTREE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

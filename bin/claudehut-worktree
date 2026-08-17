@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # claudehut-worktree — deterministic lifecycle for the plugin's MANAGED agent worktrees.
 # Managed root: ${CLAUDE_PROJECT_DIR:-$PWD}/.claude/worktrees  (where native `isolation: worktree` creates them).
-# HARD SCOPE GUARD: every mutating operation validates its target is under the managed root —
-# this tool can NEVER touch user worktrees elsewhere, and never runs a bare destructive prune first.
+# HARD SCOPE GUARD, stated as what is actually enforced (it used to claim more than it did):
+#   sweep      — removes only worktrees whose realpath is under the managed root, and never runs a bare
+#                destructive prune first, so user worktrees elsewhere can NEVER be touched.
+#   reconcile  — merges only a LOCAL BRANCH (refs/heads/<b>); tags, remote-tracking refs and raw SHAs are
+#                refused. It does not require the branch to still have a worktree: reconciling after a
+#                sweep is legitimate.
 #
 # Usage:
 #   claudehut-worktree status                          # list managed worktrees: branch, dirty?, merged?
@@ -32,7 +36,12 @@ managed() { # $1 path -> 0 if under managed root
 
 # managed worktree paths (from git's own registry, filtered to MROOT)
 managed_list() {
-  git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r w; do
+  # The porcelain line is `worktree <path>` and the path may contain spaces — `~/My Projects/…` is an
+  # ordinary macOS layout. Splitting on whitespace and taking $2 truncated such a path to its first word,
+  # which then matched no directory, so the worktree vanished from BOTH `status` and `sweep`: the repo
+  # looked empty and agent worktrees under it were never reported, let alone cleaned up. Take everything
+  # after the 9-character "worktree " prefix instead.
+  git worktree list --porcelain | awk '/^worktree /{print substr($0,10)}' | while read -r w; do
     case "$(cd "$w" 2>/dev/null && pwd -P)/" in "$MROOT"/*) echo "$w" ;; esac
   done
 }
@@ -119,8 +128,20 @@ case "$sub" in
 
   reconcile)
     b="${1:-}"; [ -n "$b" ] || err "reconcile needs <branch>"; shift || true
-    tcmd=""; [ "${1:-}" = "--test-cmd" ] && tcmd="${2:-}"
-    git rev-parse --verify "$b" >/dev/null 2>&1 || err "no such branch: $b"
+    # Track whether the flag was PRESENT separately from its value. `--test-cmd ""` (an unset variable
+    # interpolated by the caller) used to collapse into the same empty $tcmd as "no flag at all": the branch
+    # was merged, no test ever ran, and the success line was byte-identical to an untested merge. The caller
+    # asked for verification and got none, silently. Refuse it, and refuse it BEFORE the merge — erroring
+    # afterwards would leave the merge in place, which is the state we are trying to prevent.
+    tcmd=""; have_tcmd=false
+    [ "${1:-}" = "--test-cmd" ] && { have_tcmd=true; tcmd="${2:-}"; }
+    $have_tcmd && [ -z "$tcmd" ] && err "--test-cmd was given an empty command — refusing to merge $b unverified (omit the flag entirely to merge without tests)"
+    # `git rev-parse --verify "$b"` resolves ANY committish, so `reconcile` — the one mutating operation
+    # with no scope check of its own — would happily `merge --no-ff` a tag, a remote-tracking ref or a raw
+    # SHA into the current branch, which the header advertised as impossible. Resolve under refs/heads/
+    # only: the documented argument is <branch>, and an agent branch is always a local branch.
+    git rev-parse --verify --quiet "refs/heads/$b" >/dev/null 2>&1 \
+      || err "not a local branch: $b (reconcile merges agent BRANCHES only — tags, remote refs and raw SHAs are refused)"
     # tracked modifications only — the managed worktree dirs themselves are untracked under .claude/,
     # and git merge already refuses to clobber untracked files.
     [ -z "$(git status --porcelain --untracked-files=no)" ] || err "main tree has uncommitted tracked changes — commit or stash before reconciling"
@@ -136,7 +157,9 @@ case "$sub" in
         exit 3
       fi
     fi
-    echo "reconciled: $b merged$( [ -n "$tcmd" ] && echo " (tests green)" )."
+    # Say which of the two happened. "reconciled: x merged." read as success in both cases; the untested
+    # one now names itself so a green line is never mistaken for a verified merge.
+    echo "reconciled: $b merged$( [ -n "$tcmd" ] && echo " (tests green)" || echo " (NO --test-cmd given — nothing was verified)" )."
     ;;
 
   sweep)
