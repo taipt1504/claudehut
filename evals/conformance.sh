@@ -70,6 +70,17 @@ for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
          claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner; do
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
+# MEM-1 mode 2 — the learner is the ONLY writer of MEMORY.md, and inlining facts under "## Topics" instead
+# of a one-line pointer is what put three real installs 9-36 KB over budget while passing any line count.
+# The contract has to be stated where the writer reads it, and it is worth an assertion because there is no
+# other mechanism: no script writes this file, so nothing else can enforce the shape.
+LRN="$ROOT/agents/claudehut-learner.md"
+grep -q '8192 bytes' "$LRN" && grep -q 'Never write the facts here' "$LRN" \
+  && ok "MEM-1: learner carries the MEMORY.md byte budget + one-line-pointer contract" \
+  || bad "MEM-1: learner may re-inline facts into the always-loaded index"
+grep -q 'MEMORY-history.md' "$LRN" \
+  && ok "MEM-1: learner is told to append per-task blocks to MEMORY-history.md" \
+  || bad "MEM-1: learner still appends per-task blocks to the always-loaded index"
 
 # C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;

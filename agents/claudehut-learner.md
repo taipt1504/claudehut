@@ -64,7 +64,15 @@ JSON object per line**:
 
 **Update** `.claude/claudehut/reuse-index.json` with anything newly built (`id, kind, path, purpose, tags`);
 **refresh `.claude/claudehut/MEMORY.md`** (the committed always-loaded index) when a new topic/category/artifact
-appears. Both stay yours — deciding what is reusable / what to name is judgment. Then **return a one-line
+appears. Both stay yours — deciding what is reusable / what to name is judgment.
+
+**MEMORY.md is @import-ed WHOLE — every byte is re-read on every turn. Budget: 8192 bytes.** A `## Topics`
+entry is **one line that points elsewhere**, the template's form exactly: `- idempotency → learnings.jsonl
+(category=convention, trigger=idempotency|dedup)`. **Never write the facts here** — no `Key facts:`
+continuation, no explanation, no path or date notes. Those go in the `learnings.jsonl` entry the pointer
+points AT (read on demand). Three real installs blew the budget this exact way. Need more than one line?
+The extra belongs in `learnings.jsonl`. Per-task blocks (`## Reuse additions (task-…)`, `## Topics (task-…)`)
+go in `MEMORY-history.md`, which is **not** `@import`-ed — never append them to `MEMORY.md`. Then **return a one-line
 summary** (counts by category). `claudehut:capture-learnings` then runs `merge-learnings.sh`, which against
 `.claude/claudehut/learnings.jsonl`:
    - **dedups** by `category` + normalized `trigger` → **merge** (`hits++`, `confidence = min(+0.05, 1.0)`,
