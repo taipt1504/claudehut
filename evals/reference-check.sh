@@ -77,8 +77,12 @@ while IFS= read -r ref; do
     echo "  FAIL - anchor target missing: $ref"; anch_bad=$((anch_bad+1)); continue
   fi
   # GitHub-style slug: lowercase, drop punctuation, spaces to hyphens
+  # Slug as the RENDERER does: a markdown link contributes its TEXT, not its URL, and a run of spaces
+  # (what an em-dash leaves behind) becomes a run of hyphens, because the renderer keeps the empty
+  # segment. Getting either wrong reports live anchors as dead — measured: the naive slug called 8 of 9
+  # design-doc anchors broken when only 1 was.
   if ! grep -E '^#{1,6} ' "$hit" \
-       | sed -E 's/^#+ //; s/[^a-zA-Z0-9 -]//g; s/ /-/g' \
+       | sed -E 's/^#+ //; s/\[([^]]*)\]\([^)]*\)/\1/g; s/[^a-zA-Z0-9 -]//g; s/ /-/g' \
        | tr '[:upper:]' '[:lower:]' | grep -qx "$frag"; then
     echo "  FAIL - anchor does not resolve: $ref (no heading slugs to '$frag' in $(basename "$hit"))"
     anch_bad=$((anch_bad+1))
@@ -88,6 +92,35 @@ if [ "$anch_bad" = "0" ]; then
   echo "  ok   - all $anch_n advertised reference anchor(s) resolve"; PASS=$((PASS+1))
 else
   echo "  FAIL - $anch_bad advertised anchor(s) do not resolve"; FAIL=$((FAIL+1))
+fi
+
+# D10: the design docs are git-tracked (.gitignore exempts .claude/docs/) and carry 279 anchors. They were
+# written off as "26 pre-existing broken"; measured with a correct slug, exactly ONE was. The 26 came from a
+# slug that kept URLs and collapsed space runs. Now they are covered, so the count cannot drift back up.
+dd_bad=0; dd_n=0
+if [ -d "$ROOT/.claude/docs/design" ]; then
+  for f in "$ROOT"/.claude/docs/design/*.md; do
+    [ -f "$f" ] || continue
+    while IFS='|' read -r tgt frag; do
+      [ -n "$frag" ] || continue
+      dd_n=$((dd_n+1))
+      t="$ROOT/.claude/docs/design/${tgt:-$(basename "$f")}"
+      if [ ! -f "$t" ]; then
+        echo "  FAIL - design anchor target missing: $(basename "$f") -> $tgt"; dd_bad=$((dd_bad+1)); continue
+      fi
+      if ! sed -nE 's/^#+ //p' "$t" \
+           | sed -E 's/\[([^]]*)\]\([^)]*\)/\1/g; s/[^a-zA-Z0-9 -]//g; s/ /-/g' \
+           | tr '[:upper:]' '[:lower:]' | grep -qx "$frag"; then
+        echo "  FAIL - design anchor dead: $(basename "$f") -> ${tgt:-$(basename "$f")}#$frag"; dd_bad=$((dd_bad+1))
+      fi
+    done < <(grep -ohE '\]\(\.?/?[0-9A-Za-z._-]*\.md#[a-z0-9-]+\)|\]\(#[a-z0-9-]+\)' "$f" 2>/dev/null \
+             | sed -E 's/^\]\(\.?\/?//; s/\)$//; s/#/|/')
+  done
+fi
+if [ "$dd_bad" = "0" ]; then
+  echo "  ok   - all $dd_n design-doc anchor(s) resolve"; PASS=$((PASS+1))
+else
+  echo "  FAIL - $dd_bad of $dd_n design-doc anchor(s) do not resolve"; FAIL=$((FAIL+1))
 fi
 
 echo

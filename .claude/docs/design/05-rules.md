@@ -10,7 +10,7 @@ Rules are the project's coding standards expressed so they **auto-load exactly w
 - [1. The native constraint that shapes everything](#1-the-native-constraint-that-shapes-everything)
 - [2. How rule loading works](#2-how-rule-loading-works)
 - [3. Templates → generated rules (the adaptation step)](#3-templates--generated-rules-the-adaptation-step)
-- [4. The rule set](#4-the-rule-set)
+- [4. The rule set](#4-the-rule-set--organized-by-tech-stack-domain)
 - [5. Rule file anatomy](#5-rule-file-anatomy)
 - [6. Always-on vs path-scoped](#6-always-on-vs-path-scoped)
 - [7. Rules vs skills — when to use which](#7-rules-vs-skills--when-to-use-which)
