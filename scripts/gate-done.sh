@@ -7,6 +7,7 @@
 set -euo pipefail
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 in="$(cat || true)"
 command -v jq >/dev/null 2>&1 || exit 0   # degrade: fail open
 
@@ -37,8 +38,53 @@ if [ "$(jq -r '.review // empty' <<<"$s" 2>/dev/null)" = "pass" ] \
   _msg=""
   [ -n "$_byp" ] && _msg="$_byp"
   [ "${_old:-0}" -gt 0 ] && _msg="${_msg:+$_msg; }${_old} state sidecar(s) older than 7 days"
-  if [ -n "$_msg" ]; then
-    jq -nc --arg m "ClaudeHut: task complete. Session still carries — $_msg." '{systemMessage:$m}'
+
+  # ── F8: per-tier dispatch budget — ADVISORY, on its own line, NEVER a decision. ──────────────────────
+  # A HARD budget here would be actively harmful: a legitimate full-tier task may need 15 dispatches, and
+  # blocking it would convert a cost feature into a correctness failure. This is modelled on the platform's
+  # own posture — its large-workflow warning fires at 25 agents / 1.5M tokens and is advisory: it does not
+  # pause or limit the run. So: no `decision`, no `block`, nothing that alters the Stop outcome.
+  #
+  # It rides INSIDE the IDEA-F10 clean-pass branch on purpose, and that placement is the design:
+  #   * gate-done.sh is THE completion gate. A second independent `jq -nc` emitter could put two
+  #     concatenated JSON objects on stdout, and could co-occur with a real block() — extra noise beside
+  #     the review==pass requirement is exactly what the plan forbids. Sharing this branch makes
+  #     "never alongside an outstanding item" structural rather than something to remember.
+  #   * The branch already means "the task is genuinely finished", which is when a task-end budget is due.
+  #   * Accepted narrowing, stated so nobody assumes otherwise: this branch requires a learn-receipt, so a
+  #     trivial-tier task that legitimately skips Learn never sees the advisory.
+  # It also MUST NOT fire on a clean under-budget run or it becomes wallpaper — hence `-gt`, and hence the
+  # ceilings below sit at the tier's documented maximum rather than under it.
+  #
+  # CEILINGS, derived from the phase→skill map in skills/claudehut-workflow/SKILL.md:92-98 at its stated
+  # maxima — not guessed, because a bare number rots the same way a hardcoded price table does:
+  #   full    2 discover (explorer ∥ reuse-scanner) + 1 brainstorm + 2 plan (planner + plan-reviewer)
+  #           + 1 re-review after a REVISE + 12 implement (≤3 parallel per phase × 4 phases)
+  #           + 12 review (≤6 auditors × the ≤2-loop body cap) + 1 learn                          = 31
+  #   small   0 discover/brainstorm/spec/plan (inline or full-tier only) + 6 implement (≤3 × 2 phases)
+  #           + 12 review + 1 learn                                                               = 19
+  #   trivial 0 deliberation phases + 3 implement + 6 review (one auditor round) + 0 learn         =  9
+  #
+  # The count comes from `claudehut-state cost-report --count`, NOT from `wc -l` on the ledger: that reader
+  # joins start↔stop on agent_id and discards unmatched stops. Counting records instead would let the
+  # measured orphan stop (v0.11 M5 — one emitted during compaction, fresh agent_id, empty agent_type)
+  # inflate the number and fire this advisory on a clean run, which is the one thing it must never do.
+  # Whole thing is guarded and defaults to 0: this script runs `set -euo pipefail` and BLOCKS, so a missing
+  # binary or an unreadable ledger must cost the gate nothing.
+  _bud=""
+  _tier="$(jq -r '.complexity // "full"' <<<"$s" 2>/dev/null || echo full)"
+  case "$_tier" in trivial) _ceil=9 ;; small) _ceil=19 ;; *) _ceil=31 ;; esac
+  _disp="$( { "$PLUGIN_ROOT/bin/claudehut-state" cost-report --session "$sid" --count 2>/dev/null; } || echo 0 )"
+  case "$_disp" in ''|*[!0-9]*) _disp=0 ;; esac
+  if [ "$_disp" -gt "$_ceil" ]; then
+    _bud="ClaudeHut advisory (not a gate, nothing was blocked): $_disp subagent dispatches this session vs the $_tier-tier guide of $_ceil. See where they went: claudehut-state cost-report --session $sid"
+  fi
+
+  _out=""
+  [ -n "$_msg" ] && _out="ClaudeHut: task complete. Session still carries — $_msg."
+  [ -n "$_bud" ] && _out="${_out:+$_out$'\n'}$_bud"
+  if [ -n "$_out" ]; then
+    jq -nc --arg m "$_out" '{systemMessage:$m}'
   fi
 fi
 [ "$(jq -r '.bypass // false' <<<"$s")" = "true" ] && exit 0

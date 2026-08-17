@@ -583,6 +583,184 @@ done_ok x '{"session_id":"s","stop_hook_active":false}' \
   && ok "profile rail: investigation + findings + receipt → done allowed" || bad "profile rail: investigation blocked despite deliverable"
 rm -rf "$TMP"
 
+# ── set-plan sensitive predicate: the keyword set write-plan now mirrors ─────────────────────────────────
+# write-plan dispatches the plan-reviewer on set-plan's OWN predicate (≥5 T-rows OR a sensitive keyword)
+# instead of on every plan, so that keyword set is load-bearing prose in the skill. Only `security`/`auth`
+# were ever exercised; the other eight keywords could have been narrowed without a red test, which would
+# make the skill's mirrored list wrong — the model skips the dispatch and set-plan then refuses the plan.
+echo "== set-plan sensitive predicate (the list write-plan mirrors) =="
+new_proj; st set-profile feature; st set-complexity full
+PDT="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0007-liq"; mkdir -p "$PDT"
+# 4 tasks — under the ≥5 substantial threshold, so `liquibase` is the ONLY thing that can arm the gate.
+printf '%s\n' '# P' '## Implementation Flow' 'changelog applied at boot' '**T-001 sketch**: liquibase changeSet' \
+  '| T-001 | db/changelog.xml | tf | v | - |' '| T-002 | a | tf | v | - |' \
+  '| T-003 | b | tf | v | - |' '| T-004 | c | tf | v | - |' > "$PDT/plan.md"
+"$ROOT/bin/claudehut-state" --session s set-plan .claude/claudehut/tasks/0007-liq/plan.md >/dev/null 2>&1 \
+  && bad "sensitive predicate: 4-task liquibase plan ACCEPTED with no plan-reviewer APPROVE (keyword dropped)" \
+  || ok "sensitive predicate: 4-task liquibase plan REQUIRES a plan-reviewer APPROVE (non-security keyword arms the gate)"
+printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PDT/plan-review.md"
+st set-plan-review APPROVE --evidence .claude/claudehut/tasks/0007-liq/plan-review.md
+"$ROOT/bin/claudehut-state" --session s set-plan .claude/claudehut/tasks/0007-liq/plan.md >/dev/null 2>&1 \
+  && ok "sensitive predicate: the same plan is ACCEPTED once the APPROVE is recorded" \
+  || bad "sensitive predicate: a recorded APPROVE did not unblock set-plan"
+rm -rf "$TMP"
+
+# ── F6 + F8: the dispatch cost report, and the advisory per-tier budget ────────────────────────────────
+# Appended as its own block: this file is being edited concurrently by another agent.
+# NOTE on the two traps that have each produced a FALSE GREEN in this repo: every assertion below captures
+# command output into a variable and then matches it with `case`, never `… | grep -q`. Under `pipefail`,
+# `grep -q` exits on its first match, closes the pipe, the writer dies of SIGPIPE, and the pipeline is
+# reported as FAILED — so the assertion goes red on exactly the input it should accept. And no assertion
+# here greps a SOURCE file, so none of them can be satisfied by matching an explanatory comment.
+
+echo "== F6: claudehut-state cost-report (read-only dispatch-ledger reader) =="
+
+# A ledger fixture with a REAL orphan stop in it. v0.11 M5 measured one: a stop emitted during compaction
+# carrying a fresh agent_id, an EMPTY agent_type, and an agent_transcript_path pointing at a file that was
+# never written. A fixture of clean pairs only cannot catch a reader that COUNTS RECORDS instead of joining
+# on agent_id, which is the single most likely way this reader is wrong. A torn line is appended too — the
+# ledger is a concurrent append target, so a half-written line must cost one record, not the whole report.
+mk_ledger() { # $1 = number of PAIRED dispatches; always also writes 1 orphan stop + 1 torn line
+  local n="$1" d="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger" i=1
+  mkdir -p "$d"; : > "$d/dispatches.jsonl"
+  while [ "$i" -le "$n" ]; do
+    printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"a%s","agent_type":"claudehut:claudehut-reviewer","cwd":"/p"}\n' "$i" >>"$d/dispatches.jsonl"
+    printf '{"ts":"2026-08-17T10:00:07Z","event":"stop","session_id":"s","agent_id":"a%s","agent_type":"claudehut:claudehut-reviewer","effort":"high","agent_transcript_path":"/never/written.jsonl"}\n' "$i" >>"$d/dispatches.jsonl"
+    i=$((i+1))
+  done
+  printf '{"ts":"2026-08-17T10:05:00Z","event":"stop","session_id":"s","agent_id":"ORPHAN-compact","agent_type":"","effort":"","agent_transcript_path":"/never/written.jsonl"}\n' >>"$d/dispatches.jsonl"
+  printf '{ this line is torn and unparseable\n' >>"$d/dispatches.jsonl"
+}
+
+new_proj; mk_ledger 3
+CR="$("$ROOT/bin/claudehut-state" cost-report 2>/dev/null)"
+case "$CR" in *"3 dispatch(es) paired on agent_id"*)
+  ok "F6: joins start↔stop on agent_id — 3 dispatches from 7 parseable records" ;;
+  *) bad "F6: pair count wrong (expected 3 pairs)" ;; esac
+case "$CR" in *"1 orphan stop(s) DISCARDED"*)
+  ok "F6: the M5 orphan stop is DISCARDED, not counted as a dispatch" ;;
+  *) bad "F6: the orphan stop was not discarded" ;; esac
+# Pinned on "(unknown)" — the label an EMPTY agent_type would carry into a row — not on the orphan's
+# agent_id, which this reader never prints under any mutation and so could not falsify the assertion.
+case "$CR" in *"(unknown)"*) bad "F6: the orphan produced a row (empty agent_type reached the table)" ;;
+  *) ok "F6: the orphan contributes no row to the report" ;; esac
+case "$CR" in *"records 7 "*) ok "F6: the torn line costs one record, not the whole report" ;;
+  *) bad "F6: torn line changed the record total (expected 7 of 8 lines parsed)" ;; esac
+[ "$("$ROOT/bin/claudehut-state" cost-report --count 2>/dev/null)" = "3" ] \
+  && ok "F6: --count is the PAIRED dispatch count (3), not the record count" || bad "F6: --count counted records"
+rm -rf "$TMP"
+
+# READ-ONLY, with teeth: no state dir may appear, the ledger must be byte-identical, and it must succeed
+# with NO --session — which is what proves the verb intercepts ABOVE the --session guard, the
+# `mkdir -p "$STATE_DIR"`, the advisory lock, and the unconditional atomic write at the foot of that file.
+new_proj; mk_ledger 2
+rm -rf "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"
+LB="$(shasum "$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl" 2>/dev/null | awk '{print $1}')"
+"$ROOT/bin/claudehut-state" cost-report >/dev/null 2>&1 \
+  && ok "F6: read-only — runs WITHOUT --session (the intercept is above the --session guard)" \
+  || bad "F6: cost-report demanded --session"
+LA="$(shasum "$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl" 2>/dev/null | awk '{print $1}')"
+[ -n "$LB" ] && [ "$LB" = "$LA" ] && ok "F6: read-only — the ledger is byte-identical after reporting" \
+  || bad "F6: cost-report mutated the ledger"
+[ -d "$CLAUDE_PROJECT_DIR/.claude/claudehut/state" ] \
+  && bad "F6: cost-report created a state dir — it is not read-only" \
+  || ok "F6: read-only — no state file or state dir created"
+rm -rf "$TMP"
+
+# The tuple must stay UN-COLLAPSED (agent_type × model × effort per task), must never print dollars, and
+# must mark the two DERIVED columns as derived rather than passing them off as measured.
+new_proj
+LEDD="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger"; mkdir -p "$LEDD"
+{ printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"x1","agent_type":"claudehut:claudehut-reviewer","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T10:00:20Z","event":"stop","session_id":"s","agent_id":"x1","agent_type":"claudehut:claudehut-reviewer","effort":"high","agent_transcript_path":"/never/written.jsonl"}\n'
+  printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"x2","agent_type":"claudehut:claudehut-explorer","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T10:00:05Z","event":"stop","session_id":"s","agent_id":"x2","agent_type":"claudehut:claudehut-explorer","effort":"low","agent_transcript_path":"/never/written.jsonl"}\n'
+  printf '{"ts":"2026-08-17T11:00:00Z","event":"start","session_id":"other","agent_id":"y1","agent_type":"Explore","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T11:00:09Z","event":"stop","session_id":"other","agent_id":"y1","agent_type":"Explore","effort":"low","agent_transcript_path":"/never/written.jsonl"}\n'
+} > "$LEDD/dispatches.jsonl"
+printf '{"session":"s","task":null,"plan_path":".claude/claudehut/tasks/0042-cost/plan.md"}\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json"
+CR="$("$ROOT/bin/claudehut-state" cost-report 2>/dev/null)"
+ROW_REV="$(printf '%s\n' "$CR" | grep 'claudehut:claudehut-reviewer' || true)"
+ROW_EXP="$(printf '%s\n' "$CR" | grep 'claudehut:claudehut-explorer' || true)"
+{ [ -n "$ROW_REV" ] && [ -n "$ROW_EXP" ]; } \
+  && ok "F6: the tuple stays UN-COLLAPSED — one row per (task × agent_type × effort)" \
+  || bad "F6: rows collapsed — two agent types did not produce two rows"
+case "$ROW_REV" in *opus~*) ok "F6: model~ derived from agents/<name>.md frontmatter, marked derived on the VALUE" ;;
+  *) bad "F6: reviewer row missing the derived opus~ model" ;; esac
+case "$ROW_EXP" in *haiku~*) ok "F6: a second agent type resolves to its own frontmatter model (haiku~)" ;;
+  *) bad "F6: explorer row missing the derived haiku~ model" ;; esac
+ROW_BUILTIN="$(printf '%s\n' "$CR" | grep -w 'Explore' || true)"
+case "$ROW_BUILTIN" in *'~'*) bad "F6: a built-in agent was given a derived model it does not have" ;;
+  *) ok "F6: a built-in agent type (no frontmatter) reports '-', never an invented model" ;; esac
+case "$ROW_REV" in *high*) ok "F6: effort is reported from the SubagentStop record, unmarked (observed)" ;;
+  *) bad "F6: effort column missing" ;; esac
+case "$CR" in *"0042-cost~"*) ok "F6: task~ derived from the session state file, marked derived" ;;
+  *) bad "F6: task column did not resolve from the state file" ;; esac
+# Matched against the ROW, not the whole report: the footnote also contains the word "(unresolved)", so a
+# whole-output match here was green even after a revert-to-red that invented a task dir. Caught by the drill.
+case "$ROW_BUILTIN" in *"(unresolved)"*) ok "F6: a session with no surviving state file reports (unresolved), not a guess" ;;
+  *) bad "F6: unresolvable task dir was not labelled in its row" ;; esac
+case "$CR" in *"CLAUDE_CODE_SUBAGENT_MODEL"*)
+  ok "F6: the output itself says the derived model column can be wrong at runtime" ;;
+  *) bad "F6: derived model presented without its caveat" ;; esac
+case "$CR" in *'$'*) bad "F6: the report printed a dollar sign — it cannot price a dispatch" ;;
+  *) ok "F6: prints no dollars anywhere" ;; esac
+case "$CR" in *"CANNOT price a dispatch"*) ok "F6: states plainly that no hook payload carries usage/token data" ;;
+  *) bad "F6: no statement that the report cannot price a dispatch" ;; esac
+case "$CR" in *"/usage"*) case "$CR" in *"query_source"*)
+  ok "F6: points at /usage and the OTEL query_source × model × effort grouping for money" ;;
+  *) bad "F6: no OTEL grouping pointer" ;; esac ;; *) bad "F6: no /usage pointer" ;; esac
+CR_S="$("$ROOT/bin/claudehut-state" --session s cost-report 2>/dev/null)"
+case "$CR_S" in *Explore*) bad "F6: --session did not narrow the report to one session" ;;
+  *) ok "F6: --session narrows the shared ledger to one session" ;; esac
+rm -rf "$TMP"
+
+echo "== F8: advisory per-tier dispatch budget at the Stop gate =="
+# Ceilings are gate-done.sh's, derived from the phase→skill map: trivial 9, small 19, full 31.
+# THE NON-NEGOTIABLE: the Stop DECISION must be identical at, under and over every tier's budget — a hard
+# budget would convert a cost feature into a correctness failure on a legitimate 15-dispatch full-tier task.
+# The second half matters just as much: "decision unchanged" alone is satisfied by implementing NOTHING, so
+# each tier also asserts the advisory is ABSENT under and at budget (or it becomes wallpaper) and PRESENT
+# over it. The "at budget" case is also the orphan guard: each fixture carries one orphan stop, so a budget
+# that counted records instead of joining would read ceil+1, fire, and turn that assertion red.
+gate_done_out() { echo '{"session_id":"s","stop_hook_active":false}' | "$ROOT/scripts/gate-done.sh" 2>/dev/null; }
+f8_advice() { case "$1" in *"dispatches this session"*) return 0 ;; *) return 1 ;; esac; }
+for f8t in trivial small full; do
+  case "$f8t" in trivial) f8c=9 ;; small) f8c=19 ;; full) f8c=31 ;; esac
+  for f8p in under at over; do
+    case "$f8p" in under) f8n=$((f8c-1)) ;; at) f8n=$f8c ;; over) f8n=$((f8c+1)) ;; esac
+    new_proj; st set-complexity "$f8t"; review_pass; mk_receipt; mk_ledger "$f8n"
+    F8OUT="$(gate_done_out)"
+    if jq -e '.decision=="block"' <<<"$F8OUT" >/dev/null 2>&1; then
+      bad "F8: $f8t tier, $f8p budget ($f8n vs $f8c) — Stop decision CHANGED to block"
+    else
+      ok "F8: $f8t tier, $f8p budget ($f8n vs $f8c) — Stop decision unchanged (never blocks)"
+    fi
+    if [ "$f8p" = over ]; then
+      f8_advice "$F8OUT" && ok "F8: $f8t tier, $f8n > $f8c — advisory line present" \
+                         || bad "F8: $f8t tier, $f8n > $f8c — advisory MISSING"
+    else
+      f8_advice "$F8OUT" && bad "F8: $f8t tier, $f8p budget ($f8n) — advisory fired on a clean run (wallpaper)" \
+                         || ok "F8: $f8t tier, $f8p budget ($f8n) — silent, as required"
+    fi
+    rm -rf "$TMP"
+  done
+done
+# The advisory must ride the non-blocking systemMessage channel and say so — a user who reads it must not
+# think the run was capped, because the platform's own large-workflow warning does not pause or limit either.
+new_proj; st set-complexity full; review_pass; mk_receipt; mk_ledger 40
+F8OUT="$(gate_done_out)"
+F8MSG="$(jq -r '.systemMessage // empty' <<<"$F8OUT" 2>/dev/null || true)"
+case "$F8MSG" in *"dispatches this session"*)
+  ok "F8: the budget rides systemMessage (non-blocking), not a decision field" ;;
+  *) bad "F8: budget advisory absent from systemMessage" ;; esac
+case "$F8MSG" in *"nothing was blocked"*) ok "F8: the advisory tells the reader nothing was blocked or limited" ;;
+  *) bad "F8: the advisory does not disclaim that it is advisory" ;; esac
+rm -rf "$TMP"
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/gate-tests.count"
 [ "$FAIL" -eq 0 ]
