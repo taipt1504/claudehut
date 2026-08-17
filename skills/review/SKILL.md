@@ -52,10 +52,10 @@ flowchart TB
 1. **Select the reviewers this change needs, then spawn them in ONE message.** Spawning a specialist with
    nothing to review wastes tokens (db-reviewer on a no-DB change). Decide from two signals: the **enforcement
    set** (Brainstorm — its rules map to reviewers) and the **changed files**. Fast-lane tiers have NO
-   enforcement set — select from changed files alone. Get the diff:
+   enforcement set — select from changed files alone. **Profile branch — read `.profile` from the same `jq` call as the enforcement set below: on `audit`/`investigation` the deliverable is `findings.md`, not code, so review THAT with `claudehut-reviewer` + the security-auditor, and skip the test-runner UNLESS the diff below still names production files (`src/main/**`) — an audit that incidentally changed code is still tested.** Get the diff (base: upstream → remote default → `HEAD~1` only as a last resort — `HEAD~1` alone shows just the last commit of a multi-commit task):
 
    ```
-   git diff --name-only $(git merge-base HEAD @{u} 2>/dev/null || echo HEAD~1)..HEAD; git status --porcelain
+   git diff --name-only $(git merge-base HEAD @{u} 2>/dev/null || git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)..HEAD; git status --porcelain
    ```
 
    | Reviewer | Spawn when |
@@ -73,15 +73,15 @@ flowchart TB
    command + real pass/fail counts"). Full tier keeps the dedicated test-runner.
 
    Dispatch by **qualified type** (`claudehut:claudehut-…`) — unqualified names can fail to resolve. State
-   which reviewers you selected and why (one line each) so any skip is auditable.
+   which reviewers you selected and why (one line each) so any skip is auditable. **`$ARGUMENTS` NARROWS, never widens:** when the operator names aspects (`security`, `perf`, `db`, `contract`, `observability`, `tests`), select only those plus the always-on `claudehut-reviewer`; **with no argument the rule-driven selection above is unchanged.**
 
    **Every code-review dispatch prompt MUST carry** (none of this is auto-present in the isolated subagent):
    - **The diff itself** — paste `git diff` hunks (not just names) for the files that auditor owns. Each subagent
      starts cold: without the hunks they all re-Read the same files, once per auditor.
    - **`references/review-rigor.md`** verbatim + the auditor's defect-class floor. (test-runner: only "run the
      suite fresh this turn; report the exact command + real pass/fail counts".)
-   - **Enforcement set, verbatim** — `jq -c '.enforcement_set' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
-     One coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
+   - **Enforcement set, verbatim** — `jq -c '{profile, enforcement_set}' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
+     Paste the `enforcement_set` value only (the `profile` selects the branch in step 1, it is not pasted); one coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
    - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8 --max-len 200`,
      pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each. Keep `--max-len`:
      this block is pasted into every selected auditor and re-paid each round, so it is the one caller where an
@@ -102,15 +102,15 @@ flowchart TB
 
    Auditors with a DB/Kafka MCP **degrade gracefully** when none is connected: review statically and say so.
 
-2. **Validate the reports before trusting them (refute pass).** On the main thread, cheaply, no new dispatch:
+2. **Validate the reports before trusting them (refute pass).** Mostly on the main thread, cheaply — the one escalation below is bounded:
    - **Reject incomplete tables:** any code-review auditor missing a row for an enforcement-set item, or whose
      `✓` rows lack a `file:line`+quote, or that returned bare "PASS" → **re-dispatch** it ("cite the source line
      or mark it ✗"). (Validate the test-runner separately: it must show the command it ran this turn + real
      counts, not an assertion.)
    - **Refute blocking findings:** for each CRITICAL/HIGH, open the cited `file:line` and confirm the defect is
      real before it enters outstanding.
-   For a large/high-stakes change, run the refute pass as a fresh `claudehut:claudehut-reviewer` told to attack
-   the other auditors' findings + passes.
+   **Escalated refute pass** — ONE fresh `claudehut:claudehut-reviewer` told to attack the other auditors'
+   findings + passes, **only when the diff touches security/auth/migration OR ≥2 auditors returned a CRITICAL. It counts against the 2-round cap** below.
 3. **Merge surviving outstanding** (every `✗` at MED+ not justified-and-deferred):
 
    ```

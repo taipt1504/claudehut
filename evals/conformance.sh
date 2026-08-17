@@ -1063,6 +1063,72 @@ bash "$ROOT/scripts/lint-prompt-length.sh" >/dev/null 2>&1 \
   && ok "WS-9: repo is within budget + provenance-clean (the WS-9 trim holds)" || bad "WS-9: repo over budget / has provenance noise"
 
 # ============================================================================
+# Dispatch topology — loop bounds, selection predicates and the diff base. Each of these is prose a rewrite
+# can drop while the surrounding paragraph still reads plausibly: an uncapped loop that re-fires an opus
+# subagent, an auditor fan-out over an empty diff, an escalation outside the round cap, or a review base that
+# shows only the last commit of a multi-commit task. None of them fail loudly at runtime, so they are pinned.
+# ============================================================================
+echo "== dispatch topology (loop caps, selection predicates, diff base) =="
+BRS="$ROOT/skills/brainstorm/SKILL.md"; WPS="$ROOT/skills/write-plan/SKILL.md"; RVW="$ROOT/skills/review/SKILL.md"
+
+# DT-03 — brainstorm's validation loop points back at the brainstormer dispatch. It is the only validation
+# loop in the workflow that re-fires an OPUS subagent, and it sits at phase 2, before Spec exists. Cap in
+# BOTH places: the prose the model reads and the diagram edge the cap is read off.
+{ grep -qi 'Cap 2 re-dispatch rounds' "$BRS" && grep -q 'rounds ≤ 2' "$BRS"; } \
+  && ok "DT-03: brainstorm caps the brainstormer re-dispatch loop (prose + diagram edge)" \
+  || bad "DT-03: the brainstorm validation loop re-fires an opus subagent with no round cap"
+
+# DT-11 — the plan-reviewer was dispatched unconditionally while its verdict was recorded conditionally.
+# One predicate now: the gate diamond sits UPSTREAM of the dispatch, so dispatch ≡ record ≡ what set-plan
+# gates on. The diagram is the wire: check→smart→rev, never check→rev.
+{ grep -q 'check -- "yes" --> smart' "$WPS" && grep -q 'smart -- "yes" --> rev' "$WPS"; } \
+  && ok "DT-11: write-plan gates the plan-reviewer dispatch on the smart predicate (gate upstream of dispatch)" \
+  || bad "DT-11: plan-reviewer dispatched unconditionally while its verdict is recorded conditionally"
+# ...and the skill's sensitive keyword set must MIRROR the one set-plan greps. A narrower skill predicate
+# means the model skips the dispatch and set-plan then refuses the plan — the round-trip it was avoiding.
+kw_ok=true
+for k in liquibase permitall deserial owasp flyway; do
+  grep -qi "$k" "$WPS" || kw_ok=false
+  grep -qi "$k" "$ROOT/bin/claudehut-state" || kw_ok=false
+done
+$kw_ok \
+  && ok "DT-11: write-plan mirrors set-plan's sensitive keyword set (no plan skipped then refused)" \
+  || bad "DT-11: write-plan's sensitive predicate diverges from set-plan's grep — a skipped plan the gate refuses"
+
+# FANOUT-01 — `git merge-base HEAD @{u}` has no upstream to resolve on a mid-task branch, and the old
+# fallback was `HEAD~1`: every auditor then saw only the last commit of a multi-commit task.
+{ grep -q 'git merge-base HEAD @{u}' "$RVW" && grep -q 'git merge-base HEAD origin/HEAD' "$RVW"; } \
+  && ok "FANOUT-01: review's diff base tries the remote default branch before falling back to HEAD~1" \
+  || bad "FANOUT-01: review's diff base drops straight to HEAD~1 with no upstream (auditors see one commit)"
+
+# DT-12 — step 2 was headed "no new dispatch" and added one seven lines later, on an undefined predicate
+# ("large/high-stakes"), outside the 2-round cap. Both halves are pinned: the heading must stop lying, and
+# the escalation must carry a predicate AND count against the cap.
+grep -q 'no new dispatch' "$RVW" \
+  && bad "DT-12: review step 2 still promises 'no new dispatch' while dispatching an escalated refute pass" \
+  || ok "DT-12: review step 2 no longer contradicts its own escalation"
+{ grep -q 'Escalated refute pass' "$RVW" && grep -q 'auditors returned a CRITICAL' "$RVW" \
+  && grep -q 'counts against the 2-round cap' "$RVW"; } \
+  && ok "DT-12: the escalated refute pass has a predicate and counts against the round cap" \
+  || bad "DT-12: the escalated refute dispatch has no selection criterion / sits outside the round cap"
+
+# DT-10 — Review keyed only on tier + diff, so an audit/investigation paid a code-review fan-out over an
+# empty diff while gate-done.sh already knew the deliverable was findings.md. The profile is read from the
+# SAME jq call as the enforcement set (not a second shell-out), and the test-runner skip is bounded on the
+# diff — an audit that incidentally changed code must still be tested.
+{ grep -q "jq -c '{profile, enforcement_set}'" "$RVW" && grep -q 'findings.md' "$RVW" \
+  && grep -q 'src/main' "$RVW"; } \
+  && ok "DT-10: review is profile-aware from one jq call and bounds the test-runner skip on the diff" \
+  || bad "DT-10: review is profile-blind — an audit pays a code-review fan-out over an empty diff"
+
+# FANOUT-04 — an operator may name an aspect subset for a targeted re-review. The load-bearing half is the
+# DEFAULT: with no argument the rule-driven selection must be untouched, and the argument may only NARROW.
+{ grep -q 'ARGUMENTS' "$RVW" && grep -q 'NARROWS, never widens' "$RVW" \
+  && grep -q 'with no argument the rule-driven selection above is unchanged' "$RVW"; } \
+  && ok "FANOUT-04: an operator-named aspect subset narrows the fan-out; the no-argument default is pinned" \
+  || bad "FANOUT-04: no operator-named review subset, or the no-argument default path is not pinned"
+
+# ============================================================================
 # v0.9 Rec 4 — ultra-flow mermaid coverage. The 21 ultra-flow diagrams (one per agent + skill) had no
 # deterministic coverage (audit EVAL-1): deleting/corrupting a block shipped with CI green. INVARIANT: every
 # agents/*.md and skills/*/SKILL.md carries a NON-EMPTY ```mermaid block. If mmdc (@mermaid-js/mermaid-cli) is
