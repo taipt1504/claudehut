@@ -716,7 +716,20 @@ rm -rf "$P0"
 echo "== v0.8 P1 WS-6 (fast-Learn + reinforcement) =="
 P1="$(mktemp -d)"; CH="$P1/.claude/claudehut"; mkdir -p "$CH/state" "$CH/tasks/0001-x" "$P1/.claude/rules"
 # harvest: a signature seen >=2x + a review ✗ row → ≥2 candidates, valid JSONL
-printf '%s\n' '{"signature":"could not resolve dependency foo:bar:1.0"}' '{"signature":"could not resolve dependency foo:bar:1.0"}' > "$CH/state/s.failures.jsonl"
+# LRN-3/PLUMB-F-01: the staging file is now produced by piping real PostToolUseFailure payloads through
+# record-failure.sh, instead of being hand-written as {"signature": ...} — a key record-failure has never
+# emitted. The old fixture made the harvest pass on a shape production never sends, so both breaks in the
+# chain (record-failure reading absent fields, harvest reading absent keys) stayed green for two releases.
+for _ in 1 2; do
+  printf '%s' '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"./gradlew build"},"error":"Exit code 1\ncould not resolve dependency foo:bar:1.0","is_interrupt":false}' \
+    | CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+done
+jq -e '.stderr | test("could not resolve")' "$CH/state/s.failures.jsonl" >/dev/null 2>&1 \
+  && ok "WS-6: the staging file is produced by record-failure.sh from a real payload, not hand-written" \
+  || bad "WS-6: record-failure.sh produced no usable staged record from a real payload"
+jq -e '.hits == 2' "$CH/state/s.failures.jsonl" >/dev/null 2>&1 \
+  && ok "WS-6: an immediately-repeated identical failure bumps .hits instead of being dropped" \
+  || bad "WS-6: the repeat was dropped — a back-to-back failure can never reach the harvest's >=2 threshold"
 printf '%s\n' '| item | status | evidence |' '| N+1 in OrderRepo | ✗ violated | OrderRepo.java:42 |' > "$CH/tasks/0001-x/review.md"
 hn="$(CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/harvest-candidates.sh" --session s --task-dir .claude/claudehut/tasks/0001-x 2>/dev/null)"
 { [ "${hn:-0}" -ge 2 ] && jq -se . < "$CH/tasks/0001-x/learn-candidates.jsonl" >/dev/null 2>&1; } \

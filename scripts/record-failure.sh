@@ -59,11 +59,22 @@ DIR="$PROJECT_DIR/.claude/claudehut/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.failures.jsonl"
 
-# dedup: skip if the immediately-previous entry has the same command + exit (repeated identical failure)
+# dedup: an immediately-repeated identical failure BUMPS the previous record's hit count instead of being
+# dropped. Dropping it was silently fighting the harvest: harvest-candidates.sh calls a signature a pitfall
+# only at >=2 occurrences, and the commonest real shape — run the build, it fails, run it again, it fails —
+# produced exactly one record and therefore never became a pitfall. Bumping keeps the record count bounded
+# AND preserves the recurrence signal.
 if [ -f "$F" ]; then
   prev="$(tail -1 "$F" 2>/dev/null | jq -r '"\(.command)\u0000\(.exit)"' 2>/dev/null || true)"
   this="$(printf '%s\000%s' "$cmd" "$code")"
-  [ "$prev" = "$this" ] && exit 0
+  if [ "$prev" = "$this" ]; then
+    bumped="$(tail -1 "$F" 2>/dev/null | jq -c '.hits = ((.hits // 1) + 1)' 2>/dev/null || true)"
+    if [ -n "$bumped" ]; then
+      tmp="$(mktemp "$DIR/.fail.XXXXXX")" \
+        && { sed '$d' "$F"; printf '%s\n' "$bumped"; } > "$tmp" && mv -f "$tmp" "$F" 2>/dev/null || true
+    fi
+    exit 0
+  fi
 fi
 
 # W0-B (v0.11): when ALL THREE known error paths come back empty, the schema this script was written
