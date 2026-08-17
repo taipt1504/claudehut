@@ -148,6 +148,30 @@ else
   ok "RULE-18: rules teach jakarta.*/JSpecify only"
 fi
 
+# RULE-13 — @MockBean and @SpyBean are deprecated since Boot 3.4.0 and REMOVED in 4.0.0 in favour of
+# Spring Framework's MockitoBean/MockitoSpyBean (verified against the Boot 3.4 API docs). A rule that teaches
+# the removed annotation ages into a compile error rather than a style nit.
+# Checked per FILE, not per line: the deprecation note legitimately wraps onto the following line, and a
+# line-based check would demand the words share a line — a shape constraint, not a correctness one.
+mb_bad=0
+for f in $(grep -rl '@MockBean\|@SpyBean' "$ROOT/templates/rules" 2>/dev/null); do
+  grep -q 'deprecated since Boot 3.4' "$f" || mb_bad=$((mb_bad+1))
+done
+[ "$mb_bad" = "0" ] \
+  && ok "RULE-13: rules teach @MockitoBean; any @MockBean mention carries the 3.4 deprecation" \
+  || bad "RULE-13: $mb_bad rule file(s) teach @MockBean/@SpyBean with no deprecation note"
+
+# SKILL-F11 — two cross-cutting Spring conventions lived only in skills/implement/SKILL.md's always-loaded
+# floor, so they were never enforced at edit time. Appended as ungated rows to an existing always-active rule
+# rather than as a new file, which would force an RT bump for two bullets.
+pl="$ROOT/templates/rules/architecture/package-layout.md"
+grep -q 'Thin controllers' "$pl" && grep -q 'ConfigurationProperties' "$pl" \
+  && ok "SKILL-F11: thin-controller + externalised-config rows present in an always-active rule" \
+  || bad "SKILL-F11: the two cross-cutting conventions still exist only in the skill body"
+grep -q '^stack:' "$pl" \
+  && bad "SKILL-F11: package-layout.md became stack-gated — the two rows would stop being universal" \
+  || ok "SKILL-F11: package-layout.md is still ungated (reaches every project)"
+
 # C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
 #  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat)

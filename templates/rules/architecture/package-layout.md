@@ -88,6 +88,13 @@ Only use for small services (< 20 endpoints) or porting legacy.
 - **DTOs don't reach the domain layer.** Use mappers at boundaries.
 - **Tests mirror main packages**: `src/test/java/com/foo/user/UserServiceTest.java`.
 - **Integration tests separate source set** if Gradle: `src/integrationTest/java/...`.
+- **Thin controllers.** A controller validates, makes ONE service call, and maps the result. No business
+  logic, no repository access, no orchestration across services. Bind `*Request`/`*Response` DTOs, never an
+  `@Entity`. If a controller method needs a second service call to be correct, that decision belongs in a
+  service.
+- **Externalised config via `@ConfigurationProperties`.** Bind a typed, validated properties class; do not
+  scatter `@Value("${...}")` across the codebase. No environment-specific literals (URLs, timeouts, limits)
+  compiled into Java.
 
 ## Enforcement
 

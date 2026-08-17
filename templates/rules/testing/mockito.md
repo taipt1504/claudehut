@@ -97,5 +97,8 @@ doNothing().when(eventPublisher).publish(any());  // default, but explicit
 ## Better than mocks
 
 - Fake implementations (in-memory repo) for repository pattern tests.
-- Real dependencies via `@SpringBootTest` + `@MockBean` (sparingly).
+- Real dependencies via `@SpringBootTest` + `@MockitoBean` (sparingly). `@MockBean`/`@SpyBean` are
+  **deprecated since Boot 3.4.0 and removed in 4.0.0** — use
+  `org.springframework.test.context.bean.override.mockito.MockitoBean` / `MockitoSpyBean`. On Boot < 3.4,
+  `@MockBean` is still the only option.
 - Stub via interface implementation, not framework mock.
