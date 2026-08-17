@@ -48,13 +48,41 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
 ## Install
 
 ```bash
-# from the marketplace
-/plugin marketplace add taipt1504/claudehut
-/plugin install claudehut@claudehut-marketplace
+# recommended — the shell form installs to USER scope by default
+claude plugin marketplace add taipt1504/claudehut
+claude plugin install claudehut@claudehut-marketplace
 
-# or load locally for a session
+# or load locally for a session, without installing
 claude --plugin-dir /path/to/claudehut
 ```
+
+**Then reload.** `claude plugin install` does not run inside a session, so Claude Code picks the plugin
+up at the next start or when you run `/reload-plugins`.
+
+**Install at user scope, not project scope.** ClaudeHut is a personal workflow tool: it changes how *you*
+work through a task, not how the repository builds. The shell form above defaults to user scope
+(`--scope user` is the explicit spelling). The interactive form — `/plugin marketplace add …` then
+`/plugin install …` — opens a picker where scope is a free choice, and choosing **project** writes the
+plugin into a **committed** `.claude/settings.json`, enabling it for every collaborator on the repo.
+Beyond the consent question, project scope is also the more restricted mode: project plugins load only
+after the folder-trust gate, and components that run code are restricted further. Personal-scope plugins
+have none of those restrictions. If you do want it repo-wide, that is the second snippet:
+
+```bash
+claude plugin install claudehut@claudehut-marketplace --scope project
+```
+
+**Updates are manual.** Auto-update is enabled by default only for official Anthropic marketplaces;
+third-party and local marketplaces — which is what `claudehut-marketplace` is — have it **off** by
+default. Nothing updates in the background until you turn it on (`/plugin` → Marketplaces → Enable
+auto-update). Explicit pulls always work:
+
+```bash
+claude plugin update claudehut@claudehut-marketplace   # or /plugin update
+```
+
+If you installed before this section existed, your marketplace may be registered under a different
+name — check with `claude plugin marketplace list` and use the name it prints, not the one above.
 
 ClaudeHut ships **no** MCP servers and prompts for **no** credentials. MCP is opt-in per project (see
 [Components → MCP](#components)).
@@ -260,9 +288,48 @@ nothing else changes — Claude Code skips a server it cannot start and the rest
 versions setting either makes Claude Code skip the server entirely, with the reason visible only under
 `claude --debug`.
 
-This config has not been exercised against a live Spring service by the maintainers — the eval suite cannot
-verify that a language server actually starts. Verify with `claude --debug` on a real project before relying
-on it, and report back if jdtls needs `args` on your setup.
+**No `args` are needed — that standing question is answered.** The upstream `jdtls` Python launcher
+already registers `-data` with a default and synthesizes the `-configuration` equivalent itself
+(`jdtls.py` sets `-Dosgi.sharedConfiguration.area` plus `.readOnly` and `cascaded`). The
+`-configuration`/`-data` pair that eclipse.jdt.ls's own README calls user-provided applies to the raw
+`java -jar …launcher.jar` invocation, not to the wrapper. **Do not add `args` speculatively** — that
+converts a working default into a definitely-broken literal path.
+
+One conditional caveat: the default workspace directory is keyed on the sha1 of `basename(getcwd())`, so
+two checkouts whose directory basenames match — `~/work/ewallet` and `~/archive/ewallet` — would share
+one workspace index, against the server's own "unique per workspace/project" requirement. Nothing
+documents which cwd Claude Code spawns an LSP server with, so treat this as conditional. If you want
+per-project isolation explicitly:
+
+```json
+"args": ["-data", "${CLAUDE_PROJECT_DIR}/.claude/claudehut/jdtls-data"]
+```
+
+Use `${CLAUDE_PROJECT_DIR}` and not `${workspaceFolder}` — plugin configs expand exactly three
+placeholders (`${CLAUDE_PLUGIN_ROOT}`, `${CLAUDE_PLUGIN_DATA}`, `${CLAUDE_PROJECT_DIR}`);
+`workspaceFolder` is a sibling config *field*, not a placeholder, and would ship as an unexpanded
+literal.
+
+**jdtls requires Java 21, which is above this plugin's own stated target.** The language server — not
+the wrapper — requires a Java 21 runtime at minimum, and `jdtls.py` resolves the JVM from `$JAVA_HOME`
+first, raising before the LSP handshake if the major version is below 21. So on a machine whose
+`JAVA_HOME` points at a project JDK 17, `jdtls` throws and Claude Code silently skips the server — the
+same degradation as a missing binary, **with the binary present on `PATH`**. `--no-validate-java-version`
+is not a fix: it suppresses a check whose requirement the server still enforces. Point jdtls at a
+JDK 21+ without moving your project's JVM:
+
+```json
+"args": ["--java-executable", "/path/to/jdk21/bin/java"]
+```
+
+or equivalently `"env": {"JAVA_HOME": "/path/to/jdk21"}`. Both are documented `lspServers` fields.
+
+This config has not been exercised against a live Spring service by the maintainers, and the eval suite
+cannot close that gap: `.lsp.json` sets `diagnostics: false`, so an empty `mcp__ide__getDiagnostics` is
+the *expected* result and can never distinguish a working server from a dead one — a diagnostics-based
+probe produces a false green. The check that works is **navigation**: go-to-definition on an injected
+bean, or hover on an `@Service`, in a real single-module Spring service. A resolved cross-file symbol
+proves the server started and has a usable index.
 
 ### Token cost (v0.9.2)
 
@@ -270,9 +337,13 @@ The workflow's cost is dominated by what is paid *repeatedly* — per session, p
 dispatch — not by any single prompt. v0.9.2 attacks those paths:
 
 - **Model routing.** Checklist and mechanical agents run on cheaper models: `test-runner` and `explorer` on
-  Haiku, the five review auditors + `plan-reviewer` on Sonnet. Opus is reserved for open-ended judgment
-  (`brainstormer`, `planner`, `implementer`) and the security floor (`security-auditor`). `effort: xhigh`
-  survives only on `planner` and `security-auditor` — thinking tokens bill at output rates.
+  Haiku; the five conditional specialists (`perf`, `db`, `contract`, `observability`, `plan-reviewer`) on
+  Sonnet — each has one defect class and a fallback table. Opus is reserved for open-ended judgment
+  (`brainstormer`, `planner`, `implementer`), the security floor (`security-auditor`), and the general
+  `reviewer`, which is the only always-on auditor and the one asked for open-ended judgment on every diff.
+  `effort: xhigh` survives only on `planner` and `security-auditor` — thinking tokens bill at output rates.
+  Elsewhere `effort` is declared only where it differs from the model's default, so setting your session to
+  a lower effort is not silently overridden.
 - **Session start** injects `skills/claudehut-workflow/references/digest.md` (~2 KB: tiers, profiles, laws,
   phase map) instead of the full 10 KB orchestrator, which is re-paid on every resume/clear/compact. Load the
   full skill on demand with `/claudehut:claudehut-workflow`.
@@ -291,6 +362,33 @@ model (capped at Opus) instead of always running on Haiku, so exploration silent
 costs. A user or project subagent named `Explore` overrides the built-in and keeps its own `model` field — add
 `.claude/agents/Explore.md` with `model: haiku` to keep exploration on a lower-cost model.
 See [Claude Code › subagents](https://code.claude.com/docs/en/sub-agents).
+
+**One environment variable outranks every tier above.** Claude Code resolves a subagent's model in this
+order: `CLAUDE_CODE_SUBAGENT_MODEL` → a per-invocation `model` → the agent's frontmatter `model` → the
+main conversation's model. So a single `export CLAUDE_CODE_SUBAGENT_MODEL=opus` collapses all fourteen
+tiers onto one model, silently, with no signal in the transcript — every table in this section stops
+being true. If your dispatches cost more than this section predicts, check that variable first. Three
+narrowings worth knowing: `inherit` as a value is a no-op equal to unset; a model blocked by
+`availableModels` falls back rather than overriding; and `availableModels` is the user-side lever that
+*can* cap this plugin's Opus agents to Sonnet if you want a ceiling.
+
+**Measuring it: `/usage`.** Run it in any session and press `d` / `w` to toggle 24h vs 7d. It reports
+recent usage attributed to skills, subagents, plugins and individual MCP servers, each as a percentage
+of the total, plus behaviour flags for long context and cache misses when either accounts for 10% or
+more. It is computed from local session history — no collector, no telemetry setup, and it is unaffected
+by running a stale cached copy of this plugin. It is the only source of real dispatch-cost data that
+needs zero setup. Two caveats: whether the attribution panel renders this plugin's agent and skill names
+verbatim or redacts them is unverified, and do not read the cache-miss flag as evidence of fan-out —
+that flag is defined by a *time gap*, the first message after a break longer than the cache lifetime.
+
+If you do wire up OpenTelemetry, group `claude_code.token.usage` on `query_source × model × effort`; all
+three emit verbatim. Per-agent attribution is not available to a plugin like this one: only built-in
+agent names and agents from official marketplaces appear verbatim in the counters, so all fourteen
+ClaudeHut agents collapse to `"custom"` and the plugin name to `"third-party"`. Prefer token counts over
+dollars on a seat plan — usage inside the seat allowance is not metered in dollars. `bin/claudehut-init`
+writes `OTEL_RESOURCE_ATTRIBUTES=service.name=<repo>` into the project's `.claude/settings.json` so
+tokens slice per repository; the exporter endpoint and `OTEL_EXPORTER_OTLP_HEADERS` stay in your own
+environment and are deliberately never written to that committed file.
 
 ---
 
@@ -325,6 +423,14 @@ evals/p7-init.sh                  # init invocation produces the project plane
 without them:
 
 ```bash
+bash scripts/load-probe.sh                  # FIRST. The authoritative load check: it starts a real
+                                            # headless session and diffs the runtime's component roster
+                                            # against the tree. `claude plugin validate` did NOT catch
+                                            # the over-declare bug that broke runtime load, because it
+                                            # only reads marketplace.json. Declaring `agents`,
+                                            # `commands`, `outputStyles` or `workflows` in plugin.json
+                                            # REPLACES the default scan, so a well-meant "scoping"
+                                            # edit silently unregisters everything it does not list
 bash evals/bootstrap-acceptance.sh          # the highest-consequence single point of failure: if the
                                             # SessionStart hook stops firing, the write gate, the skill
                                             # rail and the profile gate are all silently inert, and every
@@ -332,7 +438,9 @@ bash evals/bootstrap-acceptance.sh          # the highest-consequence single poi
 bash evals/trigger-eval.sh --skill <skill>  # required after ANY change to a skill's description:
                                             # --validate goes red until the fixture is refreshed, and
                                             # refreshing it without re-running this is a false green
-claude plugin validate . --strict
+claude plugin validate . --strict           # narrower than it looks: it validates marketplace.json
+                                            # ONLY, and CI runs it only "if CLI present", so it can
+                                            # skip with no signal. Not a substitute for load-probe.sh
 ```
 
 Measured findings and the prioritized optimization log are in [`evals/EVAL-REPORT.md`](evals/EVAL-REPORT.md).
