@@ -90,6 +90,34 @@ if grep -rn '/claudehut:workflow\b\|/claudehut:init\b' "$ROOT/skills" "$ROOT/scr
 else
   ok "RES-K5: slash commands are plugin-scoped (/claudehut:claudehut-<skill>)"
 fi
+# SKILL-F5 — digest.md is what SessionStart injects, so when it and SKILL.md disagree the model is told the
+# WRONG rule and the fuller SKILL.md is never read. Law 4 diverged exactly that way: the digest said entering
+# Discover closes the skill rail, omitting Brainstorm. bin/claudehut-state:400 resets implement_skill_ok on
+# `discover|brainstorm`, so the digest was the one that was wrong. Pin the digest to the CLI, then pin the two
+# documents to each other so the next divergence is caught rather than shipped.
+DG="$ROOT/skills/claudehut-workflow/references/digest.md"; WF="$ROOT/skills/claudehut-workflow/SKILL.md"
+if grep -qE 'discover\|brainstorm\) STATE=.*implement_skill_ok=false' "$ROOT/bin/claudehut-state"; then
+  grep -q 'Discover/Brainstorm' "$DG" \
+    && ok "SKILL-F5: digest law 4 matches claudehut-state (both Discover and Brainstorm close the rail)" \
+    || bad "SKILL-F5: digest law 4 omits a phase that claudehut-state:400 actually resets on"
+else
+  bad "SKILL-F5: claudehut-state no longer resets implement_skill_ok on discover|brainstorm — digest prose is now unpinned"
+fi
+# law HEADINGS must be the same set in both documents (normalised: number + bold title, punctuation stripped)
+# Normalise hard: SKILL.md writes "**Canonical store — one dir per task.**" where the digest writes
+# "**Canonical store**". Same law, more room. So compare the number plus the title's leading clause only,
+# cut at the first '.' or em-dash, lowercased, alphanumerics only. What must not drift is the SET and the
+# ORDER of the laws — a renumbered or dropped law, not a longer subtitle.
+# Strip the "N. " numbering FIRST — otherwise the cut-at-first-period eats the whole title and the check
+# degrades to "both files have 7 numbered items", which a renamed law would sail straight through.
+laws_of(){ grep -oE '^[0-9]+\. \*\*[^*]+\*\*' "$1" \
+             | sed -E -e 's/^([0-9]+)\. \*\*/\1|/' -e 's/\*\*.*$//' -e 's/[.—].*$//' \
+             | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]|\n'; }
+if [ "$(laws_of "$DG")" = "$(laws_of "$WF")" ]; then
+  ok "SKILL-F5: digest and claudehut-workflow/SKILL.md carry the same law headings"
+else
+  bad "SKILL-F5: law headings diverged between the injected digest and SKILL.md"
+fi
 
 # C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;

@@ -34,7 +34,8 @@ db + perf reviewers; audit always draws the security-auditor.
 3. **Reuse-first** — never write new code before the reuse-scan step in `claudehut:discover` (hook-gated,
    required in every tier).
 4. **Test-first** — never write production code before a failing test. The write gate stays shut until
-   `claudehut:implement` is invoked for THIS task (one invocation per task; entering Discover closes it again).
+   `claudehut:implement` is invoked for THIS task (one invocation per task; entering Discover/Brainstorm
+   closes it again).
 5. **Compliance-first** — never claim done before `claudehut:review` reports zero outstanding (hook-gated).
 6. **Canonical store** — every artifact of a task lives in
    `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/`. Off-path artifacts are invisible to the gates,
