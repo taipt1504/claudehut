@@ -220,6 +220,23 @@ else
   ok "RES-LSP2: no skill claims LSP diagnostics"
 fi
 
+# SKILL-F2 — the slice-test matrix carried MVC and JPA only, in a corpus where every real service checked
+# is WebFlux on R2DBC. A reviewer reading it had no reactive reference at all, and the JPA examples do not
+# transfer. Also pins the Boot 3.4 test APIs here, since this file is what a reviewer copies from.
+tm="$ROOT/skills/review/references/test-matrix.md"
+miss_tm=""
+for pat in '@WebFluxTest' '@DataR2dbcTest' 'StepVerifier' 'Testcontainers, not embedded fakes'; do
+  grep -qF "$pat" "$tm" || miss_tm="$miss_tm $pat"
+done
+[ -z "$miss_tm" ] \
+  && ok "SKILL-F2: the test matrix covers the reactive slices and the Testcontainers rule" \
+  || bad "SKILL-F2: the test matrix is missing:$miss_tm"
+# Match the ANNOTATION USE (indented, followed by a type), not a prose mention of the name — the file
+# legitimately says "@MockBean is removed in Boot 4" while showing @MockitoBean in the example.
+grep -qE '^[[:space:]]+@MockBean[[:space:]]+[A-Z]' "$tm" \
+  && bad "SKILL-F2: the test matrix still USES @MockBean, removed in Boot 4" \
+  || ok "SKILL-F2: the test matrix uses @MockitoBean in its examples"
+
 # C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
 #  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat;
