@@ -146,6 +146,8 @@ loop is the workflow's most expensive failure mode. On round 3: `set-review capp
 items and what you tried. Within a round, re-dispatch **only the auditors owning a surviving `✗`**, scoped to
 those items.
 
+**Java symbol lookups:** use the LSP tool (`findReferences`, `goToDefinition`), not grep — it finds the *symbol*, so it catches an implementation reached through an interface and ignores the name in a comment. Diagnostics are off here: build and tests stay the only signal for type errors.
+
 ## Red flags — STOP
 
 - "should pass" / "looks compliant" before the auditors re-ran this turn

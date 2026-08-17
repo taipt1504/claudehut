@@ -198,6 +198,28 @@ grep -qE '@Lock|@QueryHint|entityManager' "$ROOT/templates/rules/performance/pos
   && bad "RULE-02: JPA annotations still in postgres-locking.md, which is gated only on db=postgresql" \
   || ok "RULE-02: postgres-locking.md is client-agnostic (no JPA annotations)"
 
+# SKILL-F4 — templates/rules/framework/lombok-jpa-safety.md permits @EqualsAndHashCode(onlyExplicitlyIncluded
+# = true) and bans only the naked form. Three copies stated an UNQUALIFIED ban, so a reviewer following them
+# would flag the CORRECT pattern as a violation. Any mention must qualify it.
+eq_bad=0
+for f in "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md; do
+  grep -q 'EqualsAndHashCode' "$f" 2>/dev/null || continue
+  grep -qE 'naked|onlyExplicitlyIncluded|bare' "$f" || eq_bad=$((eq_bad+1))
+done
+[ "$eq_bad" = "0" ] \
+  && ok "SKILL-F4: every @EqualsAndHashCode mention qualifies the ban (naked form only)" \
+  || bad "SKILL-F4: $eq_bad file(s) ban @EqualsAndHashCode outright — the correct pattern would be flagged"
+# RES-LSP2 — the plugin ships jdtls but no skill mentioned it. It must also NOT claim diagnostics, which
+# are off in .lsp.json: telling the model the LSP reports type errors after an edit is simply false here.
+{ grep -q 'findReferences' "$ROOT/skills/implement/SKILL.md" && grep -q 'findReferences' "$ROOT/skills/review/SKILL.md"; } \
+  && ok "RES-LSP2: implement and review both point at LSP symbol navigation" \
+  || bad "RES-LSP2: a skill still has no LSP guidance despite .lsp.json shipping jdtls"
+if grep -rn 'LSP' "$ROOT/skills" | grep -qiE 'reports type errors|diagnostics (are |is )?(on|enabled)'; then
+  bad "RES-LSP2: a skill claims LSP diagnostics — they are off in .lsp.json"
+else
+  ok "RES-LSP2: no skill claims LSP diagnostics"
+fi
+
 # C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
 #  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat;

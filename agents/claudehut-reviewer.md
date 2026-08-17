@@ -57,7 +57,7 @@ domain reviewer; run these against the diff:**
 
 | Diff touches | Verify |
 |---|---|
-| `@Entity` | `@ManyToOne`/`@OneToOne` declare `fetch = LAZY` (default is EAGER); no `@Data`/`@Builder`/`@EqualsAndHashCode` on the entity |
+| `@Entity` | `@ManyToOne`/`@OneToOne` declare `fetch = LAZY` (default is EAGER); no `@Data`/`@Builder` on the entity, and no naked `@EqualsAndHashCode` (`onlyExplicitlyIncluded = true` is correct) |
 | `@KafkaListener`/`@RabbitListener` | explicit ack (not auto-ack-before-work); handler idempotent under redelivery |
 | `@Cacheable`/Redis | TTL set; explicit serializer (not JDK default) |
 | controller/`@RequestBody` | `@Valid` present; a `*Request` DTO, never an `@Entity` |

@@ -136,7 +136,8 @@ read is a real defect, most acutely for security):
   `WebSecurityConfigurerAdapter` (removed in Security 6). `@Valid` every `@RequestBody`; bind `*Request` DTOs,
   never `@Entity`. (full depth → `references/security.md`)
 - **JPA** — set the fetch type explicitly (`@ManyToOne`/`@OneToOne` default to **EAGER** — make it `LAZY`); guard
-  N+1 (fetch-join / `@EntityGraph`). No `@Data`/`@Builder`/`@EqualsAndHashCode` on `@Entity`. (→ `references/jpa.md`)
+  N+1 (fetch-join / `@EntityGraph`). No `@Data`/`@Builder` on `@Entity`, and no **naked** `@EqualsAndHashCode` —
+  `@EqualsAndHashCode(onlyExplicitlyIncluded = true)` over the business key is the correct form. (→ `references/jpa.md`)
 - **Messaging** — idempotent consumer (handlers replay); explicit ack/offset commit, not auto-ack-before-work;
   DLQ/retry for poison messages. (→ `references/messaging.md`)
 - **Reactive** — never block the event loop: no `.block()`/blocking I/O inside a `Mono`/`Flux` chain or handler;
@@ -152,6 +153,13 @@ collaborators `final`), **thin controllers** (validate → one service call → 
 **services own the transaction boundary** (no web/persistence types leaking across), **externalized config**
 via `@ConfigurationProperties`. Match the existing base package, layering, and naming from
 `project-structure.md` / `vocabulary.md` — never invent a parallel structure.
+
+## Symbol navigation — LSP, not grep (Java only)
+
+The plugin ships `jdtls` (`.lsp.json`): for a **Java** symbol use the LSP tool — `findReferences` for
+callers, `goToDefinition` for the declaration. grep finds the string, LSP finds the *symbol*, so it does
+not miss an implementation reached through an interface nor match the name in a comment. Non-Java: grep.
+Diagnostics are **off** in this config — the build and tests stay the only signal for type errors.
 
 ## Red flags — STOP and start over
 

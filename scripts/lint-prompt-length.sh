@@ -14,8 +14,13 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Per-file line budgets. Default by category; overrides for the legitimately-larger orchestration prompts.
-skill_budget() { case "$1" in review) echo 160 ;; implement) echo 210 ;; *) echo 120 ;; esac; }
-agent_budget() { case "$1" in claudehut-implementer) echo 100 ;; claudehut-reuse-scanner) echo 105 ;; *) echo 90 ;; esac; }
+# SKILL-F1: claudehut-workflow (119 lines) and claudehut-reviewer (90) each carry an explicit BYTE budget
+# but fell through to the default LINE budget — 120 and 90 respectively. Sitting one line and zero lines
+# from a limit nobody chose for them is an accident, not a decision: the next honest edit trips a budget
+# that was never calibrated for that file. Both are now explicit, with the same modest headroom the other
+# named entries have. This is not a re-growth allowance — the byte budgets are unchanged.
+skill_budget() { case "$1" in review) echo 160 ;; implement) echo 210 ;; claudehut-workflow) echo 130 ;; discover) echo 115 ;; *) echo 120 ;; esac; }
+agent_budget() { case "$1" in claudehut-implementer) echo 100 ;; claudehut-reuse-scanner) echo 105 ;; claudehut-reviewer) echo 95 ;; claudehut-planner|claudehut-brainstormer) echo 95 ;; *) echo 90 ;; esac; }
 # Per-file BYTE budgets. Lines alone do not bound what the model reads: a commit titled "shrink the agent
 # corpus" grew one agent by 1,933 B while its line count FELL by 9, because markdown table padding is free
 # under `grep -c ''`. Bytes are what the context window pays for. Seeded ~15% above post-unpad sizes.
@@ -80,6 +85,18 @@ self_test() {
   # (e) byte budget of 0 disables the byte check (back-compat for callers passing no 4th arg)
   violations=0; lint_file "$t/fat.md" 120 "test:fat0" 0 >/dev/null; local v_fat0=$violations
   chk "lint_file skips the byte check when the byte budget is 0" '[ "$v_fat0" -eq 0 ]'
+
+  # (f) every skill/agent that has an explicit BYTE budget must also have an explicit LINE budget. A file
+  # with one and not the other silently inherits a default calibrated for a different file — which is how
+  # claudehut-workflow ended up one line from a limit nobody chose for it.
+  local mismatched=0 n
+  for n in review implement claudehut-workflow discover; do
+    [ "$(skill_budget "$n")" = "120" ] && [ "$(skill_bytes "$n")" != "6000" ] && mismatched=$((mismatched+1))
+  done
+  for n in claudehut-reuse-scanner claudehut-planner claudehut-brainstormer claudehut-implementer claudehut-reviewer; do
+    [ "$(agent_budget "$n")" = "90" ] && [ "$(agent_bytes "$n")" != "6000" ] && mismatched=$((mismatched+1))
+  done
+  chk "every file with an explicit byte budget also has an explicit line budget" '[ "$mismatched" -eq 0 ]'
 
   rm -rf "$t"; violations=0
   echo "  self-test: $pass passed, $fail failed"; [ "$fail" -eq 0 ]
