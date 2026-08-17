@@ -199,6 +199,29 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RULE-03/04: JPA-only rules must not land in an r2dbc project =="
+# transaction-propagation.md and lombok-jpa-safety.md shipped untagged, so they installed everywhere.
+# Every ewallet service checked is r2dbc (they carry framework/r2dbc.md, not jpa.md) and party-ms and
+# auth-ms each received both JPA rules anyway -- reactive services told how to annotate a Lombok @Entity.
+W9="$(mktemp -d)/repo"; mkdir -p "$W9/src/main/java/com/x"; touch "$W9/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-r2dbc") }\n' > "$W9/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W9" >/dev/null 2>&1
+F9="$W9/.claude/rules/framework"
+[ -f "$F9/r2dbc.md" ] && ok "RULE-03: r2dbc fixture receives r2dbc.md" || bad "RULE-03: r2dbc fixture did not receive r2dbc.md"
+[ -f "$F9/transaction-propagation.md" ] \
+  && bad "RULE-03: JPA transaction-propagation.md installed into an r2dbc project" \
+  || ok "RULE-03: transaction-propagation.md is gated off an r2dbc project"
+[ -f "$F9/lombok-jpa-safety.md" ] \
+  && bad "RULE-04: lombok-jpa-safety.md installed into an r2dbc project" \
+  || ok "RULE-04: lombok-jpa-safety.md is gated off an r2dbc project"
+WA="$(mktemp -d)/repo"; mkdir -p "$WA/src/main/java/com/x"; touch "$WA/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-jpa") }\n' > "$WA/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WA" >/dev/null 2>&1
+{ [ -f "$WA/.claude/rules/framework/transaction-propagation.md" ] && [ -f "$WA/.claude/rules/framework/lombok-jpa-safety.md" ]; } \
+  && ok "RULE-03/04: both JPA rules still reach a servlet-jpa project" \
+  || bad "RULE-03/04: gating removed the JPA rules from a JPA project too"
+rm -rf "$W9" "$WA"
+
 echo; echo "== RULE-05: a multi-module repo has no root src/main/java =="
 # v0.10 taught the detector to read submodule BUILD files, so stack gating worked -- but every source probe
 # was still a root-only `find src/main/java`, which finds nothing in a multi-module layout. The memory plane

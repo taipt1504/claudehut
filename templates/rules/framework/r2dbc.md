@@ -2,6 +2,8 @@
 id: rules/framework/r2dbc
 paths:
   - "**/*Repository.java"
+  - "**/*Service.java"
+  - "**/*ServiceImpl.java"
 stack: "orm=r2dbc"
 severity: high
 tags: [r2dbc, reactive, repository]
