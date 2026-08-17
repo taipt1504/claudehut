@@ -379,11 +379,23 @@ printf '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"mvn test"
 jq -e '.schema_keys | test("unexpected_error_shape")' "$CFT/.claude/claudehut/state/s1.failures.jsonl" >/dev/null 2>&1 \
   && ok "C3d: record-failure names the real payload keys when every known error path is empty" \
   || bad "C3d: schema drift stays silent — record-failure wrote a hollow row with no schema_keys"
-printf '{"session_id":"s2","tool_name":"Bash","tool_input":{"command":"mvn test"},"tool_error":{"exit_code":1,"type":"x","stderr":"boom"}}' \
-  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+# C3e/C3f use the payload CAPTURED FROM A REAL SESSION, verbatim — a real `ls /no/such/dir` failure. The
+# event sends `error` and `is_interrupt`; there is no tool_error object and no tool_response. Pinning the
+# real shape is what stops the field paths drifting back to something plausible but absent.
+REAL_FAIL='{"session_id":"s2","transcript_path":"/t","cwd":"/c","prompt_id":"p","permission_mode":"bypassPermissions","effort":{"level":"xhigh"},"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"ls /no/such/dir/xyz"},"tool_use_id":"toolu_01","error":"Exit code 1\nls: /no/such/dir/xyz: No such file or directory","is_interrupt":false,"duration_ms":47}'
+printf '%s' "$REAL_FAIL" | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
 jq -e 'has("schema_keys") | not' "$CFT/.claude/claudehut/state/s2.failures.jsonl" >/dev/null 2>&1 \
-  && ok "C3e: a healthy failure payload records no schema_keys (sidecar shape unchanged)" \
-  || bad "C3e: schema_keys leaked into a healthy record — downstream consumers see a new field"
+  && ok "C3e: the real failure payload records no schema_keys (sidecar shape unchanged)" \
+  || bad "C3e: schema_keys leaked on the real payload — the field paths do not match the live event"
+jq -e '.exit == "1" and .type == "error" and (.stderr | test("No such file"))' \
+     "$CFT/.claude/claudehut/state/s2.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3f: exit, type and stderr are all populated from the real payload" \
+  || bad "C3f: the real payload still yields a hollow record — this is the 682/682 bug"
+printf '{"session_id":"s3","tool_name":"Bash","tool_input":{"command":"sleep 99"},"error":"Interrupted by user","is_interrupt":true}' \
+  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e '.type == "interrupt"' "$CFT/.claude/claudehut/state/s3.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3g: a user interrupt is typed as interrupt, not as a code failure" \
+  || bad "C3g: an interrupt is recorded as a real failure — Learn would treat it as a lesson"
 rm -rf "$CFT"
 jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3b: SubagentStart → record-dispatch.sh wired (dispatch observation)" \

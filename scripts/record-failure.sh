@@ -31,10 +31,28 @@ tool="$(jq -r '.tool_name // empty' <<<"$in" 2>/dev/null || true)"
 [ -n "$sid" ] && [ "$tool" = "Bash" ] || exit 0
 
 cmd="$(jq -r '.tool_input.command // empty' <<<"$in" 2>/dev/null || true)"
-code="$(jq -r '.tool_error.exit_code // empty' <<<"$in" 2>/dev/null || true)"
-etype="$(jq -r '.tool_error.type // empty' <<<"$in" 2>/dev/null || true)"
-# keep only a short tail of stderr — enough to fingerprint the failure, not a wall of logs
-err="$(jq -r '.tool_error.stderr // empty' <<<"$in" 2>/dev/null | tail -c 600 || true)"
+# W0-B (v0.11) — field paths taken from a REAL captured payload, not from the docs (which document no
+# input schema for this event) and not from inference. A genuine `ls /no/such/dir` failure sends:
+#   session_id transcript_path cwd prompt_id permission_mode effort hook_event_name tool_name
+#   tool_input tool_use_id error is_interrupt duration_ms
+# There is no `tool_error` object and no `tool_response`. The previous paths — .tool_error.exit_code /
+# .tool_error.type / .tool_error.stderr — could never match anything, which is why 682 of 682 production
+# records carried an empty exit, type and stderr while only .tool_input.command was populated.
+#
+# `error` packs the exit code and the message into one string:
+#   "Exit code 1\nls: /no/such/dir/xyz: No such file or directory"
+raw_err="$(jq -r '.error // empty' <<<"$in" 2>/dev/null || true)"
+code="$(printf '%s' "$raw_err" | sed -n '1s/^Exit code \([0-9][0-9]*\).*/\1/p')"
+# type distinguishes a user interrupt from a real failure — the two deserve different treatment in Learn,
+# since an interrupted command says nothing about the code.
+if [ "$(jq -r '.is_interrupt // false' <<<"$in" 2>/dev/null || echo false)" = "true" ]; then
+  etype="interrupt"
+else
+  etype="${raw_err:+error}"
+fi
+# drop the leading "Exit code N" line — it is already in `exit` — and keep a short tail: enough to
+# fingerprint the failure, not a wall of logs.
+err="$(printf '%s' "$raw_err" | sed '1{/^Exit code [0-9]/d;}' | tail -c 600)"
 [ -n "$cmd" ] || exit 0
 
 DIR="$PROJECT_DIR/.claude/claudehut/state"
