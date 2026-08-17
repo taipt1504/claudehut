@@ -201,6 +201,39 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RULE-17: --audit reports drift read-only =="
+# --refresh-rules only reports stale rules while RE-EMITTING, and bootstrap.sh runs it with stdout
+# discarded on every version bump, so the report never reached a human. --audit reaches an already-stamped
+# repo without needing a version change, and must write NOTHING.
+WE="$(mktemp -d)/repo"; mkdir -p "$WE/src/main/java/com/x"; touch "$WE/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-jpa") }\n' > "$WE/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WE" >/dev/null 2>&1
+# strand a rule the way a real upgrade does: emitted once, then its axis goes inactive
+mkdir -p "$WE/.claude/rules/architecture"; cp "$ROOT/templates/rules/architecture/ddd.md" "$WE/.claude/rules/architecture/ddd.md"
+files_before="$(find "$WE" | wc -l | tr -d ' ')"
+aud="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WE" --audit 2>&1)"
+files_after="$(find "$WE" | wc -l | tr -d ' ')"
+[ "$files_before" = "$files_after" ] \
+  && ok "RULE-17: --audit writes nothing (file count unchanged)" \
+  || bad "RULE-17: --audit created or removed files ($files_before -> $files_after)"
+printf '%s' "$aud" | grep -q 'stale:   architecture/ddd.md' \
+  && ok "RULE-17: --audit names the stranded rule" \
+  || bad "RULE-17: --audit did not report a stranded rule"
+printf '%s' "$aud" | grep -qE '^  summary: [0-9]+ stale, [0-9]+ missing' \
+  && ok "RULE-17: --audit ends with a machine-readable summary line" \
+  || bad "RULE-17: --audit has no summary line for bootstrap to surface"
+printf '%s' "$aud" | grep -q 'note: no architecture style' \
+  && bad "RULE-17: --audit output is polluted by the arch note" \
+  || ok "RULE-17: --audit emits only the report"
+rm -rf "$WE"
+# bootstrap must carry the summary into systemMessage rather than discarding it
+grep -q 'claudehut-init" "$PROJECT_DIR" --audit' "$ROOT/scripts/bootstrap.sh" \
+  && ok "RULE-01: bootstrap re-derives the drift summary after a version-bump refresh" \
+  || bad "RULE-01: bootstrap still discards the refresh report with nothing in its place"
+grep -q 'rule drift after the plugin upgrade' "$ROOT/scripts/bootstrap.sh" \
+  && ok "RULE-01: drift reaches the user through systemMessage" \
+  || bad "RULE-01: drift is computed but never surfaced"
+
 echo; echo "== RULE-16: the architecture style is declarable and durable =="
 # The arch axis was reachable only through CLAUDEHUT_ARCH, and no real install sets it -- so the three
 # architecture rules never emit on a fresh init, while every project made before the axis existed still

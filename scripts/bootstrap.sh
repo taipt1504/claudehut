@@ -61,6 +61,14 @@ if [ -n "$PV" ] && [ -d "$DIR" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ]; th
   if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$PV" ]; then
     CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --refresh-rules >/dev/null 2>&1 \
       && printf '%s' "$PV" > "$STAMP" 2>/dev/null || true
+    # RULE-01/17: the refresh above reports stale rules on stdout, which is discarded here because this
+    # hook's stdout is its JSON contract. Re-derive the same facts read-only and carry the one-line summary
+    # into systemMessage, so drift reaches a human instead of dying in /dev/null on every version bump.
+    DRIFT="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --audit 2>/dev/null \
+             | grep -m1 '^  summary:' | sed 's/^  summary: //')" || true
+    case "$DRIFT" in
+      ""|"0 stale, 0 missing, 0 over-budget memory file(s)") DRIFT="" ;;
+    esac
   fi
 fi
 
@@ -128,11 +136,14 @@ if [ -f "$KB_META" ]; then
   ctx="$ctx"$'\n\n## Summer Framework KB (MANDATORY grounding — service-scoped, installed locally)\n'"This service consumes Summer (io.f8a.summer). Installed KB modules: ${kb_mods:-unknown} (summerCommit ${kb_commit:0:7})."$'\n'"When a task touches Summer — a summer-* dependency, a f8a.*/summer.* property, an auto-config gate, a Ufid/Txid annotation (@JE/@SE/@TX/@Compact/@UInt128/@UfidPrefix), a Summer Kafka contract, or any Summer type (ApiResponse, ViewableException, outbox/audit, resource-server, rate limiter) — you MUST ground the decision in .claude/summer-kb/ (start: USAGE.md → INDEX.md), not memory. Never invent property names, gate defaults, or coordinates; unverifiable facts are marked [unverified], never guessed."
 fi
 
+DRIFT="${DRIFT:-}"
 need_init=false
 { $WAS_ABSENT && ! $INITED; } && need_init=true   # only prompt if absent AND the deterministic fallback couldn't run
 
-jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" '
+jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" --arg drift "$DRIFT" '
   {hookSpecificOutput: {hookEventName:"SessionStart", additionalContext:$ctx, watchPaths:[$dir], reloadSkills:true}}
   + (if $need
      then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:claudehut-init to bootstrap this project before starting a task."}
+     elif $drift != ""
+     then {systemMessage:("ClaudeHut: rule drift after the plugin upgrade — " + $drift + ". Review with `claudehut-init --audit`.")}
      else {} end)'
