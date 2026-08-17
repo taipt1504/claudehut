@@ -12,6 +12,17 @@ in="$(cat 2>/dev/null || true)"   # SessionStart hook payload (carries session_i
 
 command -v jq >/dev/null 2>&1 || { echo '{}'; exit 0; }   # degrade: no context injection without jq
 
+# W0-C (v0.11): a forked session gets a NEW session_id (cli-reference: "--fork-session | When resuming,
+# create a new session ID instead of reusing the original"), so neither state/$sid.json nor
+# state/$sid.snapshot.json exists and :39-41 re-arms at phase=discover — a mid-implement fork is reset.
+# Whether a fork can instead INHERIT its parent's state depends on a fact the docs do not carry: the
+# SessionStart input schema documents no parent_session_id / forked_from field. Capture the raw payload
+# under the same flag record-failure.sh uses, so one real forked session answers it. Off by default.
+if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
+  mkdir -p "$DIR/state" 2>/dev/null || true
+  printf '%s\n' "$in" >> "$DIR/state/payload-debug.SessionStart.jsonl" 2>/dev/null || true
+fi
+
 # opt #3 FALLBACK — INVOCATION reliability. The init skill's !`...` script call is flaky in headless
 # (P7 measured 2/3: skill engaged but the script didn't always run). So bootstrap the plane
 # DETERMINISTICALLY here, with zero model reliance: if .claude/claudehut/ is absent, run the generator

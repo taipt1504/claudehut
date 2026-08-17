@@ -48,8 +48,22 @@ if [ -f "$F" ]; then
   [ "$prev" = "$this" ] && exit 0
 fi
 
-line="$(jq -nc --arg c "$cmd" --arg code "$code" --arg t "$etype" --arg e "$err" \
-  '{command:$c, exit:$code, type:$t, stderr:$e}' 2>/dev/null || true)"
+# W0-B (v0.11): when ALL THREE known error paths come back empty, the schema this script was written
+# against is not the schema being sent (measured: 682/682 production records, empty type+exit+stderr).
+# Record the payload's top-level KEY NAMES so the next real failure names the right fields by itself,
+# without a debug env var having been set in advance. Names only, never values — a payload carries
+# command text and environment detail that must not be appended to a staged file. Capped at 200 chars,
+# as record-rules-loaded.sh caps its fields. Emitted ONLY on the empty case, so a healthy payload
+# produces a byte-identical record and nothing downstream sees a new field.
+keys=""
+if [ -z "$code" ] && [ -z "$etype" ] && [ -z "$err" ]; then
+  keys="$(jq -r 'keys_unsorted | join(",")' <<<"$in" 2>/dev/null || true)"
+  keys="${keys:0:200}"
+fi
+
+line="$(jq -nc --arg c "$cmd" --arg code "$code" --arg t "$etype" --arg e "$err" --arg k "$keys" \
+  '{command:$c, exit:$code, type:$t, stderr:$e}
+   + (if $k == "" then {} else {schema_keys:$k} end)' 2>/dev/null || true)"
 [ -n "$line" ] && printf '%s\n' "$line" >> "$F"
 
 # cap at the last 20 failures so the staging file can't grow without bound

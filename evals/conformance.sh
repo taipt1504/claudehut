@@ -239,6 +239,24 @@ jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failur
   || bad "C3: PostToolUseFailure not wired to record-failure.sh"
 # C3b/C3c — the two observation hooks. Both are advisory recorders that inject nothing and never block, so a
 # wiring mistake is otherwise invisible: the sidecar just stays empty while every eval still passes.
+# C3d/C3e — schema-drift self-report. record-failure.sh reads .tool_error.{exit_code,type,stderr}; in
+# production 682/682 staged records came back with all three empty, so the recorder was writing hollow
+# rows and the harvest downstream had nothing to work with. Nothing detected that. When all three are
+# empty the recorder now names the payload's actual top-level keys, so the next real failure identifies
+# the correct fields itself. C3e pins the other half: a healthy payload must stay byte-identical, or
+# every existing consumer of the sidecar sees a new field.
+CFT="$(mktemp -d)"
+printf '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"mvn test"},"unexpected_error_shape":{"code":2}}' \
+  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e '.schema_keys | test("unexpected_error_shape")' "$CFT/.claude/claudehut/state/s1.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3d: record-failure names the real payload keys when every known error path is empty" \
+  || bad "C3d: schema drift stays silent — record-failure wrote a hollow row with no schema_keys"
+printf '{"session_id":"s2","tool_name":"Bash","tool_input":{"command":"mvn test"},"tool_error":{"exit_code":1,"type":"x","stderr":"boom"}}' \
+  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e 'has("schema_keys") | not' "$CFT/.claude/claudehut/state/s2.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3e: a healthy failure payload records no schema_keys (sidecar shape unchanged)" \
+  || bad "C3e: schema_keys leaked into a healthy record — downstream consumers see a new field"
+rm -rf "$CFT"
 jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3b: SubagentStart → record-dispatch.sh wired (dispatch observation)" \
   || bad "C3b: SubagentStart not wired to record-dispatch.sh"
