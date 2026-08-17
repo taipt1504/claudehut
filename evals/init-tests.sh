@@ -201,6 +201,19 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RES-X1: a failed write must be reported, not swallowed =="
+# render() chained `sed > tmp && mv -f && echo "wrote"`. On a read-only .claude the chain short-circuited
+# and printed NOTHING — no "wrote", no error — so init reported success while the plane was never written.
+WX="$(mktemp -d)/repo"; mkdir -p "$WX/src/main/java/com/x"; touch "$WX/src/main/java/com/x/A.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" >/dev/null 2>&1
+chmod -w "$WX/.claude/claudehut" 2>/dev/null
+warns="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" --refresh 2>&1 | grep -c 'WARN' || echo 0)"
+chmod +w "$WX/.claude/claudehut" 2>/dev/null
+[ "${warns:-0}" -ge 1 ] \
+  && ok "RES-X1: an unwritable plane produces WARN output ($warns), not silent success" \
+  || bad "RES-X1: init reported success while writing nothing"
+rm -rf "$WX"
+
 echo; echo "== RULE-17: --audit reports drift read-only =="
 # --refresh-rules only reports stale rules while RE-EMITTING, and bootstrap.sh runs it with stdout
 # discarded on every version bump, so the report never reached a human. --audit reaches an already-stamped

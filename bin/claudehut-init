@@ -232,7 +232,17 @@ render() { # $1 template, $2 dest
   local src="$TPL/$1" dest="$2" tmp
   [ -f "$src" ] || { echo "claudehut-init: missing template $src" >&2; return 0; }
   if [ -f "$dest" ] && ! $REFRESH; then echo "  keep (exists): $dest"; return 0; fi
-  tmp="$(mktemp)"; sed "${SED[@]}" "$src" > "$tmp" && mv -f "$tmp" "$dest" && echo "  wrote: $dest"
+  # RES-X1: the mv status was never tested. On a read-only .claude, or across a filesystem where the
+  # rename fails, the whole chain short-circuited and printed NOTHING — no "wrote", no error — so init
+  # reported success while the file was never written. Report the failure and keep the temp file out of
+  # the tree either way.
+  tmp="$(mktemp)"
+  if sed "${SED[@]}" "$src" > "$tmp" 2>/dev/null && mv -f "$tmp" "$dest" 2>/dev/null; then
+    echo "  wrote: $dest"
+  else
+    rm -f "$tmp" 2>/dev/null
+    echo "  WARN: could not write $dest (permissions? read-only checkout?) — plane is INCOMPLETE" >&2
+  fi
 }
 
 echo "claudehut-init: project=$PROJECT_NAME stack[web=$WEB orm=$ORM db=$DB msg=$MSG cache=$CACHE mapper=$MAPPER] base=$BASE_PACKAGE"
@@ -264,7 +274,12 @@ if $MIGRATE_MEM && [ -f "$CHD/MEMORY.md" ]; then
   if [ -s "$_mh" ]; then
     _moved="$(grep -c '^## ' "$_mh" 2>/dev/null || echo 0)"
     cat "$_mh" >> "$HIST"                       # append: a second run must not clobber earlier history
-    mv -f "$_mi" "$CHD/MEMORY.md"
+    # RES-X1: if this rename fails the history has ALREADY been appended, so a silent failure would
+    # duplicate every block on the next run. Fail loudly and leave MEMORY.md untouched.
+    if ! mv -f "$_mi" "$CHD/MEMORY.md" 2>/dev/null; then
+      echo "  WARN: migration wrote $HIST but could not rewrite MEMORY.md — do NOT re-run --migrate-memory until this is fixed" >&2
+      rm -f "$_mi" "$_mh" 2>/dev/null; return 0 2>/dev/null || exit 1
+    fi
     # Pointer, added once. NOT added to the @import set below — that is the whole point of the move.
     grep -q 'MEMORY-history.md' "$CHD/MEMORY.md" 2>/dev/null || printf '\n- `MEMORY-history.md` — per-task reuse/topic blocks, moved out of this index. Read on demand; never @import-ed.\n' >> "$CHD/MEMORY.md"
     echo "  migrated: $_moved block(s) → $HIST"
@@ -349,7 +364,14 @@ if command -v jq >/dev/null 2>&1; then
     else
       tmp="$(mktemp)"
       if jq '.worktree = (.worktree // {}) | .worktree.baseRef = "head"' "$SETTINGS" > "$tmp" 2>/dev/null; then
-        mv -f "$tmp" "$SETTINGS"; echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+        # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
+        # because worktrees then fork from the wrong ref with no sign anything went wrong.
+        if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
+          echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+        else
+          rm -f "$tmp" 2>/dev/null
+          echo "  WARN: could not write $SETTINGS — worktree.baseRef NOT set; dependent phases will fork from origin" >&2
+        fi
       else
         rm -f "$tmp"; echo "  WARN: $SETTINGS is not valid JSON — add {\"worktree\":{\"baseRef\":\"head\"}} manually" >&2
       fi

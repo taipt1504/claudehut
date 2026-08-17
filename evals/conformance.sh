@@ -417,6 +417,35 @@ grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
 
 # C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
 HJ="$ROOT/hooks/hooks.json"
+# RES-H3 — `fork` is a documented SessionStart source and was missing from the matcher, so a forked session
+# ran no bootstrap: no state, and gate-write.sh fails open on missing state, making the whole workflow
+# optional in that session. Verified against a real `claude --resume --fork-session`.
+# RES-H1/H11 — `if` is a documented per-handler key ("Permission rule syntax to filter when this hook runs
+# … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
+# process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
+# reading its own guard. One rule per handler, so two handlers become four.
+[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if)] | length' "$HJ")" = "4" ] \
+  && ok "RES-H1: all four Java PostToolUse handlers are if-gated (no process on a non-Java write)" \
+  || bad "RES-H1: a Java handler still spawns on every Write/Edit"
+[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.statusMessage)] | length' "$HJ")" = "4" ] \
+  && ok "RES-H11: each Java handler names itself in the spinner" \
+  || bad "RES-H11: handlers run without a statusMessage"
+# lint-reuse's own guard excludes tests and .claude paths, which a *.java glob cannot express. It must stay.
+grep -q '\*Test.java|\*IT.java|\*/test/\*|\*/.claude/\*' "$ROOT/scripts/lint-reuse.sh" \
+  && ok "RES-H1: lint-reuse keeps its in-script filter (the glob cannot express test/.claude exclusion)" \
+  || bad "RES-H1: lint-reuse's filter was removed — it would now fire on tests and plugin state"
+
+jq -e '[.hooks.SessionStart[]?.matcher] | any(test("fork"))' "$HJ" >/dev/null 2>&1 \
+  && ok "RES-H3: SessionStart matches fork (a forked session still arms the gate)" \
+  || bad "RES-H3: fork is not matched — a forked session arms nothing and the write gate fails open"
+FKT="$(mktemp -d)"
+printf '{"session_id":"P1","source":"startup"}' | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+printf '{"session_id":"F2","source":"fork"}'    | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+[ -f "$FKT/.claude/claudehut/state/F2.json" ] \
+  && ok "RES-H3: a fork with a new session id gets its own armed state file" \
+  || bad "RES-H3: the fork produced no state — the gate is open in that session"
+rm -rf "$FKT"
+
 jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill-expansion"))' "$HJ" >/dev/null 2>&1 \
   && ok "P1-3: UserPromptExpansion → record-skill-expansion.sh wired (slash skill-rail bypass closed)" \
   || bad "P1-3: no UserPromptExpansion recorder — /claudehut:implement bypasses the skill rail"

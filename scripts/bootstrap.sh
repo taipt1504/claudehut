@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook (matcher: startup|clear|compact).
+# SessionStart hook (matcher: startup|resume|clear|compact|fork).
 # Injects the claudehut-workflow orchestrator + top learnings + understand-anything
 # detection flag as additionalContext, before turn 1. Emits a top-level systemMessage
 # (user-visible) when the codebase index is absent. Never blocks (SessionStart cannot block). See 06 §3.
@@ -12,6 +12,18 @@ in="$(cat 2>/dev/null || true)"   # SessionStart hook payload (carries session_i
 
 command -v jq >/dev/null 2>&1 || { echo '{}'; exit 0; }   # degrade: no context injection without jq
 
+# RES-H3/PLUMB-F-09: `fork` is a documented SessionStart source and was MISSING from the matcher, so a
+# forked session ran no bootstrap at all — no state armed, no digest, no learnings. Since gate-write.sh
+# fails open on missing state, a fork silently made the whole workflow optional.
+#
+# The plan proposed skipping the `set-phase discover` re-arm when source=="fork". That PRESERVES the hole:
+# no state is still no state, and the gate still fails open. Measured on a real `claude --resume
+# --fork-session`, the fork receives a brand-new session_id and its payload carries no parent reference of
+# any kind (keys: session_id, transcript_path, cwd, hook_event_name, source) — the parent sid appears zero
+# times in the fork's own transcript either. So inheritance is not available, and the choice is between
+# arming at discover and not arming. Arming costs one wasted deny before the model re-invokes the skill;
+# not arming costs the gate. Arm.
+#
 # W0-C (v0.11): a forked session gets a NEW session_id (cli-reference: "--fork-session | When resuming,
 # create a new session ID instead of reusing the original"), so neither state/$sid.json nor
 # state/$sid.snapshot.json exists and :39-41 re-arms at phase=discover — a mid-implement fork is reset.
@@ -90,6 +102,15 @@ DIGEST="$PLUGIN_ROOT/skills/claudehut-workflow/references/digest.md"
 ctx="$(cat "$DIGEST" 2>/dev/null \
   || cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null \
   || echo "ClaudeHut workflow orchestrator skill not found.")"
+
+# RES-P6: `claudehut-state` is NOT on PATH and nothing puts it there. Every skill writes it bare, so the
+# model rediscovers the binary before each state write — visible in production failure records as
+# `BIN=…/claudehut-state` preambles and, in one case, a wrong guess at
+# `.claude/claudehut/bin/claudehut-state --help`. This hook already knows the answer; state it once, here,
+# instead of paying for the hunt in every session.
+if [ -x "$PLUGIN_ROOT/bin/claudehut-state" ]; then
+  ctx="$ctx"$'\n\n**State CLI path (resolved):** `'"$PLUGIN_ROOT/bin/claudehut-state"$'` — it is NOT on PATH. Wherever a skill writes `claudehut-state …`, run that path. Same for `claudehut-init` and `claudehut-worktree` in the same directory.'
+fi
 
 # Top learnings (P7 helper — optional; no-op until present). WS-6: --snapshot records the injected IDs so the
 # Learn phase can stamp .applied on the ones that resurface (closing the inject→use reinforcement loop).
