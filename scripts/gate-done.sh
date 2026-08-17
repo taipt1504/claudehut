@@ -21,6 +21,26 @@ STATE="$PROJECT_DIR/.claude/claudehut/state/$sid.json"
 s="$(cat "$STATE" 2>/dev/null || echo '{}')"
 jq -e . <<<"$s" >/dev/null 2>&1 || s='{}'   # N4: a corrupt state file → treat as empty (fail open, no jq noise)
 
+# IDEA-F10 sits ABOVE the bypass early-exit on purpose: an open bypass is the most important thing this
+# advisory can report, and the exit below made it the one case the advisory could never reach.
+# IDEA-F10: when the task really is done — review passed AND Learn recorded — say so once, and say what the
+# session is still carrying. A finished task with 6 stale sidecars and an open bypass looks identical to a
+# clean one from the model's side. systemMessage is user-facing and non-blocking (precedent: bootstrap.sh's
+# missing-index prompt), so this cannot wedge the Stop path. Only fires on the fully-clean pass, never
+# alongside an outstanding item.
+if [ "$(jq -r '.review // empty' <<<"$s" 2>/dev/null)" = "pass" ] \
+   && [ -f "$PROJECT_DIR/.claude/claudehut/state/$sid.learn-receipt.json" ] \
+   && [ "$(jq -r '(.outstanding // []) | length' <<<"$s" 2>/dev/null || echo 0)" = "0" ]; then
+  _byp="$(jq -r 'if .bypass then "bypass ON (" + ((.bypass_reason // "no reason recorded")) + ")" else "" end' <<<"$s" 2>/dev/null || true)"
+  _old="$(find "$PROJECT_DIR/.claude/claudehut/state" -maxdepth 1 -type f -mtime +7 \
+            \( -name '*.failures.jsonl' -o -name '*.injected.json' \) 2>/dev/null | grep -c . || echo 0)"
+  _msg=""
+  [ -n "$_byp" ] && _msg="$_byp"
+  [ "${_old:-0}" -gt 0 ] && _msg="${_msg:+$_msg; }${_old} state sidecar(s) older than 7 days"
+  if [ -n "$_msg" ]; then
+    jq -nc --arg m "ClaudeHut: task complete. Session still carries — $_msg." '{systemMessage:$m}'
+  fi
+fi
 [ "$(jq -r '.bypass // false' <<<"$s")" = "true" ] && exit 0
 
 review="$(jq -r '.review // "pending"' <<<"$s")"
@@ -91,4 +111,5 @@ elif [ "$tier" != "trivial" ] && [ "$phase" = "learn" ]; then
     fi
   fi
 fi
+
 exit 0

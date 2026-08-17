@@ -26,7 +26,10 @@ review_pass() {
 denies()  { echo "$2" | "$ROOT/scripts/gate-write.sh" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; }
 allows()  { [ -z "$(echo "$2" | "$ROOT/scripts/gate-write.sh")" ]; }
 blocks()  { echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
-done_ok() { [ -z "$(echo "$2" | "$ROOT/scripts/gate-done.sh")" ]; }
+# IDEA-F10: the pass path may now emit a non-blocking advisory systemMessage. "Passed" means "did not
+# BLOCK", not "printed nothing" — asserting empty stdout would forbid any future advisory, which is a
+# shape constraint rather than a behavioural one. 11 call sites depend on this helper.
+done_ok() { ! echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
 
 PROD='{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/Foo.java"}}'
 
@@ -226,6 +229,29 @@ echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":false}' | "
 [ -z "$(echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
   && ok "scoped: stop_hook_active cap still fails open" || bad "scoped: cap broken"
 rm -rf "$TMP"
+
+echo "== IDEA-F10: session-hygiene advisory on a clean pass =="
+new_proj
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+printf '# reuse scan\n| Dimension | Existing asset | Decision | Fit | Impact | Effort |\n|---|---|---|---|---|---|\n| util | none | build | n/a | low | S |\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st set-phase discover; st set-complexity small
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st mark-skill implement; review_pass; mk_receipt
+st set-bypass true --reason "eval fixture"
+DONEP='{"session_id":"s"}'
+adv="$(printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -r '.systemMessage // ""')"
+printf '%s' "$adv" | grep -q 'bypass ON' \
+  && ok "IDEA-F10: a clean pass surfaces the open bypass and its reason" \
+  || bad "IDEA-F10: the advisory did not report an open bypass on a passing task"
+printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && bad "IDEA-F10: the advisory BLOCKED the Stop path — it must be non-blocking" \
+  || ok "IDEA-F10: the advisory never blocks"
+st set-bypass false
+adv2="$(printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -r '.systemMessage // ""')"
+[ -z "$adv2" ] \
+  && ok "IDEA-F10: nothing to report means nothing is said (no per-task noise)" \
+  || bad "IDEA-F10: the advisory fires on a clean session with nothing outstanding"
 
 echo "== PLUMB-F-11: the fast-lane bound counts the WHOLE write batch =="
 # The bound counted only head -1 of the extracted path list, so a MultiEdit creating five production files
