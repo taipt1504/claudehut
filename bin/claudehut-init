@@ -14,7 +14,7 @@ set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
-REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; PROJ=""; RETIRED_LIST=""
+REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; MIGRATE_MEM=false; PROJ=""; RETIRED_LIST=""
 for a in "$@"; do case "$a" in
   --refresh) REFRESH=true; RULES_REFRESH=true ;;
   --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
@@ -22,6 +22,11 @@ for a in "$@"; do case "$a" in
   # is run automatically by scripts/bootstrap.sh on every plugin version bump, with output discarded, so
   # anything it does happens without the user typing a command or seeing a message. Retirement is opt-in.
   --retire-inactive) RETIRE=true ;;
+  # MEM-1. Moves the learner's per-task append blocks out of the always-loaded index into a sibling
+  # history file. Opt-in for the same reason retirement is: it rewrites a file the template calls
+  # "safe to edit", and bootstrap.sh runs this binary unattended on every version bump. Never set here
+  # by --refresh or --refresh-rules — asserted by init-tests.
+  --migrate-memory) MIGRATE_MEM=true ;;
   --detect)  DETECT=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
@@ -134,6 +139,37 @@ render LANGUAGE.md.tmpl      "$CHD/LANGUAGE.md"
 render architecture.md.tmpl  "$CHD/architecture.md"
 render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
+
+# ---------------- MEM-1: move per-task history out of the always-loaded index ----------------
+# CLAUDE.md @imports MEMORY.md WHOLE, so every byte is re-read every turn. claudehut-learner appends a
+# "## Reuse additions (task-NNNN, date)" / "## Topics (task-NNNN)" block per completed task, unbounded:
+# party-ms reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
+#
+# This MOVES, it never truncates. The template calls the file "safe to edit" and there is no marker
+# separating generated content from hand-written content, so the rule is inverted: only blocks whose
+# heading matches the learner's own machine-written form are moved, and ANYTHING ELSE STAYS PUT. A
+# hand-written "## Our team conventions" is preserved because it does not match, not because it was
+# detected. The bare "## Topics" section from the template has no "(task-...)" suffix and stays too.
+if $MIGRATE_MEM && [ -f "$CHD/MEMORY.md" ]; then
+  HIST="$CHD/MEMORY-history.md"
+  _mi="$(mktemp)"; _mh="$(mktemp)"
+  awk -v idx="$_mi" -v hist="$_mh" '
+    /^## (Reuse additions|Topics) \(/ { inh=1; print > hist; next }
+    /^## /                           { inh=0 }
+    { if (inh) print > hist; else print > idx }
+  ' "$CHD/MEMORY.md"
+  if [ -s "$_mh" ]; then
+    _moved="$(grep -c '^## ' "$_mh" 2>/dev/null || echo 0)"
+    cat "$_mh" >> "$HIST"                       # append: a second run must not clobber earlier history
+    mv -f "$_mi" "$CHD/MEMORY.md"
+    # Pointer, added once. NOT added to the @import set below — that is the whole point of the move.
+    grep -q 'MEMORY-history.md' "$CHD/MEMORY.md" 2>/dev/null || printf '\n- `MEMORY-history.md` — per-task reuse/topic blocks, moved out of this index. Read on demand; never @import-ed.\n' >> "$CHD/MEMORY.md"
+    echo "  migrated: $_moved block(s) → $HIST"
+  else
+    echo "  keep (nothing to migrate): $CHD/MEMORY.md"
+  fi
+  rm -f "$_mi" "$_mh" 2>/dev/null || true
+fi
 
 # ---------------- rule tree (stack-gated) ----------------
 # Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three

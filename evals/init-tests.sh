@@ -199,4 +199,73 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== MEM-1: per-task history moves out of the always-loaded index (--migrate-memory) =="
+# The failure this guards against already happened once in this project: --refresh-rules + rm -f destroyed a
+# hand-written "## Our team conventions" block. So the fixture carries exactly that block, and the migration
+# is only correct if the block survives because it does NOT match the learner's machine-written heading form.
+W4="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+M4="$W4/.claude/claudehut/MEMORY.md"
+cat >> "$M4" <<'FIX'
+
+## Our team conventions
+- we never use field injection, ask Tai before adding a dependency
+
+## Reuse additions (task-0001, 2026-06-04)
+- `MerchantIdentityMapper` — read-side mapper
+
+## Topics (task-0001)
+- merchant identity → learnings.jsonl
+
+## Reuse additions (task-0002, 2026-06-05)
+- `NotificationClient.sendEmail` — canonical email path
+FIX
+before_bytes="$(wc -c <"$M4" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W4" --migrate-memory >/dev/null 2>&1
+H4="$W4/.claude/claudehut/MEMORY-history.md"
+grep -q 'ask Tai before adding a dependency' "$M4" \
+  && ok "MEM-1: hand-written block survives the migration verbatim" \
+  || bad "MEM-1: DATA LOSS — hand-written block gone from MEMORY.md"
+grep -q '^## Our team conventions' "$M4" \
+  && ok "MEM-1: hand-written heading stays in the index (did not match the learner form)" \
+  || bad "MEM-1: hand-written heading was moved out"
+[ "$(grep -c '^## \(Reuse additions\|Topics\) (' "$H4" 2>/dev/null || echo 0)" = "3" ] \
+  && ok "MEM-1: all 3 machine-appended blocks moved to MEMORY-history.md" \
+  || bad "MEM-1: expected 3 moved blocks, got $(grep -c '^## \(Reuse additions\|Topics\) (' "$H4" 2>/dev/null || echo 0)"
+grep -q '^## Reuse additions (' "$M4" \
+  && bad "MEM-1: per-task blocks still in the always-loaded index" \
+  || ok "MEM-1: per-task blocks are out of the always-loaded index"
+grep -q '^## Topics$' "$M4" \
+  && ok "MEM-1: the template's own bare '## Topics' section stays (no (task-…) suffix)" \
+  || bad "MEM-1: the bare '## Topics' index section was moved out"
+grep -q 'MerchantIdentityMapper' "$H4" && grep -q 'NotificationClient.sendEmail' "$H4" \
+  && ok "MEM-1: moved content is present in history, not discarded" \
+  || bad "MEM-1: moved content missing from MEMORY-history.md"
+after_bytes="$(( $(wc -c <"$M4" | tr -d ' ') + $(wc -c <"$H4" | tr -d ' ') ))"
+[ "$after_bytes" -ge "$before_bytes" ] \
+  && ok "MEM-1: index+history ≥ original bytes (nothing dropped on the floor)" \
+  || bad "MEM-1: $((before_bytes - after_bytes)) bytes vanished in the migration"
+# idempotency — a second run must find nothing and must not duplicate history
+h_before="$(wc -c <"$H4" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W4" --migrate-memory >/dev/null 2>&1
+[ "$(wc -c <"$H4" | tr -d ' ')" = "$h_before" ] \
+  && ok "MEM-1: re-running --migrate-memory is a no-op (history not duplicated)" \
+  || bad "MEM-1: second migration duplicated history"
+# the history file must NOT join the @import set — that would undo the entire move
+grep -q 'MEMORY-history.md' "$W4/CLAUDE.md" 2>/dev/null \
+  && bad "MEM-1: MEMORY-history.md was @import-ed — the move bought nothing" \
+  || ok "MEM-1: MEMORY-history.md is not @import-ed"
+# SAFETY: the bootstrap auto-run path (--refresh-rules on every version bump) must never migrate or rewrite
+W5="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+M5="$W5/.claude/claudehut/MEMORY.md"
+printf '\n## Reuse additions (task-0009, 2026-06-15)\n- `Thing` — a thing\n' >> "$M5"
+sum_before="$(wc -c <"$M5" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W5" --refresh-rules >/dev/null 2>&1
+[ "$(wc -c <"$M5" | tr -d ' ')" = "$sum_before" ] \
+  && ok "MEM-1: --refresh-rules leaves MEMORY.md byte-identical (bootstrap auto-run is safe)" \
+  || bad "MEM-1: --refresh-rules rewrote MEMORY.md — the unattended version-bump path is destructive"
+[ -f "$W5/.claude/claudehut/MEMORY-history.md" ] \
+  && bad "MEM-1: --refresh-rules performed a migration it was never asked for" \
+  || ok "MEM-1: --refresh-rules does not migrate (opt-in only)"
+rm -rf "$W4" "$W5"
+
 echo; echo "INIT: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
