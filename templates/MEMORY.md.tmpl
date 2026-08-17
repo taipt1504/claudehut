@@ -2,7 +2,9 @@
 # ClaudeHut memory index — {{PROJECT_NAME}}
 
 This is the **committed, always-loaded index**. It names what is stored where so the agent reads the
-on-demand files only when needed. Keep it concise (≤ ~150 lines).
+on-demand files only when needed. **Budget: 8192 bytes.** Lines are the wrong unit — every byte of this
+file is re-read on every turn, and a file can sit far under any line count while costing tens of kilobytes.
+Over budget? The overflow belongs in `learnings.jsonl` or `MEMORY-history.md`, not here.
 
 ## Always loaded (via @import in CLAUDE.md)
 - `PROJECT.md` — stack, build tool + verify command, layers, entry points, test strategy.

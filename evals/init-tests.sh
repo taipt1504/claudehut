@@ -22,6 +22,17 @@ for f in MEMORY.md PROJECT.md LANGUAGE.md architecture.md reuse-index.json; do
   [ -f "$W/.claude/claudehut/$f" ] && ok "plane: $f written" || bad "plane: $f MISSING"
 done
 prov "$W/.claude/claudehut/MEMORY.md" && ok "provenance line present" || bad "no provenance line"
+# MEM-2 — the budget must be stated in BYTES. Measured across the 15 real installs: only party-ms (468 lines)
+# violates the old "≤ ~150 lines" rule, while auth-ms (94 L / 35,797 B), payment-orchestrator-ms (65 L /
+# 11,501 B) and java-common-ms (37 L / 9,328 B) all PASS it at 9-36 KB. Three of the four over-budget files
+# are invisible to a line count, so the unit itself was the defect. 8192 is the one literal; row 1's
+# migration test asserts the same number.
+grep -q '8192 bytes' "$W/.claude/claudehut/MEMORY.md" \
+  && ok "MEM-2: MEMORY.md states a BYTE budget (8192)" \
+  || bad "MEM-2: MEMORY.md carries no byte budget"
+grep -qE 'Keep it concise \(. ~150 lines\)' "$W/.claude/claudehut/MEMORY.md" \
+  && bad "MEM-2: the line budget survived — 3 of 4 real over-budget files pass it" \
+  || ok "MEM-2: the misleading line budget is gone"
 jq -e . "$W/.claude/claudehut/reuse-index.json" >/dev/null 2>&1 && ok "reuse-index.json valid JSON" || bad "reuse-index.json invalid"
 grep -q '{{' "$W/.claude/claudehut/PROJECT.md" && bad "unsubstituted {{...}} in PROJECT.md" || ok "no unsubstituted tokens in PROJECT.md"
 grep -q 'com\.example' "$W/.claude/claudehut/PROJECT.md" && ok "base package detected (com.example, single-file repo)" || bad "base package wrong"
