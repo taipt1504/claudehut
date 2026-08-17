@@ -44,6 +44,52 @@ else
   echo "  FAIL - MCP inventory: evals/mcp-inventory.json missing"; FAIL=$((FAIL+1))
 fi
 
+# MCP-PIN: every catalog row must constrain the server it recommends. postgres pins --access-mode, kafka
+# pins --allow-tools, and github was the exception — added at the default endpoint, which serves
+# create_pull_request / merge_pull_request / push_files / delete_file to a reviewer agent whose stated need
+# is "PR/issue context". Read-only endpoint and toolset header verified against github/github-mcp-server.
+MCPREC="$ROOT/templates/mcp-recommendations.md"
+if grep -q 'api.githubcopilot.com/mcp/ ' "$MCPREC" || grep -qE 'githubcopilot\.com/mcp/"?\s*--header "Auth' "$MCPREC"; then
+  echo "  FAIL - MCP-PIN: the github row uses the unpinned default endpoint (full write toolset)"; FAIL=$((FAIL+1))
+else
+  echo "  ok   - MCP-PIN: the github row is pinned to the read-only endpoint"; PASS=$((PASS+1))
+fi
+if grep -q 'X-MCP-Toolsets' "$MCPREC"; then
+  echo "  ok   - MCP-PIN: the github row narrows its toolsets"; PASS=$((PASS+1))
+else
+  echo "  FAIL - MCP-PIN: the github row serves every toolset"; FAIL=$((FAIL+1))
+fi
+
+# IDEA-F6: anchored slice-reads. A pointer that names an anchor lets the reader open a section instead of a
+# whole file — implement/references/testing.md is 12,479 B for what is usually one slice. The mechanism is
+# worthless without this check: an anchor that no longer resolves reads exactly like one that does, and the
+# repo already carries 26 dead anchors in .claude/docs/design/ as the standing proof of that.
+# Every `references/<file>.md#<anchor>` written anywhere in skills/ or agents/ must resolve to a heading.
+anch_bad=0; anch_n=0
+while IFS= read -r ref; do
+  [ -n "$ref" ] || continue
+  anch_n=$((anch_n+1))
+  tgt="${ref%%#*}"; frag="${ref#*#}"
+  # locate the target relative to whichever skill dir referenced it
+  hit=""
+  for cand in "$ROOT"/skills/*/"$tgt" "$ROOT/$tgt"; do [ -f "$cand" ] && { hit="$cand"; break; }; done
+  if [ -z "$hit" ]; then
+    echo "  FAIL - anchor target missing: $ref"; anch_bad=$((anch_bad+1)); continue
+  fi
+  # GitHub-style slug: lowercase, drop punctuation, spaces to hyphens
+  if ! grep -E '^#{1,6} ' "$hit" \
+       | sed -E 's/^#+ //; s/[^a-zA-Z0-9 -]//g; s/ /-/g' \
+       | tr '[:upper:]' '[:lower:]' | grep -qx "$frag"; then
+    echo "  FAIL - anchor does not resolve: $ref (no heading slugs to '$frag' in $(basename "$hit"))"
+    anch_bad=$((anch_bad+1))
+  fi
+done < <(grep -rhoE 'references/[a-z0-9-]+\.md#[a-z0-9-]+' "$ROOT/skills" "$ROOT/agents" 2>/dev/null | sort -u)
+if [ "$anch_bad" = "0" ]; then
+  echo "  ok   - all $anch_n advertised reference anchor(s) resolve"; PASS=$((PASS+1))
+else
+  echo "  FAIL - $anch_bad advertised anchor(s) do not resolve"; FAIL=$((FAIL+1))
+fi
+
 echo
 echo "REFERENCE-CHECK: $PASS passed, $FAIL failed, $SKIP skipped"
 [ "$FAIL" -eq 0 ]

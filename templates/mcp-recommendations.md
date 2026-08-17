@@ -20,7 +20,17 @@ secrets — tell the user to substitute their own connection string / token at r
 | postgres | `org.postgresql` / `r2dbc-postgresql` / Postgres in compose | Brainstorm, Review — live schema + `EXPLAIN` for db/perf reviewers | `claude mcp add --scope project -e DATABASE_URI="<POSTGRES_URL>" postgres -- uvx postgres-mcp --access-mode=restricted` |
 | mysql | `mysql-connector` / `r2dbc-mysql` / MySQL in compose | Brainstorm, Review — schema + `EXPLAIN` | `claude mcp add --scope project mysql -- npx -y mcp-server-mysql --url "<MYSQL_URL>"` |
 | kafka | `spring-kafka` / `kafka-clients` | Implement, Review — topics, consumer groups, lag | two steps, see note below |
-| github | git remote on github.com | Plan, Review, Learn — PR/issue context | `claude mcp add --scope project --transport http github https://api.githubcopilot.com/mcp/ --header "Authorization: Bearer <GITHUB_TOKEN>"` |
+| github | git remote on github.com | Plan, Review, Learn — PR/issue context | `claude mcp add --scope project --transport http github https://api.githubcopilot.com/mcp/readonly --header "Authorization: Bearer <GITHUB_TOKEN>" --header "X-MCP-Toolsets: issues,pull_requests"` |
+
+> **MCP-PIN — every row above is toolset-pinned, and the github row was the exception.** postgres pins
+> `--access-mode=restricted` and kafka pins `--allow-tools`; github was added unpinned at the default
+> endpoint, which serves the full toolset including `create_pull_request`, `merge_pull_request`,
+> `push_files`, `create_or_update_file` and `delete_file`. The row's own stated value is "PR/issue
+> context" — reading. It now uses the documented read-only endpoint
+> (`https://api.githubcopilot.com/mcp/readonly`) and narrows the surface with
+> `X-MCP-Toolsets: issues,pull_requests`, both verified against
+> github/github-mcp-server `docs/remote-server.md`. An unpinned server is not a smaller version of a
+> pinned one: it hands a reviewer agent the ability to merge.
 
 > RabbitMQ / NATS: no mature public MCP at time of writing — add by the same pattern when one ships.
 
