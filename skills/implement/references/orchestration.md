@@ -54,7 +54,9 @@ flowchart TB
   dispatching the next phase's batch.** Skip this and the next phase's implementers fork from a HEAD missing
   the inline work → they can't build on it → you're forced back to inline (the exact failure this fixes).
 
-**Native task mirror — boundary updates (main thread ONLY).** The plan's T-xxx table was mirrored into
+**Native task mirror — boundary updates (main thread ONLY, and only if task tools exist in this session;
+they frequently do not. No task tools → skip every mirror instruction below, including the two mirror nodes
+in the diagram above; `plan.md` is the source of truth and the mirror was never a gate).** The plan's T-xxx table was mirrored into
 Claude Code's task list at plan approval. **Subagents have no task tools — they cannot update the list; only
 the main thread can, and only when it is not blocked.** So keep the list live at **phase-batch boundaries**:
 `TaskUpdate` every task in a phase → `in_progress` **before** dispatching that phase's batch, and → `completed`

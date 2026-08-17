@@ -256,6 +256,28 @@ else
   ok "RES-R1: review's description does not contradict its own round cap"
 fi
 
+# D6 — TaskCreate/TaskUpdate are NOT universally present. ToolSearch returned no match for them in a real
+# session while skills instructed the main thread to keep a "native task mirror" with them, and write-plan
+# made it step 4 of an ordered procedure. That is the mcp__postgres__query class of defect: a mandatory
+# instruction naming a tool that is not there. Every mention must be conditional, the way implement/SKILL.md
+# already conditions its orchestration section on having an Agent tool.
+# SCOPE, stated honestly: this is a FILE-level check. It catches the realistic regression — a rewrite that
+# drops the conditionality from a section wholesale — but a file that keeps the phrase somewhere else while
+# one mention goes unconditional still passes. A per-mention check would need to parse prose structure.
+tt_bad=0
+for f in "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/templates/*.tmpl; do
+  [ -f "$f" ] || continue
+  grep -q 'TaskCreate\|TaskUpdate' "$f" 2>/dev/null || continue
+  # frontmatter allowed-tools is a permission grant, not an instruction — it may name them unconditionally
+  body="$(sed '/^allowed-tools:/d' "$f")"
+  printf '%s' "$body" | grep -q 'TaskCreate\|TaskUpdate' || continue
+  printf '%s' "$body" | grep -qiE 'if .*task tools|task tools (exist|available)|IF task tools|when those tools exist|those tools exist' \
+    || { tt_bad=$((tt_bad+1)); echo "      (unconditional task-tool instruction: ${f#$ROOT/})"; }
+done
+[ "$tt_bad" = "0" ] \
+  && ok "D6: every task-mirror instruction is conditional on the tools existing" \
+  || bad "D6: $tt_bad file(s) instruct the model to use TaskCreate/TaskUpdate unconditionally"
+
 # C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
 #  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat;

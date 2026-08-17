@@ -7,7 +7,7 @@ allowed-tools: Read Grep Glob Bash Agent AskUserQuestion TaskCreate TaskUpdate
 # Write Plan (Plan phase)
 
 Convert the approved spec into an executable, test-first plan. Runs **inline on the main thread** — the planner
-drafts in isolation; this skill owns the user gate, the state write, and the task mirror (a subagent cannot).
+drafts in isolation; this skill owns the user gate, the state write, and — where task tools exist — the task mirror (a subagent cannot).
 
 ## Flow
 
@@ -27,7 +27,7 @@ flowchart TB
     ask -. "headless -p" .-> bypass(["record approval: non-interactive in header"])
     ask -- "Approve" --> setplan["set-plan plan.md (opens PreToolUse write gate)"]
     bypass --> setplan
-    setplan --> mirror["TaskCreate per T-row + TaskUpdate addBlockedBy (Depends-on)"]
+    setplan --> mirror["IF task tools available: TaskCreate per T-row + TaskUpdate addBlockedBy<br/>(absent → skip; plan.md is the source of truth)"]
     mirror --> phase["set-phase implement → REQUIRED NEXT claudehut:implement"]
 ```
 
@@ -58,7 +58,10 @@ flowchart TB
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan .claude/claudehut/tasks/NNNN-<slug>/plan.md
    ```
-4. **Mirror into the native task list**: one **`TaskCreate`** per T-xxx row (`subject: "T-001: <goal>"`,
+4. **Mirror into the native task list — ONLY if you have task tools.** Availability is per session and
+   not guaranteed; `TaskCreate`/`TaskUpdate` are absent in many. **No task tools → skip this step entirely**,
+   the same way `claudehut:implement` skips its orchestration section when there is no Agent tool. `plan.md`
+   is the source of truth; the mirror is a convenience view, never a gate. With task tools: one **`TaskCreate`** per T-xxx row (`subject: "T-001: <goal>"`,
    `description`: files + test-first + verify + req-ref, `activeForm`: present-continuous), then **`TaskUpdate
    addBlockedBy`** per Depends-on. `plan.md` stays the durable source of truth. Then enter Implement:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase implement`.

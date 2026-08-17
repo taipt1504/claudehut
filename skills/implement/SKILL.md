@@ -90,8 +90,8 @@ The non-negotiables it expands — summarised so a skipped read is a violation, 
   must `git commit` yourself before dispatching the next phase — else its implementers fork from a HEAD
   missing that work.
 - **Reconcile serially, never batch-merge**; `sweep` after the last phase.
-- **Native task mirror: update at phase-batch boundaries only** (main thread only — subagents have no task
-  tools). `in_progress` before a phase dispatches, `completed`/`blocked` after it reconciles.
+- **Native task mirror, IF task tools exist: update at phase-batch boundaries only** (main thread only;
+  subagents never have them, and many main-thread sessions do not either — absent, skip it, `plan.md` rules). `in_progress` before a phase dispatches, `completed`/`blocked` after it reconciles.
 
 ## The cycle
 
