@@ -201,6 +201,31 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo "== F5 (v0.12): the dispatch ledger must be gitignored, on FRESH and EXISTING projects =="
+# Every grep here is anchored (^…/?$) on purpose: an unanchored `grep -q ledger` also matches the
+# "# ClaudeHut dispatch ledger …" comment the init writes one line above the rule, which would pass
+# whether or not the rule itself landed.
+W6="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+grep -qE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null \
+  && ok "F5: fresh init gitignores .claude/claudehut/ledger/" || bad "F5: ledger/ not gitignored on a fresh init"
+grep -qE '^\.claude/claudehut/state/?$' "$W6/.gitignore" 2>/dev/null \
+  && ok "F5: fresh init still gitignores .claude/claudehut/state/ (the older rule is intact)" || bad "F5: state/ rule lost"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
+[ "$(grep -cE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null)" = "1" ] \
+  && ok "F5: re-running init does not duplicate the ledger/ rule (idempotent)" || bad "F5: ledger/ rule duplicated on re-run"
+rm -rf "$W6"
+# THE UPGRADE CASE, and the reason the ledger rule has its OWN guard rather than sharing the state/ one.
+# Every existing install already ignores state/. Under a shared guard those projects skip the whole branch
+# and never receive the ledger rule — the ledger then surfaces in real users' `git status` while a
+# fresh-init assertion stays green. This is that regression, made deterministic.
+W7="$(mktemp -d)/work"; mkdir -p "$W7"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W7/" 2>/dev/null
+printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' > "$W7/.gitignore"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" >/dev/null 2>&1
+grep -qE '^\.claude/claudehut/ledger/?$' "$W7/.gitignore" 2>/dev/null \
+  && ok "F5: an EXISTING project already ignoring state/ still gets the ledger/ rule (independent guard)" \
+  || bad "F5: ledger/ rule skipped because state/ was already ignored — every existing install would leak the ledger"
+rm -rf "$W7"
+
 echo; echo "== RES-M12: per-repo OTel service.name, and no secrets in a committed file =="
 # Fifteen sibling services report as one undifferentiated telemetry stream otherwise, and "which repo burned
 # the tokens" is the question the team is actually asking.

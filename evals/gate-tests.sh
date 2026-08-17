@@ -230,6 +230,85 @@ echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":false}' | "
   && ok "scoped: stop_hook_active cap still fails open" || bad "scoped: cap broken"
 rm -rf "$TMP"
 
+# F5 (v0.12) — the dispatch ledger. Every payload below is the REAL key set, probed on Claude Code 2.1.234:
+# SubagentStart carries agent_id/agent_type/cwd/hook_event_name/prompt_id/session_id/transcript_path and
+# NOT effort; SubagentStop adds effort (an object) and agent_transcript_path. The four `[ -z "$(…)" ]`
+# assertions above are the stdout-purity guard for the stop-half append — verify-subagent.sh is a BLOCKING
+# hook, so a single stray byte on its stdout would read as a false block.
+echo "== F5: dispatch ledger (start + stop, joined on agent_id) =="
+new_proj
+LED="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl"
+echo '{"session_id":"s","agent_id":"agent_abc123","agent_type":"claudehut:claudehut-reviewer","cwd":"/some/worktree","hook_event_name":"SubagentStart","prompt_id":"p1","transcript_path":"/t.jsonl"}' \
+  | "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
+[ -f "$LED" ] && ok "F5: ledger is at .claude/claudehut/ledger/dispatches.jsonl (out of the age-swept state/ dir)" \
+  || bad "F5: no ledger at ledger/dispatches.jsonl"
+[ ! -f "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.dispatches.jsonl" ] \
+  && ok "F5: nothing is written to the old state/<sid>.dispatches.jsonl path" || bad "F5: still writing the swept path"
+# VALUES, not keys — `has("agent_id")` passes on a record whose agent_id is "", which is the hollow-record
+# class (682 of them in v0.11) this whole item exists to avoid.
+jq -e '.agent_id=="agent_abc123" and .event=="start" and .session_id=="s" and .cwd=="/some/worktree"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: start record carries a NON-EMPTY agent_id, plus session_id and cwd" || bad "F5: start record hollow or missing fields"
+# effort is measured ABSENT on SubagentStart. Writing the key anyway would be a field matching nothing.
+jq -e 'has("effort")|not' "$LED" >/dev/null 2>&1 \
+  && ok "F5: start record writes no effort field (SubagentStart does not carry one)" || bad "F5: start record invents an effort field"
+# stop half — appended by the blocking SubagentStop hook
+echo '{"session_id":"s","agent_id":"agent_abc123","agent_type":"claudehut:claudehut-reviewer","effort":{"level":"xhigh"},"agent_transcript_path":"/p/subagents/agent-agent_abc123.jsonl","stop_hook_active":false,"hook_event_name":"SubagentStop"}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+jq -e 'select(.event=="stop") | .agent_id=="agent_abc123" and .effort=="xhigh" and (.agent_transcript_path|test("agent-agent_abc123"))' "$LED" >/dev/null 2>&1 \
+  && ok "F5: stop record carries agent_id, effort.level unwrapped, and agent_transcript_path" || bad "F5: stop record missing agent_id/effort/transcript"
+# THE JOIN is the feature. Without a matching pair there is no wall duration and F5 bought nothing.
+jq -s 'group_by(.agent_id)|map(select(.[0].agent_id=="agent_abc123"))|.[0]|(length==2) and ((map(.event)|sort)==["start","stop"])' "$LED" 2>/dev/null | grep -qx true \
+  && ok "F5: start and stop pair on agent_id — exactly one of each (wall duration derivable)" || bad "F5: start/stop do not join on agent_id"
+# .effort SHAPE. Measured as an object; a bare `.effort.level` against a string value throws, and jq would
+# then emit NO record at all — a shape change would silently empty the ledger rather than blank one field.
+echo '{"session_id":"s","agent_id":"agent_str","agent_type":"x","effort":"high","stop_hook_active":false}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+jq -e 'select(.agent_id=="agent_str") | .effort=="high"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: a STRING effort still yields a record (type switch, not a throwing .effort.level)" || bad "F5: string-shaped effort loses the whole record"
+rm -rf "$TMP"
+# The append must not disturb the gate it shares a script with: a blocking stop still blocks, and is still
+# recorded (the append sits above the contract switch, below the stop_hook_active cap).
+new_proj
+LED="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl"
+echo '{"session_id":"s","agent_id":"agent_blk","agent_type":"claudehut:claudehut-reuse-scanner","effort":{"level":"low"},"stop_hook_active":false}' \
+  | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "F5: the ledger append leaves the block decision intact" || bad "F5: ledger append broke the blocking gate"
+jq -e 'select(.agent_id=="agent_blk") | .event=="stop"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: a BLOCKED stop is still recorded (the ledger sees enforcement, not just happy paths)" || bad "F5: blocked stop went unrecorded"
+# ...and a re-entrant stop (the hang cap) must NOT append a second stop for the same dispatch.
+echo '{"session_id":"s","agent_id":"agent_blk","agent_type":"claudehut:claudehut-reuse-scanner","stop_hook_active":true}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+[ "$(grep -c 'agent_blk' "$LED")" = "1" ] \
+  && ok "F5: stop_hook_active re-entry adds no duplicate stop record (pairing survives a block loop)" || bad "F5: block loop duplicates stop records"
+rm -rf "$TMP"
+
+echo "== W20/W21: persist-state (PreCompact) =="
+new_proj; st set-phase brainstorm
+SNAP="$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.snapshot.json"
+DBG="$CLAUDE_PROJECT_DIR/.claude/claudehut/state/payload-debug.PreCompact.jsonl"
+# PRODUCTION PAYLOAD SHAPE. W21 measured this on a real manual compaction (Claude Code 2.1.234): the complete
+# PreCompact key set is custom_instructions, cwd, hook_event_name, prompt_id, session_id, transcript_path,
+# trigger. Feeding the real shape is what makes the .session_id read falsifiable — a fixture carrying only
+# the field the script happens to want proves nothing about production.
+PRECOMPACT='{"custom_instructions":"","cwd":"/tmp/x","hook_event_name":"PreCompact","prompt_id":"pr_1","session_id":"s","transcript_path":"/t.jsonl","trigger":"manual"}'
+printf '%s' "$PRECOMPACT" | "$ROOT/scripts/persist-state.sh" >/dev/null 2>&1
+[ -f "$SNAP" ] && ok "W20: the REAL PreCompact payload snapshots the live state file (the crash-path source)" || bad "W20: snapshot no longer written"
+[ ! -f "$DBG" ] && ok "W21: payload capture is OFF by default" || bad "W21: payload written without the flag"
+# The capture block is what turned .session_id from a guess into a measurement, and it stays wired so the
+# next runtime key-set change is readable rather than silent — an empty sid makes STATE "state/.json", the
+# [ -f ] fails, and the hook exits 0 having copied nothing, byte-identical to success.
+printf '%s' "$PRECOMPACT" | CLAUDEHUT_DEBUG_PAYLOAD=1 "$ROOT/scripts/persist-state.sh" >/dev/null 2>&1
+jq -e '(keys|sort)==["custom_instructions","cwd","hook_event_name","prompt_id","session_id","transcript_path","trigger"]' "$DBG" >/dev/null 2>&1 \
+  && ok "W21: CLAUDEHUT_DEBUG_PAYLOAD=1 captures the RAW PreCompact payload verbatim (all 7 measured keys)" || bad "W21: PreCompact payload not captured"
+# W20 is a documentation correction, so its assertion is deliberately a documentation assertion: the old
+# claim must be GONE, not merely joined by a new one.
+grep -q 'Durability before context compaction' "$ROOT/scripts/persist-state.sh" \
+  && bad "W20: header still claims compaction durability the hook does not provide" \
+  || ok "W20: the overclaiming 'Durability before context compaction' header is gone"
+grep -q 'crash insurance whose TRIGGER happens to be a compaction' "$ROOT/scripts/persist-state.sh" \
+  && ok "W20: header names the crash path it actually protects" || bad "W20: corrected header missing"
+rm -rf "$TMP"
+
 echo "== IDEA-F10: session-hygiene advisory on a clean pass =="
 new_proj
 mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"

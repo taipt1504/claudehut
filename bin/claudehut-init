@@ -435,4 +435,19 @@ else
     && echo "  gitignored: .claude/claudehut/state/"
 fi
 
+# ---------------- ledger/ is local telemetry: ignore it too (F5, v0.12) ----------------
+# The dispatch ledger moved out of state/ so it stops being age-swept, but it is still per-machine
+# observation data, not shared project config — it must not land in anyone's diff.
+# Its guard is DELIBERATELY INDEPENDENT of the state/ block above. Folding the ledger line into that
+# block's else-branch would mean every project that already has state/ ignored — i.e. every existing
+# install — skips the branch and never gets ledger/ ignored, so the ledger would show up in real users'
+# git status while a fresh-init test stayed green. Two rules, two guards. Idempotent.
+if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/ledger/?$' "$GI" 2>/dev/null; then
+  : # already ignored
+else
+  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
+  { printf '# ClaudeHut dispatch ledger (local observation data; safe to delete)\n.claude/claudehut/ledger/\n' >> "$GI"; } 2>/dev/null \
+    && echo "  gitignored: .claude/claudehut/ledger/"
+fi
+
 echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."
