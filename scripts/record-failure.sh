@@ -14,6 +14,18 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 in="$(cat || true)"
 command -v jq >/dev/null 2>&1 || exit 0
 
+# W0-B (v0.11): every field this script reads except .tool_input.command comes back EMPTY in production —
+# measured 682/682 records with empty type+exit+stderr across the real repos. The field paths below were
+# guessed, and guessing a second set would repeat the bug. So: with CLAUDEHUT_DEBUG_PAYLOAD=1, append the
+# RAW payload before any field is read or any early-exit fires, so the real key names can be read off a
+# real event. Off by default; costs nothing when unset. Deliberately not session-scoped — .session_id is
+# itself one of the guesses, and a wrong guess there would silently produce no file at all.
+if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
+  _dbg="$PROJECT_DIR/.claude/claudehut/state"
+  mkdir -p "$_dbg" 2>/dev/null \
+    && printf '%s\n' "$in" >> "$_dbg/payload-debug.PostToolUseFailure.jsonl" 2>/dev/null || true
+fi
+
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 tool="$(jq -r '.tool_name // empty' <<<"$in" 2>/dev/null || true)"
 [ -n "$sid" ] && [ "$tool" = "Bash" ] || exit 0
