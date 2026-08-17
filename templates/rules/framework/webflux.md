@@ -14,8 +14,10 @@ tags: [webflux, reactive, reactor, handler, router]
 
 ## DO
 
-- Use `RouterFunction` + `Handler` pattern (preferred over `@RestController`).
-- Return `Mono<ServerResponse>` from every handler method.
+- Follow the style this project already uses. WebFlux supports **both** annotated controllers
+  (`@RestController` returning `Mono`/`Flux`) and the functional `RouterFunction` + `Handler` pattern;
+  neither is deprecated. Match the surrounding package — do not convert one into the other.
+- Functional style: return `Mono<ServerResponse>` from every handler method.
 - Use `WebTestClient` for tests; `StepVerifier` for unit-level chain tests.
 - Propagate security/trace via Reactor Context — never `ThreadLocal`/MDC directly.
 - Offload unavoidable blocking calls: `Mono.fromCallable(() -> legacy.call()).subscribeOn(Schedulers.boundedElastic())`.

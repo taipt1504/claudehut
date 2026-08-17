@@ -94,7 +94,27 @@ PACKAGE_TREE="$(find src/main/java -type d 2>/dev/null | sed -E 's#.*src/main/ja
 if [ "$BUILD_TOOL" = maven ]; then MODULE_LIST="$(grep -oE '<module>[^<]+' pom.xml 2>/dev/null | sed 's/<module>/- /' | paste -sd' ' - )"; else MODULE_LIST="$(grep -hoE "include\(?['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]/- /" | paste -sd' ' -)"; fi
 [ -n "$MODULE_LIST" ] || MODULE_LIST="- (single module)"
 TEST_STRATEGY="JUnit 5"; has 'testcontainers' && TEST_STRATEGY="$TEST_STRATEGY + Testcontainers"; has 'wiremock' && TEST_STRATEGY="$TEST_STRATEGY + WireMock"
-LAYER_CONVENTION="web -> service -> domain -> persistence (domain depends on nothing)"
+# RULE-06 — DERIVE the layer convention; never assert one. This lands in project-structure.md, which is an
+# ALWAYS-ON rule, so a wrong value is read on every turn and pushes the model to create packages that do not
+# exist. The old hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked:
+# party-ms and auth-ms have api/handler/service/domain/repository and no `web` or `persistence` package at all.
+# Probe each slot for the names actually used in the tree, in dependency order, and emit only what is present.
+_lc=""
+for _slot in "web|api|controller|rest|handler|adapter" "service|application|usecase" "domain|model|core" \
+             "persistence|repository|dao|infrastructure|store"; do
+  _hit=""
+  for _cand in ${_slot//|/ }; do
+    # a real package directory at any depth, not a substring of some other name
+    if find src/main/java -type d -name "$_cand" 2>/dev/null | grep -q .; then _hit="$_cand"; break; fi
+  done
+  [ -n "$_hit" ] && _lc="${_lc:+$_lc -> }$_hit"
+done
+if [ -n "$_lc" ]; then
+  LAYER_CONVENTION="$_lc (detected from src/main/java; dependencies point inward)"
+else
+  # Honest placeholder rather than a convention the code does not follow — same precedent as BASE_PACKAGE.
+  LAYER_CONVENTION="(not detected — no conventional layer packages found; record the real convention here)"
+fi
 
 ARCH="${CLAUDEHUT_ARCH:-none}"
 case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac

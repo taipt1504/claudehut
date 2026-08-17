@@ -199,6 +199,27 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RULE-06: the layer convention is DERIVED, never asserted =="
+# project-structure.md is an ALWAYS-ON rule, so a wrong layer convention is read on every turn. The old
+# hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked: party-ms and
+# auth-ms have api/handler/service/domain/repository and no `web` or `persistence` package at all.
+W6="$(mktemp -d)/repo"; mkdir -p "$W6"/src/main/java/io/f8a/party/{api,service,domain,repository}
+touch "$W6/src/main/java/io/f8a/party/api/X.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
+PS6="$W6/.claude/rules/project-structure.md"
+grep -q 'api -> service -> domain -> repository' "$PS6" \
+  && ok "RULE-06: layers derived from the real package tree (api -> service -> domain -> repository)" \
+  || bad "RULE-06: layers not derived — got: $(grep -o 'Layers and their direction:.*' "$PS6" | cut -c1-80)"
+grep -q 'web -> service -> domain -> persistence' "$PS6" \
+  && bad "RULE-06: the hardcoded convention survived on a repo that has no web/ or persistence/ package" \
+  || ok "RULE-06: the hardcoded convention is gone"
+W7="$(mktemp -d)/repo"; mkdir -p "$W7/src/main/java/com/x/stuff"; touch "$W7/src/main/java/com/x/stuff/Y.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" >/dev/null 2>&1
+grep -q 'not detected' "$W7/.claude/rules/project-structure.md" \
+  && ok "RULE-06: an unrecognised layout gets an honest placeholder, not a false convention" \
+  || bad "RULE-06: an unrecognised layout was still handed a layer convention"
+rm -rf "$W6" "$W7"
+
 echo; echo "== MEM-1: per-task history moves out of the always-loaded index (--migrate-memory) =="
 # The failure this guards against already happened once in this project: --refresh-rules + rm -f destroyed a
 # hand-written "## Our team conventions" block. So the fixture carries exactly that block, and the migration
