@@ -37,6 +37,10 @@ done
 
 # WS-6: ids the SessionStart hook injected (a JSON array). When one of these learnings RESURFACES as a
 # candidate this task, it was relevant → stamp .applied (the reinforcement signal the scoreboard reads).
+# LRN-2: default --injected to the sidecar SessionStart already writes for this session. Every caller had
+# to pass it explicitly and none did, so INJ_IDS was always [] and `.applied` could never be stamped — the
+# inject-then-use loop was open in production while the eval, which passes the flag, stayed green.
+[ -z "$INJECTED" ] && [ -n "$SID" ] && [ -f "$DIR/state/$SID.injected.json" ] && INJECTED="$DIR/state/$SID.injected.json"
 INJ_IDS='[]'; [ -n "$INJECTED" ] && [ -f "$INJECTED" ] && INJ_IDS="$(jq '. // []' "$INJECTED" 2>/dev/null || echo '[]')"
 
 [ -n "$CAND" ] && [ -f "$CAND" ] || { echo '{"added":0,"merged":0,"promoted":0,"dropped":0,"skipped":"no-candidates"}'; exit 0; }
@@ -215,11 +219,14 @@ promote_target() { # $1 = trigger → echoes rule-file relpath or empty
 # 1) MARK: promote a qualifying pitfall (hits>=5, conf>=0.85, not superseded, not already promoted) ONLY when
 #    its trigger maps to an EXISTING rule file — never guess a file. Numeric criteria in jq; the trigger→file
 #    + file-existence guard needs promote_target + the filesystem, so it is applied in bash (as before).
-PROMOTED_IDS=()
+PROMOTED_IDS=(); UNMAPPED=0
 while IFS=$'\t' read -r id trigger; do
   [ -n "$id" ] || continue
-  rel="$(promote_target "$trigger")"; [ -n "$rel" ] || continue
-  [ -f "$RULES_DIR/$rel" ] || continue
+  # LRN-1(b): a pitfall that EARNED promotion but maps to no rule file, or to a file this project does not
+  # have, was dropped here without a trace — indistinguishable in the receipt from "nothing qualified".
+  # Count it. An unmapped promotion is a coverage gap in the rule corpus, and the receipt is where it shows.
+  rel="$(promote_target "$trigger")"
+  if [ -z "$rel" ] || [ ! -f "$RULES_DIR/$rel" ]; then UNMAPPED=$((UNMAPPED+1)); continue; fi
   PROMOTED_IDS+=("$id")
 done < <(jq -r '.[] | select(.category=="pitfall" and ((.hits//0)>=5) and ((.confidence//0)>=0.85) and ((.promoted//false)|not) and ((.status//"")!="superseded")) | [.id,.trigger] | @tsv' <<<"$ARR")
 PROMOTED_COUNT="${#PROMOTED_IDS[@]}"
@@ -279,7 +286,8 @@ jq -c '.[]' <<<"$ARR" > "$TMP" 2>/dev/null && mv -f "$TMP" "$LEARNINGS" || { rm 
 
 REPORT="$(jq -nc --argjson a "$ADDED" --argjson m "$MERGED" --argjson p "$PROMOTED_COUNT" --argjson d "$DROPPED" \
   --argjson r "${REJECTED:-0}" --argjson rc "${RECURRED:-0}" --argjson ap "${APPLIED:-0}" \
-  '{added:$a, merged:$m, promoted:$p, dropped:$d, rejected:$r, recurred:$rc, applied:$ap}')"
+  --argjson um "${UNMAPPED:-0}" \
+  '{added:$a, merged:$m, promoted:$p, dropped:$d, rejected:$r, recurred:$rc, applied:$ap, unmapped:$um}')"
 
 # WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (the Stop gate checks the
 # receipt's freshness, replacing the fictional "learnings.jsonl is non-empty" check that any prior line passed).

@@ -224,6 +224,36 @@ done
 [ -z "${NUL_FILES// /}" ] && ok "no NUL bytes in scripts/ or bin/ (files stay diffable + greppable)" \
   || bad "NUL byte present in:$NUL_FILES"
 
+echo "== LRN-1(b)/LRN-2: unmapped promotions are counted; --injected defaults =="
+# LRN-1(b): a pitfall that EARNED promotion but maps to no rule file was dropped silently, so the receipt
+# could not tell "nothing qualified" from "the rule corpus has a gap".
+T8="$(mktemp -d)"; mkdir -p "$T8/.claude/claudehut/state" "$T8/.claude/rules/framework"
+printf '%s\n' '{"id":"L-0001","category":"pitfall","trigger":"quantum|flux","learning":"x","evidence":"e","confidence":0.9,"hits":6,"ts":"2026-08-01T00:00:00Z"}' > "$T8/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"convention","trigger":"other","learning":"z","evidence":"e"}' > "$T8/c.jsonl"
+CLAUDE_PROJECT_DIR="$T8" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T8/c.jsonl" --session s >/dev/null 2>&1
+jq -e '.unmapped == 1 and .promoted == 0' "$T8/.claude/claudehut/state/s.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-1(b): a qualifying pitfall with no matching rule file is counted as unmapped" \
+  || bad "LRN-1(b): the unmappable promotion vanished from the receipt"
+printf '' > "$T8/.claude/rules/framework/jpa.md"
+printf '%s\n' '{"id":"L-0002","category":"pitfall","trigger":"jpa|n+1","learning":"x","evidence":"e","confidence":0.9,"hits":6,"ts":"2026-08-01T00:00:00Z"}' > "$T8/.claude/claudehut/learnings.jsonl"
+CLAUDE_PROJECT_DIR="$T8" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T8/c.jsonl" --session s2 >/dev/null 2>&1
+jq -e '.promoted == 1 and .unmapped == 0' "$T8/.claude/claudehut/state/s2.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-1(b): the same pitfall promotes normally once its rule file exists (not over-counted)" \
+  || bad "LRN-1(b): a mappable promotion was miscounted as unmapped"
+rm -rf "$T8"
+# LRN-2: every caller had to pass --injected and none did, so .applied could never be stamped in production
+# while the eval, which passes the flag, stayed green. Assert the DEFAULT path, with no flag.
+T9="$(mktemp -d)"; mkdir -p "$T9/.claude/claudehut/state" "$T9/.claude/rules"
+L='"Kafka consumers must dedup on the message key before applying a ledger write, because the broker redelivers on rebalance."'
+printf '%s\n' "{\"id\":\"L-0001\",\"category\":\"convention\",\"trigger\":\"idempotency|dedup\",\"learning\":$L,\"evidence\":\"LedgerConsumer.java:88\",\"confidence\":0.7,\"hits\":2,\"ts\":\"2026-08-01T00:00:00Z\"}" > "$T9/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '["L-0001"]' > "$T9/.claude/claudehut/state/sx.injected.json"
+printf '%s\n' "{\"category\":\"convention\",\"trigger\":\"idempotency|dedup\",\"learning\":$L,\"evidence\":\"LedgerConsumer.java:88\"}" > "$T9/c.jsonl"
+CLAUDE_PROJECT_DIR="$T9" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T9/c.jsonl" --session sx >/dev/null 2>&1
+jq -e '.applied == 1' "$T9/.claude/claudehut/state/sx.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-2: --injected defaults to the session sidecar; .applied stamps with no flag passed" \
+  || bad "LRN-2: .applied is still 0 unless the caller passes --injected — the loop stays open"
+rm -rf "$T9"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
