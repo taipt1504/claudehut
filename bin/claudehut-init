@@ -44,8 +44,11 @@ $(find . -mindepth 2 -maxdepth 3 \( -name pom.xml -o -name 'build.gradle' -o -na
     | head -40 | tr '\n' '\0' | xargs -0 cat 2>/dev/null || true)"
 has() { printf '%s' "$BF" | grep -qiE "$1"; }
 
+# RULE-05 — a multi-module root often carries only settings.gradle(.kts) and no build.gradle, so keying on
+# build.gradle alone reported BUILD_TOOL=unknown and a verify command of "(unknown)" for the whole repo.
 if [ -f pom.xml ]; then BUILD_TOOL=maven; { [ -f mvnw ] && VERIFY="./mvnw verify"; } || VERIFY="mvn verify"
-elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then BUILD_TOOL=gradle; { [ -f gradlew ] && VERIFY="./gradlew build"; } || VERIFY="gradle build"
+elif [ -f build.gradle ] || [ -f build.gradle.kts ] || [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then
+  BUILD_TOOL=gradle; { [ -f gradlew ] && VERIFY="./gradlew build"; } || VERIFY="gradle build"
 else BUILD_TOOL=unknown; VERIFY="(unknown)"; fi
 
 JAVA_VERSION="$(printf '%s' "$BF" | grep -oiE '<java.version>[0-9]+|sourceCompatibility[^0-9]{0,4}[0-9]+|JavaVersion.VERSION_[0-9]+|languageVersion[^0-9]{0,8}[0-9]+' | grep -oE '[0-9]+' | head -1)"
@@ -81,15 +84,25 @@ PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<a
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(grep -hm1 -oE "rootProject.name[^=]*=[^'\"]*['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]//")"
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(basename "$PROJ")"
 
-# base package = deepest common package prefix of all src/main/java sources (survives a single file)
-BASE_PACKAGE="$(find src/main/java -name '*.java' 2>/dev/null \
+# RULE-05 — source roots. A multi-module repo keeps its sources in <module>/src/main/java and has no root
+# src/main/java at all, so every root-only `find src/main/java` returned nothing: base package "(unknown)",
+# entry points "(none detected)", package tree "(flat)". The v0.10 fix walked submodule BUILD files but not
+# submodule SOURCE trees, so stack gating worked while the memory plane stayed empty. Bounded the same way.
+SRC_ROOTS="$(find . -mindepth 1 -maxdepth 4 -type d -path '*/src/main/java' \
+  -not -path '*/build/*' -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null | head -40)"
+[ -n "$SRC_ROOTS" ] || SRC_ROOTS="src/main/java"
+# strip each source root's own prefix, so io/f8a/x under svc-a and under svc-b compare as the same package
+src_find() { printf '%s\n' "$SRC_ROOTS" | while IFS= read -r r; do [ -n "$r" ] && find "$r" "$@" 2>/dev/null; done; }
+
+# base package = deepest common package prefix of all main sources (survives a single file)
+BASE_PACKAGE="$(src_find -name '*.java' \
   | sed -E 's#.*src/main/java/##; s#/[^/]*\.java$##' | grep -v '^$' | sort -u \
   | awk 'NR==1{p=$0;next}{n=split(p,a,"/");split($0,b,"/");c="";for(i=1;i<=n;i++){if(a[i]==b[i])c=(c==""?a[i]:c"/"a[i]);else break};p=c} END{gsub(/\//,".",p);print p}')"
 [ -n "$BASE_PACKAGE" ] || BASE_PACKAGE="(unknown)"
 
-ENTRY_POINTS="$(grep -rlE '@(RestController|Controller|KafkaListener|RabbitListener|Component)' src/main/java --include='*.java' 2>/dev/null | sed 's#.*/##' | head -6 | paste -sd, - | sed 's/,/, /g')"
+ENTRY_POINTS="$(src_find -name '*.java' | xargs grep -lE '@(RestController|Controller|KafkaListener|RabbitListener|Component)' 2>/dev/null | sed 's#.*/##' | head -6 | paste -sd, - | sed 's/,/, /g')"
 [ -n "$ENTRY_POINTS" ] || ENTRY_POINTS="(none detected)"
-PACKAGE_TREE="$(find src/main/java -type d 2>/dev/null | sed -E 's#.*src/main/java/?##' | grep -v '^$' | sort | head -30 | paste -sd, - | sed 's/,/, /g')"
+PACKAGE_TREE="$(src_find -type d | sed -E 's#.*src/main/java/?##' | grep -v '^$' | sort -u | head -30 | paste -sd, - | sed 's/,/, /g')"
 [ -n "$PACKAGE_TREE" ] || PACKAGE_TREE="(flat)"
 if [ "$BUILD_TOOL" = maven ]; then MODULE_LIST="$(grep -oE '<module>[^<]+' pom.xml 2>/dev/null | sed 's/<module>/- /' | paste -sd' ' - )"; else MODULE_LIST="$(grep -hoE "include\(?['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]/- /" | paste -sd' ' -)"; fi
 [ -n "$MODULE_LIST" ] || MODULE_LIST="- (single module)"
@@ -105,7 +118,7 @@ for _slot in "web|api|controller|rest|handler|adapter" "service|application|usec
   _hit=""
   for _cand in ${_slot//|/ }; do
     # a real package directory at any depth, not a substring of some other name
-    if find src/main/java -type d -name "$_cand" 2>/dev/null | grep -q .; then _hit="$_cand"; break; fi
+    if src_find -type d -name "$_cand" | grep -q .; then _hit="$_cand"; break; fi
   done
   [ -n "$_hit" ] && _lc="${_lc:+$_lc -> }$_hit"
 done

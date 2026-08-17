@@ -199,6 +199,33 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RULE-05: a multi-module repo has no root src/main/java =="
+# v0.10 taught the detector to read submodule BUILD files, so stack gating worked -- but every source probe
+# was still a root-only `find src/main/java`, which finds nothing in a multi-module layout. The memory plane
+# came out empty (base package "(unknown)", package tree "(flat)") while the rules looked correctly gated.
+W8="$(mktemp -d)/repo"
+mkdir -p "$W8"/svc-a/src/main/java/io/f8a/acct/{api,service} "$W8"/svc-b/src/main/java/io/f8a/acct/domain
+touch "$W8/svc-a/src/main/java/io/f8a/acct/api/A.java" "$W8/svc-b/src/main/java/io/f8a/acct/domain/B.java"
+printf 'rootProject.name = "acct-parent"\ninclude("svc-a")\ninclude("svc-b")\n' > "$W8/settings.gradle.kts"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$W8/svc-a/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" >/dev/null 2>&1
+P8="$W8/.claude/claudehut/PROJECT.md"
+grep -q 'Base package: io.f8a.acct' "$P8" \
+  && ok "RULE-05: base package found across modules (io.f8a.acct)" \
+  || bad "RULE-05: base package is $(grep -o 'Base package:.*' "$P8" | cut -c1-40)"
+grep -qE 'Build: gradle' "$P8" \
+  && ok "RULE-05: gradle detected from settings.gradle.kts alone (no root build.gradle)" \
+  || bad "RULE-05: build tool is $(grep -o 'Build:.*' "$P8" | cut -c1-40)"
+# PACKAGE_TREE renders into architecture.md, not PROJECT.md — asserting against PROJECT.md here passed
+# unconditionally, because the string it looked for never appears in that file either way.
+grep -q '(flat)' "$W8/.claude/claudehut/architecture.md" \
+  && bad "RULE-05: package tree still (flat) — submodule sources not walked" \
+  || ok "RULE-05: package tree populated from submodule sources (architecture.md)"
+grep -q 'api -> service -> domain' "$W8/.claude/rules/project-structure.md" \
+  && ok "RULE-05+06: layers derived across modules" \
+  || bad "RULE-05+06: layers not derived on a multi-module repo"
+rm -rf "$W8"
+
 echo; echo "== RULE-06: the layer convention is DERIVED, never asserted =="
 # project-structure.md is an ALWAYS-ON rule, so a wrong layer convention is read on every turn. The old
 # hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked: party-ms and
