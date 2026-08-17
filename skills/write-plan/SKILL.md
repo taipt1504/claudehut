@@ -51,7 +51,7 @@ flowchart TB
    The wire that makes the reviewer fire: **`set-plan` REFUSES a full-tier plan that is substantial (≥5 tasks)
    OR touches a sensitive surface (security/auth/migration) unless `plan_review==APPROVE` is recorded for the
    byte-identical plan** (smart-gate; editing forces re-review via content-hash). Headless `-p`, no Agent budget:
-   `claudehut-state set-bypass true` unblocks both set-plan and the write gate (note it in the plan header).
+   A human may unblock both set-plan and the write gate with `claudehut-state set-bypass true --reason '<why>'` — **ask, do not run it yourself**; the reason is persisted in state.
 3. **Get approval (this opens the write gate — not before).** Interactive: **`AskUserQuestion`** with the
    decision + T-xxx list, **Approve** / **Request changes**. Non-interactive (`-p`): record `approval:
    non-interactive run — proceeded with draft` in the header. Only after approval (unlocks the `PreToolUse` gate):

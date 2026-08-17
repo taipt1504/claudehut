@@ -56,7 +56,7 @@ echo prose-plan > "$chd/plans/bad.md"
   && bad "tmpl: accepted freeform plan (no T-rows)" || ok "reject: freeform plan (no T-xxx rows)"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/.claude/claudehut/specs/x.md"}}' && ok "allow: .claude/claudehut path" || bad "allow: claudehut path"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/test/java/FooTest.java"}}' && ok "allow: test path" || bad "allow: test path"
-st set-bypass true; allows x "$PROD" && ok "allow: bypass=true" || bad "allow: bypass"
+st set-bypass true --reason "eval fixture"; allows x "$PROD" && ok "allow: bypass=true" || bad "allow: bypass"
 rm -rf "$TMP"
 # opt #4 — flag set but artifact FILE missing → still deny
 new_proj; st set-phase brainstorm
@@ -152,7 +152,7 @@ allows x "$PROD" && ok "skill rail: unrelated skill no-op (rail stays open)" || 
 st set-phase discover
 denies x "$PROD" && ok "skill rail: set-phase discover resets (per-TASK invocation required)" || bad "skill rail: discover reset"
 # Skill(discover) via recorder also resets (task started through the skill, not set-phase)
-st set-bypass true; st set-phase implement; st set-bypass false; st mark-skill implement
+st set-bypass true --reason "eval fixture"; st set-phase implement; st set-bypass false; st mark-skill implement
 allows x "$PROD" && ok "skill rail: re-armed via mark-skill implement" || bad "skill rail: re-arm"
 st mark-skill discover
 denies x "$PROD" && ok "skill rail: mark-skill discover resets (new task via Skill tool)" || bad "skill rail: skill-discover reset"
@@ -312,7 +312,7 @@ for _i in 1 2 3 4 5; do
   st_c set-phase discover
   st_c set-complexity small &
   st_c set-profile bugfix &
-  st_c set-bypass true &
+  st_c set-bypass true --reason "eval fixture" &
   st_c set-outstanding '["x"]' &
   wait
   jq -e '.complexity=="small" and .profile=="bugfix" and .bypass==true and (.outstanding|length)==1' \
@@ -415,7 +415,7 @@ st set-phase plan && ok "P2-2: forward spec->plan allowed" || bad "P2-2: forward
 # Backward: plan -> discover -> ALLOWED (discover is always a valid restart)
 st set-phase discover && ok "P2-2: discover always valid restart" || bad "P2-2: discover restart blocked"
 # bypass=true allows backward jump
-st set-profile feature; st set-phase implement; st set-bypass true
+st set-profile feature; st set-phase implement; st set-bypass true --reason "eval fixture"
 st set-phase brainstorm && ok "P2-2: bypass=true allows backward" || bad "P2-2: bypass=true blocked"
 # Tier skip path: discover -> implement (skipping middle phases) -> ALLOWED (forward)
 new_proj; st set-profile feature; st set-phase discover

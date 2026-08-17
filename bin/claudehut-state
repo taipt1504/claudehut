@@ -17,7 +17,7 @@
 #   set-plan-review <APPROVE|REVISE> [--evidence tasks/NNNN-slug/plan-review.md]   # plan-reviewer verdict (WS-2)
 #   set-review <pass|pending|capped> [--evidence PATH]   # pass REQUIRES --evidence review.md (coverage table + test evidence)
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
-#   set-bypass <true|false>
+#   set-bypass <true|false> [--reason "<why>"]   # --reason REQUIRED when enabling
 #   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
 #   set-profile <feature|bugfix|audit|migration|investigation>   # task SHAPE (WS-7); required before set-phase implement
 #   set-findings <path>           # record an audit/investigation's findings deliverable (WS-7); the done gate checks it
@@ -182,7 +182,7 @@ case "$sub" in
         cur_ord="$(phase_order "$current_phase")"
         new_ord="$(phase_order "$phase")"
         if [ "$new_ord" -lt "$cur_ord" ]; then
-          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-bypass true' first (recovery mode), or 'set-phase discover' to start a new task."
+          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-phase discover' to start a new task. (A human can override with set-bypass true --reason '<why>'; do not do this on your own initiative.)"
         fi
       fi
     fi
@@ -364,9 +364,21 @@ case "$sub" in
     STATE="$(jq --argjson v "$j" '.outstanding=$v' <<<"$STATE")"
     ;;
   set-bypass)
+    # PLUMB-F-07: bypass disables the plan gate AND the write gate. It was a bare boolean, so the one
+    # command that switches enforcement off left no record of who turned it off or why. Turning it ON now
+    # requires --reason, and the reason is persisted next to the flag; turning it OFF stays free.
     b="${shift_args[0]:-}"
     case "$b" in true|false) ;; *) err "set-bypass needs true|false" ;; esac
-    STATE="$(jq --argjson v "$b" '.bypass=$v' <<<"$STATE")"
+    reason=""
+    for _i in "${!shift_args[@]}"; do
+      [ "${shift_args[$_i]}" = "--reason" ] && reason="${shift_args[$((_i+1))]:-}"
+    done
+    if [ "$b" = "true" ] && [ -z "$reason" ]; then
+      err "set-bypass true requires --reason '<why>' — bypass disables both the plan gate and the write gate, and an unexplained bypass is indistinguishable from a mistake"
+    fi
+    STATE="$(jq --argjson v "$b" --arg r "$reason" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      'if $v then (.bypass=$v | .bypass_reason=$r | .bypass_ts=$ts)
+       else (.bypass=$v | .bypass_reason=null | .bypass_ts=null) end' <<<"$STATE")"
     ;;
   set-complexity)
     c="${shift_args[0]:-}"

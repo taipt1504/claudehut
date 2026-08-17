@@ -17,7 +17,7 @@
     ],
     "UserPromptExpansion": [
       {
-        "matcher": "implement|discover|brainstorm",
+        "matcher": "(claudehut:)?(implement|discover|brainstorm)",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill-expansion.sh" }
         ]

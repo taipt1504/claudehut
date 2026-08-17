@@ -424,6 +424,22 @@ HJ="$ROOT/hooks/hooks.json"
 # … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
 # process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
 # reading its own guard. One rule per handler, so two handlers become four.
+# PLUMB-F-04 — the docs say the UserPromptExpansion matcher filters on "command name" but do not say whether
+# a plugin skill arrives bare or plugin-scoped. v0.10 lost four SubagentStop contracts to exactly that
+# question (agent_type arrives as claudehut:<name>). The matcher accepts BOTH forms rather than guessing.
+jq -e '[.hooks.UserPromptExpansion[]?.matcher] | any(test("claudehut:"))' "$HJ" >/dev/null 2>&1 \
+  && ok "PLUMB-F-04: the expansion matcher accepts the plugin-scoped form too" \
+  || bad "PLUMB-F-04: the matcher only accepts bare skill names — a slash invocation may bypass the rail"
+# PLUMB-F-07 — bypass switches BOTH gates off; enabling it must leave a record of why.
+# Match the EXECUTABLE guard, not a comment mentioning it: `grep -q 'requires --reason'` alone stayed green
+# with the guard deleted, because the comment above it says the same words.
+grep -qE '^[[:space:]]+err "set-bypass true requires --reason' "$ROOT/bin/claudehut-state" \
+  && ok "PLUMB-F-07: enabling bypass requires --reason and persists it" \
+  || bad "PLUMB-F-07: bypass can still be enabled with no recorded reason"
+grep -rn 'set-bypass true' "$ROOT/skills" | grep -qv -- '--reason' \
+  && bad "PLUMB-F-07: a skill still tells the model to run a bare set-bypass true --reason "eval fixture"" \
+  || ok "PLUMB-F-07: no skill hands the model an unexplained bypass"
+
 [ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if)] | length' "$HJ")" = "4" ] \
   && ok "RES-H1: all four Java PostToolUse handlers are if-gated (no process on a non-Java write)" \
   || bad "RES-H1: a Java handler still spawns on every Write/Edit"
@@ -766,9 +782,9 @@ jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -
 PA="$P0/.claude/claudehut/tasks/0003-adv"; mkdir -p "$PA"
 # B2: the documented bypass escape hatch must unblock the set-plan smart-gate
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PA/plan.md"
-CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true --reason "eval fixture" >/dev/null 2>&1
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-plan .claude/claudehut/tasks/0003-adv/plan.md >/dev/null 2>&1 \
-  && ok "P0/B2: set-bypass true unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
+  && ok "P0/B2: set-bypass unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
 # M1/M2: content-hash freshness — an unchanged reviewed plan passes; any post-review edit is rejected
 PB="$P0/.claude/claudehut/tasks/0004-fresh"; mkdir -p "$PB"
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PB/plan.md"
@@ -855,7 +871,7 @@ r7 set-phase implement && bad "WS-7: set-phase implement allowed with NO profile
 r7 set-profile feature; r7 set-phase implement && ok "WS-7: set-phase implement ALLOWED once a profile is set" || bad "WS-7: set-phase implement rejected despite a profile"
 # bypass escape hatch honored
 rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
-r7 set-bypass true; r7 set-phase implement && ok "WS-7: set-bypass true unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
+r7 set-bypass true --reason "eval fixture"; r7 set-phase implement && ok "WS-7: set-bypass unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
 # gate-done: an AUDIT completes on a findings deliverable, not a code review (genuine adaptivity)
 rm -rf "$P7"; CHD="$P7/.claude/claudehut"; mkdir -p "$CHD/state" "$CHD/tasks/0001-a" "$CHD/tasks/0009-old"
 gdone() { echo '{"session_id":"w","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P7" bash "$ROOT/scripts/gate-done.sh"; }
