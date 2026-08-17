@@ -88,10 +88,21 @@ case "$sub" in
     # global check would falsely serialize them. Phases are the plan's markdown/bold "Phase N" headings;
     # a plan with no phase headings is one implicit phase 0 (== the old global behavior). Files = 4th
     # cell; the leading [PG]/[P] annotations have no "/" and drop out, backticks are stripped.
-    pairs="$(awk -F'|' '
-      BEGIN { phase = 0 }   # rows before/without a digit heading land in phase 0 (not key "")
-      $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]+[0-9A-Za-z]/ && ($0 ~ /#/ || $0 ~ /\*\*/) { phase++; next }
+    # The phase key is the LABEL as written in the heading ("1", "3", "A"), not a sequence counter. The
+    # counter renumbered a plan whose phases were 1 and 3 into "phase 1" and "phase 2", so the tool named a
+    # phase the plan does not contain. It also has to be shared: all three passes below key on this value,
+    # and the schedule pass looks phases up in the sets the other two produce, so the computation is defined
+    # ONCE here and textually prefixed to each program rather than copied three times.
+    PHASE_RULE='
+      BEGIN { phase = "0" }   # rows before the first heading land in phase 0 (not key "")
+      $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]+[0-9A-Za-z]/ && ($0 ~ /#/ || $0 ~ /\*\*/) {
+        match($0, /[Pp]hase[[:space:]]+[0-9A-Za-z]+/); lab = substr($0, RSTART, RLENGTH)
+        sub(/^[Pp]hase[[:space:]]+/, "", lab); phase = lab; next }
+'
+    # Pass 1 — (phase, path) pairs for the file-overlap check.
+    pairs="$(awk -F'|' "$PHASE_RULE"'
       $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ {
+        match($2, /T-[0-9]+/); id = substr($2, RSTART, RLENGTH)
         n=split($4, f, /[,[:space:]]+/)
         for (i=1;i<=n;i++) { p=f[i]; gsub(/`/,"",p); gsub(/[)(,;]+$/,"",p)
           # A path was recognised by "contains a /". That dropped the [P] annotation as intended, and ALSO
@@ -100,26 +111,80 @@ case "$sub" in
           # Reproduced: two [P] tasks both listing pom.xml were reported as a safe PARALLEL BATCH.
           # Recognise a FILE instead: a dotted extension, optionally nested. Prose cells ("—", "_(migration)_")
           # and the annotation carry no such token and still drop out.
-          if (p ~ /^[A-Za-z0-9_.@+-]+(\/[A-Za-z0-9_.@+-]+)*\.[A-Za-z0-9]+$/) print phase "\t" p }
+          if (p ~ /^[A-Za-z0-9_.@+-]+(\/[A-Za-z0-9_.@+-]+)*\.[A-Za-z0-9]+$/) {
+            # A path listed TWICE inside ONE task cell is not a cross-task collision, but `sort | uniq -d`
+            # cannot tell same-task from cross-task and reported it as an OVERLAP — a false positive that
+            # serialized a phase that was in fact parallel-safe. Key on the TASK too and emit each
+            # (phase, task, path) once, so only a genuine second OWNER of a path survives into uniq -d.
+            k = phase SUBSEP id SUBSEP p
+            if (!(k in emitted)) { emitted[k] = 1; print phase "\t" p } }
+          }
       }' "$plan")"
     overlaps="$(printf '%s\n' "$pairs" | grep -v '^$' | sort | uniq -d)"
-    # per-phase parallel-batch schedule (task IDs) — the deterministic plan the implement skill follows
-    schedule="$(awk -F'|' '
-      BEGIN { phase = 0 }   # rows before/without a digit heading land in phase 0 (not key "")
-      $0 !~ /^[[:space:]]*\|/ && $0 ~ /[Pp]hase[[:space:]]+[0-9A-Za-z]/ && ($0 ~ /#/ || $0 ~ /\*\*/) { phase++; next }
-      $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ { match($2,/T-[0-9]+/); id=substr($2,RSTART,RLENGTH);
-        b[phase]=b[phase] (b[phase]?", ":"") id; n[phase]++ }
-      END { for (p=0;p<=phase;p++) if (n[p]>1) print "  phase " p ": PARALLEL BATCH [" b[p] "]";
-                                   else if (n[p]==1) print "  phase " p ": [" b[p] "] (lone [P] — no batch)" }
+    # Pass 2 — the OTHER half of what [P] means. plan-template.md: "[P] = no dependency on another task in
+    # the SAME phase AND disjoint Files". Only the Files half was ever checked; the Depends-on cell ($8) was
+    # never read, so a planner that marked a task [P] while it declared a dependency on a sibling [P] task
+    # got both dispatched concurrently — a task running alongside its own stated prerequisite. Narrow on
+    # purpose: it fires only when the named task is in the SAME phase AND is itself [P]. A cross-phase
+    # dependency is normal (the template's own Phase 1 depends on Phase 0), and a dependency on a
+    # same-phase NON-[P] task is left alone. The cell is free text ("—", "T-001, T-003", "T-001 (partial)"),
+    # so match permissively: scan it for T-xxx tokens and intersect with that phase's [P] id set.
+    depviol="$(awk -F'|' "$PHASE_RULE"'
+      $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ {
+        match($2, /T-[0-9]+/); id = substr($2, RSTART, RLENGTH)
+        pset[phase SUBSEP id] = 1
+        if (!(phase in seen)) { seen[phase] = 1; order[++k] = phase }
+        ids[phase, ++cnt[phase]] = id; dep[phase SUBSEP id] = $8 }
+      END { for (i=1;i<=k;i++) { p = order[i]
+              for (j=1;j<=cnt[p];j++) { id = ids[p,j]; s = dep[p SUBSEP id]
+                while (match(s, /T-[0-9]+/)) { t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART+RLENGTH)
+                  if (t != id && ((p SUBSEP t) in pset)) print p "\t" id "\t" t } } } }
     ' "$plan")"
-    if [ -n "$overlaps" ]; then
-      echo "OVERLAP — these paths appear in more than one [P] task WITHIN the same phase (that phase's parallel dispatch is UNSAFE; run those tasks sequentially):"
-      printf '%s\n' "$overlaps" | sed 's/^/  phase /; s/\t/ : /'
-      [ -n "$schedule" ] && { echo "per-phase [P] schedule (phases without an overlap above are still parallel-safe):"; echo "$schedule"; }
+    unsafe_ovl="$(printf '%s\n' "$overlaps" | grep -v '^$' | cut -f1 | sort -u | tr '\n' ' ')"
+    unsafe_dep="$(printf '%s\n' "$depviol"  | grep -v '^$' | cut -f1 | sort -u | tr '\n' ' ')"
+    # Pass 3 — the per-phase dispatch schedule, the deterministic plan the implement skill follows.
+    # It now knows which phases are unsafe. It used to be built with no knowledge of the overlaps at all, so
+    # on the exit-2 path the offending phase was still printed as a normal "PARALLEL BATCH [...]" line,
+    # byte-identical to a safe one, under a caption asking the reader to cross-reference and subtract —
+    # against orchestration.md:32, which says to follow this schedule and not re-derive batches by eye.
+    # An unsafe phase now carries the word SEQUENTIAL and never the string PARALLEL BATCH.
+    schedule="$(awk -F'|' -v uo="$unsafe_ovl" -v ud="$unsafe_dep" "$PHASE_RULE"'
+      BEGIN { n = split(uo, a, " "); for (i=1;i<=n;i++) if (a[i] != "") O[a[i]] = 1
+              n = split(ud, a, " "); for (i=1;i<=n;i++) if (a[i] != "") D[a[i]] = 1
+              MAXW = 3 }   # orchestration.md:37 — "max 3 concurrent; a larger batch fans out in successive messages of <=3"
+      $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ { match($2,/T-[0-9]+/); id=substr($2,RSTART,RLENGTH)
+        if (!(phase in seen)) { seen[phase] = 1; order[++k] = phase }
+        ids[phase, ++cnt[phase]] = id }
+      END { for (i=1;i<=k;i++) { p = order[i]; n = cnt[p]; all = ""
+              for (j=1;j<=n;j++) all = all (j>1 ? ", " : "") ids[p,j]
+              if ((p in O) && (p in D)) { print "  phase " p ": SEQUENTIAL (overlap + dependency) [" all "]"; continue }
+              if (p in O) { print "  phase " p ": SEQUENTIAL (overlap) [" all "]"; continue }
+              if (p in D) { print "  phase " p ": SEQUENTIAL (dependency) [" all "]"; continue }
+              if (n == 1) { print "  phase " p ": [" all "] (lone [P] — no batch)"; continue }
+              # The schedule used to emit one unbounded PARALLEL BATCH line however many [P] tasks a phase
+              # had, while orchestration.md caps live dispatch at 3 — so a 6-task phase handed the model a
+              # batch it had to re-chunk by eye, the exact thing it is told not to do. Chunk it here.
+              # A phase that fits in one wave keeps the original unsuffixed line; only a genuinely
+              # multi-wave phase gains the "w/total" marker.
+              waves = int((n + MAXW - 1) / MAXW)
+              for (w=1;w<=waves;w++) { lo = (w-1)*MAXW + 1; hi = lo + MAXW - 1; if (hi > n) hi = n
+                batch = ""
+                for (j=lo;j<=hi;j++) batch = batch (j>lo ? ", " : "") ids[p,j]
+                if (waves == 1) print "  phase " p ": PARALLEL BATCH [" batch "]"
+                else            print "  phase " p ": PARALLEL BATCH " w "/" waves " [" batch "]" } } }
+    ' "$plan")"
+    if [ -n "$overlaps" ] || [ -n "$depviol" ]; then
+      [ -n "$overlaps" ] && {
+        echo "OVERLAP — these paths appear in more than one [P] task WITHIN the same phase (that phase's parallel dispatch is UNSAFE; run those tasks sequentially):"
+        printf '%s\n' "$overlaps" | sed 's/^/  phase /; s/\t/ : /'; }
+      [ -n "$depviol" ] && {
+        echo "DEPENDENCY — these [P] tasks declare a dependency on another [P] task in the SAME phase, so they cannot run concurrently (drop the [P], or move the dependency to an earlier phase):"
+        printf '%s\n' "$depviol" | awk -F'\t' '{print "  phase " $1 " : " $2 " depends on " $3}'; }
+      [ -n "$schedule" ] && { echo "per-phase [P] schedule (a phase marked SEQUENTIAL is NOT parallel-safe — run its tasks in order):"; echo "$schedule"; }
       exit 2
     fi
     if [ -n "$schedule" ]; then
-      echo "disjoint: every phase's [P] Files are pairwise distinct — per-phase parallel dispatch is safe. Schedule:"
+      echo "disjoint: every phase's [P] Files are pairwise distinct and no [P] task depends on a [P] sibling — per-phase parallel dispatch is safe. Schedule:"
       echo "$schedule"
     else
       echo "disjoint: no [P] tasks found — nothing to parallelize (dispatch sequentially / inline)."

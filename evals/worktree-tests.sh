@@ -278,6 +278,116 @@ case "$out_noflag" in *"nothing was verified"*) ok "W11: an untested merge names
   *) bad "W11: an untested merge still reads as a plain success" ;; esac
 rm -rf "$(dirname "$TR")"
 
+# ---------------------------------------------------------------------------------------------------
+# check-disjoint, second wave: W14 (phase labels), W12 (intra-task duplicates), W6 (the dependency half
+# of [P]), W5 (exit-2 output), W13 (concurrency chunking). One fixture repo, one helper.
+AW="$(mktemp -d)/repo"; mkdir -p "$AW"
+( cd "$AW" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo x > f && git add -A && git commit -qm b ) >/dev/null 2>&1
+AHDR='| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
+|----|------|-------|------------|----------------|--------|------------|-----|'
+# check-disjoint exits NON-ZERO by contract when it finds a problem, so a `cdj ... | grep -q` pipeline
+# fails under `set -o pipefail` on exactly the case being tested. Capture, then match. Never pipe.
+adj() { CLAUDE_PROJECT_DIR="$AW" "$WT" check-disjoint "$AW/$1" 2>&1; }
+
+echo "== W14: phase labels are the plan's own, not a sequence counter =="
+# `phase++` numbered headings in order of appearance, so a plan whose phases are 1 and 3 printed "phase 1"
+# and "phase 2" — the tool named a phase the plan does not contain, in the output orchestration.md:32 calls
+# the authoritative dispatch plan.
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/b/B.java | t | c | v | — | F2 |\n### Phase 3 — c\n%s\n| T-005 [P] | e | src/e/E.java | t | c | v | — | F5 |\n' "$AHDR" "$AHDR" > "$AW/lab.md"
+out_lab="$(adj lab.md)"
+case "$out_lab" in *"phase 3: [T-005]"*) ok "W14: a plan with Phase 1 and Phase 3 reports phase 3" ;;
+  *) bad "W14: phase 3 was renumbered (sequence counter, not the plan's label)" ;; esac
+case "$out_lab" in *"phase 2"*) bad "W14: emitted a phase 2 the plan does not contain" ;;
+  *) ok "W14 control: no phantom phase 2 in a 1-and-3 plan" ;; esac
+# Control: labels must stay labels for non-numeric phases too, and the implicit pre-heading phase stays 0.
+printf '### Phase B — b\n%s\n| T-002 [P] | h1 | src/a/H1.java | t | c | v | — | F2 |\n| T-003 [P] | h2 | src/a/H2.java | t | c | v | — | F3 |\n' "$AHDR" > "$AW/labB.md"
+case "$(adj labB.md)" in *"phase B: PARALLEL BATCH [T-002, T-003]"*) ok "W14 control: a letter-labeled phase reports its letter" ;;
+  *) bad "W14 control: letter-labeled phase lost its label" ;; esac
+
+echo "== W12: a path listed twice in ONE task is not a cross-task overlap =="
+# `sort | uniq -d` over (phase, path) pairs cannot tell same-task from cross-task, so a task that listed
+# the same file twice in its own Files cell was reported as an OVERLAP against itself — a false positive
+# that serialized a phase which was in fact parallel-safe.
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java, src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/b/B.java | t | c | v | — | F2 |\n' "$AHDR" > "$AW/dup.md"
+out_dup="$(adj dup.md)"; rc_dup=$?
+[ $rc_dup -eq 0 ] && ok "W12: an intra-task duplicate path is not an overlap (exit 0)" \
+  || bad "W12: a task colliding with itself was reported as an OVERLAP (rc=$rc_dup)"
+# Control: the dedupe keys on (phase, TASK, path), not on path. A dedupe keyed on path alone would satisfy
+# the assertion above and then silently swallow a REAL collision whenever one side also duplicated it.
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java, src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/a/A.java | t | c | v | — | F2 |\n' "$AHDR" > "$AW/dup2.md"
+out_dup2="$(adj dup2.md)"; rc_dup2=$?
+[ $rc_dup2 -eq 2 ] && case "$out_dup2" in *"src/a/A.java"*) ok "W12 control: a duplicated path that ANOTHER task also owns is still an OVERLAP" ;;
+  *) bad "W12 control: the real collision lost its path" ;; esac \
+  || bad "W12 control: deduping swallowed a genuine cross-task collision (rc=$rc_dup2)"
+
+echo "== W6: [P] means disjoint Files AND no same-phase dependency — the second half was unchecked =="
+# plan-template.md: "[P] = no dependency on another task in the SAME phase and disjoint Files". The awk
+# read the ID cell and the Files cell and never the Depends-on cell, so a planner that marked a task [P]
+# while declaring a dependency on a sibling [P] task got both dispatched concurrently — a task running
+# alongside its own stated prerequisite. Reproduced at exit 0 before the fix.
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/b/B.java | t | c | v | T-001 | F2 |\n' "$AHDR" > "$AW/dep.md"
+out_dep="$(adj dep.md)"; rc_dep=$?
+[ $rc_dep -eq 2 ] && ok "W6: a [P] task depending on a same-phase [P] task is refused (exit 2)" \
+  || bad "W6: a [P] task ran alongside its own declared dependency (rc=$rc_dep)"
+case "$out_dep" in *"T-002 depends on T-001"*) ok "W6: the offending pair is named" ;;
+  *) bad "W6: exit 2 without naming which tasks collide" ;; esac
+# Control 1 — the narrowing that matters most. A dependency on a same-phase NON-[P] task is untouched: the
+# predicate must read "[P] sibling", not "any same-phase dependency". Nothing else catches an over-fire here.
+printf '### Phase 1 — a\n%s\n| T-001 | seq | src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/b/B.java | t | c | v | T-001 | F2 |\n| T-003 [P] | c | src/c/C.java | t | c | v | T-001 | F3 |\n' "$AHDR" > "$AW/depnp.md"
+out_depnp="$(adj depnp.md)"; rc_depnp=$?
+[ $rc_depnp -eq 0 ] && ok "W6 control: depending on a same-phase NON-[P] task stays legal (exit 0)" \
+  || bad "W6 control: over-fired on a same-phase non-[P] dependency (rc=$rc_depnp)"
+# Control 2 — cross-phase dependencies are the NORMAL case; the template's own Phase 1 depends on Phase 0.
+printf '### Phase 0 — setup\n%s\n| T-001 [P] | m | db/migration/V2__x.sql | t | c | v | — | F1 |\n### Phase 1 — a\n%s\n| T-002 [P] | b | src/b/B.java | t | c | v | T-001 | F2 |\n| T-003 [P] | c | src/c/C.java | t | c | v | T-001 | F3 |\n' "$AHDR" "$AHDR" > "$AW/depx.md"
+out_depx="$(adj depx.md)"; rc_depx=$?
+[ $rc_depx -eq 0 ] && ok "W6 control: a CROSS-phase dependency stays legal (exit 0)" \
+  || bad "W6 control: over-fired on a cross-phase dependency (rc=$rc_depx)"
+case "$out_depx" in *"phase 1: PARALLEL BATCH [T-002, T-003]"*) ok "W6 control: the cross-phase plan still batches phase 1" ;;
+  *) bad "W6 control: cross-phase plan lost its batch" ;; esac
+
+echo "== W5: an UNSAFE phase must never be printed as a PARALLEL BATCH =="
+# The schedule was built with no knowledge of the overlaps, so on the exit-2 path the offending phase was
+# printed as a normal "PARALLEL BATCH [...]" line — byte-identical to a safe one — under a caption asking
+# the reader to cross-reference and subtract. orchestration.md:32 says to follow this schedule and NOT
+# re-derive batches by eye, so the two together told the model to dispatch the unsafe phase in parallel.
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/a/A.java | t | c | v | — | F2 |\n### Phase 2 — b\n%s\n| T-003 [P] | c | src/c/C.java | t | c | v | — | F3 |\n| T-004 [P] | d | src/d/D.java | t | c | v | — | F4 |\n' "$AHDR" "$AHDR" > "$AW/uns.md"
+out_uns="$(adj uns.md)"; rc_uns=$?
+[ $rc_uns -eq 2 ] && ok "W5: the overlapping plan still exits 2" || bad "W5: expected exit 2 (rc=$rc_uns)"
+case "$out_uns" in *"phase 1: PARALLEL BATCH"*) bad "W5: the UNSAFE phase is still printed as a PARALLEL BATCH" ;;
+  *) ok "W5: the unsafe phase carries no PARALLEL BATCH line" ;; esac
+case "$out_uns" in *"phase 1: SEQUENTIAL (overlap)"*) ok "W5: the unsafe phase is labelled SEQUENTIAL (overlap)" ;;
+  *) bad "W5: the unsafe phase is not labelled" ;; esac
+# Control: "no PARALLEL BATCH anywhere on exit 2" would also be satisfied by deleting the schedule. The
+# SAFE phase of the same plan must still be dispatched in parallel — that is the whole point of per-phase.
+case "$out_uns" in *"phase 2: PARALLEL BATCH [T-003, T-004]"*) ok "W5 control: the safe phase of the same plan is still a PARALLEL BATCH" ;;
+  *) bad "W5 control: the schedule stopped naming safe batches on the exit-2 path" ;; esac
+# Control: a dependency-unsafe phase must be labelled too, or W6 reintroduces exactly the defect W5 fixes.
+case "$(adj dep.md)" in *"phase 1: SEQUENTIAL (dependency)"*) ok "W5 control: a dependency-unsafe phase is also labelled SEQUENTIAL" ;;
+  *) bad "W5 control: a dependency-unsafe phase is still printed as a parallel batch" ;; esac
+
+echo "== W13: the batch schedule respects orchestration.md's max-3 concurrency cap =="
+# The schedule emitted one unbounded PARALLEL BATCH line however many [P] tasks a phase had, while
+# orchestration.md:37 caps live dispatch at "max 3 concurrent". A 6-task phase therefore handed the model a
+# batch it had to re-chunk by eye — the exact thing orchestration.md:32 forbids.
+mkw() { { printf '### Phase 1 — a\n%s\n' "$AHDR"
+          i=1; while [ "$i" -le "$2" ]; do printf '| T-00%s [P] | t%s | src/x/F%s.java | t | c | v | — | F%s |\n' "$i" "$i" "$i" "$i"; i=$((i+1)); done
+        } > "$AW/$1"; }
+mkw six.md 6; mkw four.md 4; mkw three.md 3
+out_six="$(adj six.md)"
+case "$out_six" in *"PARALLEL BATCH 1/2 [T-001, T-002, T-003]"*) ok "W13: a 6-task phase is chunked into waves of 3" ;;
+  *) bad "W13: a 6-task phase is still dispatched as one unbounded batch" ;; esac
+case "$out_six" in *"PARALLEL BATCH 2/2 [T-004, T-005, T-006]"*) ok "W13: the tail wave carries the remaining tasks" ;;
+  *) bad "W13: the tail wave is missing or mis-split" ;; esac
+case "$(adj four.md)" in *"PARALLEL BATCH 2/2 [T-004]"*) ok "W13: 4 tasks split 3 + 1" ;;
+  *) bad "W13: 4 tasks did not split at the cap" ;; esac
+# Control, and the one existing assertions cannot provide: a phase that FITS in one wave must keep the
+# original unsuffixed line. An off-by-one chunker suffixes a 3-task phase and every 2-task assertion above
+# still passes, so only a boundary-sized phase catches it.
+case "$(adj three.md)" in *"phase 1: PARALLEL BATCH [T-001, T-002, T-003]"*) ok "W13 control: a 3-task phase stays a single unsuffixed batch" ;;
+  *) bad "W13 control: a single-wave phase gained a wave suffix (off-by-one at the cap)" ;; esac
+rm -rf "$(dirname "$AW")"
+
 echo
 echo "WORKTREE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
