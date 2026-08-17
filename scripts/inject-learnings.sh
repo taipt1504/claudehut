@@ -103,7 +103,7 @@ fi
 # on the ones that resurface. Same ranking/filter as above; emits a JSON array of ids.
 if [ -n "$SNAPSHOT" ]; then
   jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
-  | jq -s --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" '
+  | jq -s --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" --argjson exids "$EXIDS" '
       ( ["the","and","for","fix","add","use","this","that","with","into","from","run","new","get","set","you","are","can","its","but"] ) as $stop
       | ( $filter | ascii_downcase | gsub("[^a-z0-9+ ]";" ") | split(" ")
           | map(. as $w | select(($w | length) > 2 and ($stop | index($w)) == null)) ) as $words
@@ -117,6 +117,10 @@ if [ -n "$SNAPSHOT" ]; then
           else map( select( ((.trigger // "") + " " + (.learning // "")) | ascii_downcase as $hay
             | ($words | any(. as $w | $hay | contains($w))) ) ) end )
       | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
+      # LRN-9: the snapshot path did NOT apply --exclude, so it recorded the same top-N every time
+      # regardless of what was actually rendered. The caller then unioned an unchanged set and the
+      # exclusion never grew, which is why consecutive prompts kept re-paying for the same entries.
+      | map(select((.id // "") as $i | ($exids | index($i)) == null))
       | sort_by(-._score) | .[0:$top] | map(.id // empty)
     ' > "$SNAPSHOT" 2>/dev/null || true
 fi

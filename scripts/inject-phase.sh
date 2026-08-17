@@ -52,9 +52,24 @@ fi
 # Prompt-targeted learnings (P7 helper — optional; no-op until present). Excludes what the SessionStart block
 # already injected: the same records were previously paid for at session start AND on every prompt.
 if [ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -n "$prompt" ]; then
-  exc=""; [ -n "$sid" ] && [ -f "$STATE_DIR/$sid.injected.json" ] && exc="$STATE_DIR/$sid.injected.json"
-  rel="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --filter "$prompt" --top 5 --max-len 200 ${exc:+--exclude "$exc"} 2>/dev/null || true)"
+  # LRN-9: the exclude set was only what SessionStart injected, so it never grew — two consecutive prompts
+  # re-paid for the SAME filtered entries (measured: identical id set on repeat runs against a real store).
+  # Accumulate into the one per-session file instead. It is also what merge-learnings reads to stamp
+  # `.applied`, and a prompt-injected entry that later resurfaces genuinely WAS applied, so one file is
+  # correct for both uses.
+  INJ="$STATE_DIR/$sid.injected.json"
+  exc=""; [ -n "$sid" ] && [ -f "$INJ" ] && exc="$INJ"
+  snap=""; [ -n "$sid" ] && snap="$(mktemp "$STATE_DIR/.inj.XXXXXX" 2>/dev/null || true)"
+  rel="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --filter "$prompt" --top 5 --max-len 200 \
+         ${exc:+--exclude "$exc"} ${snap:+--snapshot "$snap"} 2>/dev/null || true)"
   [ -n "$rel" ] && ctx="$ctx"$'\n\nRelevant learnings:\n'"$rel"
+  # Bounded union. Unbounded, a long session eventually excludes the whole store and injection goes silent;
+  # the newest 200 ids keep the exclusion honest without starving it.
+  if [ -n "$snap" ] && [ -s "$snap" ]; then
+    merged="$(jq -cs 'add // [] | unique | .[-200:]' "$INJ" "$snap" 2>/dev/null || true)"
+    [ -n "$merged" ] && printf '%s\n' "$merged" > "$INJ" 2>/dev/null || true
+  fi
+  [ -n "$snap" ] && rm -f "$snap" 2>/dev/null || true
 fi
 
 # Record the phase we just anchored, so the next prompt in this phase takes the cheap path.

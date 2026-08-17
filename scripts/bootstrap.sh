@@ -52,6 +52,17 @@ if [ -n "$sid" ] && [ ! -f "$DIR/state/$sid.json" ] && [ -x "$PLUGIN_ROOT/bin/cl
   CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-state" --session "$sid" set-phase discover >/dev/null 2>&1 || true
 fi
 
+# ST-1: bound the state directory. 315 state files across the real repos and nothing ever removes one.
+# harvest-candidates.sh reads only the CURRENT session's failures, so a staged failure file is worthless
+# a week later. Age out the ephemeral sidecars; never touch the live session's own files, and never touch
+# the durable stores (learnings.jsonl, reuse-index.json, MEMORY*) which live one directory up.
+if [ -d "$DIR/state" ]; then
+  find "$DIR/state" -maxdepth 1 -type f -mtime +7 \
+    \( -name '*.failures.jsonl' -o -name '*.injected.json' -o -name '*.dispatches.jsonl' \
+       -o -name '*.rules-loaded.jsonl' -o -name '*.injected-phase' -o -name '*.ua-flag' \) \
+    ! -name "${sid:-__none__}.*" -delete 2>/dev/null || true
+fi
+
 # Rule-template migration (Issue 4): upgraded/new rule templates must reach EXISTING projects, not only
 # fresh inits. Stamp the plugin version into the plane; on mismatch re-emit the rule tree only
 # (claudehut-init --refresh-rules — never touches MEMORY/PROJECT/LANGUAGE, which users may have edited).

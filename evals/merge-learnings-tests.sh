@@ -295,6 +295,62 @@ cn="$(grep -c '' "$TB/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl" 2>/
   || bad "LRN-8: expected exactly the cited row to survive, got $cn candidate(s)"
 rm -rf "$TB"
 
+echo "== LRN-7/LRN-9/ST-1: bounded store, no per-prompt re-pay, aged-out state =="
+# LRN-7: the TTL alone cannot bound the store — a promoted entry never expires and anything touched in the
+# last 90 days is kept unconditionally. payment-gateway-ms is at 360 entries and climbing.
+TC="$(mktemp -d)"; mkdir -p "$TC/.claude/claudehut/state" "$TC/.claude/rules"
+python3 - "$TC" <<'PYX'
+import json,sys
+with open(sys.argv[1]+'/.claude/claudehut/learnings.jsonl','w') as f:
+    for i in range(500):
+        f.write(json.dumps({'id':'L-%04d'%i,'category':'note','trigger':'t%d'%i,'learning':'lesson %d'%i,
+                            'evidence':'e','confidence':0.6,'hits':1,'ts':'2026-08-15T00:00:00Z'})+'\n')
+PYX
+printf '%s\n' '{"category":"convention","trigger":"zz","learning":"a new one with plenty of substance to clear the quality floor","evidence":"X.java:1"}' > "$TC/c.jsonl"
+CLAUDE_PROJECT_DIR="$TC" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TC/c.jsonl" --session s >/dev/null 2>&1
+n="$(grep -c '' "$TC/.claude/claudehut/learnings.jsonl" 2>/dev/null || echo 0)"
+[ "${n:-9999}" -le 400 ] \
+  && ok "LRN-7: a 500-entry store is capped to 400 by score (TTL alone left it unbounded)" \
+  || bad "LRN-7: store still holds $n entries after merge"
+rm -rf "$TC"
+# LRN-9: two prompts in a row re-paid for the SAME entries — the exclude set was only what SessionStart
+# injected, and it never grew. Measured identical on repeat runs against a real store.
+TD="$(mktemp -d)"; mkdir -p "$TD/.claude/claudehut/state"
+python3 - "$TD" <<'PYX'
+import json,sys
+with open(sys.argv[1]+'/.claude/claudehut/learnings.jsonl','w') as f:
+    for i in range(40):
+        f.write(json.dumps({'id':'L-%04d'%i,'category':'pitfall','trigger':'settlement|completion',
+                            'learning':'settlement completion lesson %d with enough substance to clear the floor'%i,
+                            'evidence':'S%d.java:1'%i,'confidence':0.8,'hits':3,'ts':'2026-08-15T00:00:00Z'})+'\n')
+PYX
+for _ in 1 2 3; do
+  printf '{"session_id":"s9","prompt":"fix the settlement completion bug"}' \
+    | CLAUDE_PROJECT_DIR="$TD" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" >/dev/null 2>&1
+done
+ex="$(jq 'length' "$TD/.claude/claudehut/state/s9.injected.json" 2>/dev/null || echo 0)"
+[ "${ex:-0}" -ge 15 ] \
+  && ok "LRN-9: the exclude set accumulates across prompts ($ex ids after 3), so entries are not re-paid" \
+  || bad "LRN-9: exclude set stuck at $ex — consecutive prompts still re-pay for the same entries"
+rm -rf "$TD"
+# ST-1: 315 state files exist across the real repos and nothing removes any of them.
+TE="$(mktemp -d)"; mkdir -p "$TE/.claude/claudehut/state"
+( cd "$TE/.claude/claudehut/state" \
+  && touch -t 202607010000 old.failures.jsonl old.ua-flag CUR.failures.jsonl && touch fresh.failures.jsonl )
+printf '%s\n' '{"id":"keep"}' > "$TE/.claude/claudehut/learnings.jsonl"
+touch -t 202607010000 "$TE/.claude/claudehut/learnings.jsonl"
+printf '{"session_id":"CUR","source":"startup"}' \
+  | CLAUDE_PROJECT_DIR="$TE" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+{ [ ! -f "$TE/.claude/claudehut/state/old.failures.jsonl" ] && [ ! -f "$TE/.claude/claudehut/state/old.ua-flag" ]; } \
+  && ok "ST-1: sidecars older than 7 days are removed" || bad "ST-1: stale sidecars survived"
+[ -f "$TE/.claude/claudehut/state/CUR.failures.jsonl" ] \
+  && ok "ST-1: the CURRENT session's files are never removed, however old" \
+  || bad "ST-1: cleanup deleted the live session's own state"
+{ [ -f "$TE/.claude/claudehut/state/fresh.failures.jsonl" ] && [ -f "$TE/.claude/claudehut/learnings.jsonl" ]; } \
+  && ok "ST-1: fresh sidecars and the durable store are untouched" \
+  || bad "ST-1: cleanup removed a fresh sidecar or the durable store"
+rm -rf "$TE"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

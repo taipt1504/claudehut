@@ -277,6 +277,22 @@ ARR="$(jq -c --argjson now "$NOW" '
         or ( ($age <= 180) and ( ((.hits//1) >= 2) or ((.confidence//0) >= 0.25) or ($age <= 90) ) )
       )
   ]' <<<"$ARR")"
+# LRN-7: the TTL alone does not bound the store. Every surviving predicate is satisfiable indefinitely —
+# a promoted entry never expires, and anything touched in the last 90 days is kept unconditionally — so a
+# busy repo grows without limit (payment-gateway-ms is at 360 entries and climbing, party-ms at 280).
+# Add a hard cap by score, applied AFTER the TTL so age still wins first. Promoted entries are exempt:
+# they are the audit trail for a rule that already shipped.
+ARR="$(jq -c --argjson now "$NOW" --argjson cap 400 '
+  if (length <= $cap) then .
+  else
+    ( [ .[] | select((.promoted // false)) ] ) as $keep
+    | ( [ .[] | select((.promoted // false) | not)
+          | . + { _r: ( (.confidence // 0.5) * (((.hits // 1) | if . < 1 then 1 else . end))
+                        / (1 + ((($now - ((.ts // "1970-01-01T00:00:00Z") | fromdateiso8601? // 0)) / 86400) / 30)) ) } ]
+        | sort_by(-._r) | .[0:(if ($cap - ($keep | length)) > 0 then ($cap - ($keep | length)) else 0 end)]
+        | map(del(._r)) ) as $rest
+    | $keep + $rest
+  end' <<<"$ARR")"
 AFTER="$(jq 'length' <<<"$ARR")"
 DROPPED=$(( BEFORE - AFTER ))
 
