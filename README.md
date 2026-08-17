@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.10.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.11.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
 it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
@@ -179,6 +179,29 @@ Code's `disableAllHooks` setting.
 > **Note:** `bin/kafka-mcp` ships as a documented **stub** (a real implementation needs a language
 > toolchain / Kafka client outside this package's build); it is offered as an optional recommendation. The
 > workflow runs fully without any MCP server connected — MCP enriches, it does not gate.
+
+### v0.11.0 — rules, skills & memory
+
+v0.10.0 fixed what the workflow *enforces*. v0.11.0 fixes what it *carries*: the always-loaded index, the
+rule corpus, and the learning loop — every finding measured against the 15 real installs before it was
+acted on, and every fix pinned by an assertion that goes red when the fix is reverted.
+
+- **Memory.** `MEMORY.md` is `@import`-ed whole, so every byte is re-read every turn. One install had grown
+  to 98,809 B. `claudehut-init --migrate-memory` moves the learner's per-task blocks into a sibling
+  `MEMORY-history.md` that is never imported — 63,507 B off every turn, and it MOVES rather than truncates,
+  so a hand-written section survives because it does not match, not because it was detected. The budget is
+  now stated in **bytes**: three of the four over-budget files passed the old line cap.
+- **The learning loop actually closes.** Three independent breaks meant `.applied` was permanently 0 and the
+  failure harvest produced nothing. `PostToolUseFailure` sends no `tool_error` object at all — the field
+  paths were reading something that does not exist, which is why 682 of 682 staged records were hollow.
+- **Rules.** Java-version and ORM gating (a JPA rule was installing into every R2DBC service), dead globs
+  revived, `@MockitoBean`/`MockMvcTester` for Boot 3.4, and three new rules including money arithmetic —
+  a payments corpus with no rule about `BigDecimal`.
+- **Federated learnings** (opt-in): a service with an empty store draws its siblings' proven lessons,
+  tagged with their origin and ranked below its own.
+- **A forked session** ran no bootstrap at all, which silently made the whole workflow optional.
+- **`claudehut-init --audit`** reports rule drift read-only, and CI now checks MCP tool names, skill
+  descriptions, and every documentation anchor.
 
 ### v0.10.0 — enforcement plane
 
