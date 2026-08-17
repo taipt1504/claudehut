@@ -22,11 +22,22 @@
     "record the learnings from this task"
   ],
   "model_arm": {
-    "run": "v0.11 branch, after the RES-R1 description fix",
+    "runs": [
+      {
+        "label": "v0.11, after the RES-R1 fix",
+        "recall": "17/24",
+        "false_positives": "0/24"
+      },
+      {
+        "label": "v0.11, same description, diagnostic re-run",
+        "recall": "18/24",
+        "false_positives": "0/24"
+      }
+    ],
     "runs_per_query": 3,
-    "recall": "17/24",
-    "false_positives": "0/24",
-    "reading": "Precise but under-triggering: review never poaches another phase's request, and misses roughly 3 in 10 of its own. NOT attributable to the RES-R1 edit — no BEFORE run exists, which is the measurement D2 was owed for. Treat 17/24 as the baseline this description starts from.",
-    "caveat": "The first attempt reported 3/3 and 0/3. That was one query measured three times: `claude -p` reads stdin and, inside a `while read` loop, consumed the remaining queries. Fixed with </dev/null; the numbers above are the 48-call run."
+    "reading": "NOT a wording defect. Across two runs of the same description, recall moved 17/24 -> 18/24 and every single miss was 2/3 — six of eight queries failed exactly one run in three, and no query failed consistently. That is run-to-run non-determinism at roughly 25%, spread evenly, not a phrasing the description fails to cover. Rewriting on 'which queries miss' would be fitting noise.",
+    "false_positives_note": "0/24 in both runs. review never poached discover, implement or write-spec work — the description is precise; what varies is whether it wins its own.",
+    "instrument_gap_found": "The arm recorded hit/miss but not WHAT the model answered instead, so there was no way to tell whether a lost run went to a sibling skill or to 'none'. Fixed: misses now print lost-to:<answer>(count). A rewrite is only justified once that shows a specific competitor taking the losses.",
+    "not_measured": "No BEFORE run on the pre-RES-R1 description exists, so none of this is attributable to that edit."
   }
 }

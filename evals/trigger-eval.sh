@@ -79,16 +79,22 @@ model_arm() {
     # the whole point of this arm is to tell you which wording to change. Costs nothing extra — the calls
     # already happened.
     while IFS= read -r q; do
-      local qhit=0
+      local qhit=0 lost=""
       for _ in $(seq 1 "$runs"); do
         tot=$((tot+1))
         # </dev/null is load-bearing: `claude -p` reads stdin, and inside a `while read` loop it consumes
         # the loop's remaining queries. Without it exactly ONE query runs and the run reports 3/3 — a
         # perfect score measured on one eighth of the set.
         ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text </dev/null 2>/dev/null | tr -d '[:space:]')"
-        [ "$ans" = "$name" ] && { hit=$((hit+1)); qhit=$((qhit+1)); }
+        if [ "$ans" = "$name" ]; then hit=$((hit+1)); qhit=$((qhit+1)); else lost="$lost ${ans:-empty}"; fi
       done
-      [ "$qhit" = "$runs" ] || printf '    miss  %s/%s  %s\n' "$qhit" "$runs" "${q:0:72}"
+      # Record WHAT it answered instead. Hit/miss alone cannot be diagnosed: a first diagnostic run showed
+      # every miss at 2/3 with no query failing consistently — run-to-run noise, not a wording defect — and
+      # there was no way to tell whether the lost runs went to a sibling skill or to "none". Without the
+      # competing answer, a description rewrite would be guessing.
+      [ "$qhit" = "$runs" ] || printf '    miss  %s/%s  lost-to:%s  %s\n' "$qhit" "$runs" \
+        "$(printf '%s' "$lost" | tr ' ' '\n' | grep -v '^$' | sort | uniq -c | sort -rn | awk '{printf "%s(%s)",$2,$1}' | head -c 60)" \
+        "${q:0:56}"
     done < <(jq -r '.should_trigger[]' "$f")
     while IFS= read -r q; do
       local qfp=0
