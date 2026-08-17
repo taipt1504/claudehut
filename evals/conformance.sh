@@ -142,10 +142,17 @@ while IFS= read -r g; do grep -qF "$g" "$jp" || missing_glob=$((missing_glob+1))
   || bad "RULE-12: $missing_glob entity path(s) governed by lombok-jpa-safety but not by jpa.md"
 # JSR-305 is unmaintained and its javax package is wrong on a Jakarta baseline; Hibernate 6 renamed the
 # lock-timeout hint to jakarta.persistence.*. Allow the one line that names javax in order to forbid it.
-if grep -rn 'javax\.' "$ROOT/templates/rules" | grep -qv 'unmaintained'; then
+# A rule may NAME javax in order to forbid it; the allow-list is the prohibition phrasing, so a line that
+# teaches the API still has no excuse. Widened once, when jpa-locking.md legitimately warned about the
+# Hibernate 5 hint key by name.
+# `javax.money` (JSR-354) is carved out on purpose: it is not a Jakarta EE API, was never migrated, and
+# the Moneta reference implementation still ships that exact package. The premise of this check —
+# "javax.* is the pre-Jakarta name" — is simply false for it.
+if grep -rn 'javax\.' "$ROOT/templates/rules" \
+   | grep -qvE 'unmaintained|wrong package|Hibernate 5 name|silently ignored|no effect, no error|javax\.money'; then
   bad "RULE-18: a rule still teaches a javax.* API on a Jakarta/Boot-3 baseline"
 else
-  ok "RULE-18: rules teach jakarta.*/JSpecify only"
+  ok "RULE-18: rules name javax.* only to forbid it"
 fi
 
 # RULE-13 — @MockBean and @SpyBean are deprecated since Boot 3.4.0 and REMOVED in 4.0.0 in favour of
@@ -172,11 +179,31 @@ grep -q '^stack:' "$pl" \
   && bad "SKILL-F11: package-layout.md became stack-gated — the two rows would stop being universal" \
   || ok "SKILL-F11: package-layout.md is still ungated (reaches every project)"
 
-# C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
+# RULE-02/07/08 — the three rules added in v0.11. Each is asserted on the property that made it worth
+# adding, not merely on existence: money-arithmetic must be ungated (it applies to any Java), jpa-locking
+# must be orm-gated (its annotations do not exist in R2DBC), outbound-resilience must be ungated.
+mg="$ROOT/templates/rules/coding/money-arithmetic.md"
+jl="$ROOT/templates/rules/performance/jpa-locking.md"
+orl="$ROOT/templates/rules/framework/outbound-resilience.md"
+{ [ -f "$mg" ] && ! grep -q '^stack:' "$mg" && grep -q 'RoundingMode' "$mg"; } \
+  && ok "RULE-07: money-arithmetic present, ungated, names RoundingMode" \
+  || bad "RULE-07: money-arithmetic missing, stack-gated, or silent on RoundingMode"
+{ [ -f "$orl" ] && ! grep -q '^stack:' "$orl" && grep -q 'idempot' "$orl"; } \
+  && ok "RULE-08: outbound-resilience present, ungated, ties retry to idempotency" \
+  || bad "RULE-08: outbound-resilience missing, stack-gated, or silent on idempotent retry"
+grep -q 'stack: "orm=jpa"' "$jl" \
+  && ok "RULE-02: jpa-locking is gated orm=jpa (its annotations do not exist in R2DBC)" \
+  || bad "RULE-02: jpa-locking is not orm-gated — it would install into R2DBC projects"
+grep -qE '@Lock|@QueryHint|entityManager' "$ROOT/templates/rules/performance/postgres-locking.md" \
+  && bad "RULE-02: JPA annotations still in postgres-locking.md, which is gated only on db=postgresql" \
+  || ok "RULE-02: postgres-locking.md is client-agnostic (no JPA annotations)"
+
+# C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
-#  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat)
+#  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat;
+#  v0.11 adds coding/money-arithmetic, framework/outbound-resilience, performance/jpa-locking)
 RT=$(find "$ROOT/templates/rules" -name '*.md' | wc -l | tr -d ' ')
-[ "$RT" = "55" ] && ok "55 rule templates (53 domain + 2 always-on)" || bad "expected 55 rule templates, found $RT"
+[ "$RT" = "58" ] && ok "58 rule templates (56 domain + 2 always-on)" || bad "expected 58 rule templates, found $RT"
 nopaths=0
 for f in $(find "$ROOT/templates/rules" -mindepth 2 -name '*.md'); do
   fm "$f" | grep -q '^paths:' || { nopaths=$((nopaths+1)); echo "      (no paths: $f)"; }

@@ -13,21 +13,24 @@ tags: [postgres, locking, concurrency]
 
 ## Lock mode decision table
 
-| Use case | SQL clause | Spring Data |
-|---|---|---|
-| Job-queue / outbox poll — skip contended rows | `FOR UPDATE SKIP LOCKED` | `@Lock(PESSIMISTIC_WRITE)` + `@QueryHints` |
-| Fail fast under contention (circuit-break) | `FOR UPDATE NOWAIT` | `@Lock(PESSIMISTIC_WRITE)` + timeout=0 |
-| Normal pessimistic read-modify-write | `FOR UPDATE` | `@Lock(PESSIMISTIC_WRITE)` |
-| Singleton scheduled job (no table needed) | `pg_advisory_xact_lock(key)` | native query in `@Transactional` |
+| Use case | SQL clause |
+|---|---|
+| Job-queue / outbox poll — skip contended rows | `FOR UPDATE SKIP LOCKED` |
+| Fail fast under contention (circuit-break) | `FOR UPDATE NOWAIT` |
+| Normal pessimistic read-modify-write | `FOR UPDATE` |
+| Singleton scheduled job (no table needed) | `pg_advisory_xact_lock(key)` |
+
+The Spring Data JPA way to express these is `performance/jpa-locking` — it loads only on a JPA project.
+This rule is client-agnostic and applies to R2DBC and plain JDBC just as much.
 
 ## SKIP LOCKED — job-queue / outbox polling
 
-```java
-// Repository
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
-@Query("SELECT e FROM OutboxEntry e WHERE e.published = false ORDER BY e.id LIMIT :n")
-List<OutboxEntry> pollUnpublished(@Param("n") int n);
+```sql
+SELECT * FROM outbox_entry
+ WHERE published = false
+ ORDER BY id
+ LIMIT :n
+   FOR UPDATE SKIP LOCKED;
 ```
 
 `-2` is Hibernate's magic constant for `SKIP LOCKED`; alternatively use the string `"SKIP_LOCKED"` — both map to `FOR UPDATE SKIP LOCKED` on the Postgres dialect.
@@ -46,27 +49,18 @@ FOR UPDATE SKIP LOCKED;
 
 ## NOWAIT — fail fast under contention
 
-```java
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "0"))
-@Query("SELECT e FROM Entity e WHERE e.id = :id")
-Optional<Entity> findByIdForUpdateNowait(@Param("id") UUID id);
-// Throws QueryTimeoutException immediately if row is locked — caller retries or 409s
+```sql
+SELECT * FROM entity WHERE id = :id FOR UPDATE NOWAIT;
+-- errors immediately (SQLSTATE 55P03) if the row is locked — caller retries or returns 409
 ```
 
 Use for: payment capture, inventory decrement — anywhere "wait silently" is wrong.
 
 ## Advisory locks — singleton jobs
 
-```java
-@Transactional
-public void runOnce(long lockKey) {
-    entityManager.createNativeQuery(
-        "SELECT pg_advisory_xact_lock(:key)")
-        .setParameter("key", lockKey)
-        .getSingleResult();
-    // safe: only one JVM proceeds; lock released at txn commit/rollback
-}
+```sql
+-- inside an explicit transaction: only one caller proceeds; released at commit/rollback
+SELECT pg_advisory_xact_lock(:key);
 ```
 
 **xact-scoped beats session-scoped** (`pg_advisory_lock`): session locks survive connection pooling hand-offs — a crashed pod leaks them until its DB session closes. Transaction-scoped locks auto-release on txn end, compatible with pgBouncer transaction-mode pooling.
@@ -137,7 +131,6 @@ Long `wait_event = 'relation'` or `'tuple'` rows → contended lock; inspect the
 
 ## Anti-patterns
 
-- `FOR UPDATE` in a `@Transactional(readOnly=true)` method — Hibernate may skip the lock hint; always use a write transaction.
 - Missing `ORDER BY` on batch `SKIP LOCKED` select — non-deterministic; different pollers may compete for same rows on index scan without ordering guarantee.
 - `pg_advisory_lock` (session-scoped) with pgBouncer transaction mode — lock leaks across pool hand-offs; use `pg_advisory_xact_lock` exclusively.
 - `ALTER TABLE` without `lock_timeout` in migration — queues behind long-running queries, blocking all subsequent writers for the queue duration.
