@@ -404,4 +404,6 @@ rm -rf "$FR"
 
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/merge-learnings-tests.count"
 [ "$FAIL" -eq 0 ]

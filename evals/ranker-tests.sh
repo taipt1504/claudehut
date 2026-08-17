@@ -62,4 +62,6 @@ k1="$(norm "R2DBC|reactive|Blocking")"; k2="$(norm "blocking, reactive, r2dbc")"
 rm -rf "$TMP"
 echo
 echo "RANKER: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/ranker-tests.count"
 [ "$FAIL" -eq 0 ]

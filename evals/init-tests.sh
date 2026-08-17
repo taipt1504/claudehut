@@ -581,4 +581,7 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W5" --refresh-rules >/dev/null 2>&1
   || ok "MEM-1: --refresh-rules does not migrate (opt-in only)"
 rm -rf "$W4" "$W5"
 
-echo; echo "INIT: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
+echo; echo "INIT: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/init-tests.count"
+[ "$FAIL" -eq 0 ]

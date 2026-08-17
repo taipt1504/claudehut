@@ -228,25 +228,165 @@ fi
 # number the README states for a suite must match what that suite actually reports.
 # reference-check.sh is deliberately NOT in this list: a suite that asserts its own advertised count would
 # have to run itself. Its README number is maintained by hand and is the one entry this check cannot cover.
+#
+# W19 — read the count, do not re-run the suite. ci.yml already runs all seven as their own steps, so
+# re-running them here to scrape one integer each roughly doubled the deterministic job (measured: this
+# block was ~69s of this script's ~70s). Each suite now writes its $PASS to
+# $EVAL_COUNT_DIR/<suite>.count when that variable is set, and ci.yml sets it.
+# The fallback is the safety property, not an optimisation detail: when a count file is absent — anyone
+# running `bash evals/reference-check.sh` on its own — that suite is re-run. Per-suite rather than
+# all-or-nothing, so a half-populated dir degrades to slow instead of to blind. Each row prints the path
+# it took; that label is the only signal if CI's mkdir step is ever dropped and every row silently
+# reverts to re-running.
+#
+# The CLAIMED number is parsed from README, not restated here. It used to live in the PAIRS heredoc below,
+# which made this check compare a hardcoded mirror against the suites while its own failure text said
+# "README claims N" — so editing README without editing the mirror left the check green and the message
+# false. The list below is now script names only; README is the single source of truth it validates.
 rd_bad=0
-while IFS='|' read -r script claimed; do
-  [ -n "$claimed" ] || continue
-  actual="$(bash "$ROOT/evals/$script" 2>/dev/null | grep -oE '[0-9]+ passed' | head -1 | grep -oE '[0-9]+')"
-  [ "$actual" = "$claimed" ] \
-    || { echo "  FAIL - README claims $claimed assertions for $script, it reports ${actual:-none}"; rd_bad=$((rd_bad+1)); }
+readme_count() { # $1 = the exact command as README writes it -> the number in its trailing comment
+  sed -n "s|^evals/$1[[:space:]]*#[[:space:]]*\([0-9][0-9]*\).*|\1|p" "$ROOT/README.md" | head -1
+}
+while IFS= read -r script; do
+  [ -n "$script" ] || continue
+  claimed="$(readme_count "$script")"
+  if [ -z "$claimed" ]; then
+    echo "  FAIL - $script has no assertion count in README's deterministic list"; rd_bad=$((rd_bad+1)); continue
+  fi
+  cfile="${EVAL_COUNT_DIR:-}/${script%.sh}.count"
+  if [ -n "${EVAL_COUNT_DIR:-}" ] && [ -f "$cfile" ]; then
+    actual="$(tr -cd '0-9' < "$cfile")"; via="count file"
+  else
+    rcout="$(bash "$ROOT/evals/$script" 2>/dev/null)"
+    actual="$(printf '%s\n' "$rcout" | grep -oE '[0-9]+ passed' | head -1 | grep -oE '[0-9]+')"; via="re-run"
+  fi
+  if [ "$actual" = "$claimed" ]; then
+    echo "         ($via) $script reports $actual"
+  else
+    echo "  FAIL - README claims $claimed assertions for $script, it reports ${actual:-none} ($via)"; rd_bad=$((rd_bad+1))
+  fi
 done <<'PAIRS'
-conformance.sh|270
-gate-tests.sh|105
-init-tests.sh|115
-merge-learnings-tests.sh|51
-worktree-tests.sh|53
-artifact-oracle-tests.sh|14
-ranker-tests.sh|8
+conformance.sh
+gate-tests.sh
+init-tests.sh
+merge-learnings-tests.sh
+worktree-tests.sh
+artifact-oracle-tests.sh
+ranker-tests.sh
 PAIRS
+# The TOTAL was unchecked, which is the same drift the per-suite rows guard against one level up: every
+# row could be individually correct while the headline number stayed at a figure from two releases ago.
+# Sum the list, compare to the headline. reference-check.sh's own row is included — it is the one row no
+# suite can verify by running (it would have to run itself), so the sum is the only thing that constrains it.
+rd_sum="$(sed -n 's|^evals/[^#]*#[[:space:]]*\([0-9][0-9]*\).*|\1|p' "$ROOT/README.md" \
+          | awk '{t+=$1} END{print t+0}')"
+rd_claim="$(sed -n 's|^# deterministic .* — \([0-9][0-9]*\) assertions.*|\1|p' "$ROOT/README.md" | head -1)"
+if [ -n "$rd_claim" ] && [ "$rd_sum" = "$rd_claim" ]; then
+  echo "  ok   - README's headline total ($rd_claim) is the sum of its own per-suite rows"; PASS=$((PASS+1))
+else
+  echo "  FAIL - README's headline total is ${rd_claim:-missing} but its rows sum to $rd_sum"; FAIL=$((FAIL+1))
+fi
+
 if [ "$rd_bad" = "0" ]; then
   echo "  ok   - README eval counts match the suites"; PASS=$((PASS+1))
 else
   echo "  FAIL - $rd_bad README eval count(s) are stale"; FAIL=$((FAIL+1))
+fi
+
+# W18 — an eval script that nothing runs is not coverage, it is a file. Nine evals/*.sh were reachable
+# from neither ci.yml nor the release checklist and nobody noticed, because nothing enumerated them.
+# Every tracked top-level evals/*.sh must be named in ONE of: a ci.yml step, the README release-checklist
+# block, or evals/_manual.txt with a one-line reason. A script that a COVERED suite EXECUTES counts as
+# covered — conformance.sh runs score.sh and llm-judge.sh, and calling those orphans is a false positive.
+# Three ways this check could lie, all closed below:
+#   (a) a script merely NAMED in a comment is not run — ci.yml's own comment names llm-judge.sh and the
+#       README checklist's comments name load-probe.sh — so every source is comment-stripped first;
+#   (b) an empty enumeration passes while measuring nothing, so a floor is asserted;
+#   (c) the README block is located by anchor, and a moved anchor would read as "nothing is covered",
+#       so losing the anchor is its own named failure rather than a silent behaviour change.
+# Enumeration is git ls-files, matching the NUL check above: CI only ever sees tracked files, and a
+# scratch evals/*.sh in someone's working tree must not turn this red for them.
+W18CI="$ROOT/.github/workflows/ci.yml"
+W18MAN="$ROOT/evals/_manual.txt"
+w18_strip() { sed -E 's/(^|[[:space:]])#.*$//' "$1" 2>/dev/null; }
+
+w18_ci="$(w18_strip "$W18CI")"
+# Anchored on a line that OPENS with the heading, not one that merely contains the words: README:253
+# says "...the first item on the release checklist" in running prose, and a contains-match started the
+# block scan there and collected two unrelated fences instead. Markup-agnostic (`**`, `#`, none) so the
+# anchor survives a reformat; the loud failure below is what catches it if it does not.
+w18_rl="$(awk 'tolower($0) ~ /^[*#[:space:]]*release checklist/ {f=1} f && /^```/ {n++; if (n==2) exit; next} f && n==1 {print}' \
+          "$ROOT/README.md" 2>/dev/null | sed -E 's/(^|[[:space:]])#.*$//')"
+
+w18_all=""; w18_n=0
+while IFS= read -r rel; do
+  case "$rel" in evals/*/*) continue ;; esac      # top-level only; lib/ and tasks/ are libraries, not suites
+  case "$rel" in *.sh) ;; *) continue ;; esac
+  w18_n=$((w18_n+1)); w18_all="$w18_all $(basename "$rel")"
+done < <(cd "$ROOT" && git ls-files evals/ 2>/dev/null)
+
+w18_direct=""
+for b in $w18_all; do
+  case "$w18_ci" in *"evals/$b"*) w18_direct="$w18_direct $b"; continue ;; esac
+  case "$w18_rl" in *"evals/$b"*) w18_direct="$w18_direct $b" ;; esac
+done
+
+w18_exec=""; w18_orphan=""; w18_noreason=""
+for b in $w18_all; do
+  case " $w18_direct " in *" $b "*) continue ;; esac
+  esc="$(printf '%s' "$b" | sed 's/[.]/\\./g')"
+  hit=""
+  for c in $w18_direct; do                        # executed by a covered suite? (score.sh, llm-judge.sh)
+    [ -f "$ROOT/evals/$c" ] || continue
+    m="$(w18_strip "$ROOT/evals/$c" \
+         | grep -E "(^|[[:space:]])(bash|sh|source|\.)[[:space:]]+[^[:space:]]*evals/$esc" || true)"
+    [ -n "$m" ] && { hit="$c"; break; }
+  done
+  if [ -n "$hit" ]; then w18_exec="$w18_exec $b"; continue; fi
+  ml="$(grep -E "^$esc:" "$W18MAN" 2>/dev/null || true)"; ml="${ml%%$'\n'*}"
+  if [ -z "$ml" ]; then w18_orphan="$w18_orphan $b"; continue; fi
+  why="$(printf '%s' "${ml#*:}" | sed -E 's/^[[:space:]]+//')"
+  [ "${#why}" -ge 20 ] || w18_noreason="$w18_noreason $b"
+done
+
+w18_anchor=lost
+case "$w18_rl" in *evals/*) w18_anchor=ok ;; esac
+if [ "$w18_anchor" = lost ]; then
+  echo "  FAIL - W18: the README release-checklist block no longer resolves — this check would read every"
+  echo "         checklist-only script as an orphan. Re-anchor it against README.md, do not delete it"; FAIL=$((FAIL+1))
+elif [ "$w18_n" -lt 15 ]; then
+  echo "  FAIL - W18: enumeration returned only $w18_n evals/*.sh — it has stopped measuring the tree; re-derive it"; FAIL=$((FAIL+1))
+elif [ -z "${w18_orphan// /}" ]; then
+  echo "  ok   - W18: all $w18_n evals/*.sh are reachable (ci.yml, the README checklist, a covered suite, or _manual.txt)"; PASS=$((PASS+1))
+else
+  echo "  FAIL - W18: eval script(s) nothing runs and evals/_manual.txt does not excuse:$w18_orphan"; FAIL=$((FAIL+1))
+fi
+
+if [ -z "${w18_noreason// /}" ]; then
+  echo "  ok   - W18: every evals/_manual.txt entry carries a reason"; PASS=$((PASS+1))
+else
+  echo "  FAIL - W18: _manual.txt entry with no real reason (an allowlist without one is a mute button):$w18_noreason"; FAIL=$((FAIL+1))
+fi
+
+# A stale allowlist is the failure mode this check would otherwise grow into: an entry that outlives its
+# script silently pre-excuses the next file to take that name, and one that outlives its exclusion hides
+# that the script IS run now. Mirrors the MCP-inventory 'gone' assertion above.
+w18_stale=""
+if [ -f "$W18MAN" ]; then
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    case "$line" in *:*) ;; *) w18_stale="$w18_stale [malformed:$line]"; continue ;; esac
+    name="${line%%:*}"
+    if [ ! -f "$ROOT/evals/$name" ]; then w18_stale="$w18_stale $name(no such script)"; continue; fi
+    case " $w18_direct $w18_exec " in *" $name "*) w18_stale="$w18_stale $name(already run — delete this line)" ;; esac
+  done < "$W18MAN"
+else
+  w18_stale=" evals/_manual.txt missing"
+fi
+if [ -z "${w18_stale// /}" ]; then
+  echo "  ok   - W18: evals/_manual.txt has no stale entries"; PASS=$((PASS+1))
+else
+  echo "  FAIL - W18: stale evals/_manual.txt entr(ies):$w18_stale"; FAIL=$((FAIL+1))
 fi
 
 echo
