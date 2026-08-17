@@ -96,6 +96,6 @@ Apply at every endpoint, every input boundary, every persistence layer.
 | Spring AOP advice on private methods | Doesn't intercept — use AspectJ if needed |
 | `RestTemplate` without timeout | Set `connectTimeout` + `readTimeout` |
 
-## Phase 5 reviewer-security focus
+## Phase 6 (Review) security-auditor focus
 
-When Phase Loop runs, `claudehut-reviewer-security` checks every category above with reference to changed files in the diff.
+When Phase Loop runs, `claudehut-security-auditor` checks every category above with reference to changed files in the diff.

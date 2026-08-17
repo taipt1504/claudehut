@@ -99,7 +99,7 @@ repos:
       - id: gitleaks
 ```
 
-Phase 5 reviewer-security regex-scans diff for secret patterns:
+Phase 6 (Review) `claudehut-security-auditor` regex-scans diff for secret patterns:
 
 ```
 sk-[a-zA-Z0-9_-]{20,}

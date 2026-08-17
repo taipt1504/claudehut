@@ -1,12 +1,13 @@
 # Review rigor contract
 
-The single source for the rules that bind the four CODE-REVIEW auditors (`claudehut-reviewer`,
-`claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`). `claudehut:review`
+The single source for the rules that bind every CODE-REVIEW auditor (`claudehut-reviewer`,
+`claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`,
+`claudehut-contract-reviewer`, `claudehut-observability-reviewer`). `claudehut:review`
 **cats this file verbatim into each auditor's dispatch prompt**; the auditor bodies do NOT restate it.
 (`claudehut-test-runner` is exempt — it returns raw test output, not a coverage table.)
 
-1. **Think first.** You run `opus`/`xhigh` and your prompt carries `ultrathink` (the only deep-reasoning
-   token Claude Code honors). Reason about the change before judging.
+1. **Think first.** Your prompt carries `ultrathink` — the only deep-reasoning token Claude Code honors.
+   Reason about the change before judging.
 2. **Refute, don't confirm — on TWO axes.** You are a senior Java/Spring engineer whose sign-off decides
    whether this ships. Treat the change as **unproven until you cite evidence**. Judge code + diff + rules
    only — no author / commit-message / "quick fix" framing. Report gaps on BOTH (a pass on one never excuses

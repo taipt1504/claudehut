@@ -49,7 +49,7 @@ Violating the letter of these laws is violating the spirit of them.
 
 | # | Phase | Invoke | Tiers | Produces |
 |---|-------|--------|-------|----------|
-| 1 | Discover | `claudehut:discover` (explorer ∥ reuse-scanner; trivial: inline, ≤3 greps, no dispatch) | all | `reuse-scan.md` + reuse DECISION |
+| 1 | Discover | `claudehut:discover` (explorer ∥ reuse-scanner on full; trivial + small: inline, no dispatch) | all | `reuse-scan.md` + reuse DECISION |
 | 2 | Brainstorm | `claudehut:brainstorm` | full | `brainstorm.md` + enforcement set |
 | 3 | Spec | `claudehut:write-spec` | full | `spec.md` |
 | 4 | Plan | `claudehut:write-plan` | full | `plan.md` (T-xxx) + `plan-review.md` |

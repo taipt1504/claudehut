@@ -89,7 +89,7 @@ adapts the *meaning* of "done", not just a label.
 
 | Phase | Invoke | Heavy work (Agent tool) | Tiers | Produces (in `tasks/NNNN-<slug>/`) |
 |-------|--------|------------------------|-------|-------------------------------------|
-| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message); **trivial tier: inline — ≤3 Greps + inline artifact, no dispatch** | all | `reuse-scan.md` + reuse DECISION |
+| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message, full tier); **trivial + small tiers: inline — targeted Greps + inline artifact, no dispatch** | all | `reuse-scan.md` + reuse DECISION |
 | 2. Brainstorm | `claudehut:brainstorm` | brainstormer (generic ideation) | full | `brainstorm.md` (≥2 scored options + premortems) → `set-brainstorm` (gate) + enforcement set |
 | 3. Spec | `claudehut:write-spec` | — (main writes from template); → `set-spec` (gate: sections + Decision + AC-xxx) | full | `spec.md` |
 | 4. Plan | `claudehut:write-plan` | planner drafts from template → **`claudehut-plan-reviewer` APPROVE** → `set-plan-review` → **approve plan** → `set-plan` (gate) + task mirror | full | `plan.md` (T-xxx) + `plan-review.md` |

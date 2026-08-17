@@ -45,8 +45,8 @@ observability are required no matter how lazy the build. Minimalism cuts complex
 flowchart TB
     start([Discover phase]) --> ph["set-phase discover<br/>create tasks/NNNN-slug/"]
     ph --> tier{"recorded complexity tier?"}
-    tier -- "trivial" --> inl["INLINE scan — ≤3 targeted Greps<br/>(no subagent dispatch floor)"]
-    tier -- "small / full" --> fan["dispatch explorer + reuse-scanner<br/>in ONE message (concurrent, both mandatory)"]
+    tier -- "trivial / small" --> inl["INLINE scan — targeted Greps<br/>(no subagent dispatch floor)"]
+    tier -- "full" --> fan["dispatch explorer + reuse-scanner<br/>in ONE message (concurrent, both mandatory)"]
     fan --> join["explorer map + reuse-scan.md returned"]
     inl --> wr["write reuse-scan.md (Summary table + DECISION)"]
     join --> grd{"artifact on disk AND<br/>every built dimension carries a DECISION?"}
@@ -76,9 +76,9 @@ flowchart TB
    grows past the fast-lane bound, escalate to `full` and dispatch properly — inline is a cost decision, not
    a licence to scan less.
 
-   **`small`/`full` tiers → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
-   calls in a single response — the native concurrency mechanism; their inputs are independent). **In these
-   tiers BOTH are mandatory — the scanner is not optional**, even when the task "obviously" has nothing to
+   **`full` tier → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
+   calls in a single response — the native concurrency mechanism; their inputs are independent). **In this
+   tier BOTH are mandatory — the scanner is not optional**, even when the task "obviously" has nothing to
    reuse (measured miss: a rate-limiting task skipped the scanner; the write gate then denies every
    production write for lack of the artifact):
 

@@ -113,10 +113,8 @@ Verify each of these by reading the migration — nothing enforces them automati
 - No `ADD COLUMN NOT NULL` without DEFAULT.
 - Warnings on RENAME / DROP / TRUNCATE / LOCK TABLE.
 
-PreToolUse hook invokes validator on every migration write. Critical issues block via `permissionDecision: "deny"`.
-
 ## References
 
 - See `claudehut:implement` skill.
-- `claudehut-migration-validator` agent runs this rule.
-- Phase 5 reviewer-db also runs `EXPLAIN ANALYZE` on dev DB if Postgres MCP available.
+- `claudehut-db-reviewer` runs this rule in Phase 6 (Review), and also runs `EXPLAIN ANALYZE` on a dev DB if
+  the Postgres MCP server is available.
