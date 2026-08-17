@@ -50,5 +50,34 @@ jq -R 'fromjson? // empty' "$FILE" 2>/dev/null | jq -s -r --argjson top "$TOP" '
     end
 ' 2>/dev/null || echo "  (could not parse the store)"
 
+# W1 — surface the coverage-gap signal that was being written and read by nobody.
+#
+# merge-learnings.sh counts pitfalls that earned promotion but map to no rule file, and says why in its
+# own comment: "An unmapped promotion is a coverage gap in the rule corpus, and the receipt is where it
+# shows." It lands in the report JSON and in the per-session learn-receipt — and then nothing reads it.
+# This scoreboard read only learnings.jsonl, where `unmapped` does not live (it is a receipt field, not a
+# store field), and the /claudehut:claudehut-learning-report command renders this output verbatim. So the
+# one signal telling you the rule corpus has a hole was computed every Learn pass and shown to no one.
+#
+# STRICTLY CONDITIONAL, for two reasons. A store with no receipt (the CI fixture) must print exactly what
+# it printed before, and a clean run must not add a line that becomes wallpaper. The number still comes
+# from a deterministic artifact, so the honesty boundary above holds: nothing here is computed by
+# judgment.
+RC_DIR="$PROJECT_DIR/.claude/claudehut/state"
+if [ -d "$RC_DIR" ]; then
+  RC_LATEST="$(ls -t "$RC_DIR"/*.learn-receipt.json 2>/dev/null | head -1 || true)"
+  if [ -n "${RC_LATEST:-}" ] && [ -f "$RC_LATEST" ]; then
+    UNMAPPED="$(jq -r '.unmapped // 0' "$RC_LATEST" 2>/dev/null || echo 0)"
+    case "$UNMAPPED" in ''|*[!0-9]*) UNMAPPED=0 ;; esac
+    [ "$UNMAPPED" -gt 0 ] && printf '  Rule coverage    %s promoted pitfall(s) map to no rule file — a gap in .claude/rules/ (from %s)\n' \
+      "$UNMAPPED" "$(basename "$RC_LATEST")"
+  fi
+fi
+
 echo
-echo "  Per-repo deferred shortcuts → run /claudehut:capture-learnings; cuttable code → claudehut:review."
+# W2 — the trailer used to read "Per-repo deferred shortcuts → … cuttable code → …", advertising two
+# analyses this script does not perform: it reads one project's store and computes no per-repo breakdown,
+# and nothing about cuttable code. On a surface whose stated contract is "every number here is computed
+# from learnings.jsonl", a trailer that names findings it never derived is the same defect the numbers
+# above are designed to avoid. Now it is a plain next-step pointer that claims nothing.
+echo "  Next: /claudehut:capture-learnings to run a Learn pass · claudehut:review to re-audit the diff."

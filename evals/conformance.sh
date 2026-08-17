@@ -65,9 +65,14 @@ done
 # C5 — implementer preloads [implement]; brainstorm+review dispatch existing agents
 fm "$ROOT/agents/claudehut-implementer.md" | grep -A2 '^skills:' | grep -q 'implement' \
   && ok "implementer preloads implement skill" || bad "implementer skills: [implement] missing"
+# REACH-02a — the loop named 10 of the 14 agents, so C4's `[ "$AG" = "14" ]` count was the ONLY cover for
+# the other four: rename claudehut-contract-reviewer.md and the count stays 14 and the suite stays green
+# while every dispatch site that names it breaks. Every agent is named here now, by hand, so a rename fails.
 for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
          claudehut-test-runner claudehut-reviewer claudehut-security-auditor \
-         claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner; do
+         claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner \
+         claudehut-contract-reviewer claudehut-observability-reviewer \
+         claudehut-implementer claudehut-plan-reviewer; do
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
 # MEM-1 mode 2 — the learner is the ONLY writer of MEMORY.md, and inlining facts under "## Topics" instead
@@ -369,6 +374,24 @@ done
 [ -z "${DANGLING// /}" ] && ok "rule templates cite no missing plugin files" \
   || bad "rule template cites a nonexistent plugin path:$DANGLING"
 
+# REACH-02b — the check above resolves backticked PATHS; a bare `claudehut-<name>` matches none of its
+# prefixes, so three shipped rules told every initialized project to expect `claudehut-reviewer-security`
+# (never existed) and a fourth named `claudehut-migration-validator` (never existed). These files are copied
+# into .claude/rules/ by claudehut-init, so the dead name is what the user's main thread reads. Resolve
+# against bin/ as well as agents/ — claudehut-init/-state/-worktree are executables, not agents — and skip
+# tokens carrying a file extension (`claudehut-config.json`), which are file refs, not agent names.
+DEADNAME=""
+for f in "$ROOT"/templates/rules/*/*.md "$ROOT"/templates/rules/*.md; do
+  [ -f "$f" ] || continue
+  for tok in $(grep -ohE 'claudehut-[a-z0-9-]+(\.[a-z0-9]+)?' "$f" 2>/dev/null | sort -u); do
+    case "$tok" in *.*) continue ;; esac
+    { [ -f "$ROOT/agents/$tok.md" ] || [ -e "$ROOT/bin/$tok" ]; } \
+      || DEADNAME="$DEADNAME ${f#"$ROOT"/}:$tok"
+  done
+done
+[ -z "${DEADNAME// /}" ] && ok "rule templates name no nonexistent claudehut agent/binary" \
+  || bad "rule template names a claudehut agent/binary that does not exist:$DEADNAME"
+
 ORCH="$ROOT/skills/implement/references/orchestration.md"
 { [ -f "$ORCH" ] && grep -qi 'check-disjoint' "$ORCH" && grep -qi 'reconcile' "$ORCH"; } \
   && ok "implement: references/orchestration.md exists and carries the phase-walk mechanism" \
@@ -418,10 +441,18 @@ for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
     bad "agent $n: mcp__mysql__list_tables/describe_table are MCP Resources not Tools — use mcp__mysql__mysql_query with SQL"
   else ok "agent $n: no bogus mysql resource-as-tool names"; fi
 done
-for a in claudehut-perf-reviewer claudehut-security-auditor; do
-  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__get-consumer-group-lag' \
-    && ok "$a: kafka tool allowlist present (consumer-group lag)" \
-    || bad "$a: missing mcp__kafka__get-consumer-group-lag — Kafka review is zero at runtime when connected"
+# TOOLS-02 narrowed this from one shared expectation to a per-agent one. Both agents must still be able to
+# reach Kafka at runtime, but not through the same tool: perf-reviewer's body genuinely does consumer-lag
+# work, while security-auditor's only Kafka procedure is topic ACLs and partition assignments — consumer
+# groups, lag and consume-messages appear nowhere in it. Pinning get-consumer-group-lag on the auditor forced
+# a grant no procedure called, alongside live message-payload read on an opus/xhigh agent. Same intent
+# ("Kafka review is not zero when connected"), asserted against the tool each agent actually names.
+for pair in "claudehut-perf-reviewer:mcp__kafka__get-consumer-group-lag" \
+            "claudehut-security-auditor:mcp__kafka__list-topics"; do
+  a="${pair%%:*}"; t="${pair#*:}"
+  fm "$ROOT/agents/$a.md" | grep -q "$t" \
+    && ok "$a: kafka tool allowlist present ($t)" \
+    || bad "$a: missing $t — Kafka review is zero at runtime when connected"
 done
 # No agent may declare a kafka tool the recommended server does not expose: describe-topic has no
 # self-managed equivalent (get-topic-config is Confluent Cloud only and returns config, not partition
@@ -581,10 +612,15 @@ done
 # replacing either body with `exit 0` kept every assertion green, while the sidecar they exist to produce
 # stayed empty. These drive the real scripts and check the line lands.
 HKT="$(mktemp -d)"
+# F5 moved the dispatch ledger out of state/<sid>.dispatches.jsonl — that path was both gitignored and
+# age-swept, so the artifact every cost claim depends on was designed to evaporate — to one shared
+# .claude/claudehut/ledger/dispatches.jsonl with session_id as a field. What this pins is unchanged and is
+# the whole point: the runtime delivers the PLUGIN-SCOPED agent_type (`claudehut:claudehut-reviewer`), not
+# the bare name, and verify-subagent.sh matched the bare form for months because the fixtures fed it.
 echo '{"session_id":"h","agent_type":"claudehut:claudehut-reviewer"}' \
   | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
-jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/state/h.dispatches.jsonl" >/dev/null 2>&1 \
-  && ok "record-dispatch.sh writes the observed agent_type to its sidecar" \
+jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/ledger/dispatches.jsonl" >/dev/null 2>&1 \
+  && ok "record-dispatch.sh writes the plugin-scoped agent_type to the ledger" \
   || bad "record-dispatch.sh produced no usable dispatch record"
 echo '{"session_id":"h","file_path":".claude/rules/framework/jpa.md","load_reason":"path_glob_match"}' \
   | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-rules-loaded.sh" >/dev/null 2>&1
@@ -687,6 +723,34 @@ if [ -x "$ROOT/scripts/learning-score.sh" ]; then
   printf '%s' "$MOUT" | grep -qE 'Store size +2' \
     && ok "M3: learning-score COMPUTES store size from the real store (behavioral, not grep)" \
     || bad "M3: learning-score did not compute store size=2 from fixture"
+  # M3b/M3c/M3d (W1) — the `unmapped` coverage-gap signal. merge-learnings.sh has always counted
+  # promoted pitfalls that map to no rule file and written the count into the learn-receipt; nothing
+  # ever read it, because this scoreboard reads learnings.jsonl and `unmapped` is a receipt field.
+  # Surfacing it must stay STRICTLY CONDITIONAL: the fixture above has no receipt at all (M3b), and a
+  # clean pass must not print a line that becomes wallpaper (M3c). Only a real gap speaks (M3d).
+  printf '%s' "$MOUT" | grep -q 'Rule coverage' \
+    && bad "M3b: learning-score printed a rule-coverage line with NO receipt present" \
+    || ok "M3b: no receipt → no rule-coverage line (the CI fixture shape is unchanged)"
+  mkdir -p "$MT/.claude/claudehut/state"
+  printf '{"ts":"t","added":1,"unmapped":0}\n' > "$MT/.claude/claudehut/state/s.learn-receipt.json"
+  # Capture, then match. NEVER `script | grep -q` under `set -o pipefail`: grep -q exits on the first
+  # match and closes the pipe, the writer dies of SIGPIPE (141), and pipefail reports the PIPELINE as
+  # failed — turning the assertion red on exactly the input it is meant to accept. This bit twice in
+  # one session; capturing first is the only reliable shape.
+  MOUT0="$(CLAUDE_PROJECT_DIR="$MT" bash "$ROOT/scripts/learning-score.sh" 2>/dev/null || true)"
+  printf '%s' "$MOUT0" | grep -q 'Rule coverage' \
+    && bad "M3c: learning-score printed a rule-coverage line when unmapped=0 — noise on a clean pass" \
+    || ok "M3c: unmapped=0 → silent (a clean pass adds no line)"
+  printf '{"ts":"t","added":1,"unmapped":3}\n' > "$MT/.claude/claudehut/state/s.learn-receipt.json"
+  MOUT3="$(CLAUDE_PROJECT_DIR="$MT" bash "$ROOT/scripts/learning-score.sh" 2>/dev/null || true)"
+  printf '%s' "$MOUT3" | grep -qE 'Rule coverage +3 promoted' \
+    && ok "M3d: unmapped>0 surfaces the rule-corpus coverage gap (W1: written since v0.7, read by nobody)" \
+    || bad "M3d: unmapped=3 did not surface — the coverage-gap signal is still write-only"
+  # W2 — the trailer used to advertise a per-repo breakdown and a cuttable-code analysis this script
+  # never performs, on a surface whose contract is "every number here is computed from learnings.jsonl".
+  printf '%s' "$MOUT" | grep -qi 'per-repo\|cuttable' \
+    && bad "M3e: the scoreboard trailer claims an analysis the script does not perform (W2)" \
+    || ok "M3e: the trailer claims no finding it did not compute (W2)"
   printf '%s' "$MOUT" | grep -qE 'recurred 2' \
     && ok "M4: learning-score COMPUTES effectiveness/recurrence total from the store (behavioral)" \
     || bad "M4: learning-score did not compute recurrence total=2"
