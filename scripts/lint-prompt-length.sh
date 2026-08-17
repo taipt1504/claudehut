@@ -28,7 +28,11 @@ skill_bytes()  { case "$1" in review) echo 14000 ;; implement) echo 14500 ;; cla
 agent_bytes()  { case "$1" in claudehut-reuse-scanner|claudehut-planner) echo 7800 ;; claudehut-brainstormer) echo 7500 ;; claudehut-implementer|claudehut-reviewer) echo 7200 ;; *) echo 6000 ;; esac; }
 # Provenance tags that belong in the research docs, not the always-loaded body. (M2: the `measured` pattern
 # requires the audit FRACTION form `measured N/M` — so benign prose like "measured 3 outcomes" is NOT flagged.)
-PROV='EVAL-REPORT|RC-[0-9]|audit B\.[0-9]|\(Issue [0-9]|measured [0-9]+/[0-9]+'
+# SKILL-F12: widened. The old pattern missed BENCH-REPORT entirely, and required "Issue N" to sit
+# immediately after an open paren — so "(WS-6, Issue 5)" sailed through. v0.N release tags are provenance
+# too: an always-loaded body should state the rule, not when it changed. Benign "v2 API" and bare
+# "measured latency" are deliberately NOT matched, and self-test (g) pins that.
+PROV='EVAL-REPORT|BENCH-REPORT|RC-[0-9]|audit B\.[0-9]|Issue [0-9]|\(WS-[0-9]|v0\.[0-9]|measured [0-9]+/[0-9]+'
 
 violations=0
 flag() { echo "  FLAG - $1"; violations=$((violations+1)); }
@@ -85,6 +89,18 @@ self_test() {
   # (e) byte budget of 0 disables the byte check (back-compat for callers passing no 4th arg)
   violations=0; lint_file "$t/fat.md" 120 "test:fat0" 0 >/dev/null; local v_fat0=$violations
   chk "lint_file skips the byte check when the byte budget is 0" '[ "$v_fat0" -eq 0 ]'
+
+  # (g) SKILL-F12 guard, written BEFORE the regex was widened: benign product prose must survive. "v2 API"
+  # and "measured latency" read like provenance to a careless pattern; only v0.N and the audit-fraction
+  # form are provenance in this corpus.
+  printf '# ok\nthe v2 API replaces v1; we measured latency under load and it held\n' > "$t/benign.md"
+  violations=0; lint_file "$t/benign.md" 120 "test:benign" >/dev/null; local v_benign=$violations
+  chk "lint_file does NOT flag benign product prose (\"v2 API\", \"measured latency\")" '[ "$v_benign" -eq 0 ]'
+
+  # (h) the widened patterns must actually fire
+  printf '# x\nsee BENCH-REPORT and (WS-6, Issue 5) from v0.8 WS-9\n' > "$t/prov2.md"
+  violations=0; lint_file "$t/prov2.md" 120 "test:prov2" >/dev/null; local v_p2=$violations
+  chk "lint_file flags BENCH-REPORT / (WS-N, Issue N) / v0.N provenance" '[ "$v_p2" -ge 1 ]'
 
   # (f) every skill/agent that has an explicit BYTE budget must also have an explicit LINE budget. A file
   # with one and not the other silently inherits a default calibrated for a different file — which is how

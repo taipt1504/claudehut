@@ -7,7 +7,7 @@ allowed-tools: Read Grep Glob Bash Agent
 # Discover (phase 1 of 7)
 
 Ground the task in **this codebase** and settle the reuse question before any ideation. This phase was split
-out of Brainstorm (decision reversal, v0.4): exploration + reuse-scan are *discovery*, not *ideation* —
+out of Brainstorm: exploration + reuse-scan are *discovery*, not *ideation* —
 folding them into Brainstorm over-fit it and killed creative breadth. Discover does the grounding; Brainstorm
 (phase 2) then ideates freely on top of it. Runs **inline on the main thread** (it owns the state write; a
 forked subagent cannot write state or ask the user).
@@ -66,7 +66,7 @@ flowchart TB
 2. **Tier branch — how the scan runs depends on the recorded complexity tier** (the diagram's `tier` diamond):
 
    **`trivial` tier → INLINE DISCOVER (no subagents).** A no-logic change does not justify the ~26s
-   2-subagent dispatch floor (measured, BENCH-REPORT). The main thread does the scan itself (≤3 targeted Grep
+   2-subagent dispatch floor (measured). The main thread does the scan itself (≤3 targeted Grep
    calls — the class, its annotations/signature shape, the config prefix), writes
    `tasks/NNNN-<slug>/reuse-scan.md` following the Summary-table format of `references/reuse-scan-template.md`,
    then proceeds straight to Implement — **still invoking `claudehut:implement` first; the gate's skill rail

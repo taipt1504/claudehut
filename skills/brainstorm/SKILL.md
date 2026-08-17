@@ -8,7 +8,7 @@ description: Use to generate and weigh solution approaches for a problem, after 
 Turn a grounded problem into **≥2 genuinely distinct, well-reasoned approaches** and a recommendation. This is
 **general-purpose ideation** — feature, bug, refactor, performance, design, or non-code decision. It does NOT
 explore the codebase or run a reuse-scan: that is **Discover** (phase 1), whose context + reuse DECISION this
-phase consumes. Decoupling ideation from discovery is deliberate (v0.4 reversal) — forcing explore+reuse here
+phase consumes. Decoupling ideation from discovery is deliberate — forcing explore+reuse here
 narrowed the option space; freeing it widens creative breadth.
 
 Run **inline on the main thread** (it owns the state write and the user gate; a forked subagent cannot spawn
@@ -58,7 +58,7 @@ Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagra
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
    ```
-   It is the auditable checklist Review enforces — and (v0.4) the **primary source for dynamic reviewer
+   It is the auditable checklist Review enforces — and the **primary source for dynamic reviewer
    selection**: the rules it lists decide which specialist auditors Review spawns. A thin set silently
    under-reviews.
 

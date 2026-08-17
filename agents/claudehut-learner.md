@@ -55,7 +55,7 @@ JSON object per line**:
    - `learning`: one crisp sentence. For `pitfall` entries phrase it **imperatively** — a proven pitfall is
      promoted into a rule file **verbatim**, so write the sentence you'd want a rule to carry.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
-   - **Quality gate (v0.7):** `merge-learnings.sh` **drops** candidates scoring <0.4 (vague, evidence-less, or
+   - **Quality gate:** `merge-learnings.sh` **drops** candidates scoring <0.4 (vague, evidence-less, or
      <2 trigger tokens), so every candidate must carry real `evidence` (`file:line`/test) and ≥2 trigger keywords.
    - `supersedes` (optional): if this learning **refines/corrects an earlier one**, set `"supersedes":"L-####"`
      (mattpocock Learning Records) — the merge marks the new entry `status:"refines"` so evolution is traceable.
