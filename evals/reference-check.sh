@@ -157,7 +157,7 @@ conformance.sh|270
 gate-tests.sh|105
 init-tests.sh|102
 merge-learnings-tests.sh|51
-worktree-tests.sh|18
+worktree-tests.sh|20
 artifact-oracle-tests.sh|14
 ranker-tests.sh|8
 PAIRS

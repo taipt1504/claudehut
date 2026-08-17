@@ -137,6 +137,32 @@ echo "== dirty main tree refused =="
 ( cd "$R" && echo x >> f.txt )
 ( cd "$R" && CLAUDE_PROJECT_DIR="$R" "$WT" reconcile wt-x >/dev/null 2>&1 ) && bad "dirty tree accepted" || ok "reconcile refuses dirty main tree"
 
+echo "== W3: sweep must never destroy committed work in a DETACHED worktree =="
+# Reproduced before the fix: wt_merged took only the branch NAME and resolved it with `git rev-parse` in
+# the MAIN repo. A detached worktree reports its branch as the literal string "HEAD", so that resolved to
+# main's HEAD and the check asked "is main's HEAD an ancestor of main's HEAD" — trivially true. Every
+# detached worktree looked merged; sweep removed it; the commits had no ref and became unreachable. The
+# banner printed alongside said "kept = dirty or unmerged", the opposite of what happened.
+WD="$(mktemp -d)"
+( cd "$WD" && git init -q . && git config user.email a@b && git config user.name a \
+  && echo base > f.txt && git add -A && git commit -qm base ) >/dev/null 2>&1
+mkdir -p "$WD/.claude/worktrees"
+git -C "$WD" worktree add -q --detach "$WD/.claude/worktrees/agent-x" HEAD >/dev/null 2>&1
+( cd "$WD/.claude/worktrees/agent-x" && echo IRREPLACEABLE > result.txt && git add -A \
+  && git commit -qm "agent work" ) >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$WD" "$ROOT/bin/claudehut-worktree" sweep >/dev/null 2>&1
+[ -d "$WD/.claude/worktrees/agent-x" ] && [ -f "$WD/.claude/worktrees/agent-x/result.txt" ] \
+  && ok "W3: a detached worktree with committed work survives sweep" \
+  || bad "W3: sweep DESTROYED committed work that no branch pointed at — unrecoverable"
+# The control is what makes this a bug fix rather than a blanket refusal to sweep: a genuinely merged
+# branch worktree must STILL be removed, or sweep has simply stopped working.
+git -C "$WD" worktree add -q -b feat/done "$WD/.claude/worktrees/agent-y" HEAD >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$WD" "$ROOT/bin/claudehut-worktree" sweep >/dev/null 2>&1
+[ -d "$WD/.claude/worktrees/agent-y" ] \
+  && bad "W3 control: a merged-branch worktree was NOT swept — the guard is now too broad" \
+  || ok "W3 control: a merged-branch worktree is still swept"
+rm -rf "$WD"
+
 echo
 echo "WORKTREE: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

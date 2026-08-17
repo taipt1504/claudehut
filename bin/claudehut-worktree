@@ -39,9 +39,21 @@ managed_list() {
 
 wt_branch() { git -C "$1" rev-parse --abbrev-ref HEAD 2>/dev/null; }
 wt_dirty()  { [ -n "$(git -C "$1" status --porcelain 2>/dev/null)" ]; }
-wt_merged() { # branch tip reachable from main HEAD, or never advanced past merge-base
-  local b="$1" tip base
-  tip="$(git rev-parse "$b" 2>/dev/null)" || return 1
+wt_merged() { # $1 = worktree path, $2 = branch name. True only when the worktree's OWN tip is reachable.
+  # DATA LOSS FIX. This used to take only the branch NAME and resolve it with `git rev-parse "$b"` in the
+  # MAIN repo. A detached-HEAD worktree reports its branch as the literal string "HEAD", so that resolved
+  # to the MAIN repo's HEAD and the next line asked "is main's HEAD an ancestor of main's HEAD" — trivially
+  # true. Every detached worktree therefore looked merged, and sweep removed it. Committed agent work in
+  # such a worktree has no branch pointing at it, so removal left the commits unreachable: reproduced, then
+  # `git cat-file` could not recover the content. The message printed alongside it read
+  # "kept = dirty or unmerged", which is the opposite of what happened.
+  local w="$1" b="$2" tip
+  # Resolve the tip INSIDE the worktree, never by name in the main repo.
+  tip="$(git -C "$w" rev-parse HEAD 2>/dev/null)" || return 1
+  [ -n "$tip" ] || return 1
+  # A detached worktree has no branch to merge into anything. Never auto-remove it: there is no ref that
+  # would survive, so "unmerged" is the only safe reading.
+  [ "$b" = "HEAD" ] && return 1
   git merge-base --is-ancestor "$tip" HEAD 2>/dev/null
 }
 
@@ -52,7 +64,8 @@ case "$sub" in
     while read -r w; do
       [ -n "$w" ] || continue; found=true
       b="$(wt_branch "$w")"; d="clean"; wt_dirty "$w" && d="DIRTY"
-      m="unmerged"; wt_merged "$b" && m="merged"
+      m="unmerged"; wt_merged "$w" "$b" && m="merged"
+      [ "$b" = "HEAD" ] && m="DETACHED (never auto-removed)"
       echo "$w  branch=$b  $d  $m"
     done <<<"$(managed_list)"
     $found || echo "(no managed worktrees under .claude/worktrees/)"
@@ -126,7 +139,14 @@ case "$sub" in
       managed "$w" || { echo "skip (outside managed root — guard): $w"; kept=$((kept+1)); continue; }
       b="$(wt_branch "$w")"
       if wt_dirty "$w"; then echo "keep (DIRTY — uncommitted agent work, reconcile or inspect first): $w"; kept=$((kept+1)); continue; fi
-      if ! wt_merged "$b"; then echo "keep (branch $b not merged — reconcile first): $w"; kept=$((kept+1)); continue; fi
+      if ! wt_merged "$w" "$b"; then
+        if [ "$b" = "HEAD" ]; then
+          echo "keep (DETACHED HEAD — commits here are on no branch and would be unrecoverable): $w"
+        else
+          echo "keep (branch $b not merged — reconcile first): $w"
+        fi
+        kept=$((kept+1)); continue
+      fi
       git worktree remove "$w" >/dev/null 2>&1 || { echo "keep (git refused remove): $w"; kept=$((kept+1)); continue; }
       [ -n "$b" ] && [ "$b" != "HEAD" ] && git branch -d "$b" >/dev/null 2>&1 || true
       echo "removed: $w (branch $b)"; removed=$((removed+1))
