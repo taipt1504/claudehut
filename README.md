@@ -18,7 +18,7 @@ A **complexity triage** (Phase 0) routes each task: `trivial`/`small` tasks skip
 checked deterministically, not by model judgment); the safety rails (reuse-scan, test-first, Review) are
 never skipped in any tier.
 
-`/claudehut:init` **pre-indexes** the codebase once (stack, structure, memory, rules) — indexing is a
+`/claudehut:claudehut-init` **pre-indexes** the codebase once (stack, structure, memory, rules) — indexing is a
 prerequisite, not a phase. After that, you describe a task and the workflow drives every phase
 automatically, gating progress so you can't skip reuse, skip tests, or claim "done" without a clean review.
 
@@ -71,7 +71,7 @@ ClaudeHut ships **no** MCP servers and prompts for **no** credentials. MCP is op
 ## Quick start
 
 ```text
-/claudehut:init          # one-time: detect stack → build index + memory + path-scoped rules
+/claudehut:claudehut-init          # one-time: detect stack → build index + memory + path-scoped rules
 <describe your task>     # ClaudeHut triages complexity, then drives Discover → … → Learn automatically
 ```
 
@@ -252,7 +252,7 @@ dispatch — not by any single prompt. v0.9.2 attacks those paths:
   survives only on `planner` and `security-auditor` — thinking tokens bill at output rates.
 - **Session start** injects `skills/claudehut-workflow/references/digest.md` (~2 KB: tiers, profiles, laws,
   phase map) instead of the full 10 KB orchestrator, which is re-paid on every resume/clear/compact. Load the
-  full skill on demand with `/claudehut:workflow`.
+  full skill on demand with `/claudehut:claudehut-workflow`.
 - **Per-prompt injection is delta-only.** The full re-anchor + Phase-0 triage block fires on a phase *change*;
   repeat prompts in the same phase get a one-line anchor. Learnings already injected at session start are
   excluded rather than re-sent, and each entry is length-capped.

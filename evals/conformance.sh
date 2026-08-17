@@ -81,6 +81,15 @@ grep -q '8192 bytes' "$LRN" && grep -q 'Never write the facts here' "$LRN" \
 grep -q 'MEMORY-history.md' "$LRN" \
   && ok "MEM-1: learner is told to append per-task blocks to MEMORY-history.md" \
   || bad "MEM-1: learner still appends per-task blocks to the always-loaded index"
+# RES-K5 — a plugin skill is invoked as <plugin>:<skill-dir>, so the skills in skills/claudehut-init/ and
+# skills/claudehut-workflow/ are /claudehut:claudehut-init and /claudehut:claudehut-workflow. The short
+# forms were printed in a SessionStart systemMessage and in the always-loaded digest, i.e. told to the user
+# and to the model as if they worked. Same plugin-scoping defect the v0.10 agent_type fix closed.
+if grep -rn '/claudehut:workflow\b\|/claudehut:init\b' "$ROOT/skills" "$ROOT/scripts" "$ROOT/README.md" >/dev/null 2>&1; then
+  bad "RES-K5: an unscoped /claudehut:workflow or /claudehut:init survives in model- or user-facing text"
+else
+  ok "RES-K5: slash commands are plugin-scoped (/claudehut:claudehut-<skill>)"
+fi
 
 # C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;

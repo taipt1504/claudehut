@@ -66,7 +66,7 @@ fi
 
 # Inject the DIGEST (tiers + profiles + laws + phase map), not the whole orchestrator. This block is re-paid on
 # every startup|resume|clear|compact, so the full SKILL.md was the single largest recurring context cost; the
-# model loads it on demand with /claudehut:workflow. Fall back to the full file if the digest is missing.
+# model loads it on demand with /claudehut:claudehut-workflow. Fall back to the full file if the digest is missing.
 DIGEST="$PLUGIN_ROOT/skills/claudehut-workflow/references/digest.md"
 ctx="$(cat "$DIGEST" 2>/dev/null \
   || cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null \
@@ -134,5 +134,5 @@ need_init=false
 jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" '
   {hookSpecificOutput: {hookEventName:"SessionStart", additionalContext:$ctx, watchPaths:[$dir], reloadSkills:true}}
   + (if $need
-     then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:init to bootstrap this project before starting a task."}
+     then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:claudehut-init to bootstrap this project before starting a task."}
      else {} end)'

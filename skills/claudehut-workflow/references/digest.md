@@ -2,7 +2,7 @@
 
 You are operating under ClaudeHut. The codebase is pre-indexed. The workflow is **7 phases** — Discover →
 Brainstorm → Spec → Plan → Implement → Review → Learn — and you are always in exactly one. Full orchestrator
-(flow diagram, rationale, dispatch detail): invoke `/claudehut:workflow`.
+(flow diagram, rationale, dispatch detail): invoke `/claudehut:claudehut-workflow`.
 
 ## Phase 0 — triage EVERY task
 
