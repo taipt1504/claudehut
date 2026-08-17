@@ -2,6 +2,8 @@
 id: rules/framework/rabbitmq
 paths:
   - "**/*RabbitListener*.java"
+  - "**/*Consumer*.java"
+  - "**/*Listener*.java"
 stack: "messaging=rabbitmq"
 severity: high
 tags: [rabbitmq, amqp, consumer, dlq, idempotency]

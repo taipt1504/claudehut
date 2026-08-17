@@ -2,6 +2,7 @@
 id: rules/testing/given-when-then
 paths:
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: low
 tags: [test-naming, structure]
 ---

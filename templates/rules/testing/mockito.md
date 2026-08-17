@@ -2,6 +2,7 @@
 id: rules/testing/mockito
 paths:
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: medium
 tags: [mockito, mocking]
 ---

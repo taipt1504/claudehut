@@ -1,7 +1,13 @@
 ---
 id: rules/security/secret-mgmt
 paths:
-  - "**/*"
+  - "**/*.java"
+  - "**/application*.yml"
+  - "**/application*.yaml"
+  - "**/application*.properties"
+  - "**/*.env*"
+  - "**/docker-compose*.y*ml"
+  - "**/Dockerfile*"
 severity: critical
 tags: [secrets, vault, env-vars]
 ---

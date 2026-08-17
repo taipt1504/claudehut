@@ -1,7 +1,10 @@
 ---
 id: rules/architecture/package-layout
 paths:
-  - "**/*"
+  - "**/*.java"
+  - "**/pom.xml"
+  - "**/build.gradle"
+  - "**/build.gradle.kts"
 severity: high
 tags: [architecture, layout]
 ---

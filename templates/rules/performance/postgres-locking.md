@@ -25,7 +25,7 @@ tags: [postgres, locking, concurrency]
 ```java
 // Repository
 @Lock(LockModeType.PESSIMISTIC_WRITE)
-@QueryHints(@QueryHint(name = "javax.persistence.lock.timeout", value = "-2"))
+@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2"))
 @Query("SELECT e FROM OutboxEntry e WHERE e.published = false ORDER BY e.id LIMIT :n")
 List<OutboxEntry> pollUnpublished(@Param("n") int n);
 ```
@@ -48,7 +48,7 @@ FOR UPDATE SKIP LOCKED;
 
 ```java
 @Lock(LockModeType.PESSIMISTIC_WRITE)
-@QueryHints(@QueryHint(name = "javax.persistence.lock.timeout", value = "0"))
+@QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "0"))
 @Query("SELECT e FROM Entity e WHERE e.id = :id")
 Optional<Entity> findByIdForUpdateNowait(@Param("id") UUID id);
 // Throws QueryTimeoutException immediately if row is locked — caller retries or 409s

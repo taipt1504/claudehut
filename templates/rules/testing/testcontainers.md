@@ -4,6 +4,7 @@ paths:
   - "**/*IT.java"
   - "**/*IntegrationTest*.java"
   - "**/TestcontainersConfig.java"
+  - "**/*Tests.java"
 severity: medium
 stack: "test=testcontainers"
 tags: [testcontainers, integration-test, spring-boot]

@@ -119,6 +119,35 @@ else
   bad "SKILL-F5: law headings diverged between the injected digest and SKILL.md"
 fi
 
+# RULE-09/10/11/12/18 — a rule that never matches a real filename is indistinguishable from a rule that is
+# absent, and nothing in the corpus checks. These four pin the glob classes that were dead or over-broad.
+if grep -rn '^  - "\*\*/\*"$' "$ROOT/templates/rules" >/dev/null 2>&1; then
+  bad "RULE-09: a rule still globs \"**/*\" — it matches binaries, images and build output, not just code"
+else
+  ok "RULE-09: no rule globs bare \"**/*\""
+fi
+# JUnit5 + Spring convention is FooTests.java as often as FooTest.java (Spring's own codebase uses Tests),
+# so a testing rule that omits it silently skips half the suites it exists to govern.
+miss_t=0; for f in "$ROOT"/templates/rules/testing/*.md; do grep -q 'Tests\.java' "$f" || miss_t=$((miss_t+1)); done
+[ "$miss_t" = "0" ] \
+  && ok "RULE-18: every testing rule matches **/*Tests.java as well as *Test.java" \
+  || bad "RULE-18: $miss_t testing rule(s) never fire on a *Tests.java suite"
+# jpa.md governs entities; lombok-jpa-safety.md governs the same entities and already knew they live in
+# entity/ and domain/ packages without an *Entity.java suffix. jpa.md must cover at least as much.
+jp="$ROOT/templates/rules/framework/jpa.md"; lj="$ROOT/templates/rules/framework/lombok-jpa-safety.md"
+missing_glob=0
+while IFS= read -r g; do grep -qF "$g" "$jp" || missing_glob=$((missing_glob+1)); done < <(grep -E '^  - "' "$lj")
+[ "$missing_glob" = "0" ] \
+  && ok "RULE-12: jpa.md covers every entity path lombok-jpa-safety.md covers" \
+  || bad "RULE-12: $missing_glob entity path(s) governed by lombok-jpa-safety but not by jpa.md"
+# JSR-305 is unmaintained and its javax package is wrong on a Jakarta baseline; Hibernate 6 renamed the
+# lock-timeout hint to jakarta.persistence.*. Allow the one line that names javax in order to forbid it.
+if grep -rn 'javax\.' "$ROOT/templates/rules" | grep -qv 'unmaintained'; then
+  bad "RULE-18: a rule still teaches a javax.* API on a Jakarta/Boot-3 baseline"
+else
+  ok "RULE-18: rules teach jakarta.*/JSpecify only"
+fi
+
 # C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
 #  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat)

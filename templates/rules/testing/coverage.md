@@ -2,6 +2,7 @@
 id: rules/testing/coverage
 paths:
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: medium
 tags: [coverage, jacoco]
 ---

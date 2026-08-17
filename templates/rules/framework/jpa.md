@@ -3,6 +3,8 @@ id: rules/framework/jpa
 paths:
   - "**/*Entity.java"
   - "**/*Repository.java"
+  - "**/entity/**/*.java"
+  - "**/domain/**/*.java"
 stack: "orm=jpa"
 severity: high
 tags: [jpa, hibernate, n+1, lazy-load, pagination, optimistic-locking]

@@ -3,6 +3,7 @@ id: rules/testing/tdd-cycle
 paths:
   - "**/*IT.java"
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: high
 tags: [tdd, testing, red-green-refactor]
 ---
