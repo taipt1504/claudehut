@@ -2,6 +2,7 @@
 id: rules/coding/records-sealed
 paths:
   - "**/*.java"
+stack: "java=17,21"
 severity: low
 tags: [java17, records, sealed, pattern-matching]
 ---

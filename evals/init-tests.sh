@@ -199,6 +199,34 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
+echo; echo "== RULE-15: the java= axis gates version-specific rules =="
+# JAVA_VERSION was detected and printed but never entered ACTIVE, so framework/virtual-threads.md (Java 21)
+# and coding/records-sealed.md (17+) installed into Java 8 and 11 projects, teaching APIs that do not
+# compile there. The matcher is exact-string, hence a bucketed axis rather than a numeric comparison.
+jv_case() { # $1 version -> echoes "<virtual-threads> <records-sealed>"
+  local w; w="$(mktemp -d)/repo"; mkdir -p "$w/src/main/java/com/x"; touch "$w/src/main/java/com/x/A.java"
+  printf 'java { sourceCompatibility = %s }\ndependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' "$1" > "$w/build.gradle.kts"
+  CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$w" >/dev/null 2>&1
+  printf '%s %s' \
+    "$([ -f "$w/.claude/rules/framework/virtual-threads.md" ] && echo yes || echo no)" \
+    "$([ -f "$w/.claude/rules/coding/records-sealed.md" ] && echo yes || echo no)"
+  rm -rf "$w"
+}
+[ "$(jv_case 11)" = "no no" ]   && ok "RULE-15: Java 11 gets neither virtual-threads nor records-sealed" \
+                                || bad "RULE-15: Java 11 got a rule for a language feature it does not have — $(jv_case 11)"
+[ "$(jv_case 17)" = "no yes" ]  && ok "RULE-15: Java 17 gets records-sealed but not virtual-threads" \
+                                || bad "RULE-15: Java 17 gating wrong — $(jv_case 17)"
+[ "$(jv_case 21)" = "yes yes" ] && ok "RULE-15: Java 21 gets both (comma-alternative java=17,21 matches)" \
+                                || bad "RULE-15: Java 21 gating wrong — $(jv_case 21)"
+# an undetected version must not strip rules: Spring Boot 3 floors at 17, so unknown buckets to 17
+WB="$(mktemp -d)/repo"; mkdir -p "$WB/src/main/java/com/x"; touch "$WB/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WB/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WB" >/dev/null 2>&1
+[ -f "$WB/.claude/rules/coding/records-sealed.md" ] \
+  && ok "RULE-15: an undetected Java version buckets to 17, not legacy (no silent rule loss)" \
+  || bad "RULE-15: an undetected Java version silently stripped records-sealed"
+rm -rf "$WB"
+
 echo; echo "== RULE-03/04: JPA-only rules must not land in an r2dbc project =="
 # transaction-propagation.md and lombok-jpa-safety.md shipped untagged, so they installed everywhere.
 # Every ewallet service checked is r2dbc (they carry framework/r2dbc.md, not jpa.md) and party-ms and

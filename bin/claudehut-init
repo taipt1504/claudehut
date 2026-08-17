@@ -53,6 +53,18 @@ else BUILD_TOOL=unknown; VERIFY="(unknown)"; fi
 
 JAVA_VERSION="$(printf '%s' "$BF" | grep -oiE '<java.version>[0-9]+|sourceCompatibility[^0-9]{0,4}[0-9]+|JavaVersion.VERSION_[0-9]+|languageVersion[^0-9]{0,8}[0-9]+' | grep -oE '[0-9]+' | head -1)"
 [ -n "$JAVA_VERSION" ] || JAVA_VERSION="(unknown)"
+# RULE-15 — bucket the detected version into a `java=` axis. JAVA_VERSION was detected and printed but
+# never entered ACTIVE, so framework/virtual-threads.md (a Java 21 feature) and coding/records-sealed.md
+# (17+) installed into Java 8 and 11 projects, teaching APIs that do not compile there. The tag matcher
+# is exact-string, so the axis has to be bucketed rather than numeric.
+# Unknown defaults to 17, not legacy: Spring Boot 3 requires 17 as a floor, and a failed detection must
+# not silently strip rules a project is entitled to.
+case "$JAVA_VERSION" in
+  (*[!0-9]*|"") JAVA_BUCKET=17 ;;
+  (*) if   [ "$JAVA_VERSION" -ge 21 ]; then JAVA_BUCKET=21
+      elif [ "$JAVA_VERSION" -ge 17 ]; then JAVA_BUCKET=17
+      else JAVA_BUCKET=legacy; fi ;;
+esac
 
 if   has 'spring-boot-starter-webflux'; then WEB=webflux; REACTIVE_OR_MVC="reactive (WebFlux)"; SPRING_MODULES="Spring WebFlux"
 elif has 'spring-boot-starter-web';     then WEB=mvc;     REACTIVE_OR_MVC="servlet (MVC)";     SPRING_MODULES="Spring MVC"
@@ -210,7 +222,7 @@ fi
 # that argues with itself). There is no trustworthy detector: package layouts overlap, and guessing wrong
 # silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
-ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST"
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST java=$JAVA_BUCKET"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"
