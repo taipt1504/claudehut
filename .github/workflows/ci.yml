@@ -79,6 +79,12 @@ jobs:
       - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
         run: bash evals/worktree-tests.sh
 
+      # Deterministic arm only. The model arm costs tokens and is non-deterministic, so it lives beside
+      # llm-judge.sh and is run by hand before/after a description change. --validate is what stops a
+      # description edit from silently invalidating the recorded measurement.
+      - name: trigger-eval.sh --validate (skill descriptions vs their recorded trigger set)
+        run: bash evals/trigger-eval.sh --validate
+
       - name: lint-prompt-length.sh (WS-9 concision budget + provenance — commit-time gate)
         run: bash scripts/lint-prompt-length.sh
 

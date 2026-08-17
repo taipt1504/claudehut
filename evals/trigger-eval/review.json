@@ -1,0 +1,24 @@
+{
+  "skill": "review",
+  "description": "Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it owns the set-review state write.",
+  "should_trigger": [
+    "is this change ready to merge",
+    "review my diff before I claim done",
+    "check the implementation against the rules",
+    "audit this for N+1 and security issues",
+    "I think I am finished, verify it",
+    "run the auditors over this task",
+    "does this satisfy the enforcement set",
+    "confirm the tests actually cover the new branch"
+  ],
+  "should_not_trigger": [
+    "what approaches should I consider",
+    "write the spec",
+    "find the existing mapper",
+    "implement the fix",
+    "what is the verify command for this repo",
+    "add a rule about money arithmetic",
+    "explain the outbox pattern",
+    "record the learnings from this task"
+  ]
+}

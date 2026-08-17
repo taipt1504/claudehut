@@ -1,0 +1,24 @@
+{
+  "skill": "brainstorm",
+  "description": "Use to generate and weigh solution approaches for a problem, after discovery has grounded the context. Produces two or more genuinely distinct options scored on trade-offs, recommends one, and (for code tasks) assembles the enforcement set the rest of the workflow audits against. General-purpose ideation — works for any problem type; not tied to a specific stack.",
+  "should_trigger": [
+    "what are my options for making this consumer idempotent",
+    "weigh a few approaches for the payout retry design",
+    "should we use an outbox or publish inline, argue both",
+    "give me two or three designs for the fee engine",
+    "compare ways to handle partial settlement failure",
+    "I am not sure how to structure this, what are the choices",
+    "trade-offs between polling and CDC for this table",
+    "help me decide between a saga and a two-phase commit here"
+  ],
+  "should_not_trigger": [
+    "find where the outbox table is written",
+    "write the implementation now",
+    "run the tests",
+    "review my diff for bugs",
+    "what is the base package of this service",
+    "add a new Flyway migration",
+    "list the Kafka topics this service consumes",
+    "capture what we learned"
+  ]
+}
