@@ -1,6 +1,6 @@
 ---
 name: review
-description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it owns the set-review state write.
+description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and re-spawns for at most two fix rounds before reporting what survives. Runs inline on the main thread because it owns the set-review state write.
 ---
 
 # Review (phase 6 of 7)
@@ -131,10 +131,10 @@ flowchart TB
 
 ## Test evidence (the test-runner enforces this)
 
-Pick the **cheapest test that proves the behavior**: pure logic → plain JUnit 5 + Mockito · web layer →
-`@WebMvcTest`/`@WebFluxTest` · persistence → `@DataJpaTest`/`@DataR2dbcTest` + Testcontainers · external HTTP →
-WireMock · real DB/Kafka/Redis → Testcontainers, not embedded fakes · full wiring → `@SpringBootTest` (slowest,
-last resort). No `Thread.sleep` for async — Awaitility / `StepVerifier`. Full matrix: `references/test-matrix.md`.
+Pick the **cheapest test that proves the behavior**, and reject a test that proves less than it claims:
+Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last resort, and never
+`Thread.sleep` for async (Awaitility / `StepVerifier`). **The slice-by-slice ladder — MVC, WebFlux, JPA,
+R2DBC — is `references/test-matrix.md`; read it before judging a test choice.**
 
 ## Exit
 

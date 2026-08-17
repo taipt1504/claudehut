@@ -1,6 +1,6 @@
 {
   "skill": "review",
-  "description": "Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and loops until nothing applicable is unsatisfied. Runs inline on the main thread because it owns the set-review state write.",
+  "description": "Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and re-spawns for at most two fix rounds before reporting what survives. Runs inline on the main thread because it owns the set-review state write.",
   "should_trigger": [
     "is this change ready to merge",
     "review my diff before I claim done",
@@ -20,5 +20,6 @@
     "add a rule about money arithmetic",
     "explain the outbox pattern",
     "record the learnings from this task"
-  ]
+  ],
+  "model_arm_pending": "description changed for RES-R1 (round-cap contradiction); re-run evals/trigger-eval.sh --skill review before trusting the recorded set"
 }

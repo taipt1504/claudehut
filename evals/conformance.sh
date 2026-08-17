@@ -236,6 +236,25 @@ done
 grep -qE '^[[:space:]]+@MockBean[[:space:]]+[A-Z]' "$tm" \
   && bad "SKILL-F2: the test matrix still USES @MockBean, removed in Boot 4" \
   || ok "SKILL-F2: the test matrix uses @MockitoBean in its examples"
+# SKILL-F3 — single-source, the same shape WS-9 used for the rigor contract: the slice ladder lives in
+# test-matrix.md and the SKILL binds a READ of it. The irreducible judgements (no embedded fakes, no
+# Thread.sleep, @SpringBootTest last) stay in the always-invoked body, because a reviewer who skips the
+# reference must still not accept a test that proves less than it claims.
+rvs="$ROOT/skills/review/SKILL.md"
+{ grep -q 'references/test-matrix.md' "$rvs" && grep -qi 'read it before judging' "$rvs"; } \
+  && ok "SKILL-F3: review binds a READ of the test matrix, not a bare mention" \
+  || bad "SKILL-F3: the test-matrix pointer is not binding — a collapsed ladder with no read is a regression"
+{ grep -qi 'embedded fake' "$rvs" && grep -qi 'Thread.sleep' "$rvs"; } \
+  && ok "SKILL-F3: the irreducible test judgements survive the collapse" \
+  || bad "SKILL-F3: collapsing the ladder dropped a judgement that has no other always-loaded home"
+# RES-R1 — the description promised "loops until nothing applicable is unsatisfied" while :144 caps the loop
+# at two fix rounds. The description is what the model reads before invoking; promising an unbounded loop
+# describes the workflow's most expensive failure mode as if it were the contract.
+if grep -q '^description:' "$rvs" && sed -n 's/^description: *//p' "$rvs" | head -1 | grep -qi 'loops until'; then
+  bad "RES-R1: review's description still promises an unbounded loop, contradicting the round cap at :144"
+else
+  ok "RES-R1: review's description does not contradict its own round cap"
+fi
 
 # C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
