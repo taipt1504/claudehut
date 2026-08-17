@@ -75,19 +75,29 @@ model_arm() {
     local name; name="$(basename "$f" .json)"
     [ -z "$only" ] || [ "$only" = "$name" ] || continue
     local hit=0 tot=0 fp=0 ntot=0
+    # Per-query lines, not just a ratio: "17/24" says the description under-triggers but not on WHAT, and
+    # the whole point of this arm is to tell you which wording to change. Costs nothing extra — the calls
+    # already happened.
     while IFS= read -r q; do
+      local qhit=0
       for _ in $(seq 1 "$runs"); do
         tot=$((tot+1))
-        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text 2>/dev/null | tr -d '[:space:]')"
-        [ "$ans" = "$name" ] && hit=$((hit+1))
+        # </dev/null is load-bearing: `claude -p` reads stdin, and inside a `while read` loop it consumes
+        # the loop's remaining queries. Without it exactly ONE query runs and the run reports 3/3 — a
+        # perfect score measured on one eighth of the set.
+        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text </dev/null 2>/dev/null | tr -d '[:space:]')"
+        [ "$ans" = "$name" ] && { hit=$((hit+1)); qhit=$((qhit+1)); }
       done
+      [ "$qhit" = "$runs" ] || printf '    miss  %s/%s  %s\n' "$qhit" "$runs" "${q:0:72}"
     done < <(jq -r '.should_trigger[]' "$f")
     while IFS= read -r q; do
+      local qfp=0
       for _ in $(seq 1 "$runs"); do
         ntot=$((ntot+1))
-        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text 2>/dev/null | tr -d '[:space:]')"
-        [ "$ans" = "$name" ] && fp=$((fp+1))
+        ans="$(claude -p "Available skills: $names. For the request below, reply with ONLY the single skill name you would invoke, or the word none. Request: $q" --output-format text </dev/null 2>/dev/null | tr -d '[:space:]')"
+        [ "$ans" = "$name" ] && { fp=$((fp+1)); qfp=$((qfp+1)); }
       done
+      [ "$qfp" = "0" ] || printf '    POACH %s/%s  %s\n' "$qfp" "$runs" "${q:0:72}"
     done < <(jq -r '.should_not_trigger[]' "$f")
     printf '  %-20s recall %s/%s   false-positives %s/%s\n' "$name" "$hit" "$tot" "$fp" "$ntot"
   done

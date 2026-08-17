@@ -21,5 +21,12 @@
     "explain the outbox pattern",
     "record the learnings from this task"
   ],
-  "model_arm_pending": "description changed for RES-R1 (round-cap contradiction); re-run evals/trigger-eval.sh --skill review before trusting the recorded set"
+  "model_arm": {
+    "run": "v0.11 branch, after the RES-R1 description fix",
+    "runs_per_query": 3,
+    "recall": "17/24",
+    "false_positives": "0/24",
+    "reading": "Precise but under-triggering: review never poaches another phase's request, and misses roughly 3 in 10 of its own. NOT attributable to the RES-R1 edit — no BEFORE run exists, which is the measurement D2 was owed for. Treat 17/24 as the baseline this description starts from.",
+    "caveat": "The first attempt reported 3/3 and 0/3. That was one query measured three times: `claude -p` reads stdin and, inside a `while read` loop, consumed the remaining queries. Fixed with </dev/null; the numbers above are the 48-call run."
+  }
 }
