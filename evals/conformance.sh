@@ -424,6 +424,31 @@ HJ="$ROOT/hooks/hooks.json"
 # … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
 # process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
 # reading its own guard. One rule per handler, so two handlers become four.
+# PLUMB-F-02/F-06 — SubagentStart does not carry the requested subagent_type, so record-dispatch.sh could
+# log that something was dispatched but not what. The Agent tool call carries it, with a tool_use_id both
+# sides share. This hook records the identity half.
+jq -e '[.hooks.PreToolUse[]?.matcher] | any(. == "Agent")' "$HJ" >/dev/null 2>&1 \
+  && ok "PLUMB-F-02: PreToolUse(Agent) records dispatch identity" \
+  || bad "PLUMB-F-02: dispatch identity is unrecorded — SubagentStart alone cannot name the agent"
+# PreToolUse is the one event that can DENY. This recorder sits in front of every fan-out, so it must never
+# emit a decision — asserted behaviourally, because a hook that CAN block is a new way to break fan-out.
+ADT="$(mktemp -d)"
+adout="$(printf '{"session_id":"S1","tool_name":"Agent","tool_use_id":"toolu_9","tool_input":{"subagent_type":"claudehut:claudehut-implementer"}}' \
+        | CLAUDE_PROJECT_DIR="$ADT" bash "$ROOT/scripts/record-agent-dispatch.sh" 2>/dev/null)"; adrc=$?
+{ [ "$adrc" = "0" ] && [ -z "$adout" ]; } \
+  && ok "PLUMB-F-06: the Agent recorder exits 0 and emits nothing (cannot block a dispatch)" \
+  || bad "PLUMB-F-06: the Agent recorder returned output or non-zero — it can now deny a fan-out"
+jq -e '.subagent_type == "claudehut:claudehut-implementer" and .tool_use_id == "toolu_9"' \
+   "$ADT/.claude/claudehut/state/S1.agent-dispatch.jsonl" >/dev/null 2>&1 \
+  && ok "PLUMB-F-02: identity and join key are both recorded" \
+  || bad "PLUMB-F-02: the sidecar is missing subagent_type or tool_use_id"
+printf '{"session_id":"S1","tool_name":"Bash","tool_input":{"command":"ls"}}' \
+  | CLAUDE_PROJECT_DIR="$ADT" bash "$ROOT/scripts/record-agent-dispatch.sh" >/dev/null 2>&1
+[ "$(grep -c '' "$ADT/.claude/claudehut/state/S1.agent-dispatch.jsonl")" = "1" ] \
+  && ok "PLUMB-F-02: a non-Agent payload records nothing" \
+  || bad "PLUMB-F-02: the recorder wrote a row for a payload with no subagent_type"
+rm -rf "$ADT"
+
 # PLUMB-F-04 — the docs say the UserPromptExpansion matcher filters on "command name" but do not say whether
 # a plugin skill arrives bare or plugin-scoped. v0.10 lost four SubagentStop contracts to exactly that
 # question (agent_type arrives as claudehut:<name>). The matcher accepts BOTH forms rather than guessing.

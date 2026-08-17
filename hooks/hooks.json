@@ -31,6 +31,12 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-agent-dispatch.sh" }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill.sh" }
