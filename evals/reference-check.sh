@@ -165,6 +165,64 @@ else
   echo "  FAIL - $nul_bad tracked file(s) contain a NUL byte"; FAIL=$((FAIL+1))
 fi
 
+# MF-15 — `claude plugin validate . --strict` is not the manifest gate ci.yml:102 treats it as. Run against
+# this repo it prints "Validating marketplace manifest" and then passes: it inspects marketplace.json ONLY,
+# so nothing it does covers plugin.json or the relationship between the two files. It also runs "if CLI
+# present" (ci.yml:92), so it can skip with no signal at all. The three assertions below are what it does
+# not cover, they are deterministic, and they run unconditionally.
+MKT="$ROOT/.claude-plugin/marketplace.json"
+PLG="$ROOT/.claude-plugin/plugin.json"
+
+# MF-12 — a live landmine, not a gap. marketplace.json's entry is `"source": "./"`, which resolves to the
+# marketplace ROOT — and for a marketplace entry whose source resolves to the marketplace root, declaring
+# specific subdirectories REPLACES the default `skills/` scan rather than adding to it. Today no `skills`
+# key exists, so every skill directory loads. Anyone who later adds one as a "scoping optimization"
+# silently drops every skill not listed: no error, no warning, they just stop existing.
+# Assert the ABSENCE OF THE KEY, never a skill count — a count goes red the first time someone legitimately
+# adds a skill, which teaches the next author to delete the assertion.
+mkt_root="$(jq -r '[.plugins[]? | select(.source == "./" or .source == ".")] | length' "$MKT" 2>/dev/null)"
+mkt_skills="$(jq -r '[.plugins[]? | select(.source == "./" or .source == ".") | select(has("skills")) | .name] | join(" ")' "$MKT" 2>/dev/null)"
+if [ "${mkt_root:-0}" = "0" ]; then
+  # Not a pass. The replace-not-merge rule is specific to a root-resolving source; if no entry resolves to
+  # the root any more, this assertion has stopped measuring anything and must be re-derived, not skipped.
+  echo "  FAIL - MF-12: no marketplace entry sources from the marketplace root — the skills-scan rule this asserts no longer applies; re-derive it"; FAIL=$((FAIL+1))
+elif [ -n "$mkt_skills" ]; then
+  echo "  FAIL - MF-12: root-sourced marketplace entry declares a 'skills' key ($mkt_skills) — at a root source that REPLACES the default skills/ scan, so every skill not listed there vanishes silently"; FAIL=$((FAIL+1))
+else
+  echo "  ok   - MF-12: marketplace.json declares no 'skills' key (the default skills/ scan is intact)"; PASS=$((PASS+1))
+fi
+
+# MF-15(b) — the marketplace ENTRY name is what `enabledPlugins` keys, not plugin.json's name. They are
+# both `claudehut` today and nothing in the toolchain compares them, so a rename on one side strands every
+# existing user's enablement entry while both files stay individually valid.
+plg_name="$(jq -r '.name // empty' "$PLG" 2>/dev/null)"
+ent_n="$(jq -r --arg n "$plg_name" '[.plugins[]? | select(.name == $n)] | length' "$MKT" 2>/dev/null)"
+if [ -n "$plg_name" ] && [ "${ent_n:-0}" = "1" ]; then
+  echo "  ok   - MF-15: plugin.json name '$plg_name' matches exactly one marketplace entry (the key enabledPlugins uses)"; PASS=$((PASS+1))
+else
+  echo "  FAIL - MF-15: plugin.json name '$plg_name' matches ${ent_n:-0} marketplace entries — enabledPlugins keys off the ENTRY name, so a mismatch silently disables the plugin for existing users"; FAIL=$((FAIL+1))
+fi
+
+# MF-10 mirrors author/homepage/repository/license into the marketplace entry so the listing carries the
+# same provenance the manifest does. Mirroring creates a drift surface that did not exist before: two
+# copies, no tool comparing them, and a bumped version in one file only is exactly the kind of change a
+# release makes. `category` and `keywords` are deliberately NOT compared — category has no plugin.json
+# counterpart, and the two keyword lists already differ by design.
+mf10_drift=""
+for k in version homepage repository license; do
+  a="$(jq -r --arg k "$k" '.[$k] // empty' "$PLG" 2>/dev/null)"
+  b="$(jq -r --arg k "$k" --arg n "$plg_name" '[.plugins[]? | select(.name == $n)][0] | .[$k] // empty' "$MKT" 2>/dev/null)"
+  [ "$a" = "$b" ] || mf10_drift="$mf10_drift $k(plugin.json='$a' marketplace='$b')"
+done
+a="$(jq -r '.author.name // empty' "$PLG" 2>/dev/null)"
+b="$(jq -r --arg n "$plg_name" '[.plugins[]? | select(.name == $n)][0] | .author.name // empty' "$MKT" 2>/dev/null)"
+[ "$a" = "$b" ] || mf10_drift="$mf10_drift author.name(plugin.json='$a' marketplace='$b')"
+if [ -z "${mf10_drift// /}" ]; then
+  echo "  ok   - MF-10: version/homepage/repository/license/author.name agree across plugin.json and the marketplace entry"; PASS=$((PASS+1))
+else
+  echo "  FAIL - MF-10: mirrored manifest metadata has drifted —$mf10_drift"; FAIL=$((FAIL+1))
+fi
+
 # The README's eval counts were stale by an order of magnitude — it advertised "49 structural checks" for a
 # suite that had grown to 270. A count in prose rots the moment a test is added, so pin the claim: every
 # number the README states for a suite must match what that suite actually reports.
@@ -179,7 +237,7 @@ while IFS='|' read -r script claimed; do
 done <<'PAIRS'
 conformance.sh|270
 gate-tests.sh|105
-init-tests.sh|102
+init-tests.sh|115
 merge-learnings-tests.sh|51
 worktree-tests.sh|53
 artifact-oracle-tests.sh|14

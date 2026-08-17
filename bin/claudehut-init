@@ -357,20 +357,45 @@ echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (
 # forks worktrees from the current branch HEAD, so committed prior-phase work IS present. Project-wide
 # worktree setting (affects all worktree use in this repo); committed with the rest of .claude/.
 SETTINGS=".claude/settings.json"
+# MF-06 — register this plugin's marketplace in the same settings pass. `extraKnownMarketplaces` is the
+# documented project-settings mechanism: Claude Code adds the marketplace for a collaborator once they
+# accept the workspace trust dialog, with no separate prompt. Two limits, both ANNOUNCED below rather than
+# left for the reader to discover: (1) this settings file is COMMITTED, so the registration changes
+# behavior for every collaborator on folder-trust, including people who never ran init; (2) registering a
+# marketplace does NOT install the plugin — Claude Code still reports it as not installed and prints the
+# `claude plugin install` command. This improves UPDATES, not first install.
+# `autoUpdate` is deliberately NOT written: the settings reference documents it as a plain sub-field while
+# the discovery guide frames it as an admin action in *managed* settings, so whether project scope honors
+# it is unresolved. Writing it on a guess would mean an unannounced background fetch on someone else's
+# machine — ship the bare entry until that is settled.
+MKT_NAME="claudehut-marketplace"
+MKT_REPO="taipt1504/claudehut"
+MKT_ANNOUNCE=0
 if command -v jq >/dev/null 2>&1; then
   if [ -f "$SETTINGS" ]; then
-    if [ "$(jq -r '.worktree.baseRef // empty' "$SETTINGS" 2>/dev/null)" = "head" ]; then
-      echo "  worktree.baseRef=head already set in $SETTINGS"
+    have_ref="$(jq -r '.worktree.baseRef // empty' "$SETTINGS" 2>/dev/null)"
+    # Presence, not equality: a user who hand-edits the entry (a fork's repo, an autoUpdate they chose)
+    # owns it, and re-running init must not report a write it will not make.
+    have_mkt="$(jq -r --arg m "$MKT_NAME" 'if (.extraKnownMarketplaces[$m]? // null) == null then "" else "y" end' "$SETTINGS" 2>/dev/null)"
+    # The guard covers BOTH keys on purpose. Keying it on baseRef alone would skip the whole merge for every
+    # project that already has baseRef=head — i.e. every existing install and every re-run — so the
+    # marketplace entry would reach nobody while a fresh-init assertion stayed green. Same failure the
+    # ledger/ gitignore block below documents; asserted by init-tests' pre-seeded-baseRef upgrade case.
+    if [ "$have_ref" = "head" ] && [ -n "$have_mkt" ]; then
+      echo "  worktree.baseRef=head and marketplace $MKT_NAME already set in $SETTINGS"
     else
       tmp="$(mktemp)"
-      if jq --arg svc "service.name=$PROJECT_NAME" \
+      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
            '.worktree = (.worktree // {}) | .worktree.baseRef = "head"
-            | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)' \
+            | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)
+            | .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
+            | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}})' \
            "$SETTINGS" > "$tmp" 2>/dev/null; then
         # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
         # because worktrees then fork from the wrong ref with no sign anything went wrong.
         if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
           echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+          MKT_ANNOUNCE=1
         else
           rm -f "$tmp" 2>/dev/null
           echo "  WARN: could not write $SETTINGS — worktree.baseRef NOT set; dependent phases will fork from origin" >&2
@@ -385,13 +410,26 @@ if command -v jq >/dev/null 2>&1; then
     # question the team is asking. ONLY the resource attribute is written here. OTEL_EXPORTER_OTLP_HEADERS
     # carries a bearer token and must never enter a committed settings file; the endpoint and headers stay
     # in the user's own environment.
-    jq -n --arg svc "service.name=$PROJECT_NAME" \
-      '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc}}' > "$SETTINGS" 2>/dev/null \
-      || printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
+    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
+         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc},
+           extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}}' > "$SETTINGS" 2>/dev/null; then
+      MKT_ANNOUNCE=1
+    else
+      # Degraded path: jq itself failed. Keep the fallback to the one setting that breaks the fan-out if
+      # it is missing; the marketplace entry is an update convenience and is not worth hand-rolled JSON.
+      printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
+    fi
     echo "  created $SETTINGS (worktree.baseRef=head; OTEL service.name=$PROJECT_NAME)"
   fi
 else
   echo "  NOTE: jq missing — set worktree.baseRef=\"head\" in $SETTINGS manually (parallel implementers need it)" >&2
+fi
+if [ "$MKT_ANNOUNCE" = 1 ]; then
+  echo "  registered marketplace $MKT_NAME (github:$MKT_REPO) in $SETTINGS — READ THIS:"
+  echo "    $SETTINGS is COMMITTED, so every collaborator who trusts this folder gets this marketplace."
+  echo "    It does NOT install the plugin. They still run: claude plugin install claudehut@$MKT_NAME"
+  echo "    What it buys is updates resolving to the real source. Remove the extraKnownMarketplaces key if"
+  echo "    you do not want that registration shared with the repo."
 fi
 
 # ---------------- .worktreeinclude: native gitignored-config copy into agent worktrees ----------------
@@ -449,5 +487,30 @@ else
   { printf '# ClaudeHut dispatch ledger (local observation data; safe to delete)\n.claude/claudehut/ledger/\n' >> "$GI"; } 2>/dev/null \
     && echo "  gitignored: .claude/claudehut/ledger/"
 fi
+
+# ---------------- F7: the telemetry recipe this script's own comment promises ----------------
+# The RES-M12 block above stamps service.name so "which repo burned the tokens" is answerable — but only
+# once a collector exists, and this script deliberately leaves the exporter endpoint and headers in the
+# user's environment. Printing the recipe is the whole delivery: nothing below is enabled for anyone, and
+# NOTHING below is ever written into the committed settings file. stdout only; bootstrap.sh discards it,
+# so this costs a session zero tokens and reaches a human exactly when one ran init on purpose.
+echo
+echo "  telemetry (optional, opt-in — this script enables nothing and writes no credentials):"
+echo "    export CLAUDE_CODE_ENABLE_TELEMETRY=1"
+echo "    export OTEL_METRICS_EXPORTER=otlp"
+echo "    export OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+echo "    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317"
+echo "    export OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer <token>\"   # environment ONLY —"
+echo "      a bearer token must never enter $SETTINGS, which is committed. Only OTEL_RESOURCE_ATTRIBUTES"
+echo "      goes there, and this script already wrote it (service.name=$PROJECT_NAME)."
+echo "    Then group the claude_code.token.usage counter by  query_source x model x effort  — all three"
+echo "    emit verbatim, and that is the query that shows which complexity tier is actually spending."
+echo "    Prefer token counts over claude_code.cost.usage on a Teams/Enterprise seat plan: usage inside"
+echo "    the seat allowance isn't metered in dollars, so the cost counter reads 0 for real work."
+echo "    LIMITATION, so you do not spend a day debugging a working exporter: per-AGENT attribution is"
+echo "    impossible for this plugin. Only built-in agent names and agents from OFFICIAL-marketplace"
+echo "    plugins appear verbatim in agent.name; other user-defined names are replaced with \"custom\"."
+echo "    claudehut ships from a personal marketplace, so all 14 of its agents report as \"custom\" and"
+echo "    plugin.name reports \"third-party\". No collector at all? Run /usage inside Claude Code."
 
 echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."

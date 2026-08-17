@@ -248,6 +248,98 @@ jq -e '.env.OTEL_RESOURCE_ATTRIBUTES == "service.name=hand-set" and (.permission
   || bad "RES-M12: init clobbered a user-set value or an unrelated key"
 rm -rf "$WM"
 
+echo; echo "== MF-06 (v0.12): extraKnownMarketplaces, announced — plus F7's telemetry recipe =="
+# Every stdout assertion below matches with `case`, never `something | grep -q`. Under `set -o pipefail`
+# (line 8) `grep -q` exits on its first match, closes the pipe, the writer dies of SIGPIPE, and pipefail
+# reports the whole pipeline failed — so the assertion goes RED on exactly the input it should accept.
+# `case` has no pipeline at all. They also match init's OUTPUT, not the script's source: bin/claudehut-init
+# carries prose about OTEL_EXPORTER_OTLP_HEADERS in a comment, so any grep of the file passes whether or
+# not the echo ever shipped.
+WK="$(mktemp -d)/repo"; mkdir -p "$WK/src/main/java/com/x"; touch "$WK/src/main/java/com/x/A.java"
+printf 'rootProject.name = "mkt-ms"\n' > "$WK/settings.gradle.kts"
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK" 2>&1)"
+jq -e '.extraKnownMarketplaces["claudehut-marketplace"].source.source == "github"
+       and .extraKnownMarketplaces["claudehut-marketplace"].source.repo == "taipt1504/claudehut"' \
+   "$WK/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: a fresh init registers the claudehut marketplace in .claude/settings.json" \
+  || bad "MF-06: no extraKnownMarketplaces entry — collaborators never get the marketplace on folder-trust"
+# THE HOLD, and it is a decision, not an omission: the settings reference documents autoUpdate as a plain
+# sub-field while the discovery guide frames it as an admin action in MANAGED settings, so whether project
+# scope honors it is unresolved. Writing it on a guess means an unannounced background fetch on someone
+# else's machine. Pin the absence so nobody "completes" the entry without settling that first.
+# `null | has("x")` is FALSE in jq, not an error, so the shorter form of this assertion passes vacuously
+# when the entry is missing entirely. Require the object first.
+jq -e '(.extraKnownMarketplaces["claudehut-marketplace"] | type) == "object"
+       and (.extraKnownMarketplaces["claudehut-marketplace"] | has("autoUpdate") | not)' \
+   "$WK/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: autoUpdate is NOT written (project-scope honoring is unresolved)" \
+  || bad "MF-06: init wrote autoUpdate into a committed settings file on an unsettled premise"
+# Risk (a): this settings file is COMMITTED, so the registration reaches every collaborator who trusts the
+# folder — including people who never ran init. Doing that silently is the defect; announcing it is the fix.
+case "$out" in
+  *"COMMITTED"*) ok "MF-06: init announces that the registration lands in a COMMITTED settings file" ;;
+  *) bad "MF-06: init registers a marketplace for every collaborator without saying so" ;;
+esac
+# Risk (b): adding a marketplace does NOT install the plugin. Wording it as if it did sends users looking
+# for a plugin that Claude Code is still reporting as not installed.
+case "$out" in
+  *"does NOT install the plugin"*"claude plugin install claudehut@claudehut-marketplace"*)
+    ok "MF-06: init states the registration does not install, and names the install command" ;;
+  *) bad "MF-06: init's announcement implies the marketplace entry installs the plugin" ;;
+esac
+# F7 — the recipe bin/claudehut-init's own RES-M12 comment promises. Documentation reaches the 13 stale
+# installs that new code cannot, but only if it is actually printed.
+case "$out" in
+  *"CLAUDE_CODE_ENABLE_TELEMETRY=1"*"claude_code.token.usage"*"query_source x model x effort"*)
+    ok "F7: init prints the telemetry recipe and the query_source x model x effort grouping" ;;
+  *) bad "F7: init still promises per-repo telemetry in a comment and ships no recipe" ;;
+esac
+# The limitation is the load-bearing half. Per-agent OTEL attribution is impossible for a personal
+# marketplace: agent.name collapses to "custom" and plugin.name to "third-party". Someone who does not read
+# this burns a day debugging a working exporter.
+case "$out" in
+  *'"custom"'*'"third-party"'*)
+    ok "F7: init states per-agent attribution is impossible (custom / third-party redaction)" ;;
+  *) bad "F7: the recipe ships without its limitation — the counters will never name a claudehut agent" ;;
+esac
+# HARD SECURITY CONSTRAINT: OTEL_EXPORTER_OTLP_HEADERS carries a bearer token. The recipe names it, and it
+# must stay in the user's environment — never in the committed settings file. Assert on the whole file,
+# not just .env, so a future writer cannot smuggle it in under another key.
+case "$(cat "$WK/.claude/settings.json")" in
+  *OTEL_EXPORTER_OTLP_HEADERS*|*Bearer*)
+    bad "F7: a credential-bearing key reached the COMMITTED settings file" ;;
+  *) ok "F7: no exporter endpoint or bearer token anywhere in the committed settings file" ;;
+esac
+rm -rf "$WK"
+# THE UPGRADE CASE, and the only reason this feature reaches anyone. The settings write is guarded, and a
+# guard keyed on worktree.baseRef alone skips the entire merge for every project that already has
+# baseRef=head — which is every existing install and every re-run of init. The marketplace entry would then
+# reach nobody while the fresh-init assertion above stayed green. Same shape as F5's ledger/ regression.
+WK2="$(mktemp -d)/repo"; mkdir -p "$WK2/src/main/java/com/x" "$WK2/.claude"; touch "$WK2/src/main/java/com/x/A.java"
+printf '{"worktree":{"baseRef":"head"},"env":{"OTEL_RESOURCE_ATTRIBUTES":"service.name=old-ms"},"permissions":{"allow":["Bash(ls:*)"]}}' > "$WK2/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK2" >/dev/null 2>&1
+jq -e '.extraKnownMarketplaces["claudehut-marketplace"].source.repo == "taipt1504/claudehut"
+       and .env.OTEL_RESOURCE_ATTRIBUTES == "service.name=old-ms"
+       and (.permissions.allow | length == 1)' \
+   "$WK2/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: a project ALREADY on baseRef=head still receives the marketplace entry (guard covers both keys)" \
+  || bad "MF-06: the marketplace entry is skipped whenever baseRef is already head — i.e. on every existing install"
+# A hand-edited entry is the user's decision — a fork's repo, or an autoUpdate they enabled after settling
+# the open question themselves — and must survive init. baseRef is deliberately NOT "head" here: with both
+# keys already satisfied the guard skips the merge and this fixture proves nothing about the jq. Forcing
+# the merge to run is what exercises the `//` that preserves the existing entry, so the assertion also
+# checks baseRef flipped to head — proof the merge actually executed rather than being short-circuited.
+printf '{"worktree":{"baseRef":"origin"},"extraKnownMarketplaces":{"claudehut-marketplace":{"source":{"source":"github","repo":"myfork/claudehut"},"autoUpdate":true}}}' > "$WK2/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK2" >/dev/null 2>&1
+jq -e '.worktree.baseRef == "head"
+       and .extraKnownMarketplaces["claudehut-marketplace"].source.repo == "myfork/claudehut"
+       and .extraKnownMarketplaces["claudehut-marketplace"].autoUpdate == true
+       and (.extraKnownMarketplaces | keys | length == 1)' \
+   "$WK2/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: the merge runs and still leaves a hand-edited marketplace entry untouched" \
+  || bad "MF-06: init overwrote a user-set marketplace entry (or the merge never ran)"
+rm -rf "$WK2"
+
 echo; echo "== RES-X1: a failed write must be reported, not swallowed =="
 # render() chained `sed > tmp && mv -f && echo "wrote"`. On a read-only .claude the chain short-circuited
 # and printed NOTHING — no "wrote", no error — so init reported success while the plane was never written.

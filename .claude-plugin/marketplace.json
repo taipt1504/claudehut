@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "claudehut-marketplace",
   "description": "ClaudeHut — a 7-phase agentic workflow plugin for Java/Spring Boot backend engineers.",
   "owner": {
@@ -10,6 +11,15 @@
       "displayName": "ClaudeHut",
       "description": "7-phase agentic workflow for Java/Spring Boot backends. Enforces discover → brainstorm → spec → plan → implement → review → learn (over a pre-indexed codebase) with Iron-Law skills, tier-aware action gates, parallel implementers, and per-project memory.",
       "source": "./",
+      "author": {
+        "name": "ClaudeHut Authors",
+        "email": "plugins@claudehut.dev",
+        "url": "https://claudehut.dev"
+      },
+      "homepage": "https://github.com/taipt1504/claudehut",
+      "repository": "https://github.com/taipt1504/claudehut",
+      "license": "MIT",
+      "category": "development",
       "keywords": ["java", "spring-boot", "agentic-workflow", "tdd"],
       "version": "0.11.0"
     }

@@ -21,6 +21,5 @@
     "jpa",
     "reactive"
   ],
-  "defaultEnabled": true,
   "lspServers": "./.lsp.json"
 }
