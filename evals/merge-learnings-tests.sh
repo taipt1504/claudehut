@@ -224,6 +224,186 @@ done
 [ -z "${NUL_FILES// /}" ] && ok "no NUL bytes in scripts/ or bin/ (files stay diffable + greppable)" \
   || bad "NUL byte present in:$NUL_FILES"
 
+echo "== LRN-1(b)/LRN-2: unmapped promotions are counted; --injected defaults =="
+# LRN-1(b): a pitfall that EARNED promotion but maps to no rule file was dropped silently, so the receipt
+# could not tell "nothing qualified" from "the rule corpus has a gap".
+T8="$(mktemp -d)"; mkdir -p "$T8/.claude/claudehut/state" "$T8/.claude/rules/framework"
+printf '%s\n' '{"id":"L-0001","category":"pitfall","trigger":"quantum|flux","learning":"x","evidence":"e","confidence":0.9,"hits":6,"ts":"2026-08-01T00:00:00Z"}' > "$T8/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"convention","trigger":"other","learning":"z","evidence":"e"}' > "$T8/c.jsonl"
+CLAUDE_PROJECT_DIR="$T8" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T8/c.jsonl" --session s >/dev/null 2>&1
+jq -e '.unmapped == 1 and .promoted == 0' "$T8/.claude/claudehut/state/s.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-1(b): a qualifying pitfall with no matching rule file is counted as unmapped" \
+  || bad "LRN-1(b): the unmappable promotion vanished from the receipt"
+printf '' > "$T8/.claude/rules/framework/jpa.md"
+printf '%s\n' '{"id":"L-0002","category":"pitfall","trigger":"jpa|n+1","learning":"x","evidence":"e","confidence":0.9,"hits":6,"ts":"2026-08-01T00:00:00Z"}' > "$T8/.claude/claudehut/learnings.jsonl"
+CLAUDE_PROJECT_DIR="$T8" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T8/c.jsonl" --session s2 >/dev/null 2>&1
+jq -e '.promoted == 1 and .unmapped == 0' "$T8/.claude/claudehut/state/s2.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-1(b): the same pitfall promotes normally once its rule file exists (not over-counted)" \
+  || bad "LRN-1(b): a mappable promotion was miscounted as unmapped"
+rm -rf "$T8"
+# LRN-2: every caller had to pass --injected and none did, so .applied could never be stamped in production
+# while the eval, which passes the flag, stayed green. Assert the DEFAULT path, with no flag.
+T9="$(mktemp -d)"; mkdir -p "$T9/.claude/claudehut/state" "$T9/.claude/rules"
+L='"Kafka consumers must dedup on the message key before applying a ledger write, because the broker redelivers on rebalance."'
+printf '%s\n' "{\"id\":\"L-0001\",\"category\":\"convention\",\"trigger\":\"idempotency|dedup\",\"learning\":$L,\"evidence\":\"LedgerConsumer.java:88\",\"confidence\":0.7,\"hits\":2,\"ts\":\"2026-08-01T00:00:00Z\"}" > "$T9/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '["L-0001"]' > "$T9/.claude/claudehut/state/sx.injected.json"
+printf '%s\n' "{\"category\":\"convention\",\"trigger\":\"idempotency|dedup\",\"learning\":$L,\"evidence\":\"LedgerConsumer.java:88\"}" > "$T9/c.jsonl"
+CLAUDE_PROJECT_DIR="$T9" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$T9/c.jsonl" --session sx >/dev/null 2>&1
+jq -e '.applied == 1' "$T9/.claude/claudehut/state/sx.learn-receipt.json" >/dev/null 2>&1 \
+  && ok "LRN-2: --injected defaults to the session sidecar; .applied stamps with no flag passed" \
+  || bad "LRN-2: .applied is still 0 unless the caller passes --injected — the loop stays open"
+rm -rf "$T9"
+
+echo "== LRN-5/6/8: injection budget — diversity, capped citations, contentless rows =="
+TA="$(mktemp -d)"; mkdir -p "$TA/.claude/claudehut/state"
+# a store skewed the way the real one is: payment-gateway-ms holds 167 pitfalls out of 360, and a pure
+# top-12 by score returned 8 pitfalls / 3 conventions / 1 finding.
+: > "$TA/.claude/claudehut/learnings.jsonl"
+for i in $(seq 1 10); do
+  printf '{"id":"P-%02d","category":"pitfall","trigger":"t%02d|alpha","learning":"pitfall lesson %02d with enough substance to score above the quality floor for injection","evidence":"Some/Very/Long/Path/To/A/File%02d.java:123 and another/file/path/Here%02d.java:456 plus a third citation Third%02d.java:789","confidence":0.9,"hits":9,"ts":"2026-08-15T00:00:00Z"}\n' "$i" "$i" "$i" "$i" "$i" "$i" >> "$TA/.claude/claudehut/learnings.jsonl"
+done
+for c in convention finding decision reuse; do
+  for i in 1 2; do
+    printf '{"id":"%s-%d","category":"%s","trigger":"%s%d|beta","learning":"%s lesson %d with enough substance to score above the quality floor for injection","evidence":"Short%d.java:1","confidence":0.8,"hits":5,"ts":"2026-08-15T00:00:00Z"}\n' "$c" "$i" "$c" "$c" "$i" "$c" "$i" "$i" >> "$TA/.claude/claudehut/learnings.jsonl"
+  done
+done
+blk="$(CLAUDE_PROJECT_DIR="$TA" bash "$ROOT/scripts/inject-learnings.sh" --top 12 --max-len 200 2>/dev/null)"
+maxcat="$(printf '%s\n' "$blk" | grep -oE '^- \[[a-z]+\]' | sort | uniq -c | sort -rn | head -1 | awk '{print $1}')"
+ncat="$(printf '%s\n' "$blk" | grep -oE '^- \[[a-z]+\]' | sort -u | grep -c .)"
+# The cap is 3 per category, applied to the diverse PREFIX. When the store is skewed hard enough that
+# three-per-category cannot fill the block, the remaining slots are filled from what is left rather than
+# emitting a shorter block — the budget is already paid for. So the guarantee is: every available category
+# is represented, and the dominant one no longer owns the block. This fixture is deliberately more skewed
+# than the real store, where the result was 3/3/3/2/1 with no overflow at all.
+{ [ "${ncat:-0}" -ge 5 ] && [ "${maxcat:-99}" -le 4 ]; } \
+  && ok "LRN-6: top-12 spans ${ncat} categories, largest ${maxcat} (was 3 categories, largest 8)" \
+  || bad "LRN-6: ${ncat} categories with the largest at ${maxcat} — diversity constraint not effective"
+[ "$(printf '%s\n' "$blk" | grep -c '^- \[')" = "12" ] \
+  && ok "LRN-6: diversity does not shorten the block (still 12 entries)" \
+  || bad "LRN-6: the diversity constraint dropped entries instead of reordering them"
+longest_ev="$(printf '%s\n' "$blk" | grep -oE '\([^()]*\) \[conf' | awk '{print length}' | sort -rn | head -1)"
+[ "${longest_ev:-999}" -le 100 ] \
+  && ok "LRN-5: citations are capped (longest ${longest_ev} chars; real entries carried 150+)" \
+  || bad "LRN-5: an uncapped citation of ${longest_ev} chars is still spending the injection budget"
+rm -rf "$TA"
+TB="$(mktemp -d)"; mkdir -p "$TB/.claude/claudehut/tasks/0001-x" "$TB/.claude/claudehut/state"
+printf '%s\n' '| item | status | evidence |' '| x | ✗ violated | |' '| N+1 in OrderRepo | ✗ violated | OrderRepo.java:42 |' > "$TB/.claude/claudehut/tasks/0001-x/review.md"
+CLAUDE_PROJECT_DIR="$TB" bash "$ROOT/scripts/harvest-candidates.sh" --session s --task-dir .claude/claudehut/tasks/0001-x >/dev/null 2>&1
+cn="$(grep -c '' "$TB/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl" 2>/dev/null || echo 0)"
+{ [ "$cn" = "1" ] && grep -q 'OrderRepo.java:42' "$TB/.claude/claudehut/tasks/0001-x/learn-candidates.jsonl"; } \
+  && ok "LRN-8: a contentless ✗ row is rejected while the cited one is kept" \
+  || bad "LRN-8: expected exactly the cited row to survive, got $cn candidate(s)"
+rm -rf "$TB"
+
+echo "== LRN-7/LRN-9/ST-1: bounded store, no per-prompt re-pay, aged-out state =="
+# LRN-7: the TTL alone cannot bound the store — a promoted entry never expires and anything touched in the
+# last 90 days is kept unconditionally. payment-gateway-ms is at 360 entries and climbing.
+TC="$(mktemp -d)"; mkdir -p "$TC/.claude/claudehut/state" "$TC/.claude/rules"
+python3 - "$TC" <<'PYX'
+import json,sys
+with open(sys.argv[1]+'/.claude/claudehut/learnings.jsonl','w') as f:
+    for i in range(500):
+        f.write(json.dumps({'id':'L-%04d'%i,'category':'note','trigger':'t%d'%i,'learning':'lesson %d'%i,
+                            'evidence':'e','confidence':0.6,'hits':1,'ts':'2026-08-15T00:00:00Z'})+'\n')
+PYX
+printf '%s\n' '{"category":"convention","trigger":"zz","learning":"a new one with plenty of substance to clear the quality floor","evidence":"X.java:1"}' > "$TC/c.jsonl"
+CLAUDE_PROJECT_DIR="$TC" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TC/c.jsonl" --session s >/dev/null 2>&1
+n="$(grep -c '' "$TC/.claude/claudehut/learnings.jsonl" 2>/dev/null || echo 0)"
+[ "${n:-9999}" -le 400 ] \
+  && ok "LRN-7: a 500-entry store is capped to 400 by score (TTL alone left it unbounded)" \
+  || bad "LRN-7: store still holds $n entries after merge"
+rm -rf "$TC"
+# LRN-9: two prompts in a row re-paid for the SAME entries — the exclude set was only what SessionStart
+# injected, and it never grew. Measured identical on repeat runs against a real store.
+TD="$(mktemp -d)"; mkdir -p "$TD/.claude/claudehut/state"
+python3 - "$TD" <<'PYX'
+import json,sys
+with open(sys.argv[1]+'/.claude/claudehut/learnings.jsonl','w') as f:
+    for i in range(40):
+        f.write(json.dumps({'id':'L-%04d'%i,'category':'pitfall','trigger':'settlement|completion',
+                            'learning':'settlement completion lesson %d with enough substance to clear the floor'%i,
+                            'evidence':'S%d.java:1'%i,'confidence':0.8,'hits':3,'ts':'2026-08-15T00:00:00Z'})+'\n')
+PYX
+for _ in 1 2 3; do
+  printf '{"session_id":"s9","prompt":"fix the settlement completion bug"}' \
+    | CLAUDE_PROJECT_DIR="$TD" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" >/dev/null 2>&1
+done
+ex="$(jq 'length' "$TD/.claude/claudehut/state/s9.injected.json" 2>/dev/null || echo 0)"
+[ "${ex:-0}" -ge 15 ] \
+  && ok "LRN-9: the exclude set accumulates across prompts ($ex ids after 3), so entries are not re-paid" \
+  || bad "LRN-9: exclude set stuck at $ex — consecutive prompts still re-pay for the same entries"
+rm -rf "$TD"
+# ST-1: 315 state files exist across the real repos and nothing removes any of them.
+TE="$(mktemp -d)"; mkdir -p "$TE/.claude/claudehut/state"
+( cd "$TE/.claude/claudehut/state" \
+  && touch -t 202607010000 old.failures.jsonl old.ua-flag CUR.failures.jsonl && touch fresh.failures.jsonl )
+printf '%s\n' '{"id":"keep"}' > "$TE/.claude/claudehut/learnings.jsonl"
+touch -t 202607010000 "$TE/.claude/claudehut/learnings.jsonl"
+printf '{"session_id":"CUR","source":"startup"}' \
+  | CLAUDE_PROJECT_DIR="$TE" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+{ [ ! -f "$TE/.claude/claudehut/state/old.failures.jsonl" ] && [ ! -f "$TE/.claude/claudehut/state/old.ua-flag" ]; } \
+  && ok "ST-1: sidecars older than 7 days are removed" || bad "ST-1: stale sidecars survived"
+[ -f "$TE/.claude/claudehut/state/CUR.failures.jsonl" ] \
+  && ok "ST-1: the CURRENT session's files are never removed, however old" \
+  || bad "ST-1: cleanup deleted the live session's own state"
+{ [ -f "$TE/.claude/claudehut/state/fresh.failures.jsonl" ] && [ -f "$TE/.claude/claudehut/learnings.jsonl" ]; } \
+  && ok "ST-1: fresh sidecars and the durable store are untouched" \
+  || bad "ST-1: cleanup removed a fresh sidecar or the durable store"
+rm -rf "$TE"
+
+echo "== LRN-10: version counters must not fork one lesson into many =="
+# The real store holds two entries whose triggers are "flyway|free|migration|next|v42" and "...|v43" --
+# the same lesson, one fresh copy per migration forever, because the version number keeps them distinct.
+mk() { mkdir -p "$1/.claude/claudehut/state" "$1/.claude/rules"; }
+TF="$(mktemp -d)"; mk "$TF"
+printf '%s\n' '{"id":"L-0001","category":"convention","trigger":"flyway|migration|next|v42","learning":"the next free Flyway version must be checked against the migration folder before writing one","evidence":"db/migration:1","confidence":0.7,"hits":2,"ts":"2026-08-15T00:00:00Z"}' > "$TF/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"convention","trigger":"flyway|migration|next|v43","learning":"the next free Flyway version must be checked against the migration folder before writing one","evidence":"db/migration:2"}' > "$TF/c.jsonl"
+CLAUDE_PROJECT_DIR="$TF" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TF/c.jsonl" --session s >/dev/null 2>&1
+[ "$(grep -c '' "$TF/.claude/claudehut/learnings.jsonl")" = "1" ] \
+  && ok "LRN-10: v42 and v43 of the same lesson merge into one live entry" \
+  || bad "LRN-10: the Flyway lesson still forks one entry per migration version"
+rm -rf "$TF"
+# The control matters more than the fix: collapsing ALL digits would merge lessons about different
+# SQLSTATE codes, which this codebase actually has.
+TG="$(mktemp -d)"; mk "$TG"
+printf '%s\n' '{"id":"L-0001","category":"pitfall","trigger":"sqlstate|25006|readonly","learning":"a write routed to a replica fails with SQLSTATE 25006 read-only transaction and must be pinned to primary","evidence":"a.java:1","confidence":0.7,"hits":2,"ts":"2026-08-15T00:00:00Z"}' > "$TG/.claude/claudehut/learnings.jsonl"
+printf '%s\n' '{"category":"pitfall","trigger":"sqlstate|40001|readonly","learning":"a serialization failure surfaces as SQLSTATE 40001 and must be retried by the caller with backoff","evidence":"b.java:1"}' > "$TG/c.jsonl"
+CLAUDE_PROJECT_DIR="$TG" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$TG/c.jsonl" --session s >/dev/null 2>&1
+[ "$(grep -c '' "$TG/.claude/claudehut/learnings.jsonl")" = "2" ] \
+  && ok "LRN-10: two different SQLSTATE codes stay separate (normalisation is version-only)" \
+  || bad "LRN-10: over-merged — distinct error codes collapsed into one entry"
+rm -rf "$TG"
+
+echo "== IDEA-F4: opt-in learnings federation across sibling services =="
+# Fifteen services in one workspace learn the same lesson fifteen times: each store starts empty and stays
+# local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms. Measured on the real workspace,
+# va-ms holds ZERO learnings and injects nothing.
+FR="$(mktemp -d)"
+for svc in alpha-ms beta-ms; do mkdir -p "$FR/$svc/.claude/claudehut"; done
+printf '%s\n' '{"id":"L-1","category":"pitfall","trigger":"outbox|publish","learning":"the outbox publisher must claim rows with SKIP LOCKED or two pods double-publish the same event","evidence":"Outbox.java:42","confidence":0.9,"hits":6,"ts":"2026-08-15T00:00:00Z"}' \
+  > "$FR/alpha-ms/.claude/claudehut/learnings.jsonl"
+: > "$FR/beta-ms/.claude/claudehut/learnings.jsonl"
+# grep -c returns 0 AND exits 1 on no match, so a `|| echo 0` fallback appends a SECOND zero and the
+# comparison then sees two digits instead of one. Take the count alone, stripped to digits.
+n_local="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null | grep -c '^- \[')"; n_local="${n_local//[^0-9]/}"
+[ "${n_local:-0}" = "0" ] \
+  && ok "IDEA-F4: a service with an empty store injects nothing without federation" \
+  || bad "IDEA-F4: the control is wrong — beta-ms injected $n_local entries from its own empty store"
+fed="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" CLAUDEHUT_FEDERATION_ROOT="$FR" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null)"
+printf '%s' "$fed" | grep -q '@alpha-ms' \
+  && ok "IDEA-F4: with federation on, a sibling's lesson reaches beta-ms TAGGED with its origin" \
+  || bad "IDEA-F4: federation produced nothing, or produced an untagged entry that reads as beta-ms's own"
+# Borrowed knowledge must never outrank the project's own at equal strength.
+printf '%s\n' '{"id":"L-9","category":"pitfall","trigger":"local|thing","learning":"a local lesson of exactly the same strength as the borrowed one above, stated at the same length","evidence":"Local.java:1","confidence":0.9,"hits":6,"ts":"2026-08-15T00:00:00Z"}' \
+  > "$FR/beta-ms/.claude/claudehut/learnings.jsonl"
+first="$(CLAUDE_PROJECT_DIR="$FR/beta-ms" CLAUDEHUT_FEDERATION_ROOT="$FR" bash "$ROOT/scripts/inject-learnings.sh" --top 5 --max-len 60 2>/dev/null | grep -m1 '^- \[')"
+printf '%s' "$first" | grep -q '@' \
+  && bad "IDEA-F4: a borrowed lesson outranked an equally strong local one" \
+  || ok "IDEA-F4: an equally strong LOCAL lesson outranks the borrowed one"
+rm -rf "$FR"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/merge-learnings-tests.count"
 [ "$FAIL" -eq 0 ]

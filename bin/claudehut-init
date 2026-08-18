@@ -14,7 +14,7 @@ set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
-REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; PROJ=""; RETIRED_LIST=""
+REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; MIGRATE_MEM=false; AUDIT=false; PROJ=""; RETIRED_LIST=""
 for a in "$@"; do case "$a" in
   --refresh) REFRESH=true; RULES_REFRESH=true ;;
   --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
@@ -22,6 +22,15 @@ for a in "$@"; do case "$a" in
   # is run automatically by scripts/bootstrap.sh on every plugin version bump, with output discarded, so
   # anything it does happens without the user typing a command or seeing a message. Retirement is opt-in.
   --retire-inactive) RETIRE=true ;;
+  # MEM-1. Moves the learner's per-task append blocks out of the always-loaded index into a sibling
+  # history file. Opt-in for the same reason retirement is: it rewrites a file the template calls
+  # "safe to edit", and bootstrap.sh runs this binary unattended on every version bump. Never set here
+  # by --refresh or --refresh-rules — asserted by init-tests.
+  --migrate-memory) MIGRATE_MEM=true ;;
+  # RULE-17. Read-only drift report. --refresh-rules only reports stale rules while it is RE-EMITTING,
+  # and bootstrap.sh runs that with output discarded on a version bump, so nothing ever reached a human.
+  # --audit reaches an already-stamped repo without needing a version change and writes nothing.
+  --audit)   AUDIT=true ;;
   --detect)  DETECT=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
@@ -39,12 +48,27 @@ $(find . -mindepth 2 -maxdepth 3 \( -name pom.xml -o -name 'build.gradle' -o -na
     | head -40 | tr '\n' '\0' | xargs -0 cat 2>/dev/null || true)"
 has() { printf '%s' "$BF" | grep -qiE "$1"; }
 
+# RULE-05 — a multi-module root often carries only settings.gradle(.kts) and no build.gradle, so keying on
+# build.gradle alone reported BUILD_TOOL=unknown and a verify command of "(unknown)" for the whole repo.
 if [ -f pom.xml ]; then BUILD_TOOL=maven; { [ -f mvnw ] && VERIFY="./mvnw verify"; } || VERIFY="mvn verify"
-elif [ -f build.gradle ] || [ -f build.gradle.kts ]; then BUILD_TOOL=gradle; { [ -f gradlew ] && VERIFY="./gradlew build"; } || VERIFY="gradle build"
+elif [ -f build.gradle ] || [ -f build.gradle.kts ] || [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then
+  BUILD_TOOL=gradle; { [ -f gradlew ] && VERIFY="./gradlew build"; } || VERIFY="gradle build"
 else BUILD_TOOL=unknown; VERIFY="(unknown)"; fi
 
 JAVA_VERSION="$(printf '%s' "$BF" | grep -oiE '<java.version>[0-9]+|sourceCompatibility[^0-9]{0,4}[0-9]+|JavaVersion.VERSION_[0-9]+|languageVersion[^0-9]{0,8}[0-9]+' | grep -oE '[0-9]+' | head -1)"
 [ -n "$JAVA_VERSION" ] || JAVA_VERSION="(unknown)"
+# RULE-15 — bucket the detected version into a `java=` axis. JAVA_VERSION was detected and printed but
+# never entered ACTIVE, so framework/virtual-threads.md (a Java 21 feature) and coding/records-sealed.md
+# (17+) installed into Java 8 and 11 projects, teaching APIs that do not compile there. The tag matcher
+# is exact-string, so the axis has to be bucketed rather than numeric.
+# Unknown defaults to 17, not legacy: Spring Boot 3 requires 17 as a floor, and a failed detection must
+# not silently strip rules a project is entitled to.
+case "$JAVA_VERSION" in
+  (*[!0-9]*|"") JAVA_BUCKET=17 ;;
+  (*) if   [ "$JAVA_VERSION" -ge 21 ]; then JAVA_BUCKET=21
+      elif [ "$JAVA_VERSION" -ge 17 ]; then JAVA_BUCKET=17
+      else JAVA_BUCKET=legacy; fi ;;
+esac
 
 if   has 'spring-boot-starter-webflux'; then WEB=webflux; REACTIVE_OR_MVC="reactive (WebFlux)"; SPRING_MODULES="Spring WebFlux"
 elif has 'spring-boot-starter-web';     then WEB=mvc;     REACTIVE_OR_MVC="servlet (MVC)";     SPRING_MODULES="Spring MVC"
@@ -56,7 +80,7 @@ else ORM=none; ORM_S="(none)"; fi
 
 if   has 'postgresql'; then DB=postgresql
 elif has 'mysql';      then DB=mysql
-else DB="(none)"; fi
+else DB=none; fi   # RULE-16: bare `none`, matching every other axis — `(none)` could never match a `db=none` tag
 
 if   has 'spring-kafka|kafka-clients'; then MSG=kafka
 elif has 'starter-amqp|rabbit';        then MSG=rabbitmq
@@ -76,23 +100,63 @@ PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<a
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(grep -hm1 -oE "rootProject.name[^=]*=[^'\"]*['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]//")"
 [ -n "$PROJECT_NAME" ] || PROJECT_NAME="$(basename "$PROJ")"
 
-# base package = deepest common package prefix of all src/main/java sources (survives a single file)
-BASE_PACKAGE="$(find src/main/java -name '*.java' 2>/dev/null \
+# RULE-05 — source roots. A multi-module repo keeps its sources in <module>/src/main/java and has no root
+# src/main/java at all, so every root-only `find src/main/java` returned nothing: base package "(unknown)",
+# entry points "(none detected)", package tree "(flat)". The v0.10 fix walked submodule BUILD files but not
+# submodule SOURCE trees, so stack gating worked while the memory plane stayed empty. Bounded the same way.
+SRC_ROOTS="$(find . -mindepth 1 -maxdepth 4 -type d -path '*/src/main/java' \
+  -not -path '*/build/*' -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null | head -40)"
+[ -n "$SRC_ROOTS" ] || SRC_ROOTS="src/main/java"
+# strip each source root's own prefix, so io/f8a/x under svc-a and under svc-b compare as the same package
+src_find() { printf '%s\n' "$SRC_ROOTS" | while IFS= read -r r; do [ -n "$r" ] && find "$r" "$@" 2>/dev/null; done; }
+
+# base package = deepest common package prefix of all main sources (survives a single file)
+BASE_PACKAGE="$(src_find -name '*.java' \
   | sed -E 's#.*src/main/java/##; s#/[^/]*\.java$##' | grep -v '^$' | sort -u \
   | awk 'NR==1{p=$0;next}{n=split(p,a,"/");split($0,b,"/");c="";for(i=1;i<=n;i++){if(a[i]==b[i])c=(c==""?a[i]:c"/"a[i]);else break};p=c} END{gsub(/\//,".",p);print p}')"
 [ -n "$BASE_PACKAGE" ] || BASE_PACKAGE="(unknown)"
 
-ENTRY_POINTS="$(grep -rlE '@(RestController|Controller|KafkaListener|RabbitListener|Component)' src/main/java --include='*.java' 2>/dev/null | sed 's#.*/##' | head -6 | paste -sd, - | sed 's/,/, /g')"
+ENTRY_POINTS="$(src_find -name '*.java' | xargs grep -lE '@(RestController|Controller|KafkaListener|RabbitListener|Component)' 2>/dev/null | sed 's#.*/##' | head -6 | paste -sd, - | sed 's/,/, /g')"
 [ -n "$ENTRY_POINTS" ] || ENTRY_POINTS="(none detected)"
-PACKAGE_TREE="$(find src/main/java -type d 2>/dev/null | sed -E 's#.*src/main/java/?##' | grep -v '^$' | sort | head -30 | paste -sd, - | sed 's/,/, /g')"
+PACKAGE_TREE="$(src_find -type d | sed -E 's#.*src/main/java/?##' | grep -v '^$' | sort -u | head -30 | paste -sd, - | sed 's/,/, /g')"
 [ -n "$PACKAGE_TREE" ] || PACKAGE_TREE="(flat)"
 if [ "$BUILD_TOOL" = maven ]; then MODULE_LIST="$(grep -oE '<module>[^<]+' pom.xml 2>/dev/null | sed 's/<module>/- /' | paste -sd' ' - )"; else MODULE_LIST="$(grep -hoE "include\(?['\"][^'\"]+" settings.gradle settings.gradle.kts 2>/dev/null | sed -E "s/.*['\"]/- /" | paste -sd' ' -)"; fi
 [ -n "$MODULE_LIST" ] || MODULE_LIST="- (single module)"
 TEST_STRATEGY="JUnit 5"; has 'testcontainers' && TEST_STRATEGY="$TEST_STRATEGY + Testcontainers"; has 'wiremock' && TEST_STRATEGY="$TEST_STRATEGY + WireMock"
-LAYER_CONVENTION="web -> service -> domain -> persistence (domain depends on nothing)"
+# RULE-06 — DERIVE the layer convention; never assert one. This lands in project-structure.md, which is an
+# ALWAYS-ON rule, so a wrong value is read on every turn and pushes the model to create packages that do not
+# exist. The old hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked:
+# party-ms and auth-ms have api/handler/service/domain/repository and no `web` or `persistence` package at all.
+# Probe each slot for the names actually used in the tree, in dependency order, and emit only what is present.
+_lc=""
+for _slot in "web|api|controller|rest|handler|adapter" "service|application|usecase" "domain|model|core" \
+             "persistence|repository|dao|infrastructure|store"; do
+  _hit=""
+  for _cand in ${_slot//|/ }; do
+    # a real package directory at any depth, not a substring of some other name
+    if src_find -type d -name "$_cand" | grep -q .; then _hit="$_cand"; break; fi
+  done
+  [ -n "$_hit" ] && _lc="${_lc:+$_lc -> }$_hit"
+done
+if [ -n "$_lc" ]; then
+  LAYER_CONVENTION="$_lc (detected from src/main/java; dependencies point inward)"
+else
+  # Honest placeholder rather than a convention the code does not follow — same precedent as BASE_PACKAGE.
+  LAYER_CONVENTION="(not detected — no conventional layer packages found; record the real convention here)"
+fi
 
-ARCH="${CLAUDEHUT_ARCH:-none}"
-case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH='$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+# RULE-16 — the arch axis was reachable ONLY through an env var, and no real install sets it. So the three
+# architecture rules never emit on a fresh init, while every project created before the axis existed still
+# carries all three contradictory files. Make the choice durable and visible: env var wins, else whatever
+# PROJECT.md declares (it survives re-runs and is the file a human actually edits), else none.
+CHD_EARLY=".claude/claudehut"
+ARCH_DECLARED="$(grep -m1 -oE '^- Architecture style: *[a-z]+' "$CHD_EARLY/PROJECT.md" 2>/dev/null | sed -E 's/.*: *//')"
+ARCH="${CLAUDEHUT_ARCH:-${ARCH_DECLARED:-none}}"
+case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH/PROJECT.md architecture style '$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+# --detect prints JSON to stdout and nothing else may go there, or every parser of it breaks.
+if [ "$ARCH" = none ] && ! $DETECT && ! $AUDIT; then
+  echo "  note: no architecture style declared — set 'Architecture style:' in .claude/claudehut/PROJECT.md (ddd|hexagonal|cqrs) to activate the matching rule"
+fi
 
 if $DETECT; then
   printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s"}\n' \
@@ -109,12 +173,56 @@ add PROJECT_NAME "$PROJECT_NAME"; add BUILD_TOOL "$BUILD_TOOL"; add VERIFY_COMMA
 add JAVA_VERSION "$JAVA_VERSION"; add SPRING_MODULES "$SPRING_MODULES"; add REACTIVE_OR_MVC "$REACTIVE_OR_MVC"
 add ORM "$ORM_S"; add DATABASE "$DB"; add MESSAGING "$MSG"; add CACHE "$CACHE_S"
 add BASE_PACKAGE "$BASE_PACKAGE"; add LAYER_CONVENTION "$LAYER_CONVENTION"; add ENTRY_POINTS "$ENTRY_POINTS"
-add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_LIST"; add PACKAGE_TREE "$PACKAGE_TREE"
+add ARCH "$ARCH"; add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_LIST"; add PACKAGE_TREE "$PACKAGE_TREE"
 add CONTROLLER_TERM controller; add SERVICE_TERM service; add REPOSITORY_TERM repository
 add CONTROLLER_MEANING "inbound web adapter; thin"; add SERVICE_MEANING "application/use-case layer; owns the transaction"
 add REPOSITORY_MEANING "persistence port"; add ADAPTER_MEANING "concrete impl of a port"; add AGGREGATE_MEANING "DDD root (if used)"
 add TERM ""; add MEANING ""
 add DEPENDENCY_DIRECTION "$TBD"; add TX_STRATEGY "$TBD"; add ERROR_MAPPING "$TBD"; add MESSAGING_TOPOLOGY "$TBD"
+
+ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST java=$JAVA_BUCKET"
+
+# ---------------- RULE-17: --audit (read-only drift report) ----------------
+if $AUDIT; then
+  A_RULES=".claude/rules"; A_CHD=".claude/claudehut"
+  PV_NOW="$(grep -m1 -oE '"version"[^,]*' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null | sed -E 's/.*: *"//; s/"//')"
+  PV_STAMP="$(cat "$A_CHD/.plugin-version" 2>/dev/null || echo '(none)')"
+  echo "claudehut-audit: $PROJECT_NAME"
+  echo "  active: $ACTIVE"
+  [ "$PV_NOW" = "$PV_STAMP" ] && echo "  plugin: $PV_NOW (stamp matches)" \
+                              || echo "  plugin: $PV_NOW  stamped: $PV_STAMP  <- rules were generated by a different version"
+  a_stale=0; a_missing=0
+  # NB: process substitution, not a pipe. `find | while read` runs the loop in a SUBSHELL, so counters
+  # never escape it — which is exactly why RETIRED_LIST at the emission loop has always been vestigial.
+  while IFS= read -r f; do
+    rel="${f#$TPL/rules/}"; dest="$A_RULES/$rel"
+    tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
+    hit=true
+    if [ -n "$tag" ]; then
+      hit=false; ax="${tag%%=*}"
+      IFS=',' read -r -a alts <<< "$tag"
+      for one in "${alts[@]}"; do
+        one="${one# }"; one="${one% }"; [ -n "$one" ] || continue
+        case "$one" in *=*) : ;; *) one="$ax=$one" ;; esac
+        case " $ACTIVE " in *" $one "*) hit=true; break ;; esac
+      done
+    fi
+    if $hit && [ ! -e "$dest" ]; then
+      echo "  missing: $rel${tag:+ (tag '$tag' IS active)}"; a_missing=$((a_missing+1))
+    elif ! $hit && [ -e "$dest" ]; then
+      echo "  stale:   $rel (stack tag '$tag' not active — remove with --retire-inactive)"; a_stale=$((a_stale+1))
+    fi
+  done < <(find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | sort)
+  a_mem=0
+  if [ -f "$A_CHD/MEMORY.md" ]; then
+    mb="$(wc -c <"$A_CHD/MEMORY.md" | tr -d ' ')"
+    if [ "${mb:-0}" -gt 8192 ]; then
+      echo "  memory:  MEMORY.md is $mb B, over the 8192 B budget — run --migrate-memory"; a_mem=1
+    fi
+  fi
+  echo "  summary: $a_stale stale, $a_missing missing, $a_mem over-budget memory file(s)"
+  exit 0
+fi
 
 CHD=".claude/claudehut"; RULES=".claude/rules"
 mkdir -p "$CHD/state" "$CHD/tasks" "$RULES"   # tasks/: one dir per task (NNNN-<slug>/ holds reuse-scan, spec, plan, review)
@@ -124,7 +232,17 @@ render() { # $1 template, $2 dest
   local src="$TPL/$1" dest="$2" tmp
   [ -f "$src" ] || { echo "claudehut-init: missing template $src" >&2; return 0; }
   if [ -f "$dest" ] && ! $REFRESH; then echo "  keep (exists): $dest"; return 0; fi
-  tmp="$(mktemp)"; sed "${SED[@]}" "$src" > "$tmp" && mv -f "$tmp" "$dest" && echo "  wrote: $dest"
+  # RES-X1: the mv status was never tested. On a read-only .claude, or across a filesystem where the
+  # rename fails, the whole chain short-circuited and printed NOTHING — no "wrote", no error — so init
+  # reported success while the file was never written. Report the failure and keep the temp file out of
+  # the tree either way.
+  tmp="$(mktemp)"
+  if sed "${SED[@]}" "$src" > "$tmp" 2>/dev/null && mv -f "$tmp" "$dest" 2>/dev/null; then
+    echo "  wrote: $dest"
+  else
+    rm -f "$tmp" 2>/dev/null
+    echo "  WARN: could not write $dest (permissions? read-only checkout?) — plane is INCOMPLETE" >&2
+  fi
 }
 
 echo "claudehut-init: project=$PROJECT_NAME stack[web=$WEB orm=$ORM db=$DB msg=$MSG cache=$CACHE mapper=$MAPPER] base=$BASE_PACKAGE"
@@ -135,13 +253,48 @@ render architecture.md.tmpl  "$CHD/architecture.md"
 render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
 
+# ---------------- MEM-1: move per-task history out of the always-loaded index ----------------
+# CLAUDE.md @imports MEMORY.md WHOLE, so every byte is re-read every turn. claudehut-learner appends a
+# "## Reuse additions (task-NNNN, date)" / "## Topics (task-NNNN)" block per completed task, unbounded:
+# party-ms reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
+#
+# This MOVES, it never truncates. The template calls the file "safe to edit" and there is no marker
+# separating generated content from hand-written content, so the rule is inverted: only blocks whose
+# heading matches the learner's own machine-written form are moved, and ANYTHING ELSE STAYS PUT. A
+# hand-written "## Our team conventions" is preserved because it does not match, not because it was
+# detected. The bare "## Topics" section from the template has no "(task-...)" suffix and stays too.
+if $MIGRATE_MEM && [ -f "$CHD/MEMORY.md" ]; then
+  HIST="$CHD/MEMORY-history.md"
+  _mi="$(mktemp)"; _mh="$(mktemp)"
+  awk -v idx="$_mi" -v hist="$_mh" '
+    /^## (Reuse additions|Topics) \(/ { inh=1; print > hist; next }
+    /^## /                           { inh=0 }
+    { if (inh) print > hist; else print > idx }
+  ' "$CHD/MEMORY.md"
+  if [ -s "$_mh" ]; then
+    _moved="$(grep -c '^## ' "$_mh" 2>/dev/null || echo 0)"
+    cat "$_mh" >> "$HIST"                       # append: a second run must not clobber earlier history
+    # RES-X1: if this rename fails the history has ALREADY been appended, so a silent failure would
+    # duplicate every block on the next run. Fail loudly and leave MEMORY.md untouched.
+    if ! mv -f "$_mi" "$CHD/MEMORY.md" 2>/dev/null; then
+      echo "  WARN: migration wrote $HIST but could not rewrite MEMORY.md — do NOT re-run --migrate-memory until this is fixed" >&2
+      rm -f "$_mi" "$_mh" 2>/dev/null; return 0 2>/dev/null || exit 1
+    fi
+    # Pointer, added once. NOT added to the @import set below — that is the whole point of the move.
+    grep -q 'MEMORY-history.md' "$CHD/MEMORY.md" 2>/dev/null || printf '\n- `MEMORY-history.md` — per-task reuse/topic blocks, moved out of this index. Read on demand; never @import-ed.\n' >> "$CHD/MEMORY.md"
+    echo "  migrated: $_moved block(s) → $HIST"
+  else
+    echo "  keep (nothing to migrate): $CHD/MEMORY.md"
+  fi
+  rm -f "$_mi" "$_mh" 2>/dev/null || true
+fi
+
 # ---------------- rule tree (stack-gated) ----------------
 # Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three
 # shipped untagged — so every project received three contradictory rule files at once (9,385 B of guidance
 # that argues with itself). There is no trustworthy detector: package layouts overlap, and guessing wrong
 # silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
-ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST"
 # always-on project-identity rules (substituted)
 render rules/project-structure.md "$RULES/project-structure.md"
 render rules/vocabulary.md        "$RULES/vocabulary.md"
@@ -204,24 +357,79 @@ echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (
 # forks worktrees from the current branch HEAD, so committed prior-phase work IS present. Project-wide
 # worktree setting (affects all worktree use in this repo); committed with the rest of .claude/.
 SETTINGS=".claude/settings.json"
+# MF-06 — register this plugin's marketplace in the same settings pass. `extraKnownMarketplaces` is the
+# documented project-settings mechanism: Claude Code adds the marketplace for a collaborator once they
+# accept the workspace trust dialog, with no separate prompt. Two limits, both ANNOUNCED below rather than
+# left for the reader to discover: (1) this settings file is COMMITTED, so the registration changes
+# behavior for every collaborator on folder-trust, including people who never ran init; (2) registering a
+# marketplace does NOT install the plugin — Claude Code still reports it as not installed and prints the
+# `claude plugin install` command. This improves UPDATES, not first install.
+# `autoUpdate` is deliberately NOT written: the settings reference documents it as a plain sub-field while
+# the discovery guide frames it as an admin action in *managed* settings, so whether project scope honors
+# it is unresolved. Writing it on a guess would mean an unannounced background fetch on someone else's
+# machine — ship the bare entry until that is settled.
+MKT_NAME="claudehut-marketplace"
+MKT_REPO="taipt1504/claudehut"
+MKT_ANNOUNCE=0
 if command -v jq >/dev/null 2>&1; then
   if [ -f "$SETTINGS" ]; then
-    if [ "$(jq -r '.worktree.baseRef // empty' "$SETTINGS" 2>/dev/null)" = "head" ]; then
-      echo "  worktree.baseRef=head already set in $SETTINGS"
+    have_ref="$(jq -r '.worktree.baseRef // empty' "$SETTINGS" 2>/dev/null)"
+    # Presence, not equality: a user who hand-edits the entry (a fork's repo, an autoUpdate they chose)
+    # owns it, and re-running init must not report a write it will not make.
+    have_mkt="$(jq -r --arg m "$MKT_NAME" 'if (.extraKnownMarketplaces[$m]? // null) == null then "" else "y" end' "$SETTINGS" 2>/dev/null)"
+    # The guard covers BOTH keys on purpose. Keying it on baseRef alone would skip the whole merge for every
+    # project that already has baseRef=head — i.e. every existing install and every re-run — so the
+    # marketplace entry would reach nobody while a fresh-init assertion stayed green. Same failure the
+    # ledger/ gitignore block below documents; asserted by init-tests' pre-seeded-baseRef upgrade case.
+    if [ "$have_ref" = "head" ] && [ -n "$have_mkt" ]; then
+      echo "  worktree.baseRef=head and marketplace $MKT_NAME already set in $SETTINGS"
     else
       tmp="$(mktemp)"
-      if jq '.worktree = (.worktree // {}) | .worktree.baseRef = "head"' "$SETTINGS" > "$tmp" 2>/dev/null; then
-        mv -f "$tmp" "$SETTINGS"; echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
+           '.worktree = (.worktree // {}) | .worktree.baseRef = "head"
+            | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)
+            | .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
+            | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}})' \
+           "$SETTINGS" > "$tmp" 2>/dev/null; then
+        # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
+        # because worktrees then fork from the wrong ref with no sign anything went wrong.
+        if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
+          echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
+          MKT_ANNOUNCE=1
+        else
+          rm -f "$tmp" 2>/dev/null
+          echo "  WARN: could not write $SETTINGS — worktree.baseRef NOT set; dependent phases will fork from origin" >&2
+        fi
       else
         rm -f "$tmp"; echo "  WARN: $SETTINGS is not valid JSON — add {\"worktree\":{\"baseRef\":\"head\"}} manually" >&2
       fi
     fi
   else
-    printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
-    echo "  created $SETTINGS (worktree.baseRef=head — agent worktrees fork from current HEAD)"
+    # RES-M12: stamp the repo name so telemetry can be sliced per service. Fifteen sibling services all
+    # report as one undifferentiated stream otherwise, and "which repo burned the tokens" is exactly the
+    # question the team is asking. ONLY the resource attribute is written here. OTEL_EXPORTER_OTLP_HEADERS
+    # carries a bearer token and must never enter a committed settings file; the endpoint and headers stay
+    # in the user's own environment.
+    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
+         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc},
+           extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}}' > "$SETTINGS" 2>/dev/null; then
+      MKT_ANNOUNCE=1
+    else
+      # Degraded path: jq itself failed. Keep the fallback to the one setting that breaks the fan-out if
+      # it is missing; the marketplace entry is an update convenience and is not worth hand-rolled JSON.
+      printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$SETTINGS"
+    fi
+    echo "  created $SETTINGS (worktree.baseRef=head; OTEL service.name=$PROJECT_NAME)"
   fi
 else
   echo "  NOTE: jq missing — set worktree.baseRef=\"head\" in $SETTINGS manually (parallel implementers need it)" >&2
+fi
+if [ "$MKT_ANNOUNCE" = 1 ]; then
+  echo "  registered marketplace $MKT_NAME (github:$MKT_REPO) in $SETTINGS — READ THIS:"
+  echo "    $SETTINGS is COMMITTED, so every collaborator who trusts this folder gets this marketplace."
+  echo "    It does NOT install the plugin. They still run: claude plugin install claudehut@$MKT_NAME"
+  echo "    What it buys is updates resolving to the real source. Remove the extraKnownMarketplaces key if"
+  echo "    you do not want that registration shared with the repo."
 fi
 
 # ---------------- .worktreeinclude: native gitignored-config copy into agent worktrees ----------------
@@ -264,5 +472,45 @@ else
   { printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' >> "$GI"; } 2>/dev/null \
     && echo "  gitignored: .claude/claudehut/state/"
 fi
+
+# ---------------- ledger/ is local telemetry: ignore it too (F5, v0.12) ----------------
+# The dispatch ledger moved out of state/ so it stops being age-swept, but it is still per-machine
+# observation data, not shared project config — it must not land in anyone's diff.
+# Its guard is DELIBERATELY INDEPENDENT of the state/ block above. Folding the ledger line into that
+# block's else-branch would mean every project that already has state/ ignored — i.e. every existing
+# install — skips the branch and never gets ledger/ ignored, so the ledger would show up in real users'
+# git status while a fresh-init test stayed green. Two rules, two guards. Idempotent.
+if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/ledger/?$' "$GI" 2>/dev/null; then
+  : # already ignored
+else
+  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
+  { printf '# ClaudeHut dispatch ledger (local observation data; safe to delete)\n.claude/claudehut/ledger/\n' >> "$GI"; } 2>/dev/null \
+    && echo "  gitignored: .claude/claudehut/ledger/"
+fi
+
+# ---------------- F7: the telemetry recipe this script's own comment promises ----------------
+# The RES-M12 block above stamps service.name so "which repo burned the tokens" is answerable — but only
+# once a collector exists, and this script deliberately leaves the exporter endpoint and headers in the
+# user's environment. Printing the recipe is the whole delivery: nothing below is enabled for anyone, and
+# NOTHING below is ever written into the committed settings file. stdout only; bootstrap.sh discards it,
+# so this costs a session zero tokens and reaches a human exactly when one ran init on purpose.
+echo
+echo "  telemetry (optional, opt-in — this script enables nothing and writes no credentials):"
+echo "    export CLAUDE_CODE_ENABLE_TELEMETRY=1"
+echo "    export OTEL_METRICS_EXPORTER=otlp"
+echo "    export OTEL_EXPORTER_OTLP_PROTOCOL=grpc"
+echo "    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317"
+echo "    export OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Bearer <token>\"   # environment ONLY —"
+echo "      a bearer token must never enter $SETTINGS, which is committed. Only OTEL_RESOURCE_ATTRIBUTES"
+echo "      goes there, and this script already wrote it (service.name=$PROJECT_NAME)."
+echo "    Then group the claude_code.token.usage counter by  query_source x model x effort  — all three"
+echo "    emit verbatim, and that is the query that shows which complexity tier is actually spending."
+echo "    Prefer token counts over claude_code.cost.usage on a Teams/Enterprise seat plan: usage inside"
+echo "    the seat allowance isn't metered in dollars, so the cost counter reads 0 for real work."
+echo "    LIMITATION, so you do not spend a day debugging a working exporter: per-AGENT attribution is"
+echo "    impossible for this plugin. Only built-in agent names and agents from OFFICIAL-marketplace"
+echo "    plugins appear verbatim in agent.name; other user-defined names are replaced with \"custom\"."
+echo "    claudehut ships from a personal marketplace, so all 14 of its agents report as \"custom\" and"
+echo "    plugin.name reports \"third-party\". No collector at all? Run /usage inside Claude Code."
 
 echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."

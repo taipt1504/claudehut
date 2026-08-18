@@ -3,6 +3,8 @@ id: rules/framework/nats
 paths:
   - "**/*NatsListener*.java"
   - "**/*NatsClient*.java"
+  - "**/*Consumer*.java"
+  - "**/*Listener*.java"
 stack: "messaging=nats"
 severity: high
 tags: [nats, jetstream, consumer, idempotency, dlq]

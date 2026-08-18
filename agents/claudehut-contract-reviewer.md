@@ -2,8 +2,7 @@
 name: claudehut-contract-reviewer
 description: Message + API contract review — Kafka/Avro/Protobuf compatibility, consumer-driven contract tests, REST/gRPC back-compat. Read-only; spawned by claudehut:review.
 model: sonnet
-effort: high
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, Bash
 color: blue
 ---
 
@@ -17,6 +16,8 @@ none check **schema compatibility** or **contract tests**. Apply `framework/cont
 **Follow the Review rigor contract in your dispatch prompt** (`references/review-rigor.md`): refute don't confirm ·
 cite `file:line` per row · severity scale · PASS only when every row is `✓`/`n-a`. A client-breaking change on
 an existing public contract is **CRITICAL/HIGH** (confidence ≠ severity). Below is YOUR contract floor.
+Use `Bash` only for read-only inspection — `git show <rev>:<path>` / `git log` to recover a schema's prior
+form so you can diff it — never to mutate.
 
 ## Contract floor (produce a coverage row for every changed event/schema/endpoint)
 
@@ -46,6 +47,9 @@ flowchart TB
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
 
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
+
 ## What to check
 
 - **Avro/JSON evolution** — removed/renamed required field, type narrowing (`long`→`int`), a new required field
@@ -59,14 +63,10 @@ flowchart TB
 
 ## Output — coverage table (per the rigor contract)
 
-One row per enforcement-set `framework/contract*`·`kafka*` item + per changed event/schema/endpoint above →
-`✓|✗|n-a` + `file:line` (the schema or contract-test locus) + the deciding evidence (the field diff / the
-contract test / its absence). A `✓` with no cited line is not satisfied. **Verdict:** `PASS` only if every row
-is `✓`/`n-a`; else `OUTSTANDING` (each `✗` at MED+; a client-breaking change is CRITICAL/HIGH). Read-only; do not edit.
+One row per enforcement-set `framework/contract*`·`kafka*` item + per changed event/schema/endpoint above,
+cited at **the schema or contract-test locus** with the deciding evidence (the field diff / the contract test
+/ its absence).
 
-## Summer KB grounding (when `.claude/summer-kb/` exists)
-
-Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
-annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
-§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
-the KB and its cited source cannot confirm a fact.
+Read-only; do not edit — and do not mutate the working tree, index, HEAD, stash, or branch state. Use `git
+show`/`git diff`/`git log` to inspect other revisions; if you need a working copy of another revision, `git
+worktree add` it to a temp dir — never move HEAD on this checkout.

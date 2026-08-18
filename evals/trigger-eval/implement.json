@@ -1,0 +1,24 @@
+{
+  "skill": "implement",
+  "description": "Use in the Implement phase whenever writing or editing production Java code, or fixing a bug, in a Spring/Spring Boot project. Enforces test-first (red-green-refactor), executes the approved plan step by step, and honors the project's path-scoped tech-stack rules and the task's enforcement set. Preloaded into claudehut-implementer.",
+  "should_trigger": [
+    "write the code for the payout cancellation endpoint",
+    "fix the NPE in SettlementItemService",
+    "implement the plan we just approved",
+    "add the idempotency check to the consumer",
+    "make the failing test pass",
+    "build the merchant profile mapper",
+    "wire the new client into the service layer",
+    "refactor this method so the test passes"
+  ],
+  "should_not_trigger": [
+    "what are my options for this design",
+    "where is the settlement code",
+    "review what I just wrote",
+    "write the spec first",
+    "is there a reusable helper for this",
+    "explain the difference between JPA and R2DBC",
+    "run only the integration tests",
+    "what did we learn last sprint"
+  ]
+}

@@ -30,11 +30,14 @@ flowchart TB
   `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" check-disjoint <plan.md>` — it is **phase-aware** and
   prints the **per-phase batch schedule** (e.g. `phase 1: PARALLEL BATCH [T-002, T-003]`). **Follow that
   schedule — it is the authoritative dispatch plan; don't re-derive batches by eye.** Exit 0 = every phase's
-  `[P]` Files are pairwise disjoint. Exit 2 = some phase has a *within-phase* file overlap — run **that
-  phase's** listed tasks sequentially; the other phases in the schedule are still parallel-safe. (A file
-  reused across *different* phases is fine — those tasks never run concurrently.) For each phase's PARALLEL
+  `[P]` Files are pairwise disjoint **and** no `[P]` task depends on a `[P]` sibling in its own phase. Exit
+  2 = some phase fails one of those — the schedule marks it `phase N: SEQUENTIAL (overlap|dependency)` and
+  you run its listed tasks in order; every phase still printed as a `PARALLEL BATCH` is parallel-safe, so
+  there is nothing to cross-reference or subtract. (A file reused across *different* phases is fine — those
+  tasks never run concurrently.) For each phase's PARALLEL
   BATCH, dispatch **one implementer per task — all Agent calls in ONE message** (the native concurrency
-  mechanism; **max 3** concurrent — a larger batch fans out in successive messages of ≤3). Each dispatch prompt carries: its T-xxx row(s) **verbatim**
+  mechanism; **max 3** concurrent — the schedule already chunks a larger phase for you, printing
+  `PARALLEL BATCH 1/2 […]`, `2/2 […]`; dispatch one wave per message). Each dispatch prompt carries: its T-xxx row(s) **verbatim**
   (goal, files, test-first, minimal change, verify), the relevant spec acceptance criteria, the enforcement
   set, and an **exclusive file-ownership list** ("create/edit ONLY these paths"). The worktree **forks from
   the current branch HEAD** (`worktree.baseRef=head`, set by `claudehut-init`), so **committed prior-phase
@@ -54,7 +57,9 @@ flowchart TB
   dispatching the next phase's batch.** Skip this and the next phase's implementers fork from a HEAD missing
   the inline work → they can't build on it → you're forced back to inline (the exact failure this fixes).
 
-**Native task mirror — boundary updates (main thread ONLY).** The plan's T-xxx table was mirrored into
+**Native task mirror — boundary updates (main thread ONLY, and only if task tools exist in this session;
+they frequently do not. No task tools → skip every mirror instruction below, including the two mirror nodes
+in the diagram above; `plan.md` is the source of truth and the mirror was never a gate).** The plan's T-xxx table was mirrored into
 Claude Code's task list at plan approval. **Subagents have no task tools — they cannot update the list; only
 the main thread can, and only when it is not blocked.** So keep the list live at **phase-batch boundaries**:
 `TaskUpdate` every task in a phase → `in_progress` **before** dispatching that phase's batch, and → `completed`

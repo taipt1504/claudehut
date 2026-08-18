@@ -19,6 +19,16 @@ in="$(cat || true)"
 
 command -v jq >/dev/null 2>&1 || exit 0   # degrade: no recording without jq (rail stays closed)
 
+# PLUMB-F-04: the matcher was `implement|discover|brainstorm`, and the docs do not say whether a plugin
+# skill arrives bare or plugin-scoped. v0.10 already lost four SubagentStop contracts to exactly this
+# question — agent_type arrives as `claudehut:<name>`, not the bare frontmatter name. The matcher now
+# accepts BOTH forms, which cannot break the current behaviour, and this capture settles it from a real
+# session rather than from a second guess. Off by default.
+if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
+  _d="${CLAUDE_PROJECT_DIR:-$PWD}/.claude/claudehut/state"
+  mkdir -p "$_d" 2>/dev/null && printf '%s\n' "$in" >> "$_d/payload-debug.UserPromptExpansion.jsonl" 2>/dev/null || true
+fi
+
 sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
 [ -n "$sid" ] || exit 0
 

@@ -35,6 +35,32 @@ fi
 command -v jq >/dev/null 2>&1 || exit 0
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 FILE="$PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+
+# IDEA-F4: federation. Fifteen sibling services in one workspace learn the same lesson fifteen times —
+# each store starts empty and stays local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms.
+# Opt-in only, via CLAUDEHUT_FEDERATION_ROOT: a sibling's learnings are someone else's project knowledge,
+# and adopting them silently would be worse than not sharing at all.
+#
+# Federated entries are TAGGED with their origin and their confidence is halved before ranking, so a local
+# lesson always outranks a borrowed one of equal strength. Promoted entries are excluded: a promotion means
+# the lesson already landed in THAT project's rule file, which this project does not have.
+FED="${CLAUDEHUT_FEDERATION_ROOT:-}"
+FEDTMP=""
+if [ -n "$FED" ] && [ -d "$FED" ]; then
+  FEDTMP="$(mktemp)"; [ -f "$FILE" ] && cat "$FILE" > "$FEDTMP" 2>/dev/null
+  while IFS= read -r peer; do
+    [ -n "$peer" ] || continue
+    case "$peer" in "$FILE") continue ;; esac          # never fold the local store in twice
+    origin="$(basename "$(dirname "$(dirname "$(dirname "$peer")")")")"
+    jq -Rc --arg o "$origin" 'fromjson? // empty
+      | select((.promoted // false) | not)
+      | .federated_from = $o
+      | .confidence = (((.confidence // 0.5) * 0.5))' "$peer" 2>/dev/null >> "$FEDTMP"
+  done < <(find "$FED" -maxdepth 4 -path '*/.claude/claudehut/learnings.jsonl' 2>/dev/null | head -40)
+  [ -s "$FEDTMP" ] && FILE="$FEDTMP" || { rm -f "$FEDTMP"; FEDTMP=""; }
+fi
+trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
+
 [ -f "$FILE" ] || exit 0
 
 now="$(date -u +%s)"
@@ -67,10 +93,28 @@ BODY="$(jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
     | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
     | map(select((.id // "") as $i | ($exids | index($i)) == null))
     | sort_by(-._score)
+    # LRN-6: diversity. Measured on the real payment-gateway-ms store (360 entries, 167 of them pitfalls),
+    # a pure top-12 by score returned 8 pitfalls, 3 conventions and 1 finding — two thirds of the always-
+    # loaded block spent on one category, and the conventions/decisions/reuse a fresh session most needs
+    # for orientation squeezed out. Take at most 3 per category, in score order, then fill any remaining
+    # slots from what is left so the block is never SHORTER than it was.
+    | ( reduce .[] as $e ({keep:[], seen:{}};
+          ((.seen[$e.category // "note"] // 0)) as $n
+          | if $n < 3 then {keep:(.keep + [$e]), seen:(.seen | .[$e.category // "note"] = ($n + 1))}
+            else . end) ).keep as $diverse
+    | ($diverse + (. - $diverse))
     | .[0:$top]
     | .[]
     | ( (.learning // "") | if ($maxlen > 0 and (length > $maxlen)) then .[0:$maxlen] + "…" else . end ) as $txt
-    | "- [\(.category // "note")] \($txt)  (\(.evidence // "no evidence")) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
+    # LRN-5: .evidence was interpolated UNCAPPED while .learning was truncated — real entries carry
+    # 150+ char citations, so the block spent its budget on file:line lists instead of on the lesson.
+    # Cut at the last delimiter before the cap so a citation is never sliced mid-path.
+    | ( (.evidence // "no evidence")
+        | if (length > 80)
+          then ( (.[0:80] | (rindex(";") // rindex(",") // rindex(" ") // 80)) as $d
+                 | .[0:(if $d > 40 then $d else 80 end)] + "…" )
+          else . end ) as $ev
+    | "- [\(.category // "note")\(if .federated_from then " @" + .federated_from else "" end)] \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]"
   ' 2>/dev/null || true)"
 
 # v0.9 Rec 1 (audit SEC-1): wrap retrieved learnings in a randomized untrusted-data delimiter (the
@@ -85,7 +129,7 @@ fi
 # on the ones that resurface. Same ranking/filter as above; emits a JSON array of ids.
 if [ -n "$SNAPSHOT" ]; then
   jq -R 'fromjson? // empty' "$FILE" 2>/dev/null \
-  | jq -s --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" '
+  | jq -s --argjson now "$now" --arg filter "$FILTER" --argjson top "$TOP" --argjson exids "$EXIDS" '
       ( ["the","and","for","fix","add","use","this","that","with","into","from","run","new","get","set","you","are","can","its","but"] ) as $stop
       | ( $filter | ascii_downcase | gsub("[^a-z0-9+ ]";" ") | split(" ")
           | map(. as $w | select(($w | length) > 2 and ($stop | index($w)) == null)) ) as $words
@@ -99,6 +143,10 @@ if [ -n "$SNAPSHOT" ]; then
           else map( select( ((.trigger // "") + " " + (.learning // "")) | ascii_downcase as $hay
             | ($words | any(. as $w | $hay | contains($w))) ) ) end )
       | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
+      # LRN-9: the snapshot path did NOT apply --exclude, so it recorded the same top-N every time
+      # regardless of what was actually rendered. The caller then unioned an unchanged set and the
+      # exclusion never grew, which is why consecutive prompts kept re-paying for the same entries.
+      | map(select((.id // "") as $i | ($exids | index($i)) == null))
       | sort_by(-._score) | .[0:$top] | map(.id // empty)
     ' > "$SNAPSHOT" 2>/dev/null || true
 fi

@@ -1,0 +1,24 @@
+{
+  "skill": "discover",
+  "description": "Use as the FIRST phase of EVERY coding task, before brainstorming - grounds the work in the existing codebase (entry points, key types, structure) and proves whether something reusable already exists. Produces the reuse-scan artifact the write gate requires and the reuse DECISION (adopt / extend / new). Runs inline on the main thread; trivial tier uses the inline 3-grep variant. Skip ONLY for pure documentation/comment edits with zero production-code change.",
+  "should_trigger": [
+    "where does the settlement flow start in this service",
+    "is there already a helper that masks a card PAN",
+    "map the entry points of party-ms before I add an endpoint",
+    "what existing code handles idempotency keys here",
+    "I need to add merchant onboarding, what is already in the repo",
+    "find the key types involved in the ledger write path",
+    "before I build a retry wrapper, does one exist",
+    "ground me in this codebase, I have never seen it"
+  ],
+  "should_not_trigger": [
+    "run the test suite and tell me if it passes",
+    "write the spec for the merchant endpoint",
+    "which of these two approaches is better",
+    "commit these changes with a good message",
+    "fix the typo in the README",
+    "what does SQLSTATE 25006 mean",
+    "bump the dependency version in build.gradle",
+    "explain what a virtual thread is"
+  ]
+}

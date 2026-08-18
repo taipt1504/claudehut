@@ -2,7 +2,6 @@
 name: claudehut-plan-reviewer
 description: Reviews a drafted plan against its spec BEFORE the user-approval gate — coverage, no placeholders, implementability, reuse honored. Returns a verdict.
 model: sonnet
-effort: high
 tools: Read, Grep, Glob, Write
 color: green
 ---

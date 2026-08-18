@@ -16,8 +16,18 @@ jobs:
   deterministic:
     name: deterministic evals (no Claude)
     runs-on: ubuntu-latest
+    env:
+      # W19: each suite below publishes its assertion count here, so reference-check.sh can pin the
+      # README numbers by READING them instead of running all seven suites a second time. Deliberately
+      # outside the repo: a .count file inside the tree would surface in the file enumerations the evals
+      # themselves assert over. Unset elsewhere, which is what makes a standalone run fall back to
+      # re-running rather than silently checking nothing.
+      EVAL_COUNT_DIR: ${{ runner.temp }}/eval-counts
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare the eval count dir (W19)
+        run: mkdir -p "$EVAL_COUNT_DIR"
 
       - name: Install jq (state CLI + gates require it)
         run: sudo apt-get update && sudo apt-get install -y jq
@@ -73,11 +83,20 @@ jobs:
       - name: artifact-oracle-tests.sh (cognition oracles discriminate)
         run: bash evals/artifact-oracle-tests.sh
 
+      - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
+        run: bash evals/worktree-tests.sh
+
+      # Must stay AFTER every suite above: it reads their $EVAL_COUNT_DIR/*.count files to check the
+      # README's advertised numbers. Moved earlier it still passes, by falling back to re-running each
+      # one — correct, but it is the whole cost W19 removed.
       - name: reference-check.sh (each task's reference solution passes its own oracle)
         run: bash evals/reference-check.sh
 
-      - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
-        run: bash evals/worktree-tests.sh
+      # Deterministic arm only. The model arm costs tokens and is non-deterministic, so it lives beside
+      # llm-judge.sh and is run by hand before/after a description change. --validate is what stops a
+      # description edit from silently invalidating the recorded measurement.
+      - name: trigger-eval.sh --validate (skill descriptions vs their recorded trigger set)
+        run: bash evals/trigger-eval.sh --validate
 
       - name: lint-prompt-length.sh (WS-9 concision budget + provenance — commit-time gate)
         run: bash scripts/lint-prompt-length.sh

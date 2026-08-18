@@ -128,9 +128,18 @@ FAST_MAX_FILES="${CLAUDEHUT_FAST_MAX_FILES:-2}"
 # changed production files this session = tracked-modified ∪ untracked ∪ the incoming write target
 fastlane_bound_ok() {
   command -v git >/dev/null 2>&1 || return 1          # can't verify → deny fast lane (force full)
-  local changed rel sensitive count
+  local changed rel sensitive count batch one
+  # PLUMB-F-11: the bound counted only `$fp`, which is head -1 of the extracted path list. A MultiEdit
+  # creating five files therefore contributed ONE to a cap of two, so the fast lane passed a change it was
+  # sized to reject. The exemption loop at :60-96 already walks the whole list; the bound now does too.
+  batch=""
+  while IFS= read -r one; do
+    [ -n "$one" ] || continue
+    one="$(canon_path "$one")"; batch="$batch${batch:+$'\n'}${one#$PROJECT_DIR/}"
+  done <<< "$fp_list"
   rel="$(canon_path "$fp")"; rel="${rel#$PROJECT_DIR/}"   # canonical, so a traversal path is counted in the form it resolves to
-  changed="$( { ( cd "$PROJECT_DIR" && git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null ); printf '%s\n' "$rel"; } \
+  [ -n "$batch" ] || batch="$rel"
+  changed="$( { ( cd "$PROJECT_DIR" && git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null ); printf '%s\n' "$batch"; } \
     | grep -vE '(^|/)\.claude/|(/test/|Test\.java$|IT\.java$)' | sort -u | grep -vE '^$' )"
   count="$(printf '%s\n' "$changed" | grep -cE '.' || true)"
   [ "$count" -le "$FAST_MAX_FILES" ] || { FAIL_REASON="touches $count files (fast-lane cap $FAST_MAX_FILES)"; return 1; }

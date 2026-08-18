@@ -4,6 +4,7 @@ paths:
   - "**/*Entity.java"
   - "**/entity/**/*.java"
   - "**/domain/**/*.java"
+stack: "orm=jpa"
 severity: critical
 tags: [lombok, jpa, hibernate, entity, safety]
 ---

@@ -71,7 +71,7 @@
 ## DON'T
 
 - `@Data` on any class — implies mutable identity-by-all-fields; use `@Value` (immutable) or `@Getter @Setter` (selective).
-- `@Data` / `@Builder` / `@EqualsAndHashCode` on `@Entity` — breaks Hibernate proxy, causes `LazyInitializationException` and infinite loop in `hashCode`. See `lombok-jpa-safety.md`.
+- `@Data` / `@Builder` / a **naked** `@EqualsAndHashCode` (i.e. without `onlyExplicitlyIncluded = true`) on `@Entity` — breaks Hibernate proxy, causes `LazyInitializationException` and infinite loop in `hashCode`. See `lombok-jpa-safety.md`.
 - `@Builder` on a `record` — incompatible with canonical constructor.
 - `@AllArgsConstructor` on Spring beans — defeats constructor injection idiom.
 - `@SneakyThrows` to hide checked exceptions — wrap meaningfully or declare `throws`.

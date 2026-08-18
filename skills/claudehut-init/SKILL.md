@@ -1,6 +1,6 @@
 ---
 name: claudehut-init
-description: Use once per project before starting work (or when ClaudeHut reports no codebase index) to bootstrap ClaudeHut for a Java/Spring repository - detects the stack, generates the project memory + index + path-scoped rules, and wires the always-load @import slice. Invoked as /claudehut:init. Idempotent.
+description: Use once per project before starting work (or when ClaudeHut reports no codebase index) to bootstrap ClaudeHut for a Java/Spring repository - detects the stack, generates the project memory + index + path-scoped rules, and wires the always-load @import slice. Invoked as /claudehut:claudehut-init. Idempotent.
 allowed-tools: Read Write Grep Glob Bash
 ---
 
@@ -14,7 +14,7 @@ plane + stack-gated rules + the `@import` slice with zero guesswork. Then option
 
 ```mermaid
 flowchart TB
-  start(["/claudehut:init"]) --> gen["run claudehut-init generator + ls plane<br/>(deterministic script — never hand-write)"]
+  start(["/claudehut:claudehut-init"]) --> gen["run claudehut-init generator + ls plane<br/>(deterministic script — never hand-write)"]
   gen --> verify{"all 5 present? MEMORY · PROJECT ·<br/>LANGUAGE · architecture · reuse-index"}
   verify -- "no (and attempts ≤ 1)" --> fix["fix the reported error → re-run with --refresh"]
   fix --> gen

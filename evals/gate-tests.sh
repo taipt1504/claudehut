@@ -26,7 +26,10 @@ review_pass() {
 denies()  { echo "$2" | "$ROOT/scripts/gate-write.sh" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; }
 allows()  { [ -z "$(echo "$2" | "$ROOT/scripts/gate-write.sh")" ]; }
 blocks()  { echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
-done_ok() { [ -z "$(echo "$2" | "$ROOT/scripts/gate-done.sh")" ]; }
+# IDEA-F10: the pass path may now emit a non-blocking advisory systemMessage. "Passed" means "did not
+# BLOCK", not "printed nothing" — asserting empty stdout would forbid any future advisory, which is a
+# shape constraint rather than a behavioural one. 11 call sites depend on this helper.
+done_ok() { ! echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
 
 PROD='{"session_id":"s","tool_input":{"file_path":"/p/src/main/java/Foo.java"}}'
 
@@ -56,7 +59,7 @@ echo prose-plan > "$chd/plans/bad.md"
   && bad "tmpl: accepted freeform plan (no T-rows)" || ok "reject: freeform plan (no T-xxx rows)"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/.claude/claudehut/specs/x.md"}}' && ok "allow: .claude/claudehut path" || bad "allow: claudehut path"
 allows x '{"session_id":"s","tool_input":{"file_path":"/p/src/test/java/FooTest.java"}}' && ok "allow: test path" || bad "allow: test path"
-st set-bypass true; allows x "$PROD" && ok "allow: bypass=true" || bad "allow: bypass"
+st set-bypass true --reason "eval fixture"; allows x "$PROD" && ok "allow: bypass=true" || bad "allow: bypass"
 rm -rf "$TMP"
 # opt #4 — flag set but artifact FILE missing → still deny
 new_proj; st set-phase brainstorm
@@ -152,7 +155,7 @@ allows x "$PROD" && ok "skill rail: unrelated skill no-op (rail stays open)" || 
 st set-phase discover
 denies x "$PROD" && ok "skill rail: set-phase discover resets (per-TASK invocation required)" || bad "skill rail: discover reset"
 # Skill(discover) via recorder also resets (task started through the skill, not set-phase)
-st set-bypass true; st set-phase implement; st set-bypass false; st mark-skill implement
+st set-bypass true --reason "eval fixture"; st set-phase implement; st set-bypass false; st mark-skill implement
 allows x "$PROD" && ok "skill rail: re-armed via mark-skill implement" || bad "skill rail: re-arm"
 st mark-skill discover
 denies x "$PROD" && ok "skill rail: mark-skill discover resets (new task via Skill tool)" || bad "skill rail: skill-discover reset"
@@ -226,6 +229,132 @@ echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":false}' | "
 [ -z "$(echo '{"agent_type":"claudehut:claudehut-planner","stop_hook_active":true}' | "$ROOT/scripts/verify-subagent.sh")" ] \
   && ok "scoped: stop_hook_active cap still fails open" || bad "scoped: cap broken"
 rm -rf "$TMP"
+
+# F5 (v0.12) — the dispatch ledger. Every payload below is the REAL key set, probed on Claude Code 2.1.234:
+# SubagentStart carries agent_id/agent_type/cwd/hook_event_name/prompt_id/session_id/transcript_path and
+# NOT effort; SubagentStop adds effort (an object) and agent_transcript_path. The four `[ -z "$(…)" ]`
+# assertions above are the stdout-purity guard for the stop-half append — verify-subagent.sh is a BLOCKING
+# hook, so a single stray byte on its stdout would read as a false block.
+echo "== F5: dispatch ledger (start + stop, joined on agent_id) =="
+new_proj
+LED="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl"
+echo '{"session_id":"s","agent_id":"agent_abc123","agent_type":"claudehut:claudehut-reviewer","cwd":"/some/worktree","hook_event_name":"SubagentStart","prompt_id":"p1","transcript_path":"/t.jsonl"}' \
+  | "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
+[ -f "$LED" ] && ok "F5: ledger is at .claude/claudehut/ledger/dispatches.jsonl (out of the age-swept state/ dir)" \
+  || bad "F5: no ledger at ledger/dispatches.jsonl"
+[ ! -f "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.dispatches.jsonl" ] \
+  && ok "F5: nothing is written to the old state/<sid>.dispatches.jsonl path" || bad "F5: still writing the swept path"
+# VALUES, not keys — `has("agent_id")` passes on a record whose agent_id is "", which is the hollow-record
+# class (682 of them in v0.11) this whole item exists to avoid.
+jq -e '.agent_id=="agent_abc123" and .event=="start" and .session_id=="s" and .cwd=="/some/worktree"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: start record carries a NON-EMPTY agent_id, plus session_id and cwd" || bad "F5: start record hollow or missing fields"
+# effort is measured ABSENT on SubagentStart. Writing the key anyway would be a field matching nothing.
+jq -e 'has("effort")|not' "$LED" >/dev/null 2>&1 \
+  && ok "F5: start record writes no effort field (SubagentStart does not carry one)" || bad "F5: start record invents an effort field"
+# stop half — appended by the blocking SubagentStop hook
+echo '{"session_id":"s","agent_id":"agent_abc123","agent_type":"claudehut:claudehut-reviewer","effort":{"level":"xhigh"},"agent_transcript_path":"/p/subagents/agent-agent_abc123.jsonl","stop_hook_active":false,"hook_event_name":"SubagentStop"}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+jq -e 'select(.event=="stop") | .agent_id=="agent_abc123" and .effort=="xhigh" and (.agent_transcript_path|test("agent-agent_abc123"))' "$LED" >/dev/null 2>&1 \
+  && ok "F5: stop record carries agent_id, effort.level unwrapped, and agent_transcript_path" || bad "F5: stop record missing agent_id/effort/transcript"
+# THE JOIN is the feature. Without a matching pair there is no wall duration and F5 bought nothing.
+jq -s 'group_by(.agent_id)|map(select(.[0].agent_id=="agent_abc123"))|.[0]|(length==2) and ((map(.event)|sort)==["start","stop"])' "$LED" 2>/dev/null | grep -qx true \
+  && ok "F5: start and stop pair on agent_id — exactly one of each (wall duration derivable)" || bad "F5: start/stop do not join on agent_id"
+# .effort SHAPE. Measured as an object; a bare `.effort.level` against a string value throws, and jq would
+# then emit NO record at all — a shape change would silently empty the ledger rather than blank one field.
+echo '{"session_id":"s","agent_id":"agent_str","agent_type":"x","effort":"high","stop_hook_active":false}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+jq -e 'select(.agent_id=="agent_str") | .effort=="high"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: a STRING effort still yields a record (type switch, not a throwing .effort.level)" || bad "F5: string-shaped effort loses the whole record"
+rm -rf "$TMP"
+# The append must not disturb the gate it shares a script with: a blocking stop still blocks, and is still
+# recorded (the append sits above the contract switch, below the stop_hook_active cap).
+new_proj
+LED="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl"
+echo '{"session_id":"s","agent_id":"agent_blk","agent_type":"claudehut:claudehut-reuse-scanner","effort":{"level":"low"},"stop_hook_active":false}' \
+  | "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && ok "F5: the ledger append leaves the block decision intact" || bad "F5: ledger append broke the blocking gate"
+jq -e 'select(.agent_id=="agent_blk") | .event=="stop"' "$LED" >/dev/null 2>&1 \
+  && ok "F5: a BLOCKED stop is still recorded (the ledger sees enforcement, not just happy paths)" || bad "F5: blocked stop went unrecorded"
+# ...and a re-entrant stop (the hang cap) must NOT append a second stop for the same dispatch.
+echo '{"session_id":"s","agent_id":"agent_blk","agent_type":"claudehut:claudehut-reuse-scanner","stop_hook_active":true}' \
+  | "$ROOT/scripts/verify-subagent.sh" >/dev/null 2>&1
+[ "$(grep -c 'agent_blk' "$LED")" = "1" ] \
+  && ok "F5: stop_hook_active re-entry adds no duplicate stop record (pairing survives a block loop)" || bad "F5: block loop duplicates stop records"
+rm -rf "$TMP"
+
+echo "== W20/W21: persist-state (PreCompact) =="
+new_proj; st set-phase brainstorm
+SNAP="$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.snapshot.json"
+DBG="$CLAUDE_PROJECT_DIR/.claude/claudehut/state/payload-debug.PreCompact.jsonl"
+# PRODUCTION PAYLOAD SHAPE. W21 measured this on a real manual compaction (Claude Code 2.1.234): the complete
+# PreCompact key set is custom_instructions, cwd, hook_event_name, prompt_id, session_id, transcript_path,
+# trigger. Feeding the real shape is what makes the .session_id read falsifiable — a fixture carrying only
+# the field the script happens to want proves nothing about production.
+PRECOMPACT='{"custom_instructions":"","cwd":"/tmp/x","hook_event_name":"PreCompact","prompt_id":"pr_1","session_id":"s","transcript_path":"/t.jsonl","trigger":"manual"}'
+printf '%s' "$PRECOMPACT" | "$ROOT/scripts/persist-state.sh" >/dev/null 2>&1
+[ -f "$SNAP" ] && ok "W20: the REAL PreCompact payload snapshots the live state file (the crash-path source)" || bad "W20: snapshot no longer written"
+[ ! -f "$DBG" ] && ok "W21: payload capture is OFF by default" || bad "W21: payload written without the flag"
+# The capture block is what turned .session_id from a guess into a measurement, and it stays wired so the
+# next runtime key-set change is readable rather than silent — an empty sid makes STATE "state/.json", the
+# [ -f ] fails, and the hook exits 0 having copied nothing, byte-identical to success.
+printf '%s' "$PRECOMPACT" | CLAUDEHUT_DEBUG_PAYLOAD=1 "$ROOT/scripts/persist-state.sh" >/dev/null 2>&1
+jq -e '(keys|sort)==["custom_instructions","cwd","hook_event_name","prompt_id","session_id","transcript_path","trigger"]' "$DBG" >/dev/null 2>&1 \
+  && ok "W21: CLAUDEHUT_DEBUG_PAYLOAD=1 captures the RAW PreCompact payload verbatim (all 7 measured keys)" || bad "W21: PreCompact payload not captured"
+# W20 is a documentation correction, so its assertion is deliberately a documentation assertion: the old
+# claim must be GONE, not merely joined by a new one.
+grep -q 'Durability before context compaction' "$ROOT/scripts/persist-state.sh" \
+  && bad "W20: header still claims compaction durability the hook does not provide" \
+  || ok "W20: the overclaiming 'Durability before context compaction' header is gone"
+grep -q 'crash insurance whose TRIGGER happens to be a compaction' "$ROOT/scripts/persist-state.sh" \
+  && ok "W20: header names the crash path it actually protects" || bad "W20: corrected header missing"
+rm -rf "$TMP"
+
+echo "== IDEA-F10: session-hygiene advisory on a clean pass =="
+new_proj
+mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+printf '# reuse scan\n| Dimension | Existing asset | Decision | Fit | Impact | Effort |\n|---|---|---|---|---|---|\n| util | none | build | n/a | low | S |\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st set-phase discover; st set-complexity small
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st mark-skill implement; review_pass; mk_receipt
+st set-bypass true --reason "eval fixture"
+DONEP='{"session_id":"s"}'
+adv="$(printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -r '.systemMessage // ""')"
+printf '%s' "$adv" | grep -q 'bypass ON' \
+  && ok "IDEA-F10: a clean pass surfaces the open bypass and its reason" \
+  || bad "IDEA-F10: the advisory did not report an open bypass on a passing task"
+printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
+  && bad "IDEA-F10: the advisory BLOCKED the Stop path — it must be non-blocking" \
+  || ok "IDEA-F10: the advisory never blocks"
+st set-bypass false
+adv2="$(printf '%s' "$DONEP" | "$ROOT/scripts/gate-done.sh" | jq -r '.systemMessage // ""')"
+[ -z "$adv2" ] \
+  && ok "IDEA-F10: nothing to report means nothing is said (no per-task noise)" \
+  || bad "IDEA-F10: the advisory fires on a clean session with nothing outstanding"
+
+echo "== PLUMB-F-11: the fast-lane bound counts the WHOLE write batch =="
+# The bound counted only head -1 of the extracted path list, so a MultiEdit creating five production files
+# contributed ONE toward a cap of two — the fast lane passed exactly the change it is sized to reject.
+new_proj
+( cd "$CLAUDE_PROJECT_DIR" && git init -q 2>/dev/null )
+mkdir -p "$CLAUDE_PROJECT_DIR/src/main/java" "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x"
+# set-reuse-scan validates the artifact's SHAPE (Fit/Impact columns), so a stub file is rejected and the
+# gate then denies for a missing scan rather than for the cap — which is what made the first version of
+# this test green with the fix reverted.
+printf '# reuse scan\n| Dimension | Existing asset | Decision | Fit | Impact | Effort |\n|---|---|---|---|---|---|\n| util | none | build | n/a | low | S |\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st set-phase discover
+st set-complexity small
+st set-reuse-scan --artifact "$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+st mark-skill implement
+_fe() { printf '{"file_path":"%s/src/main/java/%s.java","changes":[]}' "$CLAUDE_PROJECT_DIR" "$1"; }
+BATCH5='{"session_id":"s","tool_name":"MultiEdit","tool_input":{"file_edits":['"$(_fe A),$(_fe B),$(_fe C),$(_fe D),$(_fe E)"']}}'
+# Assert the REASON, not just the decision: a bare "denies" stayed green with the fix reverted, because the
+# fixture was denying for an unrelated reason and the test proved nothing about the cap.
+b5reason="$(printf '%s' "$BATCH5" | "$ROOT/scripts/gate-write.sh" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')"
+printf '%s' "$b5reason" | grep -q 'touches 5 files' \
+  && ok "PLUMB-F-11: a 5-file MultiEdit is denied BY THE CAP (reason names all 5)" \
+  || bad "PLUMB-F-11: denial reason was '$(printf '%s' "$b5reason" | cut -c1-70)' — the cap counted fewer than 5"
 
 echo "== gate-write: MultiEdit (P1-2) =="
 new_proj; st set-phase brainstorm
@@ -312,7 +441,7 @@ for _i in 1 2 3 4 5; do
   st_c set-phase discover
   st_c set-complexity small &
   st_c set-profile bugfix &
-  st_c set-bypass true &
+  st_c set-bypass true --reason "eval fixture" &
   st_c set-outstanding '["x"]' &
   wait
   jq -e '.complexity=="small" and .profile=="bugfix" and .bypass==true and (.outstanding|length)==1' \
@@ -415,7 +544,7 @@ st set-phase plan && ok "P2-2: forward spec->plan allowed" || bad "P2-2: forward
 # Backward: plan -> discover -> ALLOWED (discover is always a valid restart)
 st set-phase discover && ok "P2-2: discover always valid restart" || bad "P2-2: discover restart blocked"
 # bypass=true allows backward jump
-st set-profile feature; st set-phase implement; st set-bypass true
+st set-profile feature; st set-phase implement; st set-bypass true --reason "eval fixture"
 st set-phase brainstorm && ok "P2-2: bypass=true allows backward" || bad "P2-2: bypass=true blocked"
 # Tier skip path: discover -> implement (skipping middle phases) -> ALLOWED (forward)
 new_proj; st set-profile feature; st set-phase discover
@@ -454,6 +583,184 @@ done_ok x '{"session_id":"s","stop_hook_active":false}' \
   && ok "profile rail: investigation + findings + receipt → done allowed" || bad "profile rail: investigation blocked despite deliverable"
 rm -rf "$TMP"
 
+# ── set-plan sensitive predicate: the keyword set write-plan now mirrors ─────────────────────────────────
+# write-plan dispatches the plan-reviewer on set-plan's OWN predicate (≥5 T-rows OR a sensitive keyword)
+# instead of on every plan, so that keyword set is load-bearing prose in the skill. Only `security`/`auth`
+# were ever exercised; the other eight keywords could have been narrowed without a red test, which would
+# make the skill's mirrored list wrong — the model skips the dispatch and set-plan then refuses the plan.
+echo "== set-plan sensitive predicate (the list write-plan mirrors) =="
+new_proj; st set-profile feature; st set-complexity full
+PDT="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0007-liq"; mkdir -p "$PDT"
+# 4 tasks — under the ≥5 substantial threshold, so `liquibase` is the ONLY thing that can arm the gate.
+printf '%s\n' '# P' '## Implementation Flow' 'changelog applied at boot' '**T-001 sketch**: liquibase changeSet' \
+  '| T-001 | db/changelog.xml | tf | v | - |' '| T-002 | a | tf | v | - |' \
+  '| T-003 | b | tf | v | - |' '| T-004 | c | tf | v | - |' > "$PDT/plan.md"
+"$ROOT/bin/claudehut-state" --session s set-plan .claude/claudehut/tasks/0007-liq/plan.md >/dev/null 2>&1 \
+  && bad "sensitive predicate: 4-task liquibase plan ACCEPTED with no plan-reviewer APPROVE (keyword dropped)" \
+  || ok "sensitive predicate: 4-task liquibase plan REQUIRES a plan-reviewer APPROVE (non-security keyword arms the gate)"
+printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PDT/plan-review.md"
+st set-plan-review APPROVE --evidence .claude/claudehut/tasks/0007-liq/plan-review.md
+"$ROOT/bin/claudehut-state" --session s set-plan .claude/claudehut/tasks/0007-liq/plan.md >/dev/null 2>&1 \
+  && ok "sensitive predicate: the same plan is ACCEPTED once the APPROVE is recorded" \
+  || bad "sensitive predicate: a recorded APPROVE did not unblock set-plan"
+rm -rf "$TMP"
+
+# ── F6 + F8: the dispatch cost report, and the advisory per-tier budget ────────────────────────────────
+# Appended as its own block: this file is being edited concurrently by another agent.
+# NOTE on the two traps that have each produced a FALSE GREEN in this repo: every assertion below captures
+# command output into a variable and then matches it with `case`, never `… | grep -q`. Under `pipefail`,
+# `grep -q` exits on its first match, closes the pipe, the writer dies of SIGPIPE, and the pipeline is
+# reported as FAILED — so the assertion goes red on exactly the input it should accept. And no assertion
+# here greps a SOURCE file, so none of them can be satisfied by matching an explanatory comment.
+
+echo "== F6: claudehut-state cost-report (read-only dispatch-ledger reader) =="
+
+# A ledger fixture with a REAL orphan stop in it. v0.11 M5 measured one: a stop emitted during compaction
+# carrying a fresh agent_id, an EMPTY agent_type, and an agent_transcript_path pointing at a file that was
+# never written. A fixture of clean pairs only cannot catch a reader that COUNTS RECORDS instead of joining
+# on agent_id, which is the single most likely way this reader is wrong. A torn line is appended too — the
+# ledger is a concurrent append target, so a half-written line must cost one record, not the whole report.
+mk_ledger() { # $1 = number of PAIRED dispatches; always also writes 1 orphan stop + 1 torn line
+  local n="$1" d="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger" i=1
+  mkdir -p "$d"; : > "$d/dispatches.jsonl"
+  while [ "$i" -le "$n" ]; do
+    printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"a%s","agent_type":"claudehut:claudehut-reviewer","cwd":"/p"}\n' "$i" >>"$d/dispatches.jsonl"
+    printf '{"ts":"2026-08-17T10:00:07Z","event":"stop","session_id":"s","agent_id":"a%s","agent_type":"claudehut:claudehut-reviewer","effort":"high","agent_transcript_path":"/never/written.jsonl"}\n' "$i" >>"$d/dispatches.jsonl"
+    i=$((i+1))
+  done
+  printf '{"ts":"2026-08-17T10:05:00Z","event":"stop","session_id":"s","agent_id":"ORPHAN-compact","agent_type":"","effort":"","agent_transcript_path":"/never/written.jsonl"}\n' >>"$d/dispatches.jsonl"
+  printf '{ this line is torn and unparseable\n' >>"$d/dispatches.jsonl"
+}
+
+new_proj; mk_ledger 3
+CR="$("$ROOT/bin/claudehut-state" cost-report 2>/dev/null)"
+case "$CR" in *"3 dispatch(es) paired on agent_id"*)
+  ok "F6: joins start↔stop on agent_id — 3 dispatches from 7 parseable records" ;;
+  *) bad "F6: pair count wrong (expected 3 pairs)" ;; esac
+case "$CR" in *"1 orphan stop(s) DISCARDED"*)
+  ok "F6: the M5 orphan stop is DISCARDED, not counted as a dispatch" ;;
+  *) bad "F6: the orphan stop was not discarded" ;; esac
+# Pinned on "(unknown)" — the label an EMPTY agent_type would carry into a row — not on the orphan's
+# agent_id, which this reader never prints under any mutation and so could not falsify the assertion.
+case "$CR" in *"(unknown)"*) bad "F6: the orphan produced a row (empty agent_type reached the table)" ;;
+  *) ok "F6: the orphan contributes no row to the report" ;; esac
+case "$CR" in *"records 7 "*) ok "F6: the torn line costs one record, not the whole report" ;;
+  *) bad "F6: torn line changed the record total (expected 7 of 8 lines parsed)" ;; esac
+[ "$("$ROOT/bin/claudehut-state" cost-report --count 2>/dev/null)" = "3" ] \
+  && ok "F6: --count is the PAIRED dispatch count (3), not the record count" || bad "F6: --count counted records"
+rm -rf "$TMP"
+
+# READ-ONLY, with teeth: no state dir may appear, the ledger must be byte-identical, and it must succeed
+# with NO --session — which is what proves the verb intercepts ABOVE the --session guard, the
+# `mkdir -p "$STATE_DIR"`, the advisory lock, and the unconditional atomic write at the foot of that file.
+new_proj; mk_ledger 2
+rm -rf "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"
+LB="$(shasum "$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl" 2>/dev/null | awk '{print $1}')"
+"$ROOT/bin/claudehut-state" cost-report >/dev/null 2>&1 \
+  && ok "F6: read-only — runs WITHOUT --session (the intercept is above the --session guard)" \
+  || bad "F6: cost-report demanded --session"
+LA="$(shasum "$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger/dispatches.jsonl" 2>/dev/null | awk '{print $1}')"
+[ -n "$LB" ] && [ "$LB" = "$LA" ] && ok "F6: read-only — the ledger is byte-identical after reporting" \
+  || bad "F6: cost-report mutated the ledger"
+[ -d "$CLAUDE_PROJECT_DIR/.claude/claudehut/state" ] \
+  && bad "F6: cost-report created a state dir — it is not read-only" \
+  || ok "F6: read-only — no state file or state dir created"
+rm -rf "$TMP"
+
+# The tuple must stay UN-COLLAPSED (agent_type × model × effort per task), must never print dollars, and
+# must mark the two DERIVED columns as derived rather than passing them off as measured.
+new_proj
+LEDD="$CLAUDE_PROJECT_DIR/.claude/claudehut/ledger"; mkdir -p "$LEDD"
+{ printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"x1","agent_type":"claudehut:claudehut-reviewer","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T10:00:20Z","event":"stop","session_id":"s","agent_id":"x1","agent_type":"claudehut:claudehut-reviewer","effort":"high","agent_transcript_path":"/never/written.jsonl"}\n'
+  printf '{"ts":"2026-08-17T10:00:00Z","event":"start","session_id":"s","agent_id":"x2","agent_type":"claudehut:claudehut-explorer","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T10:00:05Z","event":"stop","session_id":"s","agent_id":"x2","agent_type":"claudehut:claudehut-explorer","effort":"low","agent_transcript_path":"/never/written.jsonl"}\n'
+  printf '{"ts":"2026-08-17T11:00:00Z","event":"start","session_id":"other","agent_id":"y1","agent_type":"Explore","cwd":"/p"}\n'
+  printf '{"ts":"2026-08-17T11:00:09Z","event":"stop","session_id":"other","agent_id":"y1","agent_type":"Explore","effort":"low","agent_transcript_path":"/never/written.jsonl"}\n'
+} > "$LEDD/dispatches.jsonl"
+printf '{"session":"s","task":null,"plan_path":".claude/claudehut/tasks/0042-cost/plan.md"}\n' \
+  > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/s.json"
+CR="$("$ROOT/bin/claudehut-state" cost-report 2>/dev/null)"
+ROW_REV="$(printf '%s\n' "$CR" | grep 'claudehut:claudehut-reviewer' || true)"
+ROW_EXP="$(printf '%s\n' "$CR" | grep 'claudehut:claudehut-explorer' || true)"
+{ [ -n "$ROW_REV" ] && [ -n "$ROW_EXP" ]; } \
+  && ok "F6: the tuple stays UN-COLLAPSED — one row per (task × agent_type × effort)" \
+  || bad "F6: rows collapsed — two agent types did not produce two rows"
+case "$ROW_REV" in *opus~*) ok "F6: model~ derived from agents/<name>.md frontmatter, marked derived on the VALUE" ;;
+  *) bad "F6: reviewer row missing the derived opus~ model" ;; esac
+case "$ROW_EXP" in *haiku~*) ok "F6: a second agent type resolves to its own frontmatter model (haiku~)" ;;
+  *) bad "F6: explorer row missing the derived haiku~ model" ;; esac
+ROW_BUILTIN="$(printf '%s\n' "$CR" | grep -w 'Explore' || true)"
+case "$ROW_BUILTIN" in *'~'*) bad "F6: a built-in agent was given a derived model it does not have" ;;
+  *) ok "F6: a built-in agent type (no frontmatter) reports '-', never an invented model" ;; esac
+case "$ROW_REV" in *high*) ok "F6: effort is reported from the SubagentStop record, unmarked (observed)" ;;
+  *) bad "F6: effort column missing" ;; esac
+case "$CR" in *"0042-cost~"*) ok "F6: task~ derived from the session state file, marked derived" ;;
+  *) bad "F6: task column did not resolve from the state file" ;; esac
+# Matched against the ROW, not the whole report: the footnote also contains the word "(unresolved)", so a
+# whole-output match here was green even after a revert-to-red that invented a task dir. Caught by the drill.
+case "$ROW_BUILTIN" in *"(unresolved)"*) ok "F6: a session with no surviving state file reports (unresolved), not a guess" ;;
+  *) bad "F6: unresolvable task dir was not labelled in its row" ;; esac
+case "$CR" in *"CLAUDE_CODE_SUBAGENT_MODEL"*)
+  ok "F6: the output itself says the derived model column can be wrong at runtime" ;;
+  *) bad "F6: derived model presented without its caveat" ;; esac
+case "$CR" in *'$'*) bad "F6: the report printed a dollar sign — it cannot price a dispatch" ;;
+  *) ok "F6: prints no dollars anywhere" ;; esac
+case "$CR" in *"CANNOT price a dispatch"*) ok "F6: states plainly that no hook payload carries usage/token data" ;;
+  *) bad "F6: no statement that the report cannot price a dispatch" ;; esac
+case "$CR" in *"/usage"*) case "$CR" in *"query_source"*)
+  ok "F6: points at /usage and the OTEL query_source × model × effort grouping for money" ;;
+  *) bad "F6: no OTEL grouping pointer" ;; esac ;; *) bad "F6: no /usage pointer" ;; esac
+CR_S="$("$ROOT/bin/claudehut-state" --session s cost-report 2>/dev/null)"
+case "$CR_S" in *Explore*) bad "F6: --session did not narrow the report to one session" ;;
+  *) ok "F6: --session narrows the shared ledger to one session" ;; esac
+rm -rf "$TMP"
+
+echo "== F8: advisory per-tier dispatch budget at the Stop gate =="
+# Ceilings are gate-done.sh's, derived from the phase→skill map: trivial 9, small 19, full 31.
+# THE NON-NEGOTIABLE: the Stop DECISION must be identical at, under and over every tier's budget — a hard
+# budget would convert a cost feature into a correctness failure on a legitimate 15-dispatch full-tier task.
+# The second half matters just as much: "decision unchanged" alone is satisfied by implementing NOTHING, so
+# each tier also asserts the advisory is ABSENT under and at budget (or it becomes wallpaper) and PRESENT
+# over it. The "at budget" case is also the orphan guard: each fixture carries one orphan stop, so a budget
+# that counted records instead of joining would read ceil+1, fire, and turn that assertion red.
+gate_done_out() { echo '{"session_id":"s","stop_hook_active":false}' | "$ROOT/scripts/gate-done.sh" 2>/dev/null; }
+f8_advice() { case "$1" in *"dispatches this session"*) return 0 ;; *) return 1 ;; esac; }
+for f8t in trivial small full; do
+  case "$f8t" in trivial) f8c=9 ;; small) f8c=19 ;; full) f8c=31 ;; esac
+  for f8p in under at over; do
+    case "$f8p" in under) f8n=$((f8c-1)) ;; at) f8n=$f8c ;; over) f8n=$((f8c+1)) ;; esac
+    new_proj; st set-complexity "$f8t"; review_pass; mk_receipt; mk_ledger "$f8n"
+    F8OUT="$(gate_done_out)"
+    if jq -e '.decision=="block"' <<<"$F8OUT" >/dev/null 2>&1; then
+      bad "F8: $f8t tier, $f8p budget ($f8n vs $f8c) — Stop decision CHANGED to block"
+    else
+      ok "F8: $f8t tier, $f8p budget ($f8n vs $f8c) — Stop decision unchanged (never blocks)"
+    fi
+    if [ "$f8p" = over ]; then
+      f8_advice "$F8OUT" && ok "F8: $f8t tier, $f8n > $f8c — advisory line present" \
+                         || bad "F8: $f8t tier, $f8n > $f8c — advisory MISSING"
+    else
+      f8_advice "$F8OUT" && bad "F8: $f8t tier, $f8p budget ($f8n) — advisory fired on a clean run (wallpaper)" \
+                         || ok "F8: $f8t tier, $f8p budget ($f8n) — silent, as required"
+    fi
+    rm -rf "$TMP"
+  done
+done
+# The advisory must ride the non-blocking systemMessage channel and say so — a user who reads it must not
+# think the run was capped, because the platform's own large-workflow warning does not pause or limit either.
+new_proj; st set-complexity full; review_pass; mk_receipt; mk_ledger 40
+F8OUT="$(gate_done_out)"
+F8MSG="$(jq -r '.systemMessage // empty' <<<"$F8OUT" 2>/dev/null || true)"
+case "$F8MSG" in *"dispatches this session"*)
+  ok "F8: the budget rides systemMessage (non-blocking), not a decision field" ;;
+  *) bad "F8: budget advisory absent from systemMessage" ;; esac
+case "$F8MSG" in *"nothing was blocked"*) ok "F8: the advisory tells the reader nothing was blocked or limited" ;;
+  *) bad "F8: the advisory does not disclaim that it is advisory" ;; esac
+rm -rf "$TMP"
+
 echo
 echo "RESULT: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/gate-tests.count"
 [ "$FAIL" -eq 0 ]

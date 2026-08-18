@@ -2,7 +2,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|clear|compact",
+        "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh", "timeout": 15 }
         ]
@@ -17,7 +17,7 @@
     ],
     "UserPromptExpansion": [
       {
-        "matcher": "implement|discover|brainstorm",
+        "matcher": "(claudehut:)?(implement|discover|brainstorm)",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill-expansion.sh" }
         ]
@@ -31,6 +31,12 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-agent-dispatch.sh" }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill.sh" }
@@ -41,8 +47,10 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh", "async": true }
+          { "type": "command", "if": "Write(*.java)", "statusMessage": "formatting Java", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
+          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "formatting Java", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
+          { "type": "command", "if": "Write(*.java)", "statusMessage": "checking reuse",  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh",  "async": true },
+          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "checking reuse",  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh",  "async": true }
         ]
       }
     ],

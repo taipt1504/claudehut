@@ -1,0 +1,24 @@
+{
+  "skill": "write-spec",
+  "description": "Use in the Spec phase after an approach is chosen in Brainstorm and before planning - produces the implementation spec from the standard template (EARS requirements, acceptance criteria, MADR decision record, enforcement manifest) and gets the user's approval before recording it. Runs inline on the main thread (it owns the approval gate and the state write).",
+  "should_trigger": [
+    "turn the chosen approach into a spec",
+    "write the EARS requirements for merchant onboarding",
+    "I need acceptance criteria before we build this",
+    "produce the decision record for the outbox choice",
+    "draft the implementation spec for this feature",
+    "we agreed on the approach, formalise it",
+    "write the contract the review will grade against",
+    "spec out the payout cancellation endpoint"
+  ],
+  "should_not_trigger": [
+    "what approaches could work here",
+    "find the existing payout code",
+    "implement the endpoint",
+    "run the failing test",
+    "review the pull request",
+    "why is this query slow",
+    "add an index on transaction.created_at",
+    "summarise what changed this week"
+  ]
+}

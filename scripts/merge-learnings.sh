@@ -37,6 +37,10 @@ done
 
 # WS-6: ids the SessionStart hook injected (a JSON array). When one of these learnings RESURFACES as a
 # candidate this task, it was relevant → stamp .applied (the reinforcement signal the scoreboard reads).
+# LRN-2: default --injected to the sidecar SessionStart already writes for this session. Every caller had
+# to pass it explicitly and none did, so INJ_IDS was always [] and `.applied` could never be stamped — the
+# inject-then-use loop was open in production while the eval, which passes the flag, stayed green.
+[ -z "$INJECTED" ] && [ -n "$SID" ] && [ -f "$DIR/state/$SID.injected.json" ] && INJECTED="$DIR/state/$SID.injected.json"
 INJ_IDS='[]'; [ -n "$INJECTED" ] && [ -f "$INJECTED" ] && INJ_IDS="$(jq '. // []' "$INJECTED" 2>/dev/null || echo '[]')"
 
 [ -n "$CAND" ] && [ -f "$CAND" ] || { echo '{"added":0,"merged":0,"promoted":0,"dropped":0,"skipped":"no-candidates"}'; exit 0; }
@@ -128,7 +132,14 @@ CANDS="$(jq -c '[ .[] | select(._q >= 0.4) | del(._q) ]' <<<"$QSCORED" 2>/dev/nu
 # ── MERGE: dedup by (category + normalized trigger); merge or append. Normalization is the same rule
 #    the schema documents: lowercase, split on | / space / comma / hyphen, drop empties, sort, rejoin "|".
 STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts "$TS" --arg project "$PROJECT" --argjson injected "$INJ_IDS" '
-  def norm($t): ($t // "") | ascii_downcase | [scan("[a-z0-9+_]+")] | sort | join("|");
+  # LRN-10: collapse VERSION-like tokens before dedup. Two entries in the real store carry the triggers
+  # "flyway|free|migration|next|v42" and "...|v43" — the same lesson, one fresh copy per migration forever,
+  # because the version number keeps them distinct. Only v<digits> (and Flyway V<digits>__name) collapse:
+  # normalising ALL digits would merge genuinely different lessons, such as two about different SQLSTATE
+  # codes, which this codebase actually has (25006 vs 40001).
+  def norm($t): ($t // "") | ascii_downcase
+    | gsub("(?<a>[^a-z0-9]|^)v[0-9]+(__[a-z0-9_]*)?"; .a + "vN")
+    | [scan("[a-z0-9+_]+")] | sort | join("|");
   def keyf($e): (($e.category // "note")) + "\u0000" + norm($e.trigger);
   def lpad4($n): ($n|tostring) as $s | (if (4 - ($s|length)) > 0 then ("0" * (4 - ($s|length))) else "" end) + $s;
 
@@ -215,11 +226,14 @@ promote_target() { # $1 = trigger → echoes rule-file relpath or empty
 # 1) MARK: promote a qualifying pitfall (hits>=5, conf>=0.85, not superseded, not already promoted) ONLY when
 #    its trigger maps to an EXISTING rule file — never guess a file. Numeric criteria in jq; the trigger→file
 #    + file-existence guard needs promote_target + the filesystem, so it is applied in bash (as before).
-PROMOTED_IDS=()
+PROMOTED_IDS=(); UNMAPPED=0
 while IFS=$'\t' read -r id trigger; do
   [ -n "$id" ] || continue
-  rel="$(promote_target "$trigger")"; [ -n "$rel" ] || continue
-  [ -f "$RULES_DIR/$rel" ] || continue
+  # LRN-1(b): a pitfall that EARNED promotion but maps to no rule file, or to a file this project does not
+  # have, was dropped here without a trace — indistinguishable in the receipt from "nothing qualified".
+  # Count it. An unmapped promotion is a coverage gap in the rule corpus, and the receipt is where it shows.
+  rel="$(promote_target "$trigger")"
+  if [ -z "$rel" ] || [ ! -f "$RULES_DIR/$rel" ]; then UNMAPPED=$((UNMAPPED+1)); continue; fi
   PROMOTED_IDS+=("$id")
 done < <(jq -r '.[] | select(.category=="pitfall" and ((.hits//0)>=5) and ((.confidence//0)>=0.85) and ((.promoted//false)|not) and ((.status//"")!="superseded")) | [.id,.trigger] | @tsv' <<<"$ARR")
 PROMOTED_COUNT="${#PROMOTED_IDS[@]}"
@@ -270,6 +284,22 @@ ARR="$(jq -c --argjson now "$NOW" '
         or ( ($age <= 180) and ( ((.hits//1) >= 2) or ((.confidence//0) >= 0.25) or ($age <= 90) ) )
       )
   ]' <<<"$ARR")"
+# LRN-7: the TTL alone does not bound the store. Every surviving predicate is satisfiable indefinitely —
+# a promoted entry never expires, and anything touched in the last 90 days is kept unconditionally — so a
+# busy repo grows without limit (payment-gateway-ms is at 360 entries and climbing, party-ms at 280).
+# Add a hard cap by score, applied AFTER the TTL so age still wins first. Promoted entries are exempt:
+# they are the audit trail for a rule that already shipped.
+ARR="$(jq -c --argjson now "$NOW" --argjson cap 400 '
+  if (length <= $cap) then .
+  else
+    ( [ .[] | select((.promoted // false)) ] ) as $keep
+    | ( [ .[] | select((.promoted // false) | not)
+          | . + { _r: ( (.confidence // 0.5) * (((.hits // 1) | if . < 1 then 1 else . end))
+                        / (1 + ((($now - ((.ts // "1970-01-01T00:00:00Z") | fromdateiso8601? // 0)) / 86400) / 30)) ) } ]
+        | sort_by(-._r) | .[0:(if ($cap - ($keep | length)) > 0 then ($cap - ($keep | length)) else 0 end)]
+        | map(del(._r)) ) as $rest
+    | $keep + $rest
+  end' <<<"$ARR")"
 AFTER="$(jq 'length' <<<"$ARR")"
 DROPPED=$(( BEFORE - AFTER ))
 
@@ -279,7 +309,8 @@ jq -c '.[]' <<<"$ARR" > "$TMP" 2>/dev/null && mv -f "$TMP" "$LEARNINGS" || { rm 
 
 REPORT="$(jq -nc --argjson a "$ADDED" --argjson m "$MERGED" --argjson p "$PROMOTED_COUNT" --argjson d "$DROPPED" \
   --argjson r "${REJECTED:-0}" --argjson rc "${RECURRED:-0}" --argjson ap "${APPLIED:-0}" \
-  '{added:$a, merged:$m, promoted:$p, dropped:$d, rejected:$r, recurred:$rc, applied:$ap}')"
+  --argjson um "${UNMAPPED:-0}" \
+  '{added:$a, merged:$m, promoted:$p, dropped:$d, rejected:$r, recurred:$rc, applied:$ap, unmapped:$um}')"
 
 # WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (the Stop gate checks the
 # receipt's freshness, replacing the fictional "learnings.jsonl is non-empty" check that any prior line passed).

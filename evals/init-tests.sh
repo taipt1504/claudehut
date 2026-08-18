@@ -22,6 +22,17 @@ for f in MEMORY.md PROJECT.md LANGUAGE.md architecture.md reuse-index.json; do
   [ -f "$W/.claude/claudehut/$f" ] && ok "plane: $f written" || bad "plane: $f MISSING"
 done
 prov "$W/.claude/claudehut/MEMORY.md" && ok "provenance line present" || bad "no provenance line"
+# MEM-2 — the budget must be stated in BYTES. Measured across the 15 real installs: only party-ms (468 lines)
+# violates the old "≤ ~150 lines" rule, while auth-ms (94 L / 35,797 B), payment-orchestrator-ms (65 L /
+# 11,501 B) and java-common-ms (37 L / 9,328 B) all PASS it at 9-36 KB. Three of the four over-budget files
+# are invisible to a line count, so the unit itself was the defect. 8192 is the one literal; row 1's
+# migration test asserts the same number.
+grep -q '8192 bytes' "$W/.claude/claudehut/MEMORY.md" \
+  && ok "MEM-2: MEMORY.md states a BYTE budget (8192)" \
+  || bad "MEM-2: MEMORY.md carries no byte budget"
+grep -qE 'Keep it concise \(. ~150 lines\)' "$W/.claude/claudehut/MEMORY.md" \
+  && bad "MEM-2: the line budget survived — 3 of 4 real over-budget files pass it" \
+  || ok "MEM-2: the misleading line budget is gone"
 jq -e . "$W/.claude/claudehut/reuse-index.json" >/dev/null 2>&1 && ok "reuse-index.json valid JSON" || bad "reuse-index.json invalid"
 grep -q '{{' "$W/.claude/claudehut/PROJECT.md" && bad "unsubstituted {{...}} in PROJECT.md" || ok "no unsubstituted tokens in PROJECT.md"
 grep -q 'com\.example' "$W/.claude/claudehut/PROJECT.md" && ok "base package detected (com.example, single-file repo)" || bad "base package wrong"
@@ -65,7 +76,9 @@ rm -rf "$W"
 # so file-absence alone stays green even if the validation is deleted outright.
 WT="$(mktemp -d)"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$WT/"
 warn_out="$(CLAUDEHUT_ARCH=bogus CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WT" 2>&1)"
-printf '%s' "$warn_out" | grep -qi "CLAUDEHUT_ARCH='bogus'" \
+# The style may now come from PROJECT.md as well as the env var, so the warning names the value rather than
+# claiming a source. The assertion still requires a warn line that quotes the rejected value back.
+printf '%s' "$warn_out" | grep -qi "warn:.*'bogus'" \
   && ok "arch: an unrecognised CLAUDEHUT_ARCH is REJECTED with a warning (not silently passed through)" \
   || bad "arch: unrecognised CLAUDEHUT_ARCH produced no warning — validation missing"
 { [ ! -f "$WT/.claude/rules/architecture/ddd.md" ] && [ ! -f "$WT/.claude/rules/architecture/hexagonal.md" ] \
@@ -188,4 +201,387 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
-echo; echo "INIT: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
+echo "== F5 (v0.12): the dispatch ledger must be gitignored, on FRESH and EXISTING projects =="
+# Every grep here is anchored (^…/?$) on purpose: an unanchored `grep -q ledger` also matches the
+# "# ClaudeHut dispatch ledger …" comment the init writes one line above the rule, which would pass
+# whether or not the rule itself landed.
+W6="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+grep -qE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null \
+  && ok "F5: fresh init gitignores .claude/claudehut/ledger/" || bad "F5: ledger/ not gitignored on a fresh init"
+grep -qE '^\.claude/claudehut/state/?$' "$W6/.gitignore" 2>/dev/null \
+  && ok "F5: fresh init still gitignores .claude/claudehut/state/ (the older rule is intact)" || bad "F5: state/ rule lost"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
+[ "$(grep -cE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null)" = "1" ] \
+  && ok "F5: re-running init does not duplicate the ledger/ rule (idempotent)" || bad "F5: ledger/ rule duplicated on re-run"
+rm -rf "$W6"
+# THE UPGRADE CASE, and the reason the ledger rule has its OWN guard rather than sharing the state/ one.
+# Every existing install already ignores state/. Under a shared guard those projects skip the whole branch
+# and never receive the ledger rule — the ledger then surfaces in real users' `git status` while a
+# fresh-init assertion stays green. This is that regression, made deterministic.
+W7="$(mktemp -d)/work"; mkdir -p "$W7"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W7/" 2>/dev/null
+printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' > "$W7/.gitignore"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" >/dev/null 2>&1
+grep -qE '^\.claude/claudehut/ledger/?$' "$W7/.gitignore" 2>/dev/null \
+  && ok "F5: an EXISTING project already ignoring state/ still gets the ledger/ rule (independent guard)" \
+  || bad "F5: ledger/ rule skipped because state/ was already ignored — every existing install would leak the ledger"
+rm -rf "$W7"
+
+echo; echo "== RES-M12: per-repo OTel service.name, and no secrets in a committed file =="
+# Fifteen sibling services report as one undifferentiated telemetry stream otherwise, and "which repo burned
+# the tokens" is the question the team is actually asking.
+WM="$(mktemp -d)/repo"; mkdir -p "$WM/src/main/java/com/x"; touch "$WM/src/main/java/com/x/A.java"
+printf 'rootProject.name = "party-ms"\n' > "$WM/settings.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WM" >/dev/null 2>&1
+jq -e '.env.OTEL_RESOURCE_ATTRIBUTES == "service.name=party-ms"' "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: settings.json stamps service.name from the project name" \
+  || bad "RES-M12: no per-repo service.name — telemetry from 15 services stays one stream"
+# The security constraint is the point, not a detail: OTEL_EXPORTER_OTLP_HEADERS carries a bearer token.
+jq -e '(.env | keys) - ["OTEL_RESOURCE_ATTRIBUTES"] | length == 0' "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: only the resource attribute is written (no endpoint, no headers, no token)" \
+  || bad "RES-M12: init wrote an extra env key into a COMMITTED settings file — check for credentials"
+# A hand-set value is the user's decision and must survive a re-run.
+printf '{"permissions":{"allow":["Bash(ls:*)"]},"env":{"OTEL_RESOURCE_ATTRIBUTES":"service.name=hand-set"}}' > "$WM/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WM" >/dev/null 2>&1
+jq -e '.env.OTEL_RESOURCE_ATTRIBUTES == "service.name=hand-set" and (.permissions.allow | length == 1) and .worktree.baseRef == "head"' \
+   "$WM/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "RES-M12: a hand-set service.name and unrelated settings survive a re-run" \
+  || bad "RES-M12: init clobbered a user-set value or an unrelated key"
+rm -rf "$WM"
+
+echo; echo "== MF-06 (v0.12): extraKnownMarketplaces, announced — plus F7's telemetry recipe =="
+# Every stdout assertion below matches with `case`, never `something | grep -q`. Under `set -o pipefail`
+# (line 8) `grep -q` exits on its first match, closes the pipe, the writer dies of SIGPIPE, and pipefail
+# reports the whole pipeline failed — so the assertion goes RED on exactly the input it should accept.
+# `case` has no pipeline at all. They also match init's OUTPUT, not the script's source: bin/claudehut-init
+# carries prose about OTEL_EXPORTER_OTLP_HEADERS in a comment, so any grep of the file passes whether or
+# not the echo ever shipped.
+WK="$(mktemp -d)/repo"; mkdir -p "$WK/src/main/java/com/x"; touch "$WK/src/main/java/com/x/A.java"
+printf 'rootProject.name = "mkt-ms"\n' > "$WK/settings.gradle.kts"
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK" 2>&1)"
+jq -e '.extraKnownMarketplaces["claudehut-marketplace"].source.source == "github"
+       and .extraKnownMarketplaces["claudehut-marketplace"].source.repo == "taipt1504/claudehut"' \
+   "$WK/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: a fresh init registers the claudehut marketplace in .claude/settings.json" \
+  || bad "MF-06: no extraKnownMarketplaces entry — collaborators never get the marketplace on folder-trust"
+# THE HOLD, and it is a decision, not an omission: the settings reference documents autoUpdate as a plain
+# sub-field while the discovery guide frames it as an admin action in MANAGED settings, so whether project
+# scope honors it is unresolved. Writing it on a guess means an unannounced background fetch on someone
+# else's machine. Pin the absence so nobody "completes" the entry without settling that first.
+# `null | has("x")` is FALSE in jq, not an error, so the shorter form of this assertion passes vacuously
+# when the entry is missing entirely. Require the object first.
+jq -e '(.extraKnownMarketplaces["claudehut-marketplace"] | type) == "object"
+       and (.extraKnownMarketplaces["claudehut-marketplace"] | has("autoUpdate") | not)' \
+   "$WK/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: autoUpdate is NOT written (project-scope honoring is unresolved)" \
+  || bad "MF-06: init wrote autoUpdate into a committed settings file on an unsettled premise"
+# Risk (a): this settings file is COMMITTED, so the registration reaches every collaborator who trusts the
+# folder — including people who never ran init. Doing that silently is the defect; announcing it is the fix.
+case "$out" in
+  *"COMMITTED"*) ok "MF-06: init announces that the registration lands in a COMMITTED settings file" ;;
+  *) bad "MF-06: init registers a marketplace for every collaborator without saying so" ;;
+esac
+# Risk (b): adding a marketplace does NOT install the plugin. Wording it as if it did sends users looking
+# for a plugin that Claude Code is still reporting as not installed.
+case "$out" in
+  *"does NOT install the plugin"*"claude plugin install claudehut@claudehut-marketplace"*)
+    ok "MF-06: init states the registration does not install, and names the install command" ;;
+  *) bad "MF-06: init's announcement implies the marketplace entry installs the plugin" ;;
+esac
+# F7 — the recipe bin/claudehut-init's own RES-M12 comment promises. Documentation reaches the 13 stale
+# installs that new code cannot, but only if it is actually printed.
+case "$out" in
+  *"CLAUDE_CODE_ENABLE_TELEMETRY=1"*"claude_code.token.usage"*"query_source x model x effort"*)
+    ok "F7: init prints the telemetry recipe and the query_source x model x effort grouping" ;;
+  *) bad "F7: init still promises per-repo telemetry in a comment and ships no recipe" ;;
+esac
+# The limitation is the load-bearing half. Per-agent OTEL attribution is impossible for a personal
+# marketplace: agent.name collapses to "custom" and plugin.name to "third-party". Someone who does not read
+# this burns a day debugging a working exporter.
+case "$out" in
+  *'"custom"'*'"third-party"'*)
+    ok "F7: init states per-agent attribution is impossible (custom / third-party redaction)" ;;
+  *) bad "F7: the recipe ships without its limitation — the counters will never name a claudehut agent" ;;
+esac
+# HARD SECURITY CONSTRAINT: OTEL_EXPORTER_OTLP_HEADERS carries a bearer token. The recipe names it, and it
+# must stay in the user's environment — never in the committed settings file. Assert on the whole file,
+# not just .env, so a future writer cannot smuggle it in under another key.
+case "$(cat "$WK/.claude/settings.json")" in
+  *OTEL_EXPORTER_OTLP_HEADERS*|*Bearer*)
+    bad "F7: a credential-bearing key reached the COMMITTED settings file" ;;
+  *) ok "F7: no exporter endpoint or bearer token anywhere in the committed settings file" ;;
+esac
+rm -rf "$WK"
+# THE UPGRADE CASE, and the only reason this feature reaches anyone. The settings write is guarded, and a
+# guard keyed on worktree.baseRef alone skips the entire merge for every project that already has
+# baseRef=head — which is every existing install and every re-run of init. The marketplace entry would then
+# reach nobody while the fresh-init assertion above stayed green. Same shape as F5's ledger/ regression.
+WK2="$(mktemp -d)/repo"; mkdir -p "$WK2/src/main/java/com/x" "$WK2/.claude"; touch "$WK2/src/main/java/com/x/A.java"
+printf '{"worktree":{"baseRef":"head"},"env":{"OTEL_RESOURCE_ATTRIBUTES":"service.name=old-ms"},"permissions":{"allow":["Bash(ls:*)"]}}' > "$WK2/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK2" >/dev/null 2>&1
+jq -e '.extraKnownMarketplaces["claudehut-marketplace"].source.repo == "taipt1504/claudehut"
+       and .env.OTEL_RESOURCE_ATTRIBUTES == "service.name=old-ms"
+       and (.permissions.allow | length == 1)' \
+   "$WK2/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: a project ALREADY on baseRef=head still receives the marketplace entry (guard covers both keys)" \
+  || bad "MF-06: the marketplace entry is skipped whenever baseRef is already head — i.e. on every existing install"
+# A hand-edited entry is the user's decision — a fork's repo, or an autoUpdate they enabled after settling
+# the open question themselves — and must survive init. baseRef is deliberately NOT "head" here: with both
+# keys already satisfied the guard skips the merge and this fixture proves nothing about the jq. Forcing
+# the merge to run is what exercises the `//` that preserves the existing entry, so the assertion also
+# checks baseRef flipped to head — proof the merge actually executed rather than being short-circuited.
+printf '{"worktree":{"baseRef":"origin"},"extraKnownMarketplaces":{"claudehut-marketplace":{"source":{"source":"github","repo":"myfork/claudehut"},"autoUpdate":true}}}' > "$WK2/.claude/settings.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WK2" >/dev/null 2>&1
+jq -e '.worktree.baseRef == "head"
+       and .extraKnownMarketplaces["claudehut-marketplace"].source.repo == "myfork/claudehut"
+       and .extraKnownMarketplaces["claudehut-marketplace"].autoUpdate == true
+       and (.extraKnownMarketplaces | keys | length == 1)' \
+   "$WK2/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "MF-06: the merge runs and still leaves a hand-edited marketplace entry untouched" \
+  || bad "MF-06: init overwrote a user-set marketplace entry (or the merge never ran)"
+rm -rf "$WK2"
+
+echo; echo "== RES-X1: a failed write must be reported, not swallowed =="
+# render() chained `sed > tmp && mv -f && echo "wrote"`. On a read-only .claude the chain short-circuited
+# and printed NOTHING — no "wrote", no error — so init reported success while the plane was never written.
+WX="$(mktemp -d)/repo"; mkdir -p "$WX/src/main/java/com/x"; touch "$WX/src/main/java/com/x/A.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" >/dev/null 2>&1
+chmod -w "$WX/.claude/claudehut" 2>/dev/null
+warns="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" --refresh 2>&1 | grep -c 'WARN' || echo 0)"
+chmod +w "$WX/.claude/claudehut" 2>/dev/null
+[ "${warns:-0}" -ge 1 ] \
+  && ok "RES-X1: an unwritable plane produces WARN output ($warns), not silent success" \
+  || bad "RES-X1: init reported success while writing nothing"
+rm -rf "$WX"
+
+echo; echo "== RULE-17: --audit reports drift read-only =="
+# --refresh-rules only reports stale rules while RE-EMITTING, and bootstrap.sh runs it with stdout
+# discarded on every version bump, so the report never reached a human. --audit reaches an already-stamped
+# repo without needing a version change, and must write NOTHING.
+WE="$(mktemp -d)/repo"; mkdir -p "$WE/src/main/java/com/x"; touch "$WE/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-jpa") }\n' > "$WE/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WE" >/dev/null 2>&1
+# strand a rule the way a real upgrade does: emitted once, then its axis goes inactive
+mkdir -p "$WE/.claude/rules/architecture"; cp "$ROOT/templates/rules/architecture/ddd.md" "$WE/.claude/rules/architecture/ddd.md"
+files_before="$(find "$WE" | wc -l | tr -d ' ')"
+aud="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WE" --audit 2>&1)"
+files_after="$(find "$WE" | wc -l | tr -d ' ')"
+[ "$files_before" = "$files_after" ] \
+  && ok "RULE-17: --audit writes nothing (file count unchanged)" \
+  || bad "RULE-17: --audit created or removed files ($files_before -> $files_after)"
+printf '%s' "$aud" | grep -q 'stale:   architecture/ddd.md' \
+  && ok "RULE-17: --audit names the stranded rule" \
+  || bad "RULE-17: --audit did not report a stranded rule"
+printf '%s' "$aud" | grep -qE '^  summary: [0-9]+ stale, [0-9]+ missing' \
+  && ok "RULE-17: --audit ends with a machine-readable summary line" \
+  || bad "RULE-17: --audit has no summary line for bootstrap to surface"
+printf '%s' "$aud" | grep -q 'note: no architecture style' \
+  && bad "RULE-17: --audit output is polluted by the arch note" \
+  || ok "RULE-17: --audit emits only the report"
+rm -rf "$WE"
+# bootstrap must carry the summary into systemMessage rather than discarding it
+grep -q 'claudehut-init" "$PROJECT_DIR" --audit' "$ROOT/scripts/bootstrap.sh" \
+  && ok "RULE-01: bootstrap re-derives the drift summary after a version-bump refresh" \
+  || bad "RULE-01: bootstrap still discards the refresh report with nothing in its place"
+grep -q 'rule drift after the plugin upgrade' "$ROOT/scripts/bootstrap.sh" \
+  && ok "RULE-01: drift reaches the user through systemMessage" \
+  || bad "RULE-01: drift is computed but never surfaced"
+
+echo; echo "== RULE-16: the architecture style is declarable and durable =="
+# The arch axis was reachable only through CLAUDEHUT_ARCH, and no real install sets it -- so the three
+# architecture rules never emit on a fresh init, while every project made before the axis existed still
+# carries all three contradictory files. The choice now lives in PROJECT.md, which survives re-runs.
+WC="$(mktemp -d)/repo"; mkdir -p "$WC/src/main/java/com/x"; touch "$WC/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WC/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+grep -q '^- Architecture style: none' "$WC/.claude/claudehut/PROJECT.md" \
+  && ok "RULE-16: PROJECT.md carries a declarable architecture style, defaulting to none" \
+  || bad "RULE-16: PROJECT.md has no architecture-style line"
+[ -f "$WC/.claude/rules/architecture/ddd.md" ] \
+  && bad "RULE-16: an arch rule was emitted with no style declared" \
+  || ok "RULE-16: no arch rule emitted while the style is none (styles are mutually exclusive)"
+perl -pi -e 's/^- Architecture style: none/- Architecture style: ddd/' "$WC/.claude/claudehut/PROJECT.md"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WC" >/dev/null 2>&1
+[ -f "$WC/.claude/rules/architecture/ddd.md" ] \
+  && ok "RULE-16: a style declared in PROJECT.md is read back on the next run (no env var needed)" \
+  || bad "RULE-16: the declared style was ignored — the axis is still env-var-only"
+rm -rf "$WC"
+# db must use the same bare `none` as every other axis; "(none)" could never match a db=none tag
+WD="$(mktemp -d)/repo"; mkdir -p "$WD/src/main/java/com/x"; touch "$WD/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WD/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WD" --detect | grep -q '"db":"none"' \
+  && ok "RULE-16: the db axis reports bare none, consistent with every other axis" \
+  || bad "RULE-16: the db axis still reports (none) — a db=none tag could never match it"
+rm -rf "$WD"
+
+echo; echo "== RULE-15: the java= axis gates version-specific rules =="
+# JAVA_VERSION was detected and printed but never entered ACTIVE, so framework/virtual-threads.md (Java 21)
+# and coding/records-sealed.md (17+) installed into Java 8 and 11 projects, teaching APIs that do not
+# compile there. The matcher is exact-string, hence a bucketed axis rather than a numeric comparison.
+jv_case() { # $1 version -> echoes "<virtual-threads> <records-sealed>"
+  local w; w="$(mktemp -d)/repo"; mkdir -p "$w/src/main/java/com/x"; touch "$w/src/main/java/com/x/A.java"
+  printf 'java { sourceCompatibility = %s }\ndependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' "$1" > "$w/build.gradle.kts"
+  CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$w" >/dev/null 2>&1
+  printf '%s %s' \
+    "$([ -f "$w/.claude/rules/framework/virtual-threads.md" ] && echo yes || echo no)" \
+    "$([ -f "$w/.claude/rules/coding/records-sealed.md" ] && echo yes || echo no)"
+  rm -rf "$w"
+}
+[ "$(jv_case 11)" = "no no" ]   && ok "RULE-15: Java 11 gets neither virtual-threads nor records-sealed" \
+                                || bad "RULE-15: Java 11 got a rule for a language feature it does not have — $(jv_case 11)"
+[ "$(jv_case 17)" = "no yes" ]  && ok "RULE-15: Java 17 gets records-sealed but not virtual-threads" \
+                                || bad "RULE-15: Java 17 gating wrong — $(jv_case 17)"
+[ "$(jv_case 21)" = "yes yes" ] && ok "RULE-15: Java 21 gets both (comma-alternative java=17,21 matches)" \
+                                || bad "RULE-15: Java 21 gating wrong — $(jv_case 21)"
+# an undetected version must not strip rules: Spring Boot 3 floors at 17, so unknown buckets to 17
+WB="$(mktemp -d)/repo"; mkdir -p "$WB/src/main/java/com/x"; touch "$WB/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$WB/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WB" >/dev/null 2>&1
+[ -f "$WB/.claude/rules/coding/records-sealed.md" ] \
+  && ok "RULE-15: an undetected Java version buckets to 17, not legacy (no silent rule loss)" \
+  || bad "RULE-15: an undetected Java version silently stripped records-sealed"
+rm -rf "$WB"
+
+echo; echo "== RULE-03/04: JPA-only rules must not land in an r2dbc project =="
+# transaction-propagation.md and lombok-jpa-safety.md shipped untagged, so they installed everywhere.
+# Every ewallet service checked is r2dbc (they carry framework/r2dbc.md, not jpa.md) and party-ms and
+# auth-ms each received both JPA rules anyway -- reactive services told how to annotate a Lombok @Entity.
+W9="$(mktemp -d)/repo"; mkdir -p "$W9/src/main/java/com/x"; touch "$W9/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-r2dbc") }\n' > "$W9/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W9" >/dev/null 2>&1
+F9="$W9/.claude/rules/framework"
+[ -f "$F9/r2dbc.md" ] && ok "RULE-03: r2dbc fixture receives r2dbc.md" || bad "RULE-03: r2dbc fixture did not receive r2dbc.md"
+[ -f "$F9/transaction-propagation.md" ] \
+  && bad "RULE-03: JPA transaction-propagation.md installed into an r2dbc project" \
+  || ok "RULE-03: transaction-propagation.md is gated off an r2dbc project"
+[ -f "$F9/lombok-jpa-safety.md" ] \
+  && bad "RULE-04: lombok-jpa-safety.md installed into an r2dbc project" \
+  || ok "RULE-04: lombok-jpa-safety.md is gated off an r2dbc project"
+WA="$(mktemp -d)/repo"; mkdir -p "$WA/src/main/java/com/x"; touch "$WA/src/main/java/com/x/A.java"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-data-jpa") }\n' > "$WA/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WA" >/dev/null 2>&1
+{ [ -f "$WA/.claude/rules/framework/transaction-propagation.md" ] && [ -f "$WA/.claude/rules/framework/lombok-jpa-safety.md" ]; } \
+  && ok "RULE-03/04: both JPA rules still reach a servlet-jpa project" \
+  || bad "RULE-03/04: gating removed the JPA rules from a JPA project too"
+rm -rf "$W9" "$WA"
+
+echo; echo "== RULE-05: a multi-module repo has no root src/main/java =="
+# v0.10 taught the detector to read submodule BUILD files, so stack gating worked -- but every source probe
+# was still a root-only `find src/main/java`, which finds nothing in a multi-module layout. The memory plane
+# came out empty (base package "(unknown)", package tree "(flat)") while the rules looked correctly gated.
+W8="$(mktemp -d)/repo"
+mkdir -p "$W8"/svc-a/src/main/java/io/f8a/acct/{api,service} "$W8"/svc-b/src/main/java/io/f8a/acct/domain
+touch "$W8/svc-a/src/main/java/io/f8a/acct/api/A.java" "$W8/svc-b/src/main/java/io/f8a/acct/domain/B.java"
+printf 'rootProject.name = "acct-parent"\ninclude("svc-a")\ninclude("svc-b")\n' > "$W8/settings.gradle.kts"
+printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$W8/svc-a/build.gradle.kts"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" >/dev/null 2>&1
+P8="$W8/.claude/claudehut/PROJECT.md"
+grep -q 'Base package: io.f8a.acct' "$P8" \
+  && ok "RULE-05: base package found across modules (io.f8a.acct)" \
+  || bad "RULE-05: base package is $(grep -o 'Base package:.*' "$P8" | cut -c1-40)"
+grep -qE 'Build: gradle' "$P8" \
+  && ok "RULE-05: gradle detected from settings.gradle.kts alone (no root build.gradle)" \
+  || bad "RULE-05: build tool is $(grep -o 'Build:.*' "$P8" | cut -c1-40)"
+# PACKAGE_TREE renders into architecture.md, not PROJECT.md — asserting against PROJECT.md here passed
+# unconditionally, because the string it looked for never appears in that file either way.
+grep -q '(flat)' "$W8/.claude/claudehut/architecture.md" \
+  && bad "RULE-05: package tree still (flat) — submodule sources not walked" \
+  || ok "RULE-05: package tree populated from submodule sources (architecture.md)"
+grep -q 'api -> service -> domain' "$W8/.claude/rules/project-structure.md" \
+  && ok "RULE-05+06: layers derived across modules" \
+  || bad "RULE-05+06: layers not derived on a multi-module repo"
+rm -rf "$W8"
+
+echo; echo "== RULE-06: the layer convention is DERIVED, never asserted =="
+# project-structure.md is an ALWAYS-ON rule, so a wrong layer convention is read on every turn. The old
+# hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked: party-ms and
+# auth-ms have api/handler/service/domain/repository and no `web` or `persistence` package at all.
+W6="$(mktemp -d)/repo"; mkdir -p "$W6"/src/main/java/io/f8a/party/{api,service,domain,repository}
+touch "$W6/src/main/java/io/f8a/party/api/X.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
+PS6="$W6/.claude/rules/project-structure.md"
+grep -q 'api -> service -> domain -> repository' "$PS6" \
+  && ok "RULE-06: layers derived from the real package tree (api -> service -> domain -> repository)" \
+  || bad "RULE-06: layers not derived — got: $(grep -o 'Layers and their direction:.*' "$PS6" | cut -c1-80)"
+grep -q 'web -> service -> domain -> persistence' "$PS6" \
+  && bad "RULE-06: the hardcoded convention survived on a repo that has no web/ or persistence/ package" \
+  || ok "RULE-06: the hardcoded convention is gone"
+W7="$(mktemp -d)/repo"; mkdir -p "$W7/src/main/java/com/x/stuff"; touch "$W7/src/main/java/com/x/stuff/Y.java"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" >/dev/null 2>&1
+grep -q 'not detected' "$W7/.claude/rules/project-structure.md" \
+  && ok "RULE-06: an unrecognised layout gets an honest placeholder, not a false convention" \
+  || bad "RULE-06: an unrecognised layout was still handed a layer convention"
+rm -rf "$W6" "$W7"
+
+echo; echo "== MEM-1: per-task history moves out of the always-loaded index (--migrate-memory) =="
+# The failure this guards against already happened once in this project: --refresh-rules + rm -f destroyed a
+# hand-written "## Our team conventions" block. So the fixture carries exactly that block, and the migration
+# is only correct if the block survives because it does NOT match the learner's machine-written heading form.
+W4="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+M4="$W4/.claude/claudehut/MEMORY.md"
+cat >> "$M4" <<'FIX'
+
+## Our team conventions
+- we never use field injection, ask Tai before adding a dependency
+
+## Reuse additions (task-0001, 2026-06-04)
+- `MerchantIdentityMapper` — read-side mapper
+
+## Topics (task-0001)
+- merchant identity → learnings.jsonl
+
+## Reuse additions (task-0002, 2026-06-05)
+- `NotificationClient.sendEmail` — canonical email path
+FIX
+before_bytes="$(wc -c <"$M4" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W4" --migrate-memory >/dev/null 2>&1
+H4="$W4/.claude/claudehut/MEMORY-history.md"
+grep -q 'ask Tai before adding a dependency' "$M4" \
+  && ok "MEM-1: hand-written block survives the migration verbatim" \
+  || bad "MEM-1: DATA LOSS — hand-written block gone from MEMORY.md"
+grep -q '^## Our team conventions' "$M4" \
+  && ok "MEM-1: hand-written heading stays in the index (did not match the learner form)" \
+  || bad "MEM-1: hand-written heading was moved out"
+[ "$(grep -c '^## \(Reuse additions\|Topics\) (' "$H4" 2>/dev/null || echo 0)" = "3" ] \
+  && ok "MEM-1: all 3 machine-appended blocks moved to MEMORY-history.md" \
+  || bad "MEM-1: expected 3 moved blocks, got $(grep -c '^## \(Reuse additions\|Topics\) (' "$H4" 2>/dev/null || echo 0)"
+grep -q '^## Reuse additions (' "$M4" \
+  && bad "MEM-1: per-task blocks still in the always-loaded index" \
+  || ok "MEM-1: per-task blocks are out of the always-loaded index"
+grep -q '^## Topics$' "$M4" \
+  && ok "MEM-1: the template's own bare '## Topics' section stays (no (task-…) suffix)" \
+  || bad "MEM-1: the bare '## Topics' index section was moved out"
+grep -q 'MerchantIdentityMapper' "$H4" && grep -q 'NotificationClient.sendEmail' "$H4" \
+  && ok "MEM-1: moved content is present in history, not discarded" \
+  || bad "MEM-1: moved content missing from MEMORY-history.md"
+after_bytes="$(( $(wc -c <"$M4" | tr -d ' ') + $(wc -c <"$H4" | tr -d ' ') ))"
+[ "$after_bytes" -ge "$before_bytes" ] \
+  && ok "MEM-1: index+history ≥ original bytes (nothing dropped on the floor)" \
+  || bad "MEM-1: $((before_bytes - after_bytes)) bytes vanished in the migration"
+# idempotency — a second run must find nothing and must not duplicate history
+h_before="$(wc -c <"$H4" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W4" --migrate-memory >/dev/null 2>&1
+[ "$(wc -c <"$H4" | tr -d ' ')" = "$h_before" ] \
+  && ok "MEM-1: re-running --migrate-memory is a no-op (history not duplicated)" \
+  || bad "MEM-1: second migration duplicated history"
+# the history file must NOT join the @import set — that would undo the entire move
+grep -q 'MEMORY-history.md' "$W4/CLAUDE.md" 2>/dev/null \
+  && bad "MEM-1: MEMORY-history.md was @import-ed — the move bought nothing" \
+  || ok "MEM-1: MEMORY-history.md is not @import-ed"
+# SAFETY: the bootstrap auto-run path (--refresh-rules on every version bump) must never migrate or rewrite
+W5="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+M5="$W5/.claude/claudehut/MEMORY.md"
+printf '\n## Reuse additions (task-0009, 2026-06-15)\n- `Thing` — a thing\n' >> "$M5"
+sum_before="$(wc -c <"$M5" | tr -d ' ')"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W5" --refresh-rules >/dev/null 2>&1
+[ "$(wc -c <"$M5" | tr -d ' ')" = "$sum_before" ] \
+  && ok "MEM-1: --refresh-rules leaves MEMORY.md byte-identical (bootstrap auto-run is safe)" \
+  || bad "MEM-1: --refresh-rules rewrote MEMORY.md — the unattended version-bump path is destructive"
+[ -f "$W5/.claude/claudehut/MEMORY-history.md" ] \
+  && bad "MEM-1: --refresh-rules performed a migration it was never asked for" \
+  || ok "MEM-1: --refresh-rules does not migrate (opt-in only)"
+rm -rf "$W4" "$W5"
+
+echo; echo "INIT: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/init-tests.count"
+[ "$FAIL" -eq 0 ]

@@ -3,6 +3,7 @@ id: rules/testing/tdd-cycle
 paths:
   - "**/*IT.java"
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: high
 tags: [tdd, testing, red-green-refactor]
 ---
@@ -70,7 +71,7 @@ Tests: 12, Failures: 0, Errors: 1
 
 | Stack | Test pattern |
 |-------|--------------|
-| Spring MVC | `@WebMvcTest(UserController.class)` + `MockMvc` |
+| Spring MVC | `@WebMvcTest(UserController.class)` + `MockMvcTester` (Boot 3.4+, AssertJ-native); `MockMvc` on older |
 | Spring WebFlux | `@WebFluxTest(UserHandler.class)` + `WebTestClient` |
 | JPA | `@DataJpaTest` + Testcontainers |
 | R2DBC | `@DataR2dbcTest` + Testcontainers |

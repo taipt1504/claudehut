@@ -9,9 +9,16 @@ tests/.tmp/
 *.swp
 *~
 
-# Session-local Claude state (from running claude inside plugin dir) — but DO track the design docs.
+# Session-local Claude state (from running claude inside plugin dir) — but DO track the design docs
+# and the release reviews. A release's plan and execution tracking are the record of WHY the code looks
+# like this; leaving them untracked means a fresh clone gets 35 commits and no reasoning behind them.
 .claude/*
 !.claude/docs/
+# Track the human-facing release record (plans, audits, execution tracking) but NOT the raw agent dumps
+# they were synthesised from — those are ~900 KB of machine-generated JSON with no reader.
+!.claude/reviews/
+.claude/reviews/*-raw*.json
+.claude/reviews/examples/
 
 # Gradle/Java build artifacts (incl. eval fixtures) — never commit build output.
 .gradle/

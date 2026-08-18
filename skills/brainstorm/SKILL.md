@@ -8,7 +8,7 @@ description: Use to generate and weigh solution approaches for a problem, after 
 Turn a grounded problem into **≥2 genuinely distinct, well-reasoned approaches** and a recommendation. This is
 **general-purpose ideation** — feature, bug, refactor, performance, design, or non-code decision. It does NOT
 explore the codebase or run a reuse-scan: that is **Discover** (phase 1), whose context + reuse DECISION this
-phase consumes. Decoupling ideation from discovery is deliberate (v0.4 reversal) — forcing explore+reuse here
+phase consumes. Decoupling ideation from discovery is deliberate — forcing explore+reuse here
 narrowed the option space; freeing it widens creative breadth.
 
 Run **inline on the main thread** (it owns the state write and the user gate; a forked subagent cannot spawn
@@ -20,7 +20,7 @@ subagents).
 flowchart TB
     s(["entered after Discover<br/>(context map + reuse DECISION)"]) --> disp["dispatch claudehut-brainstormer<br/>(problem + Discover context)"]
     disp --> val{"return conforms to pipeline?<br/>≥2 distinct + scores tied to criteria +<br/>both premortems + option 0 if reuse candidate"}
-    val -- "no (missing piece)" --> disp
+    val -- "no (missing piece, and rounds ≤ 2)" --> disp
     val -- "yes" --> enf["assemble enforcement set (1% rule):<br/>scan skills + .claude/rules/ tree;<br/>set-enforcement --skills --rules"]
     enf --> write["write brainstorm.md from template<br/>(main thread writes; agent has no Write)"]
     write --> gate{"set-brainstorm accepts?<br/>≥2 scored rows + Premortem + Recommendation"}
@@ -40,7 +40,11 @@ flowchart TB
 
 ## Steps
 
-Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagram is the sequence and gates. The load-bearing details:
+Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagram is the sequence and gates.
+**Cap 2 re-dispatch rounds** — a third non-conforming return means the problem statement is the problem, not the
+brainstormer, and this is the one validation loop that re-fires an `opus` subagent. Take the surviving gaps to the
+user with `AskUserQuestion` (or, non-interactive, proceed with the best option set returned and note the gap in
+brainstorm.md). The load-bearing details:
 
 1. **Persist** the deliberation to `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/brainstorm.md` by
    **filling `references/brainstorm-template.md`**, then record it:
@@ -58,7 +62,7 @@ Dispatch **`claudehut:claudehut-brainstormer`** (Agent tool) — the Flow diagra
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b,c> --rules <framework/jpa.md,security/owasp-top10.md,…>
    ```
-   It is the auditable checklist Review enforces — and (v0.4) the **primary source for dynamic reviewer
+   It is the auditable checklist Review enforces — and the **primary source for dynamic reviewer
    selection**: the rules it lists decide which specialist auditors Review spawns. A thin set silently
    under-reviews.
 

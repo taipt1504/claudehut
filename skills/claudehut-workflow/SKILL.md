@@ -1,6 +1,6 @@
 ---
 name: claudehut-workflow
-description: Use at the start of every session and whenever beginning a coding task in a Java/Spring backend - establishes the ClaudeHut 7-phase agentic workflow, the complexity-tier routing that lets small tasks skip deliberation phases, and the laws that govern which skills and rules must fire. Injected at session start; also re-anchor mid-session with /claudehut:workflow.
+description: Use at the start of every session and whenever beginning a coding task in a Java/Spring backend - establishes the ClaudeHut 7-phase agentic workflow, the complexity-tier routing that lets small tasks skip deliberation phases, and the laws that govern which skills and rules must fire. Injected at session start; also re-anchor mid-session with /claudehut:claudehut-workflow.
 ---
 
 # ClaudeHut Workflow
@@ -43,7 +43,7 @@ lane.**
 | Tier | When (your assessment) | Phases run | Skips |
 |------|------------------------|------------|-------|
 | **trivial** | comment/doc/rename/config-value; no logic change | Discover (quick) → Implement → Review (min) | Brainstorm, Spec, Plan |
-| **small** | ≤2 files, no new component, **no security/auth/migration surface**, **and one obvious approach** | Discover → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
+| **small** | ≤2 files, no new component, **no security/auth/migration surface**, **and one obvious approach** | Discover (inline) → Implement → Review (dynamic) → Learn | Brainstorm, Spec, Plan |
 | **full** (default) | new component, multi-file, architectural, security/auth/migration surface, **OR a non-obvious design choice / ≥2 viable approaches** | all 7 | — |
 
 **Tier by the hardest QUESTION, not the diff size** — *you* escalate on reasoning-complexity. **The fast lane
@@ -81,7 +81,7 @@ adapts the *meaning* of "done", not just a label.
    the only thing that opens it, and entering Discover/Brainstorm closes it again (one invocation per task).
 5. **Compliance-first.** Never claim a task is done before `claudehut:review` reports zero outstanding items (hook-gated).
 6. **Canonical store — one dir per task.** Every artifact of a task — reuse-scan, spec, plan, review — lives in that task's dir `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/` (created in Discover, the first phase; `NNNN` = next integer over `tasks/`; never a bare `specs/`/`plans/` or a `.claudehut/` path). The write gate verifies files exist under `.claude/claudehut/`; off-path artifacts are invisible to the gate, to `@import` memory, and to the next session. Global stores stay at the root: `learnings.jsonl`, `reuse-index.json`, the memory plane, `state/`.
-7. **Main thread orchestrates.** Skills run on the main thread and own the user gates (`AskUserQuestion`), the state writes (`claudehut-state`), and the native task mirror (`TaskCreate`/`TaskUpdate`). Subagents do isolated work and **return data** — they never write state and never ask the user (they can't: no `AskUserQuestion`, and most have no Bash).
+7. **Main thread orchestrates.** Skills run on the main thread and own the user gates (`AskUserQuestion`), the state writes (`claudehut-state`), and, where those tools exist, the native task mirror (`TaskCreate`/`TaskUpdate` — absent in many sessions; skip it then). Subagents do isolated work and **return data** — they never write state and never ask the user (they can't: no `AskUserQuestion`, and most have no Bash).
 
 **Violating the letter of these laws is violating the spirit of them.**
 
@@ -89,7 +89,7 @@ adapts the *meaning* of "done", not just a label.
 
 | Phase | Invoke | Heavy work (Agent tool) | Tiers | Produces (in `tasks/NNNN-<slug>/`) |
 |-------|--------|------------------------|-------|-------------------------------------|
-| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message); **trivial tier: inline — ≤3 Greps + inline artifact, no dispatch** | all | `reuse-scan.md` + reuse DECISION |
+| 1. Discover | `claudehut:discover` | explorer ∥ reuse-scanner (one message, full tier); **trivial + small tiers: inline — targeted Greps + inline artifact, no dispatch** | all | `reuse-scan.md` + reuse DECISION |
 | 2. Brainstorm | `claudehut:brainstorm` | brainstormer (generic ideation) | full | `brainstorm.md` (≥2 scored options + premortems) → `set-brainstorm` (gate) + enforcement set |
 | 3. Spec | `claudehut:write-spec` | — (main writes from template); → `set-spec` (gate: sections + Decision + AC-xxx) | full | `spec.md` |
 | 4. Plan | `claudehut:write-plan` | planner drafts from template → **`claudehut-plan-reviewer` APPROVE** → `set-plan-review` → **approve plan** → `set-plan` (gate) + task mirror | full | `plan.md` (T-xxx) + `plan-review.md` |

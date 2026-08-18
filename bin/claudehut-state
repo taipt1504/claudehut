@@ -17,10 +17,14 @@
 #   set-plan-review <APPROVE|REVISE> [--evidence tasks/NNNN-slug/plan-review.md]   # plan-reviewer verdict (WS-2)
 #   set-review <pass|pending|capped> [--evidence PATH]   # pass REQUIRES --evidence review.md (coverage table + test evidence)
 #   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
-#   set-bypass <true|false>
+#   set-bypass <true|false> [--reason "<why>"]   # --reason REQUIRED when enabling
 #   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
 #   set-profile <feature|bugfix|audit|migration|investigation>   # task SHAPE (WS-7); required before set-phase implement
 #   set-findings <path>           # record an audit/investigation's findings deliverable (WS-7); the done gate checks it
+#   cost-report [--session <id>] [--count]   # READ-ONLY (F6). Walks the F5 dispatch ledger and reports
+#                                 # (task x agent_type x model x effort x count x wall duration),
+#                                 # un-collapsed and without dollars. --session is optional; --count
+#                                 # prints only the paired dispatch count (what the Stop gate reads).
 #   mark-skill <name>             # Issue-1 skill rail: records a Skill-tool invocation (written by
 #                                 # record-skill.sh, the PreToolUse(Skill) recorder hook). implement →
 #                                 # implement_skill_ok=true; discover|brainstorm → reset to false (new task).
@@ -37,6 +41,152 @@ while [ $# -gt 0 ]; do
     *) args+=("$1"); shift ;;
   esac
 done
+# ── F6: cost-report — the ONLY READ-ONLY verb in this file. ────────────────────────────────────────────
+# It runs HERE, above the --session requirement and above `mkdir -p "$STATE_DIR"` / acquire_lock / the
+# atomic write at the foot of this file. That write is OUTSIDE the case statement, so a `cost-report`
+# branch inside the case would create (or re-stamp) a state file merely by REPORTING. --session is
+# optional and narrows the report to one session: the F5 ledger is one shared append-only file with
+# session_id as a field, so "all sessions" is the natural default.
+#
+# WHAT IT WILL NOT DO — and why, because both refusals are load-bearing:
+#   * It does NOT collapse to one number and does NOT print dollars. No hook event carries usage, token
+#     or cost data (SubagentStart: agent_id, agent_type, cwd, hook_event_name, prompt_id, session_id,
+#     transcript_path; SubagentStop adds effort, agent_transcript_path, and the stop bookkeeping — that
+#     is the complete measured key set). A ledger that cannot see tokens cannot price a dispatch.
+#   * It does NOT rank by dispatch COUNT, which ranks tasks backwards: two opus/xhigh agents cost far
+#     more than six haiku/low ones because thinking tokens bill at OUTPUT rates. The tuple is reported
+#     un-collapsed so the reader does the weighting the data cannot. Collapsing needs a price table, and
+#     a hardcoded price table rots silently into a confidently wrong answer.
+# For money the footer points at /usage and the OTEL grouping (README "Measuring it: /usage").
+if [ "${#args[@]}" -ge 1 ] && [ "${args[0]}" = "cost-report" ]; then
+  _P="${CLAUDE_PROJECT_DIR:-$PWD}"
+  _LEDGER="$_P/.claude/claudehut/ledger/dispatches.jsonl"
+  _PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+  _COUNT_ONLY=no
+  for _a in "${args[@]:1}"; do [ "$_a" = "--count" ] && _COUNT_ONLY=yes; done
+
+  if [ ! -f "$_LEDGER" ]; then
+    if [ "$_COUNT_ONLY" = yes ]; then echo 0; else
+      echo "ClaudeHut cost-report: no dispatch ledger at $_LEDGER (no subagent has been dispatched in this project yet)."
+    fi
+    exit 0
+  fi
+
+  # THE PAIRING RULE, measured (v0.11 tracking M5): one real session produced THREE ledger records for ONE
+  # dispatch — a matched start+stop 23 s apart, plus a stop emitted during compaction with a fresh agent_id,
+  # an EMPTY agent_type and an agent_transcript_path pointing at a file that was never written. So the
+  # reader JOINS on agent_id and DISCARDS unmatched stops; it never counts records. A record count is not a
+  # dispatch count. Records with an empty agent_id are dropped outright — they are unjoinable, and two of
+  # them would otherwise join to each other on "".
+  # Lines are parsed with `fromjson? // empty` so one torn line from a concurrent 6-way fan-out append
+  # degrades to one lost record instead of an empty report.
+  # Timestamps are converted INSIDE jq (strptime/mktime, UTC — which is what the trailing Z means). `date -d`
+  # is GNU-only and `date -j -f` is BSD-only, so a shell conversion would work on exactly one of the two
+  # platforms this plugin runs on; and a per-record fork is a cost for nothing.
+  _sessions="$(jq -Rn '[inputs | fromjson? // empty]
+      | map(select((.agent_id // "") != ""))
+      | map(.session_id // "") | map(select(. != "")) | unique' <"$_LEDGER" 2>/dev/null || echo '[]')"
+  [ -n "$_sessions" ] || _sessions='[]'
+
+  # task~ is DERIVED, never observed: no hook payload names a task dir. It is resolved from the session's
+  # state file, which (a) is gitignored + age-swept while the ledger is never swept, and (b) is rewritten by
+  # every claudehut-state call, so it names the session's CURRENT task rather than a history — a session
+  # that worked 0001 then 0002 attributes both to 0002. `(unresolved)` therefore means "no state file for
+  # that session", and is expected to be common, not an edge case. The footer says all of this.
+  _taskmap='{}'
+  while IFS= read -r _sid; do
+    [ -n "$_sid" ] || continue
+    _sf="$_P/.claude/claudehut/state/$_sid.json"
+    _t=""
+    if [ -f "$_sf" ]; then
+      _t="$(jq -r '.task // empty' "$_sf" 2>/dev/null || true)"
+      if [ -z "$_t" ]; then
+        _ap="$(jq -r '[.reuse_scan_artifact,.plan_path,.spec_path,.findings_path,.brainstorm_path]
+                      | map(select(type=="string" and . != "")) | .[0] // empty' "$_sf" 2>/dev/null || true)"
+        case "$_ap" in */tasks/*) _t="${_ap#*/tasks/}"; _t="${_t%%/*}" ;; esac
+      fi
+    fi
+    [ -n "$_t" ] && _taskmap="$(jq -c --arg k "$_sid" --arg v "$_t" '.[$k]=$v' <<<"$_taskmap")"
+  done < <(jq -r '.[]' <<<"$_sessions" 2>/dev/null || true)
+
+  _rep="$(jq -Rn --arg sess "$SESSION" --argjson tasks "$_taskmap" '
+    def e2: (try (strptime("%Y-%m-%dT%H:%M:%SZ") | mktime) catch null);
+    [inputs | fromjson? // empty]
+    | map(select((.agent_id // "") != ""))
+    | (if $sess == "" then . else map(select(.session_id == $sess)) end) as $r
+    | ($r | map(select(.event == "start"))) as $st
+    | ($r | map(select(.event == "stop")))  as $sp
+    | ($sp | map({(.agent_id): .}) | add // {}) as $byid
+    | ($st | map(.agent_id) | unique)         as $sids
+    | ($st | map(. + {_stop: ($byid[.agent_id] // null)}) | map(select(._stop != null))) as $pairs
+    | { records: ($r|length), starts: ($st|length), stops: ($sp|length),
+        paired: ($pairs|length),
+        orphans:  ($sp | map(select((.agent_id as $a | $sids | index($a)) == null)) | length),
+        openings: (($st|length) - ($pairs|length)),
+        rows: ($pairs
+          | map({ task: ($tasks[.session_id] // null),
+                  agent_type: (if (.agent_type // "") == "" then "(unknown)" else .agent_type end),
+                  effort: (if (._stop.effort // "") == "" then "-" else ._stop.effort end),
+                  dur: (((.ts|e2) as $a | (._stop.ts|e2) as $b
+                         | if $a == null or $b == null or $b < $a then null else $b - $a end)) })
+          | group_by([.task, .agent_type, .effort])
+          | map({ task: .[0].task, agent_type: .[0].agent_type, effort: .[0].effort,
+                  count: length,
+                  wall: (map(.dur // 0) | add),
+                  max:  (map(.dur // 0) | max) })
+          | sort_by(-.wall, .task, .agent_type)) }' <"$_LEDGER" 2>/dev/null || true)"
+  [ -n "$_rep" ] || _rep='{"records":0,"starts":0,"stops":0,"paired":0,"orphans":0,"openings":0,"rows":[]}'
+
+  if [ "$_COUNT_ONLY" = yes ]; then jq -r '.paired' <<<"$_rep"; exit 0; fi
+
+  # model~ is DERIVED from agents/<name>.md frontmatter and is the one column that can be WRONG:
+  # CLAUDE_CODE_SUBAGENT_MODEL outranks frontmatter at runtime and leaves no trace in any hook payload.
+  # `-` means unresolvable (a built-in agent like Explore has no frontmatter here). Never presented as
+  # measured — the `~` is on the value, not only in the footnote. effort is left unmarked because it IS
+  # observed, off the SubagentStop record; being precise about which columns are measured is the point.
+  _model_for() {
+    local _at="${1#claudehut:}"   # strip ONLY this plugin's scope — `##*:` would map another plugin's
+    case "$_at" in                # "otherplugin:claudehut-planner" onto claudehut's own frontmatter.
+      *[!A-Za-z0-9._-]*|''|.|..|*..*) printf '%s' '-'; return ;;   # never let a type string walk the FS
+    esac
+    local _f="$_PLUGIN_ROOT/agents/$_at.md" _m=""
+    [ -f "$_f" ] || { printf '%s' '-'; return; }
+    _m="$(awk 'NR>1 && /^---[[:space:]]*$/ {exit}
+               /^model:[[:space:]]*/ {sub(/^model:[[:space:]]*/,""); gsub(/[[:space:]]*$/,""); print; exit}' \
+          "$_f" 2>/dev/null || true)"
+    if [ -n "$_m" ]; then printf '%s~' "$_m"; else printf '%s' '-'; fi
+  }
+
+  echo "ClaudeHut cost-report — ledger $_LEDGER${SESSION:+  (session $SESSION)}"
+  jq -r '"records \(.records) (start \(.starts), stop \(.stops)) → \(.paired) dispatch(es) paired on agent_id; \(.orphans) orphan stop(s) DISCARDED; \(.openings) start(s) with no stop"' <<<"$_rep"
+  echo
+  printf '%-20s %-36s %-9s %-8s %6s %8s %8s\n' 'task~' 'agent_type' 'model~' 'effort' 'count' 'wall_s' 'max_s'
+  jq -r '.rows[] | [(.task // "-"), .agent_type, .effort, .count, .wall, .max] | @tsv' <<<"$_rep" \
+  | while IFS="$(printf '\t')" read -r _tk _at _ef _ct _wl _mx; do
+      case "$_tk" in -) _tk="(unresolved)" ;; *) _tk="$_tk~" ;; esac
+      printf '%-20s %-36s %-9s %-8s %6s %8s %8s\n' \
+        "${_tk:0:20}" "${_at:0:36}" "$(_model_for "$_at")" "${_ef:0:8}" "$_ct" "$_wl" "$_mx"
+    done
+  cat <<'EOF'
+
+~ = DERIVED, not observed.
+  model~  from agents/<name>.md frontmatter. CLAUDE_CODE_SUBAGENT_MODEL outranks frontmatter at runtime and
+          leaves no trace in any hook payload, so this column CAN BE WRONG. `-` = no frontmatter resolved
+          (a built-in agent, or an agent this plugin does not ship).
+  task~   from the session's state file, which is ephemeral and names that session's CURRENT task, not a
+          history. `(unresolved)` = no state file survives for that session.
+  effort, count, wall_s and max_s are observed from the ledger. Unmatched stops are discarded, not counted.
+
+This report CANNOT price a dispatch: no hook event carries usage, token or cost data. For money, run
+/usage (it attributes recent usage to skills, subagents, plugins and individual MCP servers, each as a
+percentage of the total; press d / w for 24h vs 7d). With OpenTelemetry wired up, group
+claude_code.token.usage on query_source × model × effort — all three emit verbatim. Prefer token counts
+over dollars on a seat plan; usage inside the seat allowance is not metered in dollars.
+EOF
+  exit 0
+fi
+# ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
 [ -n "$SESSION" ] || err "--session <id> is required"
 [ "${#args[@]}" -ge 1 ] || err "a subcommand is required"
 
@@ -182,7 +332,7 @@ case "$sub" in
         cur_ord="$(phase_order "$current_phase")"
         new_ord="$(phase_order "$phase")"
         if [ "$new_ord" -lt "$cur_ord" ]; then
-          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-bypass true' first (recovery mode), or 'set-phase discover' to start a new task."
+          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-phase discover' to start a new task. (A human can override with set-bypass true --reason '<why>'; do not do this on your own initiative.)"
         fi
       fi
     fi
@@ -364,9 +514,21 @@ case "$sub" in
     STATE="$(jq --argjson v "$j" '.outstanding=$v' <<<"$STATE")"
     ;;
   set-bypass)
+    # PLUMB-F-07: bypass disables the plan gate AND the write gate. It was a bare boolean, so the one
+    # command that switches enforcement off left no record of who turned it off or why. Turning it ON now
+    # requires --reason, and the reason is persisted next to the flag; turning it OFF stays free.
     b="${shift_args[0]:-}"
     case "$b" in true|false) ;; *) err "set-bypass needs true|false" ;; esac
-    STATE="$(jq --argjson v "$b" '.bypass=$v' <<<"$STATE")"
+    reason=""
+    for _i in "${!shift_args[@]}"; do
+      [ "${shift_args[$_i]}" = "--reason" ] && reason="${shift_args[$((_i+1))]:-}"
+    done
+    if [ "$b" = "true" ] && [ -z "$reason" ]; then
+      err "set-bypass true requires --reason '<why>' — bypass disables both the plan gate and the write gate, and an unexplained bypass is indistinguishable from a mistake"
+    fi
+    STATE="$(jq --argjson v "$b" --arg r "$reason" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      'if $v then (.bypass=$v | .bypass_reason=$r | .bypass_ts=$ts)
+       else (.bypass=$v | .bypass_reason=null | .bypass_ts=null) end' <<<"$STATE")"
     ;;
   set-complexity)
     c="${shift_args[0]:-}"

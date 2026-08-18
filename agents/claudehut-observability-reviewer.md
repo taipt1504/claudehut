@@ -2,7 +2,6 @@
 name: claudehut-observability-reviewer
 description: Observability review — metrics, tracing, and SLO instrumentation on new/changed endpoints, listeners, jobs, and outbound clients. Read-only.
 model: sonnet
-effort: high
 tools: Read, Grep, Glob
 color: yellow
 ---
@@ -43,6 +42,9 @@ flowchart TB
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
 
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
+
 ## What to check
 
 - **Metrics** — Micrometer `MeterRegistry` timer/counter, `@Timed`, or Observation API on each operation;
@@ -56,7 +58,7 @@ flowchart TB
 
 ## Output — coverage table (per the rigor contract)
 
-One row per enforcement-set `observability/*` item + per instrumentation-floor class above → `✓|✗|n-a` +
-`file:line` + the deciding evidence (the meter/span/timer, or its absence at the cited handler). A `✓` with no
-cited line is not satisfied. **Verdict:** `PASS` only if every row is `✓`/`n-a`; else `OUTSTANDING` (each `✗`
-at MED+; an unmetered request path or a broken trace is HIGH). Read-only; do not edit.
+One row per enforcement-set `observability/*` item + per instrumentation-floor class above, cited with the
+deciding evidence — **the meter/span/timer, or its absence at the cited handler**.
+
+Read-only; do not edit.

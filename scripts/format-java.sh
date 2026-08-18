@@ -9,6 +9,8 @@ in="$(cat || true)"
 command -v jq >/dev/null 2>&1 || exit 0
 
 fp="$(jq -r '.tool_input.file_path // empty' <<<"$in" 2>/dev/null || true)"
+# The hook now carries if:"Write(*.java)" / if:"Edit(*.java)", so this is belt-and-braces rather than the
+# only guard — kept because the script is also runnable by hand, where no hook filter applies.
 case "$fp" in *.java) ;; *) exit 0 ;; esac
 [ -f "$fp" ] || exit 0
 

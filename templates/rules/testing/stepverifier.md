@@ -2,6 +2,7 @@
 id: rules/testing/stepverifier
 paths:
   - "**/*Test.java"
+  - "**/*Tests.java"
 stack: "web=webflux"
 severity: medium
 tags: [stepverifier, reactor, webflux, reactive]

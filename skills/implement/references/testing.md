@@ -37,7 +37,7 @@
 - **Mockito** — `@ExtendWith(MockitoExtension.class)` + `@Mock` / `@InjectMocks`; BDD style `given(...).willReturn(...)`.
 - **Strict stubs** — `@MockitoSettings(strictness = Strictness.STRICT_STUBS)` (default Mockito 3+); fix unused stubs, don't downgrade.
 - **ArgumentCaptor** — capture for complex object assertions instead of `any()` verify.
-- **Spring MVC slices** — `@WebMvcTest` injects `MockMvcTester` (Boot 3.2+, AssertJ-native); `@MockitoBean` for collaborators.
+- **Spring MVC slices** — `@WebMvcTest` injects `MockMvcTester` (Boot 3.4+, AssertJ-native); `@MockitoBean` for collaborators.
 - **Testcontainers** — pin image tag; `static` + `@Testcontainers`; `withReuse(true)` locally; `@ServiceConnection` (Boot 3.1+) over manual `@DynamicPropertySource`.
 - **Data isolation** — `@AfterEach` TRUNCATE, or `@Transactional` for rollback.
 - **WireMock** — dynamic port; stub narrowly; always `wm.verify(...)` afterward.
@@ -108,13 +108,13 @@ class UserServiceTest {
 }
 ```
 
-### Web slice — @WebMvcTest + MockMvcTester (Boot 3.2+)
+### Web slice — @WebMvcTest + MockMvcTester (Boot 3.4+)
 
 ```java
 @WebMvcTest(OrderController.class)
 class OrderControllerTest {
 
-    @Autowired MockMvcTester mvc;       // AssertJ-native; preferred over MockMvc in Boot 3.2+
+    @Autowired MockMvcTester mvc;       // AssertJ-native; preferred over MockMvc in Boot 3.4+
     @MockitoBean OrderService service;  // @MockBean deprecated in Boot 3.4
 
     @Test
@@ -306,7 +306,7 @@ static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgres:16-alpine
 | Version | Change |
 |---|---|
 | Spring Boot 3.1 | `@ServiceConnection` replaces `@DynamicPropertySource` for TC containers |
-| Spring Boot 3.2 | `MockMvcTester` (AssertJ-native) preferred over `MockMvc` for new tests |
+| Spring Boot 3.4 | `MockMvcTester` (AssertJ-native) preferred over `MockMvc` for new tests |
 | Spring Boot 3.4 | `@MockBean` / `@SpyBean` deprecated → use `@MockitoBean` / `@SpyitoBean` |
 | Mockito 3+ | `STRICT_STUBS` is default; unused stubs throw `UnnecessaryStubbingException` |
 | Testcontainers 1.20+ | `withReuse(true)` requires `testcontainers.reuse.enable=true` in `~/.testcontainers.properties`; ignored in CI unless explicitly set |

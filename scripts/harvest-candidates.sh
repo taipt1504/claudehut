@@ -32,7 +32,12 @@ FAIL="$PROJECT_DIR/.claude/claudehut/state/$SID.failures.jsonl"
 if [ -n "$SID" ] && [ -f "$FAIL" ]; then
   while IFS= read -r sig; do
     [ -n "$sig" ] || continue
-    cnt="$(grep -cF "$sig" "$FAIL" 2>/dev/null || echo 0)"
+    # LRN-3: count RECORDS whose own signature equals this one. `grep -cF` counted any line CONTAINING
+    # the string anywhere — a signature that is a substring of another record's command inflated the count
+    # and manufactured a "recurring" pitfall from a single failure.
+    # count OCCURRENCES, not records: record-failure.sh collapses an immediately-repeated identical
+    # failure into a .hits bump rather than a second line, so records alone undercount recurrence.
+    cnt="$(jq -r --arg s "$sig" 'select((.stderr // .error // .signature // .command // .cmd // .detail // "") == $s) | (.hits // 1)' "$FAIL" 2>/dev/null | awk '{t+=$1} END{print t+0}')"
     [ "${cnt:-0}" -ge 2 ] || continue
     line="$(jq -nc --arg s "$sig" '
       ($s | ascii_downcase | [scan("[a-z0-9]+")] | map(select(length>3))[0:3]) as $kw
@@ -41,7 +46,12 @@ if [ -n "$SID" ] && [ -f "$FAIL" ]; then
          learning:("recurring build/dependency error this session: " + ($s[0:160])),
          evidence:"state/failures.jsonl", confidence:0.5}' 2>/dev/null || true)"
     [ -n "$line" ] && emit "$line"
-  done < <(jq -r '(.signature // .error // .cmd // .detail // empty)' "$FAIL" 2>/dev/null | sort -u)
+    # LRN-3: `record-failure.sh` writes {command, exit, type, stderr} — none of .signature/.error/.cmd/
+    # .detail. This read matched nothing on a real record, which is the second break in the harvest chain:
+    # even once record-failure was fixed, the harvest could not see its output. stderr is the fingerprint,
+    # because the SAME command failing for two different reasons is two different pitfalls; .command is a
+    # fallback only for records with no message at all (an interrupt).
+  done < <(jq -r '(.stderr // "" | select(length>0)) // (.signature // .error // .command // .cmd // .detail // empty)' "$FAIL" 2>/dev/null | grep -v '^$' | sort -u)
 fi
 
 # 2) review.md ✗/violated coverage rows → findings.
@@ -51,6 +61,16 @@ if [ -f "$RV" ]; then
     item="$(printf '%s' "$row" | awk -F'|' 'NF>2{print $2}' | sed 's/^ *//;s/ *$//')"
     [ -n "$item" ] || continue
     ev="$(printf '%s' "$row" | grep -oE '[A-Za-z0-9_/]+\.(java|kt|kts|sql|ts)[:0-9]*' | head -1)"
+    # LRN-8: gate contentless rows. Every ✗ row became a candidate, and the emitter always attached a
+    # citation placeholder ("no evidence") plus whatever tokens it could scrape — so a row like
+    # "| x | ✗ | |" produced a learning with a one-token trigger and no evidence, competing for the
+    # injection budget against real lessons.
+    # The plan proposed "a citation AND >=2 trigger tokens". The second half is too strict against the
+    # corpus's own canonical good row: "N+1 in OrderRepo" tokenises to just ["orderrepo"], because "n+1"
+    # loses its digits to the separator and "in" is below the length floor. A missing CITATION is the
+    # reliable contentlessness signal; the token floor is one real word.
+    kwn="$(printf '%s' "$item" | tr 'A-Z' 'a-z' | grep -oE '[a-z0-9]{3,}' | sort -u | grep -c . || echo 0)"
+    if [ -z "$ev" ] || [ "${kwn:-0}" -lt 1 ]; then continue; fi
     line="$(jq -nc --arg i "$item" --arg e "${ev:-no evidence}" '
       ($i | ascii_downcase | [scan("[a-z0-9]+")] | map(select(length>2))[0:3]) as $kw
       | {category:"finding", trigger:($kw | join("|")),

@@ -1,0 +1,23 @@
+# W18 allowlist — the evals/*.sh that nothing runs automatically, and why that is deliberate.
+#
+# Format: <script>: <one-line reason it is NOT on a checklist>.
+# The reason is mandatory and reference-check.sh enforces it. "What the script does" is not a reason;
+# an entry without a real one is a mute button, not a decision. Delete the line when the script is
+# retired or wired into ci.yml / the README release-checklist block — reference-check.sh fails on a
+# stale entry, so this list cannot quietly outlive the scripts it excuses.
+
+.diag.sh: one-off diagnostic kept for re-runs — it prints a transcript for a human to read and asserts nothing, so there is no result to gate on.
+loc-metric.sh: a measurement instrument for the EVAL-REPORT cost track, not a test — it emits numbers with no pass/fail line.
+p7-init.sh: drives a real `claude` session, so it costs tokens and runs only on an explicit budget go-ahead.
+parallel-dispatch-probe.sh: live token-costing probe that closed Issue 1 in v0.3.2; kept for re-verification when dispatch changes, not for every release.
+parallel-dispatch-spine-probe.sh: live token-costing probe for the v0.5.0 spine-dependent fanout; re-run when worktree dispatch changes, not per release.
+playbook-fix-validate.sh: live token-costing acceptance run for a fix that already shipped; re-run only if the implement skill's inlined security guidance changes.
+playbook-read-probe-hv.sh: live token-costing probe measuring a non-deterministic read-rate — there is no stable threshold to turn it into a gate.
+playbook-read-probe.sh: in README's live list but deliberately off the checklist — token-costing, and it measures a soft behaviour with no pass line.
+rule-glob-probe.sh: one-off discriminator that answered why path-scoped rules scored 0/6; the question is closed and re-running costs tokens.
+rule-load-probe.sh: live token-costing A/B against Claude Code's native rules mechanism, not against this plugin — no change here can regress it.
+rule-tiebreak-probe.sh: one-off tie-breaker between two contradictory probe results; the finding is recorded and a re-run proves nothing new.
+
+# NOT listed, and deliberately: run.sh, score.sh and llm-judge.sh are executed by conformance.sh (:839,
+# :832, :822), which ci.yml runs — reference-check.sh treats "executed by a covered suite" as covered and
+# will call an entry for any of them stale.

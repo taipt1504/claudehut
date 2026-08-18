@@ -65,17 +65,230 @@ done
 # C5 — implementer preloads [implement]; brainstorm+review dispatch existing agents
 fm "$ROOT/agents/claudehut-implementer.md" | grep -A2 '^skills:' | grep -q 'implement' \
   && ok "implementer preloads implement skill" || bad "implementer skills: [implement] missing"
+# REACH-02a — the loop named 10 of the 14 agents, so C4's `[ "$AG" = "14" ]` count was the ONLY cover for
+# the other four: rename claudehut-contract-reviewer.md and the count stays 14 and the suite stays green
+# while every dispatch site that names it breaks. Every agent is named here now, by hand, so a rename fails.
 for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
          claudehut-test-runner claudehut-reviewer claudehut-security-auditor \
-         claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner; do
+         claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner \
+         claudehut-contract-reviewer claudehut-observability-reviewer \
+         claudehut-implementer claudehut-plan-reviewer; do
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
+# MEM-1 mode 2 — the learner is the ONLY writer of MEMORY.md, and inlining facts under "## Topics" instead
+# of a one-line pointer is what put three real installs 9-36 KB over budget while passing any line count.
+# The contract has to be stated where the writer reads it, and it is worth an assertion because there is no
+# other mechanism: no script writes this file, so nothing else can enforce the shape.
+LRN="$ROOT/agents/claudehut-learner.md"
+grep -q '8192 bytes' "$LRN" && grep -q 'Never write the facts here' "$LRN" \
+  && ok "MEM-1: learner carries the MEMORY.md byte budget + one-line-pointer contract" \
+  || bad "MEM-1: learner may re-inline facts into the always-loaded index"
+grep -q 'MEMORY-history.md' "$LRN" \
+  && ok "MEM-1: learner is told to append per-task blocks to MEMORY-history.md" \
+  || bad "MEM-1: learner still appends per-task blocks to the always-loaded index"
+# RES-K5 — a plugin skill is invoked as <plugin>:<skill-dir>, so the skills in skills/claudehut-init/ and
+# skills/claudehut-workflow/ are /claudehut:claudehut-init and /claudehut:claudehut-workflow. The short
+# forms were printed in a SessionStart systemMessage and in the always-loaded digest, i.e. told to the user
+# and to the model as if they worked. Same plugin-scoping defect the v0.10 agent_type fix closed.
+if grep -rn '/claudehut:workflow\b\|/claudehut:init\b' "$ROOT/skills" "$ROOT/scripts" "$ROOT/README.md" >/dev/null 2>&1; then
+  bad "RES-K5: an unscoped /claudehut:workflow or /claudehut:init survives in model- or user-facing text"
+else
+  ok "RES-K5: slash commands are plugin-scoped (/claudehut:claudehut-<skill>)"
+fi
+# SKILL-F5 — digest.md is what SessionStart injects, so when it and SKILL.md disagree the model is told the
+# WRONG rule and the fuller SKILL.md is never read. Law 4 diverged exactly that way: the digest said entering
+# Discover closes the skill rail, omitting Brainstorm. bin/claudehut-state:400 resets implement_skill_ok on
+# `discover|brainstorm`, so the digest was the one that was wrong. Pin the digest to the CLI, then pin the two
+# documents to each other so the next divergence is caught rather than shipped.
+DG="$ROOT/skills/claudehut-workflow/references/digest.md"; WF="$ROOT/skills/claudehut-workflow/SKILL.md"
+if grep -qE 'discover\|brainstorm\) STATE=.*implement_skill_ok=false' "$ROOT/bin/claudehut-state"; then
+  grep -q 'Discover/Brainstorm' "$DG" \
+    && ok "SKILL-F5: digest law 4 matches claudehut-state (both Discover and Brainstorm close the rail)" \
+    || bad "SKILL-F5: digest law 4 omits a phase that claudehut-state:400 actually resets on"
+else
+  bad "SKILL-F5: claudehut-state no longer resets implement_skill_ok on discover|brainstorm — digest prose is now unpinned"
+fi
+# law HEADINGS must be the same set in both documents (normalised: number + bold title, punctuation stripped)
+# Normalise hard: SKILL.md writes "**Canonical store — one dir per task.**" where the digest writes
+# "**Canonical store**". Same law, more room. So compare the number plus the title's leading clause only,
+# cut at the first '.' or em-dash, lowercased, alphanumerics only. What must not drift is the SET and the
+# ORDER of the laws — a renumbered or dropped law, not a longer subtitle.
+# Strip the "N. " numbering FIRST — otherwise the cut-at-first-period eats the whole title and the check
+# degrades to "both files have 7 numbered items", which a renamed law would sail straight through.
+laws_of(){ grep -oE '^[0-9]+\. \*\*[^*]+\*\*' "$1" \
+             | sed -E -e 's/^([0-9]+)\. \*\*/\1|/' -e 's/\*\*.*$//' -e 's/[.—].*$//' \
+             | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]|\n'; }
+if [ "$(laws_of "$DG")" = "$(laws_of "$WF")" ]; then
+  ok "SKILL-F5: digest and claudehut-workflow/SKILL.md carry the same law headings"
+else
+  bad "SKILL-F5: law headings diverged between the injected digest and SKILL.md"
+fi
 
-# C6 — rule layer: 2 always-on + 53 domain; every domain rule path-scoped
+# RULE-09/10/11/12/18 — a rule that never matches a real filename is indistinguishable from a rule that is
+# absent, and nothing in the corpus checks. These four pin the glob classes that were dead or over-broad.
+if grep -rn '^  - "\*\*/\*"$' "$ROOT/templates/rules" >/dev/null 2>&1; then
+  bad "RULE-09: a rule still globs \"**/*\" — it matches binaries, images and build output, not just code"
+else
+  ok "RULE-09: no rule globs bare \"**/*\""
+fi
+# JUnit5 + Spring convention is FooTests.java as often as FooTest.java (Spring's own codebase uses Tests),
+# so a testing rule that omits it silently skips half the suites it exists to govern.
+miss_t=0; for f in "$ROOT"/templates/rules/testing/*.md; do grep -q 'Tests\.java' "$f" || miss_t=$((miss_t+1)); done
+[ "$miss_t" = "0" ] \
+  && ok "RULE-18: every testing rule matches **/*Tests.java as well as *Test.java" \
+  || bad "RULE-18: $miss_t testing rule(s) never fire on a *Tests.java suite"
+# jpa.md governs entities; lombok-jpa-safety.md governs the same entities and already knew they live in
+# entity/ and domain/ packages without an *Entity.java suffix. jpa.md must cover at least as much.
+jp="$ROOT/templates/rules/framework/jpa.md"; lj="$ROOT/templates/rules/framework/lombok-jpa-safety.md"
+missing_glob=0
+while IFS= read -r g; do grep -qF "$g" "$jp" || missing_glob=$((missing_glob+1)); done < <(grep -E '^  - "' "$lj")
+[ "$missing_glob" = "0" ] \
+  && ok "RULE-12: jpa.md covers every entity path lombok-jpa-safety.md covers" \
+  || bad "RULE-12: $missing_glob entity path(s) governed by lombok-jpa-safety but not by jpa.md"
+# JSR-305 is unmaintained and its javax package is wrong on a Jakarta baseline; Hibernate 6 renamed the
+# lock-timeout hint to jakarta.persistence.*. Allow the one line that names javax in order to forbid it.
+# A rule may NAME javax in order to forbid it; the allow-list is the prohibition phrasing, so a line that
+# teaches the API still has no excuse. Widened once, when jpa-locking.md legitimately warned about the
+# Hibernate 5 hint key by name.
+# `javax.money` (JSR-354) is carved out on purpose: it is not a Jakarta EE API, was never migrated, and
+# the Moneta reference implementation still ships that exact package. The premise of this check —
+# "javax.* is the pre-Jakarta name" — is simply false for it.
+if grep -rn 'javax\.' "$ROOT/templates/rules" \
+   | grep -qvE 'unmaintained|wrong package|Hibernate 5 name|silently ignored|no effect, no error|javax\.money'; then
+  bad "RULE-18: a rule still teaches a javax.* API on a Jakarta/Boot-3 baseline"
+else
+  ok "RULE-18: rules name javax.* only to forbid it"
+fi
+
+# RULE-13 — @MockBean and @SpyBean are deprecated since Boot 3.4.0 and REMOVED in 4.0.0 in favour of
+# Spring Framework's MockitoBean/MockitoSpyBean (verified against the Boot 3.4 API docs). A rule that teaches
+# the removed annotation ages into a compile error rather than a style nit.
+# Checked per FILE, not per line: the deprecation note legitimately wraps onto the following line, and a
+# line-based check would demand the words share a line — a shape constraint, not a correctness one.
+mb_bad=0
+for f in $(grep -rl '@MockBean\|@SpyBean' "$ROOT/templates/rules" 2>/dev/null); do
+  grep -q 'deprecated since Boot 3.4' "$f" || mb_bad=$((mb_bad+1))
+done
+[ "$mb_bad" = "0" ] \
+  && ok "RULE-13: rules teach @MockitoBean; any @MockBean mention carries the 3.4 deprecation" \
+  || bad "RULE-13: $mb_bad rule file(s) teach @MockBean/@SpyBean with no deprecation note"
+
+# SKILL-F11 — two cross-cutting Spring conventions lived only in skills/implement/SKILL.md's always-loaded
+# floor, so they were never enforced at edit time. Appended as ungated rows to an existing always-active rule
+# rather than as a new file, which would force an RT bump for two bullets.
+pl="$ROOT/templates/rules/architecture/package-layout.md"
+grep -q 'Thin controllers' "$pl" && grep -q 'ConfigurationProperties' "$pl" \
+  && ok "SKILL-F11: thin-controller + externalised-config rows present in an always-active rule" \
+  || bad "SKILL-F11: the two cross-cutting conventions still exist only in the skill body"
+grep -q '^stack:' "$pl" \
+  && bad "SKILL-F11: package-layout.md became stack-gated — the two rows would stop being universal" \
+  || ok "SKILL-F11: package-layout.md is still ungated (reaches every project)"
+
+# RULE-02/07/08 — the three rules added in v0.11. Each is asserted on the property that made it worth
+# adding, not merely on existence: money-arithmetic must be ungated (it applies to any Java), jpa-locking
+# must be orm-gated (its annotations do not exist in R2DBC), outbound-resilience must be ungated.
+mg="$ROOT/templates/rules/coding/money-arithmetic.md"
+jl="$ROOT/templates/rules/performance/jpa-locking.md"
+orl="$ROOT/templates/rules/framework/outbound-resilience.md"
+{ [ -f "$mg" ] && ! grep -q '^stack:' "$mg" && grep -q 'RoundingMode' "$mg"; } \
+  && ok "RULE-07: money-arithmetic present, ungated, names RoundingMode" \
+  || bad "RULE-07: money-arithmetic missing, stack-gated, or silent on RoundingMode"
+{ [ -f "$orl" ] && ! grep -q '^stack:' "$orl" && grep -q 'idempot' "$orl"; } \
+  && ok "RULE-08: outbound-resilience present, ungated, ties retry to idempotency" \
+  || bad "RULE-08: outbound-resilience missing, stack-gated, or silent on idempotent retry"
+grep -q 'stack: "orm=jpa"' "$jl" \
+  && ok "RULE-02: jpa-locking is gated orm=jpa (its annotations do not exist in R2DBC)" \
+  || bad "RULE-02: jpa-locking is not orm-gated — it would install into R2DBC projects"
+grep -qE '@Lock|@QueryHint|entityManager' "$ROOT/templates/rules/performance/postgres-locking.md" \
+  && bad "RULE-02: JPA annotations still in postgres-locking.md, which is gated only on db=postgresql" \
+  || ok "RULE-02: postgres-locking.md is client-agnostic (no JPA annotations)"
+
+# SKILL-F4 — templates/rules/framework/lombok-jpa-safety.md permits @EqualsAndHashCode(onlyExplicitlyIncluded
+# = true) and bans only the naked form. Three copies stated an UNQUALIFIED ban, so a reviewer following them
+# would flag the CORRECT pattern as a violation. Any mention must qualify it.
+eq_bad=0
+for f in "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md; do
+  grep -q 'EqualsAndHashCode' "$f" 2>/dev/null || continue
+  grep -qE 'naked|onlyExplicitlyIncluded|bare' "$f" || eq_bad=$((eq_bad+1))
+done
+[ "$eq_bad" = "0" ] \
+  && ok "SKILL-F4: every @EqualsAndHashCode mention qualifies the ban (naked form only)" \
+  || bad "SKILL-F4: $eq_bad file(s) ban @EqualsAndHashCode outright — the correct pattern would be flagged"
+# RES-LSP2 — the plugin ships jdtls but no skill mentioned it. It must also NOT claim diagnostics, which
+# are off in .lsp.json: telling the model the LSP reports type errors after an edit is simply false here.
+{ grep -q 'findReferences' "$ROOT/skills/implement/SKILL.md" && grep -q 'findReferences' "$ROOT/skills/review/SKILL.md"; } \
+  && ok "RES-LSP2: implement and review both point at LSP symbol navigation" \
+  || bad "RES-LSP2: a skill still has no LSP guidance despite .lsp.json shipping jdtls"
+if grep -rn 'LSP' "$ROOT/skills" | grep -qiE 'reports type errors|diagnostics (are |is )?(on|enabled)'; then
+  bad "RES-LSP2: a skill claims LSP diagnostics — they are off in .lsp.json"
+else
+  ok "RES-LSP2: no skill claims LSP diagnostics"
+fi
+
+# SKILL-F2 — the slice-test matrix carried MVC and JPA only, in a corpus where every real service checked
+# is WebFlux on R2DBC. A reviewer reading it had no reactive reference at all, and the JPA examples do not
+# transfer. Also pins the Boot 3.4 test APIs here, since this file is what a reviewer copies from.
+tm="$ROOT/skills/review/references/test-matrix.md"
+miss_tm=""
+for pat in '@WebFluxTest' '@DataR2dbcTest' 'StepVerifier' 'Testcontainers, not embedded fakes'; do
+  grep -qF "$pat" "$tm" || miss_tm="$miss_tm $pat"
+done
+[ -z "$miss_tm" ] \
+  && ok "SKILL-F2: the test matrix covers the reactive slices and the Testcontainers rule" \
+  || bad "SKILL-F2: the test matrix is missing:$miss_tm"
+# Match the ANNOTATION USE (indented, followed by a type), not a prose mention of the name — the file
+# legitimately says "@MockBean is removed in Boot 4" while showing @MockitoBean in the example.
+grep -qE '^[[:space:]]+@MockBean[[:space:]]+[A-Z]' "$tm" \
+  && bad "SKILL-F2: the test matrix still USES @MockBean, removed in Boot 4" \
+  || ok "SKILL-F2: the test matrix uses @MockitoBean in its examples"
+# SKILL-F3 — single-source, the same shape WS-9 used for the rigor contract: the slice ladder lives in
+# test-matrix.md and the SKILL binds a READ of it. The irreducible judgements (no embedded fakes, no
+# Thread.sleep, @SpringBootTest last) stay in the always-invoked body, because a reviewer who skips the
+# reference must still not accept a test that proves less than it claims.
+rvs="$ROOT/skills/review/SKILL.md"
+{ grep -q 'references/test-matrix.md' "$rvs" && grep -qi 'read it before judging' "$rvs"; } \
+  && ok "SKILL-F3: review binds a READ of the test matrix, not a bare mention" \
+  || bad "SKILL-F3: the test-matrix pointer is not binding — a collapsed ladder with no read is a regression"
+{ grep -qi 'embedded fake' "$rvs" && grep -qi 'Thread.sleep' "$rvs"; } \
+  && ok "SKILL-F3: the irreducible test judgements survive the collapse" \
+  || bad "SKILL-F3: collapsing the ladder dropped a judgement that has no other always-loaded home"
+# RES-R1 — the description promised "loops until nothing applicable is unsatisfied" while :144 caps the loop
+# at two fix rounds. The description is what the model reads before invoking; promising an unbounded loop
+# describes the workflow's most expensive failure mode as if it were the contract.
+if grep -q '^description:' "$rvs" && sed -n 's/^description: *//p' "$rvs" | head -1 | grep -qi 'loops until'; then
+  bad "RES-R1: review's description still promises an unbounded loop, contradicting the round cap at :144"
+else
+  ok "RES-R1: review's description does not contradict its own round cap"
+fi
+
+# D6 — TaskCreate/TaskUpdate are NOT universally present. ToolSearch returned no match for them in a real
+# session while skills instructed the main thread to keep a "native task mirror" with them, and write-plan
+# made it step 4 of an ordered procedure. That is the mcp__postgres__query class of defect: a mandatory
+# instruction naming a tool that is not there. Every mention must be conditional, the way implement/SKILL.md
+# already conditions its orchestration section on having an Agent tool.
+# SCOPE, stated honestly: this is a FILE-level check. It catches the realistic regression — a rewrite that
+# drops the conditionality from a section wholesale — but a file that keeps the phrase somewhere else while
+# one mention goes unconditional still passes. A per-mention check would need to parse prose structure.
+tt_bad=0
+for f in "$ROOT"/skills/*/SKILL.md "$ROOT"/skills/*/references/*.md "$ROOT"/agents/*.md "$ROOT"/templates/*.tmpl; do
+  [ -f "$f" ] || continue
+  grep -q 'TaskCreate\|TaskUpdate' "$f" 2>/dev/null || continue
+  # frontmatter allowed-tools is a permission grant, not an instruction — it may name them unconditionally
+  body="$(sed '/^allowed-tools:/d' "$f")"
+  printf '%s' "$body" | grep -q 'TaskCreate\|TaskUpdate' || continue
+  printf '%s' "$body" | grep -qiE 'if .*task tools|task tools (exist|available)|IF task tools|when those tools exist|those tools exist' \
+    || { tt_bad=$((tt_bad+1)); echo "      (unconditional task-tool instruction: ${f#$ROOT/})"; }
+done
+[ "$tt_bad" = "0" ] \
+  && ok "D6: every task-mirror instruction is conditional on the tools existing" \
+  || bad "D6: $tt_bad file(s) instruct the model to use TaskCreate/TaskUpdate unconditionally"
+
+# C6 — rule layer: 2 always-on + 56 domain; every domain rule path-scoped
 # (v0.4 Issue-4 additions: transaction-propagation, virtual-threads, postgres-locking, jwt-validation;
-#  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat)
+#  v0.9 Rec 3 adds observability/instrumentation, Rec 2 adds framework/contract-compat;
+#  v0.11 adds coding/money-arithmetic, framework/outbound-resilience, performance/jpa-locking)
 RT=$(find "$ROOT/templates/rules" -name '*.md' | wc -l | tr -d ' ')
-[ "$RT" = "55" ] && ok "55 rule templates (53 domain + 2 always-on)" || bad "expected 55 rule templates, found $RT"
+[ "$RT" = "58" ] && ok "58 rule templates (56 domain + 2 always-on)" || bad "expected 58 rule templates, found $RT"
 nopaths=0
 for f in $(find "$ROOT/templates/rules" -mindepth 2 -name '*.md'); do
   fm "$f" | grep -q '^paths:' || { nopaths=$((nopaths+1)); echo "      (no paths: $f)"; }
@@ -161,6 +374,24 @@ done
 [ -z "${DANGLING// /}" ] && ok "rule templates cite no missing plugin files" \
   || bad "rule template cites a nonexistent plugin path:$DANGLING"
 
+# REACH-02b — the check above resolves backticked PATHS; a bare `claudehut-<name>` matches none of its
+# prefixes, so three shipped rules told every initialized project to expect `claudehut-reviewer-security`
+# (never existed) and a fourth named `claudehut-migration-validator` (never existed). These files are copied
+# into .claude/rules/ by claudehut-init, so the dead name is what the user's main thread reads. Resolve
+# against bin/ as well as agents/ — claudehut-init/-state/-worktree are executables, not agents — and skip
+# tokens carrying a file extension (`claudehut-config.json`), which are file refs, not agent names.
+DEADNAME=""
+for f in "$ROOT"/templates/rules/*/*.md "$ROOT"/templates/rules/*.md; do
+  [ -f "$f" ] || continue
+  for tok in $(grep -ohE 'claudehut-[a-z0-9-]+(\.[a-z0-9]+)?' "$f" 2>/dev/null | sort -u); do
+    case "$tok" in *.*) continue ;; esac
+    { [ -f "$ROOT/agents/$tok.md" ] || [ -e "$ROOT/bin/$tok" ]; } \
+      || DEADNAME="$DEADNAME ${f#"$ROOT"/}:$tok"
+  done
+done
+[ -z "${DEADNAME// /}" ] && ok "rule templates name no nonexistent claudehut agent/binary" \
+  || bad "rule template names a claudehut agent/binary that does not exist:$DEADNAME"
+
 ORCH="$ROOT/skills/implement/references/orchestration.md"
 { [ -f "$ORCH" ] && grep -qi 'check-disjoint' "$ORCH" && grep -qi 'reconcile' "$ORCH"; } \
   && ok "implement: references/orchestration.md exists and carries the phase-walk mechanism" \
@@ -210,10 +441,18 @@ for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
     bad "agent $n: mcp__mysql__list_tables/describe_table are MCP Resources not Tools — use mcp__mysql__mysql_query with SQL"
   else ok "agent $n: no bogus mysql resource-as-tool names"; fi
 done
-for a in claudehut-perf-reviewer claudehut-security-auditor; do
-  fm "$ROOT/agents/$a.md" | grep -q 'mcp__kafka__get-consumer-group-lag' \
-    && ok "$a: kafka tool allowlist present (consumer-group lag)" \
-    || bad "$a: missing mcp__kafka__get-consumer-group-lag — Kafka review is zero at runtime when connected"
+# TOOLS-02 narrowed this from one shared expectation to a per-agent one. Both agents must still be able to
+# reach Kafka at runtime, but not through the same tool: perf-reviewer's body genuinely does consumer-lag
+# work, while security-auditor's only Kafka procedure is topic ACLs and partition assignments — consumer
+# groups, lag and consume-messages appear nowhere in it. Pinning get-consumer-group-lag on the auditor forced
+# a grant no procedure called, alongside live message-payload read on an opus/xhigh agent. Same intent
+# ("Kafka review is not zero when connected"), asserted against the tool each agent actually names.
+for pair in "claudehut-perf-reviewer:mcp__kafka__get-consumer-group-lag" \
+            "claudehut-security-auditor:mcp__kafka__list-topics"; do
+  a="${pair%%:*}"; t="${pair#*:}"
+  fm "$ROOT/agents/$a.md" | grep -q "$t" \
+    && ok "$a: kafka tool allowlist present ($t)" \
+    || bad "$a: missing $t — Kafka review is zero at runtime when connected"
 done
 # No agent may declare a kafka tool the recommended server does not expose: describe-topic has no
 # self-managed equivalent (get-topic-config is Confluent Cloud only and returns config, not partition
@@ -231,6 +470,97 @@ grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
 
 # C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
 HJ="$ROOT/hooks/hooks.json"
+# RES-H3 — `fork` is a documented SessionStart source and was missing from the matcher, so a forked session
+# ran no bootstrap: no state, and gate-write.sh fails open on missing state, making the whole workflow
+# optional in that session. Verified against a real `claude --resume --fork-session`.
+# RES-H1/H11 — `if` is a documented per-handler key ("Permission rule syntax to filter when this hook runs
+# … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
+# process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
+# reading its own guard. One rule per handler, so two handlers become four.
+# RES-M14/IDEA-F2 — `small` paid the ~26s two-subagent dispatch floor for a change bounded at two files.
+# The carve-out is INLINE WITH ARTIFACT: it replaces the dispatch, never the scan. Both halves are asserted,
+# because "small skips the scan" is the failure this must not become — the reuse-scan rail is unconditional
+# in every tier and the write gate still requires the file.
+DSC="$ROOT/skills/discover/SKILL.md"
+grep -q '`trivial` and `small` tiers → INLINE DISCOVER' "$DSC" \
+  && ok "RES-M14: small runs discover inline (no dispatch floor)" \
+  || bad "RES-M14: small still pays the two-subagent dispatch floor"
+grep -q 'Inline replaces the \*dispatch\*, never the \*scan\*' "$DSC" \
+  && ok "IDEA-F2: the artifact is still mandatory on the inline path" \
+  || bad "IDEA-F2: the inline carve-out no longer states that the scan itself is unconditional"
+# the tier table is duplicated in the injected digest and in SKILL.md; row 11 pins them to agree
+for f in "$ROOT/skills/claudehut-workflow/references/digest.md" "$ROOT/skills/claudehut-workflow/SKILL.md"; do
+  grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$f" \
+    || bad "RES-M14: $(basename "$f") tier table still routes small through a dispatched Discover"
+done
+grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/references/digest.md" \
+  && grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/SKILL.md" \
+  && ok "RES-M14: both copies of the tier table route small through an inline Discover" \
+  || bad "RES-M14: the two tier tables disagree about small"
+
+# PLUMB-F-02/F-06 — SubagentStart does not carry the requested subagent_type, so record-dispatch.sh could
+# log that something was dispatched but not what. The Agent tool call carries it, with a tool_use_id both
+# sides share. This hook records the identity half.
+jq -e '[.hooks.PreToolUse[]?.matcher] | any(. == "Agent")' "$HJ" >/dev/null 2>&1 \
+  && ok "PLUMB-F-02: PreToolUse(Agent) records dispatch identity" \
+  || bad "PLUMB-F-02: dispatch identity is unrecorded — SubagentStart alone cannot name the agent"
+# PreToolUse is the one event that can DENY. This recorder sits in front of every fan-out, so it must never
+# emit a decision — asserted behaviourally, because a hook that CAN block is a new way to break fan-out.
+ADT="$(mktemp -d)"
+adout="$(printf '{"session_id":"S1","tool_name":"Agent","tool_use_id":"toolu_9","tool_input":{"subagent_type":"claudehut:claudehut-implementer"}}' \
+        | CLAUDE_PROJECT_DIR="$ADT" bash "$ROOT/scripts/record-agent-dispatch.sh" 2>/dev/null)"; adrc=$?
+{ [ "$adrc" = "0" ] && [ -z "$adout" ]; } \
+  && ok "PLUMB-F-06: the Agent recorder exits 0 and emits nothing (cannot block a dispatch)" \
+  || bad "PLUMB-F-06: the Agent recorder returned output or non-zero — it can now deny a fan-out"
+jq -e '.subagent_type == "claudehut:claudehut-implementer" and .tool_use_id == "toolu_9"' \
+   "$ADT/.claude/claudehut/state/S1.agent-dispatch.jsonl" >/dev/null 2>&1 \
+  && ok "PLUMB-F-02: identity and join key are both recorded" \
+  || bad "PLUMB-F-02: the sidecar is missing subagent_type or tool_use_id"
+printf '{"session_id":"S1","tool_name":"Bash","tool_input":{"command":"ls"}}' \
+  | CLAUDE_PROJECT_DIR="$ADT" bash "$ROOT/scripts/record-agent-dispatch.sh" >/dev/null 2>&1
+[ "$(grep -c '' "$ADT/.claude/claudehut/state/S1.agent-dispatch.jsonl")" = "1" ] \
+  && ok "PLUMB-F-02: a non-Agent payload records nothing" \
+  || bad "PLUMB-F-02: the recorder wrote a row for a payload with no subagent_type"
+rm -rf "$ADT"
+
+# PLUMB-F-04 — the docs say the UserPromptExpansion matcher filters on "command name" but do not say whether
+# a plugin skill arrives bare or plugin-scoped. v0.10 lost four SubagentStop contracts to exactly that
+# question (agent_type arrives as claudehut:<name>). The matcher accepts BOTH forms rather than guessing.
+jq -e '[.hooks.UserPromptExpansion[]?.matcher] | any(test("claudehut:"))' "$HJ" >/dev/null 2>&1 \
+  && ok "PLUMB-F-04: the expansion matcher accepts the plugin-scoped form too" \
+  || bad "PLUMB-F-04: the matcher only accepts bare skill names — a slash invocation may bypass the rail"
+# PLUMB-F-07 — bypass switches BOTH gates off; enabling it must leave a record of why.
+# Match the EXECUTABLE guard, not a comment mentioning it: `grep -q 'requires --reason'` alone stayed green
+# with the guard deleted, because the comment above it says the same words.
+grep -qE '^[[:space:]]+err "set-bypass true requires --reason' "$ROOT/bin/claudehut-state" \
+  && ok "PLUMB-F-07: enabling bypass requires --reason and persists it" \
+  || bad "PLUMB-F-07: bypass can still be enabled with no recorded reason"
+grep -rn 'set-bypass true' "$ROOT/skills" | grep -qv -- '--reason' \
+  && bad "PLUMB-F-07: a skill still tells the model to run a bare set-bypass true --reason "eval fixture"" \
+  || ok "PLUMB-F-07: no skill hands the model an unexplained bypass"
+
+[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if)] | length' "$HJ")" = "4" ] \
+  && ok "RES-H1: all four Java PostToolUse handlers are if-gated (no process on a non-Java write)" \
+  || bad "RES-H1: a Java handler still spawns on every Write/Edit"
+[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.statusMessage)] | length' "$HJ")" = "4" ] \
+  && ok "RES-H11: each Java handler names itself in the spinner" \
+  || bad "RES-H11: handlers run without a statusMessage"
+# lint-reuse's own guard excludes tests and .claude paths, which a *.java glob cannot express. It must stay.
+grep -q '\*Test.java|\*IT.java|\*/test/\*|\*/.claude/\*' "$ROOT/scripts/lint-reuse.sh" \
+  && ok "RES-H1: lint-reuse keeps its in-script filter (the glob cannot express test/.claude exclusion)" \
+  || bad "RES-H1: lint-reuse's filter was removed — it would now fire on tests and plugin state"
+
+jq -e '[.hooks.SessionStart[]?.matcher] | any(test("fork"))' "$HJ" >/dev/null 2>&1 \
+  && ok "RES-H3: SessionStart matches fork (a forked session still arms the gate)" \
+  || bad "RES-H3: fork is not matched — a forked session arms nothing and the write gate fails open"
+FKT="$(mktemp -d)"
+printf '{"session_id":"P1","source":"startup"}' | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+printf '{"session_id":"F2","source":"fork"}'    | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+[ -f "$FKT/.claude/claudehut/state/F2.json" ] \
+  && ok "RES-H3: a fork with a new session id gets its own armed state file" \
+  || bad "RES-H3: the fork produced no state — the gate is open in that session"
+rm -rf "$FKT"
+
 jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill-expansion"))' "$HJ" >/dev/null 2>&1 \
   && ok "P1-3: UserPromptExpansion → record-skill-expansion.sh wired (slash skill-rail bypass closed)" \
   || bad "P1-3: no UserPromptExpansion recorder — /claudehut:implement bypasses the skill rail"
@@ -239,6 +569,36 @@ jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failur
   || bad "C3: PostToolUseFailure not wired to record-failure.sh"
 # C3b/C3c — the two observation hooks. Both are advisory recorders that inject nothing and never block, so a
 # wiring mistake is otherwise invisible: the sidecar just stays empty while every eval still passes.
+# C3d/C3e — schema-drift self-report. record-failure.sh reads .tool_error.{exit_code,type,stderr}; in
+# production 682/682 staged records came back with all three empty, so the recorder was writing hollow
+# rows and the harvest downstream had nothing to work with. Nothing detected that. When all three are
+# empty the recorder now names the payload's actual top-level keys, so the next real failure identifies
+# the correct fields itself. C3e pins the other half: a healthy payload must stay byte-identical, or
+# every existing consumer of the sidecar sees a new field.
+CFT="$(mktemp -d)"
+printf '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"mvn test"},"unexpected_error_shape":{"code":2}}' \
+  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e '.schema_keys | test("unexpected_error_shape")' "$CFT/.claude/claudehut/state/s1.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3d: record-failure names the real payload keys when every known error path is empty" \
+  || bad "C3d: schema drift stays silent — record-failure wrote a hollow row with no schema_keys"
+# C3e/C3f use the payload CAPTURED FROM A REAL SESSION, verbatim — a real `ls /no/such/dir` failure. The
+# event sends `error` and `is_interrupt`; there is no tool_error object and no tool_response. Pinning the
+# real shape is what stops the field paths drifting back to something plausible but absent.
+REAL_FAIL='{"session_id":"s2","transcript_path":"/t","cwd":"/c","prompt_id":"p","permission_mode":"bypassPermissions","effort":{"level":"xhigh"},"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"ls /no/such/dir/xyz"},"tool_use_id":"toolu_01","error":"Exit code 1\nls: /no/such/dir/xyz: No such file or directory","is_interrupt":false,"duration_ms":47}'
+printf '%s' "$REAL_FAIL" | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e 'has("schema_keys") | not' "$CFT/.claude/claudehut/state/s2.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3e: the real failure payload records no schema_keys (sidecar shape unchanged)" \
+  || bad "C3e: schema_keys leaked on the real payload — the field paths do not match the live event"
+jq -e '.exit == "1" and .type == "error" and (.stderr | test("No such file"))' \
+     "$CFT/.claude/claudehut/state/s2.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3f: exit, type and stderr are all populated from the real payload" \
+  || bad "C3f: the real payload still yields a hollow record — this is the 682/682 bug"
+printf '{"session_id":"s3","tool_name":"Bash","tool_input":{"command":"sleep 99"},"error":"Interrupted by user","is_interrupt":true}' \
+  | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+jq -e '.type == "interrupt"' "$CFT/.claude/claudehut/state/s3.failures.jsonl" >/dev/null 2>&1 \
+  && ok "C3g: a user interrupt is typed as interrupt, not as a code failure" \
+  || bad "C3g: an interrupt is recorded as a real failure — Learn would treat it as a lesson"
+rm -rf "$CFT"
 jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3b: SubagentStart → record-dispatch.sh wired (dispatch observation)" \
   || bad "C3b: SubagentStart not wired to record-dispatch.sh"
@@ -252,10 +612,15 @@ done
 # replacing either body with `exit 0` kept every assertion green, while the sidecar they exist to produce
 # stayed empty. These drive the real scripts and check the line lands.
 HKT="$(mktemp -d)"
+# F5 moved the dispatch ledger out of state/<sid>.dispatches.jsonl — that path was both gitignored and
+# age-swept, so the artifact every cost claim depends on was designed to evaporate — to one shared
+# .claude/claudehut/ledger/dispatches.jsonl with session_id as a field. What this pins is unchanged and is
+# the whole point: the runtime delivers the PLUGIN-SCOPED agent_type (`claudehut:claudehut-reviewer`), not
+# the bare name, and verify-subagent.sh matched the bare form for months because the fixtures fed it.
 echo '{"session_id":"h","agent_type":"claudehut:claudehut-reviewer"}' \
   | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-dispatch.sh" >/dev/null 2>&1
-jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/state/h.dispatches.jsonl" >/dev/null 2>&1 \
-  && ok "record-dispatch.sh writes the observed agent_type to its sidecar" \
+jq -e '.agent_type=="claudehut:claudehut-reviewer"' "$HKT/.claude/claudehut/ledger/dispatches.jsonl" >/dev/null 2>&1 \
+  && ok "record-dispatch.sh writes the plugin-scoped agent_type to the ledger" \
   || bad "record-dispatch.sh produced no usable dispatch record"
 echo '{"session_id":"h","file_path":".claude/rules/framework/jpa.md","load_reason":"path_glob_match"}' \
   | CLAUDE_PROJECT_DIR="$HKT" bash "$ROOT/scripts/record-rules-loaded.sh" >/dev/null 2>&1
@@ -358,6 +723,34 @@ if [ -x "$ROOT/scripts/learning-score.sh" ]; then
   printf '%s' "$MOUT" | grep -qE 'Store size +2' \
     && ok "M3: learning-score COMPUTES store size from the real store (behavioral, not grep)" \
     || bad "M3: learning-score did not compute store size=2 from fixture"
+  # M3b/M3c/M3d (W1) — the `unmapped` coverage-gap signal. merge-learnings.sh has always counted
+  # promoted pitfalls that map to no rule file and written the count into the learn-receipt; nothing
+  # ever read it, because this scoreboard reads learnings.jsonl and `unmapped` is a receipt field.
+  # Surfacing it must stay STRICTLY CONDITIONAL: the fixture above has no receipt at all (M3b), and a
+  # clean pass must not print a line that becomes wallpaper (M3c). Only a real gap speaks (M3d).
+  printf '%s' "$MOUT" | grep -q 'Rule coverage' \
+    && bad "M3b: learning-score printed a rule-coverage line with NO receipt present" \
+    || ok "M3b: no receipt → no rule-coverage line (the CI fixture shape is unchanged)"
+  mkdir -p "$MT/.claude/claudehut/state"
+  printf '{"ts":"t","added":1,"unmapped":0}\n' > "$MT/.claude/claudehut/state/s.learn-receipt.json"
+  # Capture, then match. NEVER `script | grep -q` under `set -o pipefail`: grep -q exits on the first
+  # match and closes the pipe, the writer dies of SIGPIPE (141), and pipefail reports the PIPELINE as
+  # failed — turning the assertion red on exactly the input it is meant to accept. This bit twice in
+  # one session; capturing first is the only reliable shape.
+  MOUT0="$(CLAUDE_PROJECT_DIR="$MT" bash "$ROOT/scripts/learning-score.sh" 2>/dev/null || true)"
+  printf '%s' "$MOUT0" | grep -q 'Rule coverage' \
+    && bad "M3c: learning-score printed a rule-coverage line when unmapped=0 — noise on a clean pass" \
+    || ok "M3c: unmapped=0 → silent (a clean pass adds no line)"
+  printf '{"ts":"t","added":1,"unmapped":3}\n' > "$MT/.claude/claudehut/state/s.learn-receipt.json"
+  MOUT3="$(CLAUDE_PROJECT_DIR="$MT" bash "$ROOT/scripts/learning-score.sh" 2>/dev/null || true)"
+  printf '%s' "$MOUT3" | grep -qE 'Rule coverage +3 promoted' \
+    && ok "M3d: unmapped>0 surfaces the rule-corpus coverage gap (W1: written since v0.7, read by nobody)" \
+    || bad "M3d: unmapped=3 did not surface — the coverage-gap signal is still write-only"
+  # W2 — the trailer used to advertise a per-repo breakdown and a cuttable-code analysis this script
+  # never performs, on a surface whose contract is "every number here is computed from learnings.jsonl".
+  printf '%s' "$MOUT" | grep -qi 'per-repo\|cuttable' \
+    && bad "M3e: the scoreboard trailer claims an analysis the script does not perform (W2)" \
+    || ok "M3e: the trailer claims no finding it did not compute (W2)"
   printf '%s' "$MOUT" | grep -qE 'recurred 2' \
     && ok "M4: learning-score COMPUTES effectiveness/recurrence total from the store (behavioral)" \
     || bad "M4: learning-score did not compute recurrence total=2"
@@ -521,9 +914,9 @@ jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -
 PA="$P0/.claude/claudehut/tasks/0003-adv"; mkdir -p "$PA"
 # B2: the documented bypass escape hatch must unblock the set-plan smart-gate
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PA/plan.md"
-CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true >/dev/null 2>&1
+CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true --reason "eval fixture" >/dev/null 2>&1
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-plan .claude/claudehut/tasks/0003-adv/plan.md >/dev/null 2>&1 \
-  && ok "P0/B2: set-bypass true unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
+  && ok "P0/B2: set-bypass unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
 # M1/M2: content-hash freshness — an unchanged reviewed plan passes; any post-review edit is rejected
 PB="$P0/.claude/claudehut/tasks/0004-fresh"; mkdir -p "$PB"
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PB/plan.md"
@@ -558,7 +951,20 @@ rm -rf "$P0"
 echo "== v0.8 P1 WS-6 (fast-Learn + reinforcement) =="
 P1="$(mktemp -d)"; CH="$P1/.claude/claudehut"; mkdir -p "$CH/state" "$CH/tasks/0001-x" "$P1/.claude/rules"
 # harvest: a signature seen >=2x + a review ✗ row → ≥2 candidates, valid JSONL
-printf '%s\n' '{"signature":"could not resolve dependency foo:bar:1.0"}' '{"signature":"could not resolve dependency foo:bar:1.0"}' > "$CH/state/s.failures.jsonl"
+# LRN-3/PLUMB-F-01: the staging file is now produced by piping real PostToolUseFailure payloads through
+# record-failure.sh, instead of being hand-written as {"signature": ...} — a key record-failure has never
+# emitted. The old fixture made the harvest pass on a shape production never sends, so both breaks in the
+# chain (record-failure reading absent fields, harvest reading absent keys) stayed green for two releases.
+for _ in 1 2; do
+  printf '%s' '{"session_id":"s","tool_name":"Bash","tool_input":{"command":"./gradlew build"},"error":"Exit code 1\ncould not resolve dependency foo:bar:1.0","is_interrupt":false}' \
+    | CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
+done
+jq -e '.stderr | test("could not resolve")' "$CH/state/s.failures.jsonl" >/dev/null 2>&1 \
+  && ok "WS-6: the staging file is produced by record-failure.sh from a real payload, not hand-written" \
+  || bad "WS-6: record-failure.sh produced no usable staged record from a real payload"
+jq -e '.hits == 2' "$CH/state/s.failures.jsonl" >/dev/null 2>&1 \
+  && ok "WS-6: an immediately-repeated identical failure bumps .hits instead of being dropped" \
+  || bad "WS-6: the repeat was dropped — a back-to-back failure can never reach the harvest's >=2 threshold"
 printf '%s\n' '| item | status | evidence |' '| N+1 in OrderRepo | ✗ violated | OrderRepo.java:42 |' > "$CH/tasks/0001-x/review.md"
 hn="$(CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/harvest-candidates.sh" --session s --task-dir .claude/claudehut/tasks/0001-x 2>/dev/null)"
 { [ "${hn:-0}" -ge 2 ] && jq -se . < "$CH/tasks/0001-x/learn-candidates.jsonl" >/dev/null 2>&1; } \
@@ -597,7 +1003,7 @@ r7 set-phase implement && bad "WS-7: set-phase implement allowed with NO profile
 r7 set-profile feature; r7 set-phase implement && ok "WS-7: set-phase implement ALLOWED once a profile is set" || bad "WS-7: set-phase implement rejected despite a profile"
 # bypass escape hatch honored
 rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
-r7 set-bypass true; r7 set-phase implement && ok "WS-7: set-bypass true unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
+r7 set-bypass true --reason "eval fixture"; r7 set-phase implement && ok "WS-7: set-bypass unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
 # gate-done: an AUDIT completes on a findings deliverable, not a code review (genuine adaptivity)
 rm -rf "$P7"; CHD="$P7/.claude/claudehut"; mkdir -p "$CHD/state" "$CHD/tasks/0001-a" "$CHD/tasks/0009-old"
 gdone() { echo '{"session_id":"w","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P7" bash "$ROOT/scripts/gate-done.sh"; }
@@ -657,6 +1063,72 @@ bash "$ROOT/scripts/lint-prompt-length.sh" >/dev/null 2>&1 \
   && ok "WS-9: repo is within budget + provenance-clean (the WS-9 trim holds)" || bad "WS-9: repo over budget / has provenance noise"
 
 # ============================================================================
+# Dispatch topology — loop bounds, selection predicates and the diff base. Each of these is prose a rewrite
+# can drop while the surrounding paragraph still reads plausibly: an uncapped loop that re-fires an opus
+# subagent, an auditor fan-out over an empty diff, an escalation outside the round cap, or a review base that
+# shows only the last commit of a multi-commit task. None of them fail loudly at runtime, so they are pinned.
+# ============================================================================
+echo "== dispatch topology (loop caps, selection predicates, diff base) =="
+BRS="$ROOT/skills/brainstorm/SKILL.md"; WPS="$ROOT/skills/write-plan/SKILL.md"; RVW="$ROOT/skills/review/SKILL.md"
+
+# DT-03 — brainstorm's validation loop points back at the brainstormer dispatch. It is the only validation
+# loop in the workflow that re-fires an OPUS subagent, and it sits at phase 2, before Spec exists. Cap in
+# BOTH places: the prose the model reads and the diagram edge the cap is read off.
+{ grep -qi 'Cap 2 re-dispatch rounds' "$BRS" && grep -q 'rounds ≤ 2' "$BRS"; } \
+  && ok "DT-03: brainstorm caps the brainstormer re-dispatch loop (prose + diagram edge)" \
+  || bad "DT-03: the brainstorm validation loop re-fires an opus subagent with no round cap"
+
+# DT-11 — the plan-reviewer was dispatched unconditionally while its verdict was recorded conditionally.
+# One predicate now: the gate diamond sits UPSTREAM of the dispatch, so dispatch ≡ record ≡ what set-plan
+# gates on. The diagram is the wire: check→smart→rev, never check→rev.
+{ grep -q 'check -- "yes" --> smart' "$WPS" && grep -q 'smart -- "yes" --> rev' "$WPS"; } \
+  && ok "DT-11: write-plan gates the plan-reviewer dispatch on the smart predicate (gate upstream of dispatch)" \
+  || bad "DT-11: plan-reviewer dispatched unconditionally while its verdict is recorded conditionally"
+# ...and the skill's sensitive keyword set must MIRROR the one set-plan greps. A narrower skill predicate
+# means the model skips the dispatch and set-plan then refuses the plan — the round-trip it was avoiding.
+kw_ok=true
+for k in liquibase permitall deserial owasp flyway; do
+  grep -qi "$k" "$WPS" || kw_ok=false
+  grep -qi "$k" "$ROOT/bin/claudehut-state" || kw_ok=false
+done
+$kw_ok \
+  && ok "DT-11: write-plan mirrors set-plan's sensitive keyword set (no plan skipped then refused)" \
+  || bad "DT-11: write-plan's sensitive predicate diverges from set-plan's grep — a skipped plan the gate refuses"
+
+# FANOUT-01 — `git merge-base HEAD @{u}` has no upstream to resolve on a mid-task branch, and the old
+# fallback was `HEAD~1`: every auditor then saw only the last commit of a multi-commit task.
+{ grep -q 'git merge-base HEAD @{u}' "$RVW" && grep -q 'git merge-base HEAD origin/HEAD' "$RVW"; } \
+  && ok "FANOUT-01: review's diff base tries the remote default branch before falling back to HEAD~1" \
+  || bad "FANOUT-01: review's diff base drops straight to HEAD~1 with no upstream (auditors see one commit)"
+
+# DT-12 — step 2 was headed "no new dispatch" and added one seven lines later, on an undefined predicate
+# ("large/high-stakes"), outside the 2-round cap. Both halves are pinned: the heading must stop lying, and
+# the escalation must carry a predicate AND count against the cap.
+grep -q 'no new dispatch' "$RVW" \
+  && bad "DT-12: review step 2 still promises 'no new dispatch' while dispatching an escalated refute pass" \
+  || ok "DT-12: review step 2 no longer contradicts its own escalation"
+{ grep -q 'Escalated refute pass' "$RVW" && grep -q 'auditors returned a CRITICAL' "$RVW" \
+  && grep -q 'counts against the 2-round cap' "$RVW"; } \
+  && ok "DT-12: the escalated refute pass has a predicate and counts against the round cap" \
+  || bad "DT-12: the escalated refute dispatch has no selection criterion / sits outside the round cap"
+
+# DT-10 — Review keyed only on tier + diff, so an audit/investigation paid a code-review fan-out over an
+# empty diff while gate-done.sh already knew the deliverable was findings.md. The profile is read from the
+# SAME jq call as the enforcement set (not a second shell-out), and the test-runner skip is bounded on the
+# diff — an audit that incidentally changed code must still be tested.
+{ grep -q "jq -c '{profile, enforcement_set}'" "$RVW" && grep -q 'findings.md' "$RVW" \
+  && grep -q 'src/main' "$RVW"; } \
+  && ok "DT-10: review is profile-aware from one jq call and bounds the test-runner skip on the diff" \
+  || bad "DT-10: review is profile-blind — an audit pays a code-review fan-out over an empty diff"
+
+# FANOUT-04 — an operator may name an aspect subset for a targeted re-review. The load-bearing half is the
+# DEFAULT: with no argument the rule-driven selection must be untouched, and the argument may only NARROW.
+{ grep -q 'ARGUMENTS' "$RVW" && grep -q 'NARROWS, never widens' "$RVW" \
+  && grep -q 'with no argument the rule-driven selection above is unchanged' "$RVW"; } \
+  && ok "FANOUT-04: an operator-named aspect subset narrows the fan-out; the no-argument default is pinned" \
+  || bad "FANOUT-04: no operator-named review subset, or the no-argument default path is not pinned"
+
+# ============================================================================
 # v0.9 Rec 4 — ultra-flow mermaid coverage. The 21 ultra-flow diagrams (one per agent + skill) had no
 # deterministic coverage (audit EVAL-1): deleting/corrupting a block shipped with CI green. INVARIANT: every
 # agents/*.md and skills/*/SKILL.md carries a NON-EMPTY ```mermaid block. If mmdc (@mermaid-js/mermaid-cli) is
@@ -688,4 +1160,6 @@ done
 
 echo
 echo "CONFORMANCE: $PASS passed, $FAIL failed"
+# W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
+[ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/conformance.count"
 [ "$FAIL" -eq 0 ]

@@ -3,7 +3,7 @@ name: claudehut-learner
 description: Extracts candidate learnings for the Learn phase and keeps the reuse + memory indexes current. Carries project-scoped auto-memory.
 model: sonnet
 effort: medium
-tools: Read, Write, Grep
+tools: Read, Write
 memory: project
 color: green
 ---
@@ -55,7 +55,7 @@ JSON object per line**:
    - `learning`: one crisp sentence. For `pitfall` entries phrase it **imperatively** — a proven pitfall is
      promoted into a rule file **verbatim**, so write the sentence you'd want a rule to carry.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
-   - **Quality gate (v0.7):** `merge-learnings.sh` **drops** candidates scoring <0.4 (vague, evidence-less, or
+   - **Quality gate:** `merge-learnings.sh` **drops** candidates scoring <0.4 (vague, evidence-less, or
      <2 trigger tokens), so every candidate must carry real `evidence` (`file:line`/test) and ≥2 trigger keywords.
    - `supersedes` (optional): if this learning **refines/corrects an earlier one**, set `"supersedes":"L-####"`
      (mattpocock Learning Records) — the merge marks the new entry `status:"refines"` so evolution is traceable.
@@ -64,7 +64,15 @@ JSON object per line**:
 
 **Update** `.claude/claudehut/reuse-index.json` with anything newly built (`id, kind, path, purpose, tags`);
 **refresh `.claude/claudehut/MEMORY.md`** (the committed always-loaded index) when a new topic/category/artifact
-appears. Both stay yours — deciding what is reusable / what to name is judgment. Then **return a one-line
+appears. Both stay yours — deciding what is reusable / what to name is judgment.
+
+**MEMORY.md is @import-ed WHOLE — every byte is re-read on every turn. Budget: 8192 bytes.** A `## Topics`
+entry is **one line that points elsewhere**, the template's form exactly: `- idempotency → learnings.jsonl
+(category=convention, trigger=idempotency|dedup)`. **Never write the facts here** — no `Key facts:`
+continuation, no explanation, no path or date notes. Those go in the `learnings.jsonl` entry the pointer
+points AT (read on demand). Three real installs blew the budget this exact way. Need more than one line?
+The extra belongs in `learnings.jsonl`. Per-task blocks (`## Reuse additions (task-…)`, `## Topics (task-…)`)
+go in `MEMORY-history.md`, which is **not** `@import`-ed — never append them to `MEMORY.md`. Then **return a one-line
 summary** (counts by category). `claudehut:capture-learnings` then runs `merge-learnings.sh`, which against
 `.claude/claudehut/learnings.jsonl`:
    - **dedups** by `category` + normalized `trigger` → **merge** (`hits++`, `confidence = min(+0.05, 1.0)`,

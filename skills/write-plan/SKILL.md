@@ -7,7 +7,7 @@ allowed-tools: Read Grep Glob Bash Agent AskUserQuestion TaskCreate TaskUpdate
 # Write Plan (Plan phase)
 
 Convert the approved spec into an executable, test-first plan. Runs **inline on the main thread** — the planner
-drafts in isolation; this skill owns the user gate, the state write, and the task mirror (a subagent cannot).
+drafts in isolation; this skill owns the user gate, the state write, and — where task tools exist — the task mirror (a subagent cannot).
 
 ## Flow
 
@@ -16,18 +16,18 @@ flowchart TB
     s(["spec approved (set-spec recorded)"]) --> draft["dispatch claudehut-planner → draft plan.md<br/>(T-rows + §3 flow + per-task Sketch)"]
     draft --> check{"§1 restates decision, §3 traces end-to-end,<br/>every behavior task RED-first + verbatim verify?"}
     check -- "no" --> draft
-    check -- "yes" --> rev["dispatch claudehut-plan-reviewer → REFUTE vs spec<br/>writes plan-review.md (SubagentStop blocks empty return)"]
+    check -- "yes" --> smart{"full tier AND (≥5 tasks OR sensitive keyword)?<br/>the SAME predicate set-plan gates on"}
+    smart -- "no" --> ask
+    smart -- "yes" --> rev["dispatch claudehut-plan-reviewer → REFUTE vs spec<br/>writes plan-review.md (SubagentStop blocks empty return)"]
     rev --> verdict{"Verdict == APPROVE?"}
     verdict -- "REVISE (route items back)" --> draft
-    verdict -- "APPROVE" --> smart{"full tier AND (≥5 tasks OR sensitive surface)?"}
-    smart -- "yes" --> record["set-plan-review APPROVE --evidence plan-review.md<br/>(byte-identical plan; edit forces re-review)"]
-    smart -- "no" --> ask
+    verdict -- "APPROVE" --> record["set-plan-review APPROVE --evidence plan-review.md<br/>(byte-identical plan; edit forces re-review)"]
     record --> ask{"interactive? user Approves?"}
     ask -- "Request changes" --> draft
     ask -. "headless -p" .-> bypass(["record approval: non-interactive in header"])
     ask -- "Approve" --> setplan["set-plan plan.md (opens PreToolUse write gate)"]
     bypass --> setplan
-    setplan --> mirror["TaskCreate per T-row + TaskUpdate addBlockedBy (Depends-on)"]
+    setplan --> mirror["IF task tools available: TaskCreate per T-row + TaskUpdate addBlockedBy<br/>(absent → skip; plan.md is the source of truth)"]
     mirror --> phase["set-phase implement → REQUIRED NEXT claudehut:implement"]
 ```
 
@@ -40,25 +40,33 @@ flowchart TB
    **Summer KB (when the project has `.claude/summer-kb/`):** every T-xxx row whose files touch Summer wiring
    MUST carry the KB citation from the spec (`.claude/summer-kb/<module>.md §<section>`) in its verify column —
    the implementer verifies against it, and the plan-reviewer REVISEs a plan whose Summer tasks cite nothing.
-2. **Dispatch `claudehut:claudehut-plan-reviewer`** — doc gate, BEFORE the user sees the plan; it **writes its
-   coverage table + `Verdict: APPROVE|REVISE` to `tasks/NNNN-<slug>/plan-review.md`**. Loop on `REVISE` —
+2. **Dispatch `claudehut:claudehut-plan-reviewer` — on the SAME predicate `set-plan` gates on, not on every
+   plan.** It fires when the plan is **substantial (≥5 `| T-` rows) OR sensitive** — `security`, `/auth`,
+   `migration`, `flyway`, `liquibase`, `password`, `secret`, `owasp`, `permitAll`, `deserial` anywhere in
+   `plan.md` (mirror it exactly — dispatch on less and `set-plan` refuses a plan you chose not to review).
+   Below the predicate the §1/§3 check above IS the doc gate: no dispatch, no verdict. When it fires it gates
+   the doc BEFORE the user sees the plan and **writes its coverage table + `Verdict: APPROVE|REVISE` to
+   `tasks/NNNN-<slug>/plan-review.md`**. Loop on `REVISE` —
    **cap 2 rounds**: each round re-drafts and re-reviews the whole plan, so a third `REVISE` means the spec is
    the problem, not the plan. Take it to the user with `AskUserQuestion` (the surviving gaps + the two attempts)
    instead of looping. Then **record the verdict** (only the main thread writes state):
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan-review APPROVE --evidence .claude/claudehut/tasks/NNNN-<slug>/plan-review.md
    ```
-   The wire that makes the reviewer fire: **`set-plan` REFUSES a full-tier plan that is substantial (≥5 tasks)
-   OR touches a sensitive surface (security/auth/migration) unless `plan_review==APPROVE` is recorded for the
-   byte-identical plan** (smart-gate; editing forces re-review via content-hash). Headless `-p`, no Agent budget:
-   `claudehut-state set-bypass true` unblocks both set-plan and the write gate (note it in the plan header).
+   The wire that makes the reviewer fire: **`set-plan` REFUSES a full-tier plan meeting that same predicate
+   unless `plan_review==APPROVE` is recorded for the byte-identical plan** (smart-gate; editing forces
+   re-review via content-hash). Headless `-p`, no Agent budget:
+   A human may unblock both set-plan and the write gate with `claudehut-state set-bypass true --reason '<why>'` — **ask, do not run it yourself**; the reason is persisted in state.
 3. **Get approval (this opens the write gate — not before).** Interactive: **`AskUserQuestion`** with the
    decision + T-xxx list, **Approve** / **Request changes**. Non-interactive (`-p`): record `approval:
    non-interactive run — proceeded with draft` in the header. Only after approval (unlocks the `PreToolUse` gate):
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan .claude/claudehut/tasks/NNNN-<slug>/plan.md
    ```
-4. **Mirror into the native task list**: one **`TaskCreate`** per T-xxx row (`subject: "T-001: <goal>"`,
+4. **Mirror into the native task list — ONLY if you have task tools.** Availability is per session and
+   not guaranteed; `TaskCreate`/`TaskUpdate` are absent in many. **No task tools → skip this step entirely**,
+   the same way `claudehut:implement` skips its orchestration section when there is no Agent tool. `plan.md`
+   is the source of truth; the mirror is a convenience view, never a gate. With task tools: one **`TaskCreate`** per T-xxx row (`subject: "T-001: <goal>"`,
    `description`: files + test-first + verify + req-ref, `activeForm`: present-continuous), then **`TaskUpdate
    addBlockedBy`** per Depends-on. `plan.md` stays the durable source of truth. Then enter Implement:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase implement`.

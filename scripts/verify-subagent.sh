@@ -17,6 +17,54 @@ block() { jq -n --arg r "$1" '{decision:"block",reason:$r}'; exit 0; }
 # Same native cap gate-done.sh uses: when stop_hook_active is true, stop blocking and fail open.
 [ "$(jq -r '.stop_hook_active // false' <<<"$in" 2>/dev/null || echo false)" = "true" ] && exit 0
 
+# ---- F5: dispatch ledger, stop half ------------------------------------------------------------------
+# scripts/record-dispatch.sh appends the SubagentStart half to .claude/claudehut/ledger/dispatches.jsonl;
+# this appends its counterpart, joined on `agent_id`. Without a stop record the ledger cannot yield wall
+# duration, which is the only dispatch cost this plugin can honestly measure (no hook payload carries tokens).
+#
+# WHY IT IS WRITTEN DEFENSIVELY. This script runs `set -euo pipefail` at :7 and is a BLOCKING SubagentStop
+# hook that owns the artifact contract — a failing append would abort the gate, turning an observation
+# feature into an enforcement outage. The whole block therefore sits on the left of `|| true`, which
+# suppresses errexit inside it, and its stdout is redirected away: four gate-tests assertions are
+# `[ -z "$(… | verify-subagent.sh)" ]`, so one stray byte on stdout reads as a false block.
+# Placed AFTER the stop_hook_active cap on purpose — re-entrant stops (the block loop) would otherwise
+# append a second stop record for one dispatch and break the one-start-one-stop pairing.
+#
+# FIELDS — measured on Claude Code 2.1.234. The COMPLETE SubagentStop key set is: agent_id,
+# agent_transcript_path, agent_type, background_tasks, cwd, effort, hook_event_name, last_assistant_message,
+# permission_mode, prompt_id, session_crons, session_id, stop_hook_active, transcript_path. `effort` and
+# `agent_transcript_path` exist HERE and not on SubagentStart, which is why they are captured on this side
+# only. `.effort` measured as an OBJECT (`{"level":"xhigh"}`); the type switch below reads `.level` from an
+# object and the value itself from a string, because a bare `.effort.level` against a string throws and jq
+# would then emit NO record at all — one shape change would silently empty the ledger instead of one field.
+#
+# ORPHAN STOPS ARE REAL — measured, so no consumer should assume pairing. Driving one real Explore dispatch
+# and then one manual `/compact` on the same session produced THREE ledger records, not two: the dispatch's
+# matched start+stop, plus a third `stop` during the compaction with a fresh agent_id, an EMPTY agent_type,
+# and an agent_transcript_path pointing at a file that was never written (the session's subagents/ dir held
+# only the Explore transcript). So SubagentStop fires for something that emits no SubagentStart. Anything
+# deriving wall duration must join and DISCARD unmatched stops rather than count records; anything reading
+# agent_transcript_path must tolerate a dangling path. Not suppressed here — a hook records what the runtime
+# hands it, and dropping the record would hide the very behaviour a future consumer needs to know about.
+{
+  _led="$PROJECT_DIR/.claude/claudehut/ledger"
+  if mkdir -p "$_led" 2>/dev/null; then
+    _line="$(jq -c --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '{
+      ts: $t,
+      event: "stop",
+      session_id: ((.session_id // "")[0:128]),
+      agent_id:   ((.agent_id   // "")[0:128]),
+      agent_type: ((.agent_type // "")[0:128]),
+      effort:     ((if (.effort|type) == "object" then (.effort.level // "")
+                    elif (.effort|type) == "string" then .effort
+                    else "" end)[0:32]),
+      agent_transcript_path: ((.agent_transcript_path // "")[0:512])
+    }' <<<"$in" 2>/dev/null || true)"
+    [ -n "$_line" ] && printf '%s\n' "$_line" >> "$_led/dispatches.jsonl" 2>/dev/null
+  fi
+} >/dev/null 2>&1 || true
+# ------------------------------------------------------------------------------------------------------
+
 # agent_type arrives PLUGIN-SCOPED for plugin-shipped subagents — "claudehut:claudehut-reuse-scanner", not the
 # bare frontmatter name (https://code.claude.com/docs/en/hooks: "For subagents shipped by a plugin, this is the
 # plugin-scoped identifier such as my-plugin:reviewer, not the bare frontmatter name"). Matching bare names

@@ -12,7 +12,8 @@ tags: [null-safety, jsr-305, jspecify]
 
 ## Annotate public API
 
-Use `@NonNull` / `@Nullable` from `javax.annotation` (JSR-305) or `org.jspecify` (modern).
+Use `@NonNull` / `@Nullable` from `org.jspecify.annotations` (JSpecify). Do **not** use JSR-305
+(`javax.annotation`) — unmaintained, and the `javax` package is wrong on a Jakarta baseline.
 
 ```java
 import jakarta.annotation.Nonnull;

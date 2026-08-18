@@ -5,6 +5,7 @@ paths:
   - "**/application*.properties"
   - "**/*Config.java"
   - "**/*Executor*.java"
+stack: "java=21"
 severity: medium
 tags: [virtual-threads, loom, java21]
 ---

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart hook (matcher: startup|clear|compact).
+# SessionStart hook (matcher: startup|resume|clear|compact|fork).
 # Injects the claudehut-workflow orchestrator + top learnings + understand-anything
 # detection flag as additionalContext, before turn 1. Emits a top-level systemMessage
 # (user-visible) when the codebase index is absent. Never blocks (SessionStart cannot block). See 06 §3.
@@ -11,6 +11,29 @@ DIR="$PROJECT_DIR/.claude/claudehut"
 in="$(cat 2>/dev/null || true)"   # SessionStart hook payload (carries session_id)
 
 command -v jq >/dev/null 2>&1 || { echo '{}'; exit 0; }   # degrade: no context injection without jq
+
+# RES-H3/PLUMB-F-09: `fork` is a documented SessionStart source and was MISSING from the matcher, so a
+# forked session ran no bootstrap at all — no state armed, no digest, no learnings. Since gate-write.sh
+# fails open on missing state, a fork silently made the whole workflow optional.
+#
+# The plan proposed skipping the `set-phase discover` re-arm when source=="fork". That PRESERVES the hole:
+# no state is still no state, and the gate still fails open. Measured on a real `claude --resume
+# --fork-session`, the fork receives a brand-new session_id and its payload carries no parent reference of
+# any kind (keys: session_id, transcript_path, cwd, hook_event_name, source) — the parent sid appears zero
+# times in the fork's own transcript either. So inheritance is not available, and the choice is between
+# arming at discover and not arming. Arming costs one wasted deny before the model re-invokes the skill;
+# not arming costs the gate. Arm.
+#
+# W0-C (v0.11): a forked session gets a NEW session_id (cli-reference: "--fork-session | When resuming,
+# create a new session ID instead of reusing the original"), so neither state/$sid.json nor
+# state/$sid.snapshot.json exists and :39-41 re-arms at phase=discover — a mid-implement fork is reset.
+# Whether a fork can instead INHERIT its parent's state depends on a fact the docs do not carry: the
+# SessionStart input schema documents no parent_session_id / forked_from field. Capture the raw payload
+# under the same flag record-failure.sh uses, so one real forked session answers it. Off by default.
+if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
+  mkdir -p "$DIR/state" 2>/dev/null || true
+  printf '%s\n' "$in" >> "$DIR/state/payload-debug.SessionStart.jsonl" 2>/dev/null || true
+fi
 
 # opt #3 FALLBACK — INVOCATION reliability. The init skill's !`...` script call is flaky in headless
 # (P7 measured 2/3: skill engaged but the script didn't always run). So bootstrap the plane
@@ -41,6 +64,17 @@ if [ -n "$sid" ] && [ ! -f "$DIR/state/$sid.json" ] && [ -x "$PLUGIN_ROOT/bin/cl
   CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-state" --session "$sid" set-phase discover >/dev/null 2>&1 || true
 fi
 
+# ST-1: bound the state directory. 315 state files across the real repos and nothing ever removes one.
+# harvest-candidates.sh reads only the CURRENT session's failures, so a staged failure file is worthless
+# a week later. Age out the ephemeral sidecars; never touch the live session's own files, and never touch
+# the durable stores (learnings.jsonl, reuse-index.json, MEMORY*) which live one directory up.
+if [ -d "$DIR/state" ]; then
+  find "$DIR/state" -maxdepth 1 -type f -mtime +7 \
+    \( -name '*.failures.jsonl' -o -name '*.injected.json' -o -name '*.dispatches.jsonl' \
+       -o -name '*.rules-loaded.jsonl' -o -name '*.injected-phase' -o -name '*.ua-flag' \) \
+    ! -name "${sid:-__none__}.*" -delete 2>/dev/null || true
+fi
+
 # Rule-template migration (Issue 4): upgraded/new rule templates must reach EXISTING projects, not only
 # fresh inits. Stamp the plugin version into the plane; on mismatch re-emit the rule tree only
 # (claudehut-init --refresh-rules — never touches MEMORY/PROJECT/LANGUAGE, which users may have edited).
@@ -50,16 +84,33 @@ if [ -n "$PV" ] && [ -d "$DIR" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ]; th
   if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$PV" ]; then
     CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --refresh-rules >/dev/null 2>&1 \
       && printf '%s' "$PV" > "$STAMP" 2>/dev/null || true
+    # RULE-01/17: the refresh above reports stale rules on stdout, which is discarded here because this
+    # hook's stdout is its JSON contract. Re-derive the same facts read-only and carry the one-line summary
+    # into systemMessage, so drift reaches a human instead of dying in /dev/null on every version bump.
+    DRIFT="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --audit 2>/dev/null \
+             | grep -m1 '^  summary:' | sed 's/^  summary: //')" || true
+    case "$DRIFT" in
+      ""|"0 stale, 0 missing, 0 over-budget memory file(s)") DRIFT="" ;;
+    esac
   fi
 fi
 
 # Inject the DIGEST (tiers + profiles + laws + phase map), not the whole orchestrator. This block is re-paid on
 # every startup|resume|clear|compact, so the full SKILL.md was the single largest recurring context cost; the
-# model loads it on demand with /claudehut:workflow. Fall back to the full file if the digest is missing.
+# model loads it on demand with /claudehut:claudehut-workflow. Fall back to the full file if the digest is missing.
 DIGEST="$PLUGIN_ROOT/skills/claudehut-workflow/references/digest.md"
 ctx="$(cat "$DIGEST" 2>/dev/null \
   || cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null \
   || echo "ClaudeHut workflow orchestrator skill not found.")"
+
+# RES-P6: `claudehut-state` is NOT on PATH and nothing puts it there. Every skill writes it bare, so the
+# model rediscovers the binary before each state write — visible in production failure records as
+# `BIN=…/claudehut-state` preambles and, in one case, a wrong guess at
+# `.claude/claudehut/bin/claudehut-state --help`. This hook already knows the answer; state it once, here,
+# instead of paying for the hunt in every session.
+if [ -x "$PLUGIN_ROOT/bin/claudehut-state" ]; then
+  ctx="$ctx"$'\n\n**State CLI path (resolved):** `'"$PLUGIN_ROOT/bin/claudehut-state"$'` — it is NOT on PATH. Wherever a skill writes `claudehut-state …`, run that path. Same for `claudehut-init` and `claudehut-worktree` in the same directory.'
+fi
 
 # Top learnings (P7 helper — optional; no-op until present). WS-6: --snapshot records the injected IDs so the
 # Learn phase can stamp .applied on the ones that resurface (closing the inject→use reinforcement loop).
@@ -117,11 +168,14 @@ if [ -f "$KB_META" ]; then
   ctx="$ctx"$'\n\n## Summer Framework KB (MANDATORY grounding — service-scoped, installed locally)\n'"This service consumes Summer (io.f8a.summer). Installed KB modules: ${kb_mods:-unknown} (summerCommit ${kb_commit:0:7})."$'\n'"When a task touches Summer — a summer-* dependency, a f8a.*/summer.* property, an auto-config gate, a Ufid/Txid annotation (@JE/@SE/@TX/@Compact/@UInt128/@UfidPrefix), a Summer Kafka contract, or any Summer type (ApiResponse, ViewableException, outbox/audit, resource-server, rate limiter) — you MUST ground the decision in .claude/summer-kb/ (start: USAGE.md → INDEX.md), not memory. Never invent property names, gate defaults, or coordinates; unverifiable facts are marked [unverified], never guessed."
 fi
 
+DRIFT="${DRIFT:-}"
 need_init=false
 { $WAS_ABSENT && ! $INITED; } && need_init=true   # only prompt if absent AND the deterministic fallback couldn't run
 
-jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" '
+jq -n --arg ctx "$ctx" --arg dir "$DIR" --argjson need "$need_init" --arg drift "$DRIFT" '
   {hookSpecificOutput: {hookEventName:"SessionStart", additionalContext:$ctx, watchPaths:[$dir], reloadSkills:true}}
   + (if $need
-     then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:init to bootstrap this project before starting a task."}
+     then {systemMessage:"ClaudeHut: no codebase index found. Run /claudehut:claudehut-init to bootstrap this project before starting a task."}
+     elif $drift != ""
+     then {systemMessage:("ClaudeHut: rule drift after the plugin upgrade — " + $drift + ". Review with `claudehut-init --audit`.")}
      else {} end)'

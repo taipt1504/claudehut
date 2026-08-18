@@ -4,6 +4,7 @@ paths:
   - "**/*Test.java"
   - "**/*IT.java"
   - "**/*IntegrationTest*.java"
+  - "**/*Tests.java"
 severity: medium
 tags: [wiremock, http-stub, integration-test]
 ---

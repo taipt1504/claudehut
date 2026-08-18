@@ -109,7 +109,20 @@ for ((i=1;i<=N;i++)); do
   builton=$( ( cd "$W" && grep -lq 'extends BaseProcessor' src/main/java/com/x/proc/OrderHandler.java src/main/java/com/x/proc/PaymentHandler.java 2>/dev/null && echo 1 || echo 0 ) )
   cost=$(jq -rc 'select(.type=="result")|.total_cost_usd // 0' "$R" 2>/dev/null | tail -1)
   pass=false; [ "${fanout:-0}" -ge 2 ] && [ "${blocked:-0}" -eq 0 ] && pass=true
-  herr=false; [ "${cost:-0}" = "0" ] && [ "${impl_total:-0}" = "0" ] && herr=true
+  # RES-X3: the old harness guard was cost==0 && impl_total==0 — it only caught a run that never started.
+  # The failure that actually misreports is a run that DID work with the plugin absent (demoted, load error,
+  # wrong scope): real cost, real tool calls, and pass=false, which reads as a code defect rather than a
+  # harness one. Detect it from an OBSERVABLE rather than a guessed stream field: if the plugin plane were
+  # live, a run that dispatched anything would show at least one claudehut skill invocation or agent.
+  # Any explicit plugin_errors key in the stream also counts, and costs nothing if the key never appears.
+  chsig=$(jq -rc 'select(.type=="assistant")|.message.content[]?|select(.type=="tool_use")|
+                  ((.name//"") + " " + ((.input.skill//"") + (.input.subagent_type//"")))' "$R" 2>/dev/null \
+          | grep -c 'claudehut' || echo 0)
+  perr=$(jq -rc '.. | objects | select(has("plugin_errors")) | 1' "$R" 2>/dev/null | grep -c . || echo 0)
+  herr=false
+  { [ "${cost:-0}" = "0" ] && [ "${impl_total:-0}" = "0" ]; } && herr=true          # never started
+  [ "${perr:-0}" -gt 0 ] && herr=true                                              # runtime said so
+  { [ "${cost:-0}" != "0" ] && [ "${chsig:-0}" -eq 0 ]; } && herr=true             # ran, plugin never spoke
   jq -nc --argjson i "$i" --argjson fan "${fanout:-0}" --argjson it "${impl_total:-0}" --argjson cdj "${cdj:-0}" \
      --argjson bl "${blocked:-0}" --argjson bo "${builton:-0}" --argjson cost "${cost:-0}" --argjson pass "$pass" --argjson herr "$herr" --arg wd "$W" \
      '{trial:$i,fanout_max_per_msg:$fan,implementers_total:$it,check_disjoint_used:$cdj,implementer_blocked:$bl,handlers_extend_base:$bo,cost_usd:$cost,PASS:$pass,harness_error:$herr,workdir:$wd}' | tee -a "$OUT"

@@ -78,7 +78,7 @@ Map<String, Object> data = yaml.load(input);
 Yaml yaml = new Yaml();  // Default Constructor → can instantiate arbitrary classes
 ```
 
-## Detection (Phase 5 reviewer-security)
+## Detection (Phase 6 Review — claudehut-security-auditor)
 
 Regex flagged Critical:
 

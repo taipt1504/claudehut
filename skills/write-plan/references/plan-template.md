@@ -4,7 +4,8 @@
      phase grouping, [P] parallel marker) · MADR Confirmation · ClaudeHut test-first Iron Law ·
      superpowers no-placeholder plans · mattpocock decision-rich PRD snippets (state machine/schema, not paths).
      The T-xxx table below is the DURABLE task breakdown — the native Claude Code task list
-     (TaskCreate/TaskUpdate) is a per-session live MIRROR of it, created by the main thread on approval.
+     (TaskCreate/TaskUpdate, when those tools exist in the session) is a per-session live MIRROR of it, created
+     by the main thread on approval. No task tools → no mirror; this file remains the source of truth.
 
      DOC-AS-CONTRACT (v0.7): a plan that lists files but not HOW cannot be reviewed, so the code it
      produces cannot be controlled. §3 Implementation Flow + the per-task Sketch carry the HOW. They are

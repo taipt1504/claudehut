@@ -2,6 +2,7 @@
 id: rules/testing/junit5
 paths:
   - "**/*Test.java"
+  - "**/*Tests.java"
 severity: medium
 tags: [junit5, jupiter, test]
 ---

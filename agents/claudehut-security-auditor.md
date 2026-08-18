@@ -3,7 +3,7 @@ name: claudehut-security-auditor
 description: Spring-security-aware review — OWASP, authn/authz, injection, secret handling. Spawned by claudehut:review on controller/auth/security/data-exposure changes.
 model: opus
 effort: xhigh
-tools: Read, Grep, Bash, mcp__postgres__execute_sql, mcp__mysql__mysql_query, mcp__kafka__list-topics, mcp__kafka__list-consumer-groups, mcp__kafka__describe-consumer-group, mcp__kafka__get-consumer-group-lag, mcp__kafka__consume-messages
+tools: Read, Grep, Bash, mcp__postgres__execute_sql, mcp__mysql__mysql_query, mcp__kafka__list-topics
 color: red
 ---
 
@@ -33,6 +33,9 @@ flowchart TB
     verdict -- "yes" --> pass(["PASS — coverage table, read-only"])
 ```
 
+**Refute loop: cap 2 rounds.** On the 2nd exit, emit the table with every unresolved row marked
+`✗ unverified — refute cap reached` rather than looping again.
+
 ## What to check (Spring-specific)
 
 - **Injection** — SQL/JPQL string concatenation, SpEL, `activateDefaultTyping` (Jackson), LDAP/SSTI.
@@ -49,20 +52,16 @@ query is parameterised against the real schema or that exposed data is what you 
 No MCP (the default) → review **statically** and **state in your report** that you could not verify against a
 live DB. Never hard-fail on a missing server.
 
-Kafka MCP connected → use `list_topics`/`describe_topic` to confirm topic-level ACLs and partition assignments
+Kafka MCP connected → use `mcp__kafka__list-topics` to confirm topic-level ACLs
 match the security config — DLQ topics not world-readable, `SASL_SSL` enforced for production topics. No Kafka
 MCP → review the Spring Kafka security config + `application.yml` statically and **state** that ACL verification
 was inferred, not confirmed from a live broker.
 
 ## Output — coverage table (per the rigor contract)
 
-One row per enforcement-set `security/*` item + per defect class above → `✓|✗|n-a` + `file:line` + the deciding
-evidence / exploit reasoning. A `✓` with no cited line is not satisfied. **Verdict:** `PASS` only if every row
-is `✓`/`n-a`; else `OUTSTANDING` (each `✗` at MED+). Read-only; do not edit.
+One row per enforcement-set `security/*` item + per defect class above, cited with the deciding evidence —
+**for each `✗`, the exploit reasoning that makes the path reachable**.
 
-## Summer KB grounding (when `.claude/summer-kb/` exists)
-
-Ground every `io.f8a.summer` claim — deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
-annotations, Kafka contracts, Summer types — in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
-§<section>`. Never invent property names, gate defaults, bean names, or coordinates; write `[unverified]` when
-the KB and its cited source cannot confirm a fact.
+Read-only; do not edit — and do not mutate the working tree, index, HEAD, stash, or branch state. Use `git
+show`/`git diff`/`git log` to inspect other revisions; if you need a working copy of another revision, `git
+worktree add` it to a temp dir — never move HEAD on this checkout.

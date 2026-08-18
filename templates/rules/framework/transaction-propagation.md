@@ -3,6 +3,7 @@ id: rules/framework/transaction-propagation
 paths:
   - "**/*Service.java"
   - "**/*ServiceImpl.java"
+stack: "orm=jpa"
 severity: high
 tags: [transactions, spring, jpa]
 ---

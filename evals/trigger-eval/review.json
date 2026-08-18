@@ -1,0 +1,43 @@
+{
+  "skill": "review",
+  "description": "Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and re-spawns for at most two fix rounds before reporting what survives. Runs inline on the main thread because it owns the set-review state write.",
+  "should_trigger": [
+    "is this change ready to merge",
+    "review my diff before I claim done",
+    "check the implementation against the rules",
+    "audit this for N+1 and security issues",
+    "I think I am finished, verify it",
+    "run the auditors over this task",
+    "does this satisfy the enforcement set",
+    "confirm the tests actually cover the new branch"
+  ],
+  "should_not_trigger": [
+    "what approaches should I consider",
+    "write the spec",
+    "find the existing mapper",
+    "implement the fix",
+    "what is the verify command for this repo",
+    "add a rule about money arithmetic",
+    "explain the outbox pattern",
+    "record the learnings from this task"
+  ],
+  "model_arm": {
+    "runs": [
+      {
+        "label": "v0.11, after the RES-R1 fix",
+        "recall": "17/24",
+        "false_positives": "0/24"
+      },
+      {
+        "label": "v0.11, same description, diagnostic re-run",
+        "recall": "18/24",
+        "false_positives": "0/24"
+      }
+    ],
+    "runs_per_query": 3,
+    "reading": "NOT a wording defect. Across two runs of the same description, recall moved 17/24 -> 18/24 and every single miss was 2/3 — six of eight queries failed exactly one run in three, and no query failed consistently. That is run-to-run non-determinism at roughly 25%, spread evenly, not a phrasing the description fails to cover. Rewriting on 'which queries miss' would be fitting noise.",
+    "false_positives_note": "0/24 in both runs. review never poached discover, implement or write-spec work — the description is precise; what varies is whether it wins its own.",
+    "instrument_gap_found": "The arm recorded hit/miss but not WHAT the model answered instead, so there was no way to tell whether a lost run went to a sibling skill or to 'none'. Fixed: misses now print lost-to:<answer>(count). A rewrite is only justified once that shows a specific competitor taking the losses.",
+    "not_measured": "No BEFORE run on the pre-RES-R1 description exists, so none of this is attributable to that edit."
+  }
+}

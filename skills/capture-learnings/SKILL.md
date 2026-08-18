@@ -33,9 +33,9 @@ flowchart TB
     close --> done(["phase closed — Stop gate satisfied; task may end"])
 ```
 
-## Process — fast path first; the agent runs only on novelty (WS-6, Issue 5)
+## Process — fast path first; the agent runs only on novelty
 
-v0.8 inverts the old mandatory sonnet round-trip: a deterministic inline harvest runs first (no agent), the
+The mandatory sonnet round-trip is inverted: a deterministic inline harvest runs first (no agent), the
 learner is dispatched **only on genuine novelty**, and the merge always runs (it writes the Stop-gate receipt).
 
 1. **Harvest candidates inline (always; no agent).** Run on the main thread:
