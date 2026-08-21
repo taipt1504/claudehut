@@ -222,7 +222,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
 ### gate-done.sh — Stop (completion gate)
 - **Event/Matcher:** `Stop` (all).
 - **Reads:** the per-session state file `state/<session_id>.json` (keyed by the hook-input `session_id`) — fields `review`, `phase`, `bypass` — and the hook input field `stop_hook_active`.
-- **Returns:** on violation, `decision: "block"` + `reason` ("Review not passed" or "Learn not run"). Otherwise allow.
+- **Returns:** on violation, `decision: "block"` + a **phase-aware** `reason`. The reason names the NEXT action for the current `(phase, tier)` — Brainstorm at `discover` on a full-tier task, Implement at `discover` on small/trivial, Review only from `implement` onward — plus the real terminal condition (`set-review pass` with an evidence artifact). It must never name a phase further ahead than the next one: a single "run claudehut:review" at every phase made the completion gate order a 2-4 phase skip, which is the violation this gate exists to prevent. `review=capped` is its own branch: it still blocks, but tells the model to surface the survivors rather than re-enter the loop its own round cap just stopped. Otherwise allow.
 - **Enforces (the discipline gate):** **the agent may not end its turn claiming done until `review=pass` AND the Learn pass has run** — but (opt #1 engaged-guard) only once the workflow is **engaged** (reuse-scan done, or a spec/plan recorded, or phase past brainstorm). A freshly *armed* brainstorm session that did no workflow work is not blocked, so non-coding sessions stay usable while the write gate remains armed. This is the superpowers "verification-before-completion" rule made deterministic, extended to the Review compliance loop.
 - **Phase:** Review → Learn boundary.
 - **Honest limits:** `Stop` fires at **turn end**, not on every intra-turn phase change — so it enforces *completion order*, not *mid-turn* ordering (that's the skills' Iron Laws). It is also **capped natively**: Claude Code blocks at most ~8 consecutive `Stop` hooks (`stop_hook_active`). So the Review loop ([01 §8](./01-agentic-workflow.md#8-the-review-loop-and-its-exit-condition)) cannot block forever — when the cap is hit, this hook **degrades gracefully**: it stops blocking, leaves `review=capped`, and surfaces the remaining `outstanding` items to the user.
@@ -238,7 +238,7 @@ Each: **Event · Matcher · Reads · Returns · Enforces · Phase · Honest limi
   engaged=$(jq -r 'if (.reuse_scan==true) or (.spec_path!=null) or (.plan_path!=null)
                    or (.phase|IN("plan","implement","review","learn")) then "y" else "n" end' <<<"$s")
   [ "$engaged" = y ] || exit 0
-  if [ "$r" != "pass" ]; then block "Review not passed — run claudehut:review until outstanding is empty (with fresh evidence)."
+  if [ "$r" != "pass" ]; then block "not finished — phase=$p, tier=$t. $(next_step). Opens on: set-review pass --evidence <review.md>."
   elif [ "$p" != "learn" ]; then block "Learn pass not run — run claudehut:capture-learnings before finishing."
   fi
   ```

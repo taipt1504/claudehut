@@ -33,8 +33,15 @@ if [ "$(jq -r '.review // empty' <<<"$s" 2>/dev/null)" = "pass" ] \
    && [ -f "$PROJECT_DIR/.claude/claudehut/state/$sid.learn-receipt.json" ] \
    && [ "$(jq -r '(.outstanding // []) | length' <<<"$s" 2>/dev/null || echo 0)" = "0" ]; then
   _byp="$(jq -r 'if .bypass then "bypass ON (" + ((.bypass_reason // "no reason recorded")) + ")" else "" end' <<<"$s" 2>/dev/null || true)"
+  # `wc -l`, not `grep -c .`. grep -c prints "0" AND exits 1 when nothing matches, so the `|| echo 0`
+  # fallback fired ON TOP of the 0 it had already printed: _old became the two-line string "0\n0", the
+  # comparison below died with `[: 0\n0: integer expression expected`, and a Stop hook wrote to stderr on
+  # every clean pass — which Claude Code surfaces to the user as "Stop hook error". The advisory itself
+  # was never wrong (a real count of 3 exits 0 and compares fine); the whole cost was stderr noise on the
+  # one path that should have been silent, emitted by the script that owns the completion decision.
   _old="$(find "$PROJECT_DIR/.claude/claudehut/state" -maxdepth 1 -type f -mtime +7 \
-            \( -name '*.failures.jsonl' -o -name '*.injected.json' \) 2>/dev/null | grep -c . || echo 0)"
+            \( -name '*.failures.jsonl' -o -name '*.injected.json' \) 2>/dev/null | wc -l | tr -d ' ')"
+  case "$_old" in ''|*[!0-9]*) _old=0 ;; esac
   _msg=""
   [ -n "$_byp" ] && _msg="$_byp"
   [ "${_old:-0}" -gt 0 ] && _msg="${_msg:+$_msg; }${_old} state sidecar(s) older than 7 days"
@@ -132,8 +139,57 @@ if [ "$profile" = "audit" ] || [ "$profile" = "investigation" ]; then
   exit 0
 fi
 
-if [ "$review" != "pass" ]; then
-  block "ClaudeHut gate: Review not passed — run claudehut:review until the outstanding set is empty, with fresh evidence."
+# The reason must name the NEXT action, not the LAST gate. This block used to emit one sentence —
+# "run claudehut:review until the outstanding set is empty" — at EVERY phase, which was wrong twice over:
+#
+#   * At discover/brainstorm/spec/plan it ordered the model to jump 2-4 phases ahead. The gate whose whole
+#     purpose is to stop the workflow being skipped was itself instructing the skip.
+#   * It named an exit condition that was ALREADY SATISFIED. `outstanding` is empty for the entire run-up
+#     to Review, so "until the outstanding set is empty" describes the current state; a model reading it
+#     literally has no way to comply, and the real terminal condition (`set-review pass`, which demands an
+#     evidence file with a coverage table) went unstated.
+#
+# Phase order per tier is read off the tier map in skills/claudehut-workflow/SKILL.md: trivial and small
+# skip Brainstorm/Spec/Plan, trivial also skips Learn.
+next_step() {
+  case "$phase" in
+    discover)
+      if [ "$tier" = trivial ] || [ "$tier" = small ]; then
+        printf 'Next: claudehut:implement (phase 5) — the %s tier skips Brainstorm/Spec/Plan.' "$tier"
+      else
+        printf 'Next: claudehut:brainstorm (phase 2).'
+      fi ;;
+    brainstorm) printf 'Next: claudehut:write-spec (phase 3).' ;;
+    spec)       printf 'Next: claudehut:write-plan (phase 4).' ;;
+    plan)       printf 'Next: claudehut:implement (phase 5).' ;;
+    implement)  printf 'Next: claudehut:review (phase 6).' ;;
+    review)     printf 'Next: finish claudehut:review — merge the auditor findings into review.md.' ;;
+    *)          printf 'Next: continue the workflow from phase %s.' "$phase" ;;
+  esac
+}
+nout="$(jq -r '(.outstanding // []) | length' <<<"$s" 2>/dev/null || echo 0)"
+case "$nout" in ''|*[!0-9]*) nout=0 ;; esac
+# Only offered before Implement. Past that point code exists, so "this was never a coding task" is not a
+# live reading and the line would just be noise on the gate that matters.
+shape_hint=""
+case "$phase" in discover|brainstorm|spec)
+  shape_hint=" If this is not a coding task, record its shape instead of walking the code phases: claudehut-state set-profile investigation (or audit), then set-findings <path to findings.md>." ;;
+esac
+
+if [ "$review" = "capped" ]; then
+  # `capped` is claudehut:review (SKILL.md:142) declaring its 2-round fix loop exhausted and handing the
+  # survivors to the user. The old text told it to "run claudehut:review until outstanding is empty",
+  # i.e. straight back into the loop the cap exists to stop — the round cap and the completion gate
+  # contradicting each other. It still BLOCKS: `set-review capped` takes no evidence, so letting it
+  # satisfy the gate would turn the cap into a free escape hatch. Only the instruction changes.
+  block "ClaudeHut gate: review is CAPPED, not passed — the fix loop hit its 2-round limit, so do NOT dispatch another review round. Surface the ${nout} surviving outstanding item(s) to the user and get a decision: fix them, defer each with a written justification, or have the USER run claudehut-state set-bypass true --reason '<why>'."
+elif [ "$review" != "pass" ]; then
+  if [ "$nout" -gt 0 ]; then
+    _o="${nout} outstanding item(s) still recorded"
+  else
+    _o="review has not been recorded as passed"
+  fi
+  block "ClaudeHut gate: the workflow is engaged and this task is not finished — phase=${phase}, tier=${tier}, ${_o}. $(next_step) The gate opens only on: claudehut-state set-review pass --evidence tasks/NNNN-<slug>/review.md (the artifact must carry a real coverage table + test counts; a flag with no evidence is refused).${shape_hint}"
 elif [ "$tier" != "trivial" ] && [ "$phase" != "learn" ]; then
   # trivial tier legitimately skips Learn (workflow tier map) — blocking it here would wedge the
   # session until the consecutive-Stop cap. full + small still require the Learn pass.

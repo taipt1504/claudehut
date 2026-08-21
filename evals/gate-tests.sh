@@ -23,6 +23,15 @@ review_pass() {
   printf '# Review\n| Item | Status | Evidence |\n|---|---|---|\n| jpa fetch | ✓ satisfied | Foo.java:1 |\n\nTests: ./gradlew test — 12 passed\n' > "$ev"
   "$ROOT/bin/claudehut-state" --session s set-review pass --evidence "$ev" >/dev/null
 }
+# Engagement at phase=discover requires a RECORDED reuse-scan, and set-reuse-scan content-gates the
+# artifact (Fit/Impact columns + a decision token). Writing state.json by hand would bypass the gate the
+# rest of the suite exists to exercise, so this goes through the real verb.
+reuse_scan_done() {
+  local a="$CLAUDE_PROJECT_DIR/.claude/claudehut/tasks/0001-x/reuse-scan.md"
+  mkdir -p "$(dirname "$a")"
+  printf '# Reuse scan\n| Dimension | Existing asset | Decision | Fit | Impact | Effort |\n|---|---|---|---|---|---|\n| http client | RestClientConfig | extend | high | med | S |\n' > "$a"
+  "$ROOT/bin/claudehut-state" --session s set-reuse-scan --artifact "$a" >/dev/null
+}
 denies()  { echo "$2" | "$ROOT/scripts/gate-write.sh" | jq -e '.hookSpecificOutput.permissionDecision=="deny"' >/dev/null 2>&1; }
 allows()  { [ -z "$(echo "$2" | "$ROOT/scripts/gate-write.sh")" ]; }
 blocks()  { echo "$2" | "$ROOT/scripts/gate-done.sh" | jq -e '.decision=="block"' >/dev/null 2>&1; }
@@ -94,6 +103,63 @@ new_proj; st set-phase review; review_pass; st set-complexity trivial
 done_ok x '{"session_id":"s","stop_hook_active":false}' && ok "allow: trivial tier — review=pass terminates WITHOUT Learn (no wedge)" || bad "trivial done without learn"
 st set-complexity small
 blocks x '{"session_id":"s","stop_hook_active":false}' && ok "block: small tier still requires Learn" || bad "small learn required"
+rm -rf "$TMP"
+
+# ── gate-done: the block REASON must name the next action, not the last gate ────────────────────────
+# Reported from a live session: the Stop hook fired "Review not passed — run claudehut:review" while the
+# task was nowhere near Review. One sentence was emitted at every phase, so the gate that exists to stop
+# the workflow being skipped was itself ordering a 2-4 phase skip — and it named an exit condition
+# ("until the outstanding set is empty") that is ALREADY TRUE for the whole run-up to Review.
+echo "== gate-done: the block reason is phase-aware (live-session report) =="
+reason() { echo '{"session_id":"s","stop_hook_active":false}' | "$ROOT/scripts/gate-done.sh" 2>/dev/null | jq -r '.reason // ""'; }
+
+new_proj; st set-profile feature; reuse_scan_done
+# The defect case. Engaged at discover on a full-tier task: the next phase is Brainstorm.
+R="$(reason)"
+case "$R" in *"claudehut:brainstorm"*) ok "gate-done: at phase=discover the reason names Brainstorm, the actual next phase" ;;
+  *) bad "gate-done: at phase=discover the reason does not name Brainstorm — got: ${R:0:110}" ;; esac
+case "$R" in *"run claudehut:review"*|*"Next: claudehut:review"*)
+      bad "gate-done: at phase=discover the reason still orders a jump to Review (skips Brainstorm/Spec/Plan)" ;;
+  *)  ok "gate-done: at phase=discover the reason does NOT order a jump to Review" ;; esac
+# CONTROL 1 — a reason that named the next phase for every input would satisfy the assertion above while
+# being just as wrong. At implement, Review IS the next phase and must still be named.
+st set-phase implement; R="$(reason)"
+case "$R" in *"claudehut:review"*) ok "gate-done: control — at phase=implement the reason still names Review" ;;
+  *) bad "gate-done: control — at phase=implement the reason failed to name Review: ${R:0:110}" ;; esac
+# CONTROL 2 — the tier changes the answer: small/trivial skip Brainstorm/Spec/Plan entirely, so routing a
+# small-tier discover to Brainstorm would be the same class of wrong instruction in the other direction.
+new_proj; st set-profile feature; reuse_scan_done; st set-complexity small; R="$(reason)"
+case "$R" in *"claudehut:implement"*) ok "gate-done: control — small tier at discover routes to Implement, not Brainstorm" ;;
+  *) bad "gate-done: control — small tier at discover did not route to Implement: ${R:0:110}" ;; esac
+case "$R" in *"claudehut:brainstorm"*) bad "gate-done: small tier sent to Brainstorm, which that tier skips" ;;
+  *) ok "gate-done: small tier is not sent to the Brainstorm phase it skips" ;; esac
+rm -rf "$TMP"
+
+# review=capped is claudehut:review declaring its 2-round fix loop exhausted. The old reason told it to
+# loop again — the round cap and the completion gate contradicting each other. It must still BLOCK
+# (set-review capped takes no evidence, so passing here would make the cap a free escape hatch).
+new_proj; st set-profile feature; st set-phase implement; st set-review capped
+blocks x '{"session_id":"s","stop_hook_active":false}' \
+  && ok "gate-done: review=capped still BLOCKS (capped needs no evidence — it must not be an escape hatch)" \
+  || bad "gate-done: review=capped satisfied the completion gate — free escape hatch"
+R="$(reason)"
+case "$R" in *"do NOT dispatch another review round"*) ok "gate-done: review=capped is told to surface the survivors, not to re-loop" ;;
+  *) bad "gate-done: review=capped is still told to run review again, against the cap: ${R:0:110}" ;; esac
+rm -rf "$TMP"
+
+# The completion gate must not write to stderr: Claude Code renders any stderr from a Stop hook to the
+# user as "Stop hook error". `find | grep -c .` printed "0" and exited 1, so the `|| echo 0` fallback
+# appended a second 0 and the -gt comparison died with "integer expression expected" on every clean pass.
+new_proj; st set-profile feature; st set-phase review; review_pass; mk_receipt; st set-phase learn
+ERRF="$TMP/stop.err"
+echo '{"session_id":"s","stop_hook_active":false}' | "$ROOT/scripts/gate-done.sh" >/dev/null 2>"$ERRF"
+[ ! -s "$ERRF" ] && ok "gate-done: the clean pass writes nothing to stderr (no phantom 'Stop hook error')" \
+  || bad "gate-done: stderr on a clean pass — $(head -c 90 "$ERRF")"
+# CONTROL — the advisory it guards still fires when sidecars really are stale, so the fix is not a mute.
+touch -t 202501010000 "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/x.failures.jsonl"
+ADVS="$(echo '{"session_id":"s","stop_hook_active":false}' | "$ROOT/scripts/gate-done.sh" 2>/dev/null | jq -r '.systemMessage // ""')"
+case "$ADVS" in *"older than 7 days"*) ok "gate-done: control — the stale-sidecar advisory still fires when files ARE stale" ;;
+  *) bad "gate-done: the stale-sidecar advisory was silenced rather than fixed: ${ADVS:0:90}" ;; esac
 rm -rf "$TMP"
 
 echo "== gate-write: complexity tiers (Issue 4 safe-by-construction) =="
