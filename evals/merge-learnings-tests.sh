@@ -402,6 +402,38 @@ printf '%s' "$first" | grep -q '@' \
   || ok "IDEA-F4: an equally strong LOCAL lesson outranks the borrowed one"
 rm -rf "$FR"
 
+echo "== merge-learnings: the advisory lock cannot be disabled by a stray file =="
+# Only a DIRECTORY is ever a valid lock at this path. A plain file made every mkdir fail while the
+# stale-lock steal below it stayed `-d`-guarded, so nothing ever cleared it: the loop ran to the full 10s
+# wall-clock cap and then wrote UNLOCKED — on every invocation, permanently, for that project. And the
+# loop had no yield, so those ten seconds were a hot spin rather than a wait.
+# Measured before the fix: 0.13s normally vs 10.03s at 62% CPU with a file planted, file still present
+# afterwards. bin/claudehut-state carried the same hole plus a second one; see gate-tests.sh.
+new_proj
+printf '{"category":"pitfall","trigger":"lock, fixture","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+: > "$(store).lock"
+mlk_t0="$(date -u +%s)"
+"$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
+mlk_t1="$(date -u +%s)"
+mlk_el=$(( mlk_t1 - mlk_t0 ))
+[ "$mlk_el" -lt 5 ] \
+  && ok "lock: a plain file at the lock path does not stall the merge (${mlk_el}s, was a 10s hot spin)" \
+  || bad "lock: a plain file at the lock path still spins to the wall-clock cap (${mlk_el}s)"
+[ ! -e "$(store).lock" ] \
+  && ok "lock: the stray non-directory lock is cleared, so it does not disable locking for good" \
+  || bad "lock: the stray file survives — every later run is unlocked too"
+# CONTROL — a real, actively-held lock directory must STILL be honoured, i.e. the clean-up above must not
+# have turned into "delete whatever is in the way". The holder is younger than the 30s steal threshold,
+# so a correct waiter rides the wall-clock cap; what it must never do is remove a live holder's directory.
+new_proj
+printf '{"category":"pitfall","trigger":"lock, held","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+mkdir "$(store).lock"
+"$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
+[ -d "$(store).lock" ] \
+  && ok "lock: control — a live holder's lock directory is left alone (not swept as debris)" \
+  || bad "lock: control — a held lock DIRECTORY was removed; the stray-file cleanup is too broad"
+rm -rf "$(store).lock"
+
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"
 # W19: publish the count so reference-check.sh can pin the README number without re-running this suite.

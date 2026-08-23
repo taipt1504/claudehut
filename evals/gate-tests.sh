@@ -515,6 +515,88 @@ for _i in 1 2 3 4 5; do
 done
 [ "$lost" -eq 0 ] && ok "lock: 4 concurrent writers, 5 trials, zero lost updates" \
   || bad "lock: lost updates in $lost/5 trials (state writer is not serialized)"
+# The 4-writer trial above is a TIMING sample: it caught the defect below at roughly 1 run in 8 and passed
+# the other 7, which is worse than no test — a green run was not evidence. These two assertions pin the same
+# two holes deterministically, by constructing the interleaving instead of waiting for it.
+#
+# Both live on one line of bin/claudehut-state: after `mkdir "$LOCK"` fails, `[ -d "$LOCK" ]` was used to
+# decide WHY it failed, and a false answer meant "unwritable filesystem — proceed without the lock".
+mkdir_stub() { # a mkdir on PATH that releases the lock inside the window of the caller's FIRST failed mkdir
+  mkdir -p "$1"
+  cat > "$1/mkdir" <<'STUB'
+#!/bin/sh
+case "$1" in -p) exec /bin/mkdir "$@" ;; esac
+if /bin/mkdir "$@" 2>/dev/null; then exit 0; fi
+if [ ! -f "$CH_RELEASED" ]; then : > "$CH_RELEASED"; /bin/rm -rf "$1"; fi
+exit 1
+STUB
+  chmod +x "$1/mkdir"
+}
+lk_trial() { # one 2-writer trial from a known state; echoes the resulting pair
+  rm -rf "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"; mkdir -p "$CLAUDE_PROJECT_DIR/.claude/claudehut/state"
+  rm -f "$CH_RELEASED"
+  "$ROOT/bin/claudehut-state" --session c set-phase discover  >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-complexity full >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-profile feature >/dev/null 2>&1
+  [ "${1:-}" = holder ] && mkdir "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json.lock"
+  PATH="$STUBDIR:$PATH" "$ROOT/bin/claudehut-state" --session c set-complexity small >/dev/null 2>&1 &
+  PATH="$STUBDIR:$PATH" "$ROOT/bin/claudehut-state" --session c set-profile bugfix   >/dev/null 2>&1 &
+  wait
+  jq -c '{complexity,profile}' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json" 2>/dev/null
+}
+
+new_proj; STUBDIR="$TMP/stub"; CH_RELEASED="$TMP/released"; export CH_RELEASED; mkdir_stub "$STUBDIR"
+lk_lost=0
+for _i in 1 2 3 4 5; do
+  [ "$(lk_trial holder)" = '{"complexity":"small","profile":"bugfix"}' ] || lk_lost=$((lk_lost+1))
+done
+[ "$lk_lost" -eq 0 ] \
+  && ok "lock: a holder releasing INSIDE the failed-mkdir window does not drop a writer (5/5)" \
+  || bad "lock: $lk_lost/5 lost an update when the holder released inside the window — the failed mkdir was read as 'unwritable filesystem' and the writer proceeded unlocked"
+rm -rf "$TMP"
+
+# Only a DIRECTORY is ever a valid lock here. A plain file at that path makes every mkdir fail while `-d`
+# stays false, so serialization is silently off for the whole session AND never self-heals: release_lock
+# only removes a lock this process took, so nothing clears the file.
+new_proj; STUBDIR="$TMP/nostub"; mkdir -p "$STUBDIR"; CH_RELEASED="$TMP/released"; export CH_RELEASED
+"$ROOT/bin/claudehut-state" --session c set-phase discover >/dev/null 2>&1
+: > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json.lock"
+# Four writers, not two: with locking off the loss depends on their read-modify-write windows actually
+# overlapping, and two processes frequently miss each other by luck. Four is what reproduced 12/12 by hand.
+lk_lost=0
+for _i in 1 2 3 4 5; do
+  "$ROOT/bin/claudehut-state" --session c set-complexity full >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-profile feature >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-bypass false >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-outstanding '[]' >/dev/null 2>&1
+  "$ROOT/bin/claudehut-state" --session c set-complexity small >/dev/null 2>&1 &
+  "$ROOT/bin/claudehut-state" --session c set-profile bugfix   >/dev/null 2>&1 &
+  "$ROOT/bin/claudehut-state" --session c set-bypass true --reason "lock fixture" >/dev/null 2>&1 &
+  "$ROOT/bin/claudehut-state" --session c set-outstanding '["x"]' >/dev/null 2>&1 &
+  wait
+  jq -e '.complexity=="small" and .profile=="bugfix" and .bypass==true and (.outstanding|length)==1' \
+     "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json" >/dev/null 2>&1 || lk_lost=$((lk_lost+1))
+  : > "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json.lock"   # re-plant: the real hazard is that it persists
+done
+[ "$lk_lost" -eq 0 ] \
+  && ok "lock: a non-directory at the lock path is cleared, not treated as an unwritable filesystem (5/5)" \
+  || bad "lock: $lk_lost/5 lost an update with a plain file at the lock path — locking is off for the session and never recovers"
+rm -rf "$TMP"
+
+# CONTROL. The retry above must not convert a genuine hard failure into a stall: these hooks run under
+# 10-15s timeouts and the wall-clock cap is 10s, so a real unwritable path has to fail OPEN, fast.
+new_proj; STUBDIR="$TMP/hard"; mkdir -p "$STUBDIR"
+printf '#!/bin/sh\ncase "$1" in -p) exec /bin/mkdir "$@" ;; esac\nexit 1\n' > "$STUBDIR/mkdir"; chmod +x "$STUBDIR/mkdir"
+"$ROOT/bin/claudehut-state" --session c set-phase discover >/dev/null 2>&1
+lk_t0="$(date -u +%s)"
+PATH="$STUBDIR:$PATH" "$ROOT/bin/claudehut-state" --session c set-profile bugfix >/dev/null 2>&1
+lk_t1="$(date -u +%s)"
+{ [ "$(( lk_t1 - lk_t0 ))" -lt 5 ] && [ "$(jq -r '.profile' "$CLAUDE_PROJECT_DIR/.claude/claudehut/state/c.json" 2>/dev/null)" = bugfix ]; } \
+  && ok "lock: control — a mkdir that can never succeed still fails OPEN promptly (no 10s spin per hook)" \
+  || bad "lock: control — an unwritable lock path now stalls the writer ($(( lk_t1 - lk_t0 ))s) or dropped the write"
+rm -rf "$TMP"
+
+new_proj
 [ -z "$(find "$CLAUDE_PROJECT_DIR/.claude/claudehut/state" -name '*.lock' -o -name '*.lock.flock' 2>/dev/null)" ] \
   && ok "lock: released cleanly (no lock files left behind)" || bad "lock: stale lock file left behind"
 rm -rf "$TMP"

@@ -439,11 +439,11 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 748 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 754 assertions, all green on the release commit
 evals/conformance.sh              # 287  structural + behavioural wiring checks
-evals/gate-tests.sh               # 171  write/done enforcement gates
+evals/gate-tests.sh               # 174  write/done enforcement gates
 evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    #  51  learnings merge, prune, injection, federation
+evals/merge-learnings-tests.sh    #  54  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  24  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures

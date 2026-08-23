@@ -75,8 +75,16 @@ acquire_lock() {
   fi
   # Fallback (e.g. macOS without flock): atomic mkdir-lock, stale-lock breaker (steal after 30s), bounded by
   # WALL-CLOCK not iteration count (iteration caps bail early on a fast/slow host — the CI MEM-1 failure).
-  local start; start="$(date -u +%s)"
+  local start badpath; start="$(date -u +%s)"; badpath=0
   while ! mkdir "$LOCK" 2>/dev/null; do
+    # Only a DIRECTORY is ever a valid lock here. A plain file at this path makes every mkdir fail, and
+    # since the steal below is `-d`-guarded it is never cleared — so every Learn pass hot-spun to the full
+    # 10s cap and then wrote unlocked. Measured: 0.13s normally, 10.03s at 62% CPU with a file planted,
+    # on every single invocation, with the file still there afterwards. Clear it once, then retry.
+    if [ -e "$LOCK" ] && [ ! -d "$LOCK" ]; then
+      if [ "$badpath" = 0 ]; then badpath=1; rm -f "$LOCK" 2>/dev/null; continue; fi
+      return 0
+    fi
     local now; now="$(date -u +%s)"
     lm="$(_lock_mtime "$LOCK")"
     # steal ONLY on a real, genuinely old mtime: _lock_mtime falls back to 0 when stat loses a race with
@@ -86,6 +94,9 @@ acquire_lock() {
       rm -rf "$LOCK" 2>/dev/null; continue          # steal a stale lock (crashed/killed writer)
     fi
     if [ "$(( now - start ))" -ge 10 ]; then return 0; fi   # 10s wall-clock cap → proceed (fail-open)
+    # Yield. Without this the wait was a HOT spin — the 10s cap above burned a core for ten seconds
+    # rather than waiting for ten seconds. bin/claudehut-state's loop has always yielded here.
+    sleep 0.02 2>/dev/null || true
   done
   _lock_held="mkdir"; trap 'release_lock' EXIT INT TERM
 }
