@@ -17,7 +17,7 @@
 # statement a non-zero return would fire the ERR trap and be logged as a failure.
 
 HC_IN=""; HC_EVENT=""; HC_CTX=""; HC_SYS=""; HC_FAILED=""; HC_BUDGET="${HC_BUDGET:-500}"
-HC_SID=""; HC_TASK=""; HC_TASK_ID=""; HC_REL=""; PLANE=""; HUB=""; HC_LANG="en"; HC_HEAD=""; HC_INDEXED=""
+HC_SID=""; HC_TASK=""; HC_TASK_ID=""; HC_REL=""; PLANE=""; HUB=""; HC_LANG="en"; HC_MODE="mono"; HC_SVC=""; HC_HEAD=""; HC_INDEXED=""
 HC_NAME="${0##*/}"
 
 hc_init() {
@@ -50,27 +50,43 @@ hc_plane_or_exit() {
     exec 2>/dev/null   # K3 on a read-only plane (mounted / checked-out hub): no log to reach, so stay silent (HC2-2)
   fi
   # One jq read of topology.json serves both the hub and the language (ADR-R7: plane → hub.json (M6) → en).
-  HUB=""; HC_LANG=""
+  HUB=""; HC_LANG=""; HC_MODE=mono; HC_SVC=""
   if [ -f "$PLANE/topology.json" ]; then
     # \x1f, not a tab: IFS whitespace collapses, so an empty hub would shift the language into HUB.
-    IFS=$'\x1f' read -r HUB HC_LANG <<<"$(jq -r '[(.hub // "" | tostring), (.language // "" | tostring)] | join("\u001f")' \
+    IFS=$'\x1f' read -r HUB HC_LANG HC_MODE HC_SVC <<<"$(jq -r '[(.hub // "" | tostring), (.language // "" | tostring), (.mode // "mono" | tostring), (.service // "" | tostring)] | join("\u001f")' \
       "$PLANE/topology.json" 2>/dev/null)" || :
   fi
+  [ "$HC_MODE" = microservice ] || HC_MODE=mono
   [ -z "${CLAUDEHUT_HUB:-}" ] || HUB="$CLAUDEHUT_HUB"
+  # Either spelling names the hub: the root or its inner <root>/.claude/claudehut/hub dir (as hub.py accepts).
+  HUB="${HUB%/}"; HUB="${HUB%/.claude/claudehut/hub}"
   [ -n "$HUB" ] || HUB="$PLANE"
-  if [ "$HC_LANG" != vi ] && [ "$HC_LANG" != en ] && [ "$HUB" != "$PLANE" ]; then
+  # HC_LAZY_LANG=1 (a hook that rarely speaks): the hub.json fallback waits for an explicit hc_hub_lang call.
+  [ -n "${HC_LAZY_LANG:-}" ] || hc_hub_lang
+  # Claude Code puts session_id first: read it with a bash regex anchored at the object start (no jq fork on the
+  # hot path of every hook); any other shape falls back to jq.
+  if [[ $HC_IN =~ ^\{[[:space:]]*\"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9._-]*)\"[[:space:]]*[,}] ]]; then
+    HC_SID="${BASH_REMATCH[1]}"
+  else
+    HC_SID="$(jq -r '.session_id // empty' <<<"$HC_IN" 2>/dev/null)" || HC_SID=""
+  fi
+  hc_safe_id "$HC_SID" || HC_SID=""
+  return 0
+}
+
+hc_hub_lang() { # HC_LANG: plane topology.json → hub.json (microservice) → en (ADR-R7)
+  if [ "$HC_LANG" != vi ] && [ "$HC_LANG" != en ] && [ -n "$HUB" ] && [ "$HUB" != "$PLANE" ]; then
     # Same order and hub.json locations as scripts/index/memory.py resolve_language (04 AC14).
-    local hb="$HUB" hf
+    local hb="$HUB" hf hs re='"language"[[:space:]]*:[[:space:]]*"(vi|en)"'
     case "$hb" in /*) : ;; *) hb="$PROJECT_DIR/$hb" ;; esac
+    # hub.json is a flat object ({schema, language}): a bash regex reads it without a jq fork (AC-11 hot path).
     for hf in "$hb/.claude/claudehut/hub/hub.json" "$hb/hub.json"; do
       [ -f "$hf" ] || continue
-      HC_LANG="$(jq -r '.language // empty | strings' "$hf" 2>/dev/null)" || HC_LANG=""
-      case "$HC_LANG" in vi|en) break ;; esac
+      hs=""; IFS= read -r -d '' hs < "$hf" 2>/dev/null || :
+      [[ $hs =~ $re ]] && { HC_LANG="${BASH_REMATCH[1]}"; break; }
     done
   fi
   case "$HC_LANG" in vi|en) : ;; *) HC_LANG=en ;; esac
-  HC_SID="$(jq -r '.session_id // empty' <<<"$HC_IN" 2>/dev/null)" || HC_SID=""
-  hc_safe_id "$HC_SID" || HC_SID=""
   return 0
 }
 

@@ -66,7 +66,31 @@ if [ -n "$FED" ] && [ -d "$FED" ]; then
 fi
 trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
 
-[ -f "$FILE" ] || exit 0
+# 07 §8.2 Fleet (M6): a microservice plane also reads its hub's fleet-learnings.jsonl — ONE ranking over local +
+# fleet, so --top is the combined cap. Fleet rows carry confidence x0.7 and the label [fleet]; their ids are
+# namespaced "fleet:F-####" so --exclude/--snapshot never collide with a local L-####. A fleet row whose sources
+# include this service (the lesson is already in the local store) or whose text equals a local learning is
+# dropped. The mode test is a bash string match, so a mono plane pays no extra fork.
+FLEETF=""; SELF=""
+TOPO="$PROJECT_DIR/.claude/claudehut/topology.json"
+if [ -f "$TOPO" ]; then
+  _t=""; IFS= read -r -d '' _t < "$TOPO" 2>/dev/null || :   # no fork (a $(< f) subshell is one)
+  case "$_t" in *'"microservice"'*)
+    IFS=$'\x1f' read -r _m _hb SELF <<<"$(jq -r '[(.mode // ""), (.hub // "" | tostring), (.service // "" | tostring)] | join("\u001f")' <<<"$_t" 2>/dev/null)" || _m=""
+    [ -z "${CLAUDEHUT_HUB:-}" ] || _hb="$CLAUDEHUT_HUB"
+    if [ "$_m" = microservice ] && [ -n "$_hb" ]; then
+      case "$_hb" in /*) : ;; *) _hb="$PROJECT_DIR/$_hb" ;; esac
+      for _f in "$_hb/.claude/claudehut/hub/fleet-learnings.jsonl" "$_hb/fleet-learnings.jsonl"; do
+        [ -f "$_f" ] && { FLEETF="$_f"; break; }
+      done
+    fi
+    [ -n "$SELF" ] || SELF="${PROJECT_DIR##*/}" ;;
+  esac
+fi
+set --
+[ -f "$FILE" ] && set -- "$FILE"
+[ -n "$FLEETF" ] && set -- "$@" "$FLEETF"
+[ $# -gt 0 ] || exit 0
 
 # Half-life 30 days: recency = 0.5 ^ (age_days / 30) = exp( ln(0.5) * age_days / 30 ).
 # Nonce without a fork (AC12): the `od` process was ~3.5 ms p50 and most of this script's p95 spread. `read` stops
@@ -86,10 +110,19 @@ fi
 # (the old second pass skipped the diversity step and could record ids that were never shown). Line 2 is the
 # --accumulate payload (exclude set ∪ those ids). The lines after it are the rendered block.
 OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
-     --argjson maxlen "$MAXLEN" --arg exraw "$EXRAW" --argjson compact "$COMPACT" '
+     --argjson maxlen "$MAXLEN" --arg exraw "$EXRAW" --argjson compact "$COMPACT" \
+     --arg fleetf "$FLEETF" --arg self "$SELF" '
     now as $now
     | ((try ($exraw | fromjson) catch []) | if type=="array" then map(select(type=="string")) else [] end) as $exids
-    | [inputs | fromjson? // empty]
+    | [inputs | fromjson? // empty | select(type == "object")
+       | if ($fleetf != "" and input_filename == $fleetf)
+         then . + {_fleet: true, id: ("fleet:" + ((.id // "") | tostring)), confidence: ((.confidence // 0.5) * 700 | round / 1000)}
+         else . end]
+    | ( if $fleetf == "" then .
+        else ( [ .[] | select(._fleet | not) | (.learning // "") ] | map({(.): true}) | add // {} ) as $loc
+        | map(select((._fleet | not)
+                     or ((any((.sources // [])[]; .service == $self) | not) and ($loc[(.learning // "")] | not))))
+        end )
     | ( ["the","and","for","fix","add","use","this","that","with","into","from","run","new","get","set","you","are","can","its","but"] ) as $stop
     | ( $filter | ascii_downcase | gsub("[^a-z0-9+ ]";" ") | split(" ")
         | map(. as $w | select(($w | length) > 2 and ($stop | index($w)) == null)) ) as $words
@@ -141,9 +174,10 @@ OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
           then ( (.[0:80] | (rindex(";") // rindex(",") // rindex(" ") // 80)) as $d
                  | .[0:(if $d > 40 then $d else 80 end)] + "…" )
           else . end ) as $ev
-    | if $compact then "- [\(.category // "note")] \($txt)" else
-      "- [\(.category // "note")\(if .federated_from then " @" + .federated_from else "" end)] \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]" end)
-  ' "$FILE" 2>/dev/null || true)"
+    | (if ._fleet then " [fleet]" else "" end) as $fl
+    | if $compact then "- [\(.category // "note")]\($fl) \($txt)" else
+      "- [\(.category // "note")\(if .federated_from then " @" + .federated_from else "" end)]\($fl) \($txt)  (\($ev)) [conf \(.confidence // 0), hits \(.hits // 1)\(if ((.promoted // false) and ((.recurrence // 0) > 0)) then ", RECURRING-PROMOTED" else "" end)]" end)
+  ' "$@" 2>/dev/null || true)"
 IDS="${OUT%%$'\n'*}"; OUT="${OUT#*$'\n'}"
 ACC="${OUT%%$'\n'*}"
 case "$OUT" in *$'\n'*) BODY="${OUT#*$'\n'}" ;; *) BODY="" ;; esac

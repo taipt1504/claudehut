@@ -345,7 +345,7 @@ Bootstrap bỏ dò `claude plugin list` (B10) và dòng "MUST use" (F-2). Graph 
 
 Milestone và lệnh kiểm tra: [10-rollout-eval.md](10-rollout-eval.md) (M5 mono + memory, M6 hub).
 
-Trạng thái (2026-10-01): M5 đạt AC-1..AC-7 và AC-15 phần mono; AC-13 đạt cả vế `core.hooksPath`/husky/lefthook, headless và gitignore (init không sửa `.gitignore`, in `check-ignore -v` + patch; test F5 viết lại theo §8.3). AC-8..AC-12 thuộc M6, AC-14 đo ở M7. `components.jsonl` dùng khoá `file` (không phải `path` như §4.2) và thêm kind `endpoint`, `migration`, `component`.
+Trạng thái (2026-10-01): M5 đạt AC-1..AC-7 và AC-15 phần mono; AC-13 đạt cả vế `core.hooksPath`/husky/lefthook, headless và gitignore (init không sửa `.gitignore`, in `check-ignore -v` + patch; test F5 viết lại theo §8.3). M6 (2026-10-01) đạt AC-8..AC-11 và AC-15 phần microservice. AC-12 chỉ đạt vế `brief` nhiều service; vế `@import` HUB.md chỉ áp cho hub ở workspace root và bị hoãn, vì ewallet dùng repo tri thức riêng ([10 §M6](10-rollout-eval.md)). AC-14 đo ở M7. `components.jsonl` dùng khoá `file` (không phải `path` như §4.2) và thêm kind `endpoint`, `migration`, `component`.
 
 | # | Tiêu chí | Audit |
 |---|----------|-------|

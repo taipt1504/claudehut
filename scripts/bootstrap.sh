@@ -78,7 +78,8 @@ if [ -x "$IDX_CLI" ] && hc_indexed_commit; then
               | jq -r '.behind // empty | numbers' 2>/dev/null)" || behind=""
       card="$card, ${behind:+$behind commit(s) }behind HEAD ${HC_HEAD:0:7}$i_hint"
     fi
-    card="$card Before Grep: \`$i_cli\` brief \"<task words>\" | find <term> | svc | status (read-only)."
+    if [ "$i_mode" = mono ]; then i_cmds="svc | status"; else i_cmds="svc [<other service>] | links [--service S] | status"; fi
+    card="$card Before Grep: \`$i_cli\` brief \"<task words>\" | find <term> | $i_cmds (read-only)."
     blen "$card"; [ "$BLEN" -gt 500 ] || break
     # Over the 04 §7 cap (long hub path / plugin root / service name): drop the hub path, then name the CLI
     # relative to the plugin root the State CLI line printed, then shorten the stale hint.

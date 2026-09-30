@@ -6,3 +6,6 @@ shop:
     base-url: ${INVENTORY_SERVICE_URL:http://inventory:8080}
   kafka:
     created-topic: orders.created.v1
+    consumer:
+      refund:
+        topic: ${REFUND_TOPIC:orders.refund-requested.v1}

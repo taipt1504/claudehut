@@ -191,5 +191,29 @@ if not keys:
     for k in info: BOUND[k] = BOUND["bootstrap" if k.startswith("bootstrap") else "inject-phase"]; CEIL[k] = 0
     out.update(measure(info))
     for k in info: out[k]["bound"] = BOUND[k]
+# hint-explore (M6, 05 §4 row 9, AC-11 p95 ≤30 ms): info probes, never gated — a microservice plane whose hub
+# lists 20 services; PostToolUse Read payloads carry an ~80 KB tool_response. A sibling-repo Read in a fresh
+# session takes the full path (services.json scan + hint + once-marker); an in-project Read is the fast exit. The
+# two Grep probes carry an escaped regex (`\(`), which hint-explore reads in bash (no jq fallback).
+if not keys:
+    hw = os.path.join(os.path.dirname(lp), "lat-hub"); hp = hw + "/a-ms"; hd = hw + "/know/.claude/claudehut/hub"
+    os.makedirs(hp + "/.claude/claudehut/state", exist_ok=True); os.makedirs(hd, exist_ok=True)
+    with open(hp + "/.claude/claudehut/topology.json", "w") as f:
+        json.dump({"schema": 1, "mode": "microservice", "service": "a-ms", "hub": "../know", "language": "en"}, f)
+    with open(hd + "/services.json", "w") as f:
+        json.dump({"svc-%02d-ms" % i: {"path": "../svc-%02d-ms" % i, "has_plane": True, "remote": None,
+                                       "indexed_commit": "%040x" % i} for i in range(20)}, f, indent=1)
+    body = "x" * 80000
+    hx = lambda fp: json.dumps({"session_id": "L", "hook_event_name": "PostToolUse", "tool_name": "Read",
+                                "tool_input": {"file_path": fp}, "tool_response": {"file": {"content": body}}})
+    gx = lambda pat: json.dumps({"session_id": "L", "hook_event_name": "PostToolUse", "tool_name": "Grep",
+                                 "tool_input": {"pattern": pat}, "tool_response": {"content": body}})
+    info = {"hint-explore(sibling Read, 80 KB response)": Probe("hint-explore", hp, hx(hw + "/svc-17-ms/src/A.java"), fresh=True),
+            "hint-explore(in-project Read, 80 KB response)": Probe("hint-explore", hp, hx(hp + "/src/A.java")),
+            "hint-explore(Grep naming a sibling, 80 KB response)": Probe("hint-explore", hp, gx("svc-17-ms|foo\\("), fresh=True),
+            "hint-explore(Grep escaped regex naming none, 80 KB response)": Probe("hint-explore", hp, gx("findById\\(\\s*id"))}
+    for k in info: BOUND[k] = 30; CEIL[k] = 0
+    out.update(measure(info))
+    for k in info: out[k]["bound"] = BOUND[k]
 out["_meta"] = {"ncpu": NCPU, "os": OS, "ref_base_p95": REF_BASE_P95, "wait_ms": WAIT_MS, "wait_cap": WAIT_CAP, "rc_bad": sorted(Probe.rc_bad)}
 print(json.dumps(out))

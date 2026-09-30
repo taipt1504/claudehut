@@ -67,8 +67,9 @@ flowchart TB
 
    **Index first.** Run the brief once, by the absolute CLI path on the SessionStart `Index:` line (no such
    line → no index; skip to Grep): `<cli> brief "<task words>" --budget 3000 --task <id>`. It ranks the
-   components, contracts and file:line the task touches; `<cli> find <term> [--kind K]` fills a gap. Grep
-   only for what the index lacks. A `stale` banner means: confirm each cited path before relying on it.
+   components, contracts and file:line the task touches; `<cli> find <term> [--kind K] [--svc S]` fills a gap;
+   another service: `<cli> svc <name>` / `links --service <name>` before opening its repo. Grep only for
+   what the index lacks. A `stale` banner means: confirm each cited path before relying on it.
 
 2. **Route branch — how the scan runs depends on the route you chose** (recorded as route `light` or
    `full`; the diagram's `rt` diamond):
@@ -81,13 +82,12 @@ flowchart TB
    Several files: widen to ~5 Greps, same artifact. If the scan turns up a reusable asset that changes the shape of the work, or the task shows hidden complexity,
    escalate: `set-route full`, tell the user in one line, and dispatch properly — inline is a cost decision.
 
-   **`full` route → dispatch explorer + reuse-scanner together in ONE message** (two Agent calls in one
-   response run concurrently), without `name`. Both run even when the task "obviously" has nothing to reuse: filters, configs and utils often
-   exist, and exploration is not a reuse DECISION with an artifact. First write `tasks/NNNN-<slug>/context.md`
+   **`full` route → dispatch explorer + reuse-scanner together in ONE message** (they run concurrently),
+   without `name`. Both run even when nothing "obviously" is reusable: filters, configs and utils often exist. First write `tasks/NNNN-<slug>/context.md`
    (`references/context-template.md`) with the brief output as `## Index brief`. Every dispatch prompt carries
    the brief, the absolute CLI path, the SessionStart language line verbatim, and, when SessionStart printed an
    understand-anything graph line, `${CLAUDE_PROJECT_DIR}/.understand-anything/knowledge-graph.json`.
-   - `claudehut:claudehut-explorer` — starts from the pasted brief, runs `find`/`svc` before Grep, maps the
+   - `claudehut:claudehut-explorer` — starts from the pasted brief, runs `find`/`svc`/`links` before Grep, maps the
      packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list and `index_miss:`
      lines. Read-only. The main thread appends its map to `context.md` as `## Explorer map`.
    - `claudehut:claudehut-reuse-scanner` — writes

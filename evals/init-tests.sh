@@ -629,6 +629,43 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" --refresh-rules >/dev/null 2>&1
   || bad "--refresh-rules on a bare plane wrote outside .claude/rules: $(ls -A "$W7" "$W7/.claude" "$W7/.claude/claudehut" | tr '\n' ' ')"
 rm -rf "$W7"
 
+echo "== M6: --hub / --mode microservice, hub skeleton, language inherit/override (07 §4, AC-15) =="
+WS="$(mktemp -d)"; WS="$(cd "$WS" && pwd -P)"
+for r in a-ms b-ms c-ms d-ms; do
+  mkdir -p "$WS/$r"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$WS/$r/"
+  git -C "$WS/$r" init -q -b main 2>/dev/null
+done
+HK="$WS/ws-knowledge"; HD="$HK/.claude/claudehut/hub"
+( cd "$WS/a-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --hub ../ws-knowledge --language vi >/dev/null 2>&1 )
+[ -d "$HK/.git" ] && [ -z "$(git -C "$HK" remote)" ] && ok "--hub <new dir>: created with a local git init, no remote" || bad "--hub: hub dir/.git missing or has a remote"
+jq -e '.schema==1 and .language=="vi"' "$HD/hub.json" >/dev/null 2>&1 && ok "hub.json {schema:1, language:vi} (asked once per hub)" || bad "hub.json wrong: $(cat "$HD/hub.json" 2>/dev/null)"
+[ "$(python3 -c 'import os,sys; print(" ".join(oct(os.stat(f).st_mode & 0o777) for f in sys.argv[1:]))' "$HD/hub.json" "$HD/aliases.json" "$HD/services.json")" = "0o644 0o644 0o644" ] \
+  && ok "hub.json, aliases.json, services.json written 0644 like the other hub files (not mktemp's 0600)" || bad "hub file modes: $(ls -l "$HD" | tr '\n' ' ')"
+jq -e '.env=={} and .topic_owner=={} and .db_owner=={}' "$HD/aliases.json" >/dev/null 2>&1 && ok "aliases.json skeleton {env,topic_owner,db_owner}" || bad "aliases.json skeleton wrong"
+jq -e '."a-ms".path=="../a-ms" and ."a-ms".has_plane==true' "$HD/services.json" >/dev/null 2>&1 && ok "services.json registers a-ms, path relative to the hub root" || bad "services.json wrong: $(cat "$HD/services.json" 2>/dev/null)"
+grep -qx '.lock/' "$HD/.gitignore" && grep -qx 'aliases.suggested.json' "$HD/.gitignore" && grep -qx 'service-links.json' "$HD/.gitignore" \
+  && ok "hub .gitignore: links/, service-links.json, .understand-anything/, .lock/, aliases.suggested.json" || bad "hub .gitignore incomplete: $(tr '\n' ' ' < "$HD/.gitignore")"
+TA="$WS/a-ms/.claude/claudehut/topology.json"
+jq -e '.mode=="microservice" and .hub=="../ws-knowledge" and (has("language")|not)' "$TA" >/dev/null 2>&1 \
+  && ok "a-ms topology: mode microservice, hub relative, no language field (inherits the hub)" || bad "a-ms topology wrong: $(cat "$TA")"
+( cd "$WS/b-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --hub "$HK" --language en >/dev/null 2>&1 )
+jq -e '.language=="en" and .mode=="microservice"' "$WS/b-ms/.claude/claudehut/topology.json" >/dev/null 2>&1 && jq -e '.language=="vi"' "$HD/hub.json" >/dev/null 2>&1 \
+  && ok "b-ms --language en ≠ hub → service override en; hub.json keeps vi (AC-15)" || bad "b-ms override wrong: $(cat "$WS/b-ms/.claude/claudehut/topology.json")"
+jq -e '(."a-ms"|type)=="object" and ."b-ms".path=="../b-ms"' "$HD/services.json" >/dev/null 2>&1 && ok "services.json merges b-ms, keeps a-ms" || bad "services.json merge lost an entry"
+( cd "$WS/c-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --hub "$HK" --language vi >/dev/null 2>&1 )
+jq -e 'has("language")|not' "$WS/c-ms/.claude/claudehut/topology.json" >/dev/null 2>&1 && ok "c-ms --language vi = hub → no override field" || bad "c-ms recorded a redundant language"
+( cd "$WS/d-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --hub ../ws-knowledge/.claude/claudehut/hub >/dev/null 2>&1 )
+jq -e '.mode=="microservice" and .hub=="../ws-knowledge"' "$WS/d-ms/.claude/claudehut/topology.json" >/dev/null 2>&1 \
+  && jq -e '."d-ms".path=="../d-ms" and (."a-ms"|type)=="object"' "$HD/services.json" >/dev/null 2>&1 && [ ! -e "$HD/.claude" ] \
+  && ok "--hub <hub>/.claude/claudehut/hub (inner spelling) → same hub root: hub ../ws-knowledge, d-ms registered, no nested hub" \
+  || bad "inner hub spelling: $(cat "$WS/d-ms/.claude/claudehut/topology.json" 2>/dev/null); nested=$([ -e "$HD/.claude" ] && echo yes || echo no)"
+D6="$(cd "$WS/c-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --detect 2>/dev/null)"
+echo "$D6" | jq -e 'has("hub") and .hub_language=="vi" and (.default_hub|type)=="string" and (.siblings_without_plane|type)=="array"' >/dev/null 2>&1 \
+  && ok "--detect adds hub, hub_language, default_hub, siblings_without_plane (one JSON line)" || bad "--detect M6 keys missing: $D6"
+( cd "$WS/a-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --mode mono >/dev/null 2>&1 )
+jq -e '.mode=="mono" and .hub==null and .language=="vi"' "$TA" >/dev/null 2>&1 && ok "--mode mono drops the hub and keeps the hub's language (vi)" || bad "--mode mono wrong: $(cat "$TA")"
+rm -rf "$WS"
+
 echo; echo "INIT: $PASS passed, $FAIL failed"
 # W19: publish the count so reference-check.sh can pin the README number without re-running this suite.
 [ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/init-tests.count"

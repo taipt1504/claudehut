@@ -220,5 +220,18 @@ if [ -f "$ROOT/scripts/doclint.sh" ] && command -v python3 >/dev/null 2>&1; then
   check "M3 (real doclint): a clean spec records" 'DOCLINT_TEMPLATES="$TMP/tpl" cs "$P7" sJ set-spec "$R7/spec.md" 2>/dev/null && [ "$(tj "$P7" "$id7" | jq -r .spec_path)" = "$R7/spec.md" ]'
 fi
 
+# M6 (README decision #3): a task spanning services records cross_service + a base per repo; placement is a notice.
+PA="$(newplane xa)"; PB="$TMP/xb"; mkdir -p "$PB"
+for g in "$PA" "$PB"; do git -C "$g" init -q -b main 2>/dev/null; git -C "$g" -c user.email=t@t -c user.name=t commit -q --allow-empty -m one; done
+out="$(cd "$PA" && cs "$PA" sX start --route light --slug x --repo . --repo ../xb 2>"$TMP/x.err")"; idx="$(head -1 <<<"$out")"
+check "M6: start --repo A --repo B (2 git toplevels) → cross_service:true, base per repo" \
+  '[ "$(tj "$PA" "$idx" | jq -r ".cross_service")" = true ] && [ "$(tj "$PA" "$idx" | jq ".base | length")" = 2 ]'
+out="$(cd "$PA" && cs "$PA" sY start --route light --slug y 2>/dev/null)"; idy="$(head -1 <<<"$out")"
+check "M6: a one-repo start in a service plane → no cross_service field" '[ "$(tj "$PA" "$idy" | jq "has(\"cross_service\")")" = false ]'
+PW="$(newplane ws)"; mkdir -p "$PW/.claude/claudehut/hub"
+out="$(cs "$PW" sZ start --route light --slug z 2>"$TMP/z.err")"; rc=$?
+check "M6: a one-service task at the workspace/hub plane → 'placement:' notice on stderr, exit 0, task still created" \
+  '[ "$rc" = 0 ] && grep -q "placement:" "$TMP/z.err" && [ -n "$(head -1 <<<"$out")" ]'
+
 echo "STATE-TESTS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

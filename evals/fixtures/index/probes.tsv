@@ -23,3 +23,4 @@ yml-client-env	k	any(.http_clients[]; .env=="INVENTORY_SERVICE_URL" and .default
 yml-db	k	any(.db[]; .name=="shop")
 yml-topic	k	any(.yml_topics[]; .topic=="orders.created.v1")
 summer-lib	k	any(.libs[]; .coord=="io.f8a.summer:summer-core")
+reactor-receiver	k	any(.kafka_consume[]; .topic=="orders.refund-requested.v1" and .env=="shop.kafka.consumer.refund.topic" and .at=="src/main/java/com/acme/shop/messaging/RefundReceiver.java:19")

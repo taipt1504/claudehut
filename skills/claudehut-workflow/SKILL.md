@@ -87,6 +87,11 @@ never create or number a task dir yourself. `start` supersedes a task this sessi
 `status` already shows the task for this request (after a compact or resume), continue it. A task another
 session or a fork opened: `resume <id>`. `direct` requests write no state at all.
 
+**Cross-service tasks (hub).** Pass one `--repo` per service touched (`start … --repo <this> --repo <other>`):
+`base` and `pre_dirty` are kept per repo and the task is marked `cross_service`. Only such tasks belong in the
+workspace or hub plane; a one-service task belongs to that service's session (`start` notes a mismatch).
+Before reading another service's code, ask `claudehut-index svc <name>` or `links [--service S] [--type T]`.
+
 The optional profile names the deliverable: `audit`/`investigation` end with a `findings.md` recorded by
 `set-findings`, the others with `review==pass`. A task that changes shape mid-flow runs `set-profile` on the
 open task; one that changes shape after it finished (findings recorded, review `pass`, phase `learn`) is a
@@ -101,5 +106,5 @@ they never write state and never ask the user. Copy the SessionStart language li
 verbatim into every dispatch prompt; subagents do not see the session context.
 
 Skills, agents and MCP tools from any plugin are fair to use when their description fits the job. Look up
-code in this order: project index or hub, then `.understand-anything/knowledge-graph.json` (Read or `jq`),
-then targeted Grep/Glob.
+code in this order: project index or hub (`brief`/`find`; `svc <other>`/`links` for another service), then
+`.understand-anything/knowledge-graph.json` (Read or `jq`), then targeted Grep/Glob.

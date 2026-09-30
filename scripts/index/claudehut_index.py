@@ -18,7 +18,9 @@ Data (the shared contract):
                                  meta.json so the hooks' head-only read of meta.json stays cheap
   <plane>/index/contracts.json   exposed/consumed contracts — the M6 hub-sync input
   <plane>/topology.json          {schema:1, mode, hub, language, shared, git_hooks, service?} (init writes it)
-M6 plug points: `links` and `svc <other>` answer "hub not configured" until a hub exists (topology.hub).
+Hub (M6, hub.py): `svc <other>`, `find --svc S`, `links` read <hub>/.claude/claudehut/hub (topology.hub,
+CLAUDEHUT_HUB or --hub); without a hub they answer "hub not configured". `update --hub-sync`, `hub-sync` and
+`hub-scan` write only inside the hub.
 """
 import fnmatch
 import hashlib
@@ -34,9 +36,10 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import extract  # noqa: E402
+import hub  # noqa: E402
 from memory import resolve_language  # noqa: E402
 
-TOOL_VERSION = "0.12.0-idx2"
+TOOL_VERSION = "0.12.0-idx4"  # idx4: reactor-kafka receiver listeners (topic_ref); idx3: client-target resolution
 SCHEMA = 1
 LOCK_STALE_S = 120
 FULL_RATIO = 0.30
@@ -49,11 +52,13 @@ STOP = set("the and for with from into that this then when what which have has n
 
 MSG = {
     "en": {"fresh": "fresh", "stale": "stale: %s commit(s) behind — updating in background",
-           "stale_noupd": "stale: %s commit(s) behind", "dirty": "%d uncommitted file(s) not indexed",
+           "stale_noupd": "stale: %s commit(s) behind", "stale_scan": "stale: %s commit(s) behind — refresh: hub-scan --repo %s",
+           "dirty": "%d uncommitted file(s) not indexed",
            "none": "n/a — index not built (run %s update)", "hub": "n/a — hub not configured",
            "task_missing": "task %s not found — generic brief"},
     "vi": {"fresh": "tươi", "stale": "lệch %s commit — đang cập nhật nền",
-           "stale_noupd": "lệch %s commit", "dirty": "%d file chưa commit chưa được index",
+           "stale_noupd": "lệch %s commit", "stale_scan": "lệch %s commit — làm mới: hub-scan --repo %s",
+           "dirty": "%d file chưa commit chưa được index",
            "none": "n/a — index not built (run %s update)", "hub": "n/a — hub not configured",
            "task_missing": "không thấy task %s — brief chung"},
 }
@@ -336,8 +341,12 @@ def cmd_update(ctx, opts):
     if not ctx.has_plane():
         return out_line(opts, {"updated": False, "reason": "no plane"}, "index: no plane at %s — nothing to update" % ctx.plane)
     refresh_shim()
+    if ctx.mode == "microservice" and not opts.get("hub_sync"):  # 07 §7: a microservice update always ends in hub-sync
+        h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
+        opts["hub_sync"] = bool(h and os.path.isdir(h))
     if opts.get("detach"):
-        extra = ["--full"] if opts.get("full") else []
+        extra = (["--full"] if opts.get("full") else []) + (["--hub-sync"] if opts.get("hub_sync") else []) + \
+            (["--hub", opts["hub"]] if opts.get("hub") else [])
         ok = spawn_update(ctx, extra)
         return out_line(opts, {"started": ok}, "index: update started in background" if ok else "index: could not start update")
     os.makedirs(ctx.idx, exist_ok=True)
@@ -348,7 +357,31 @@ def cmd_update(ctx, opts):
     with Lock(ctx) as lk:
         if not lk.ok:
             return out_line(opts, {"updated": False, "reason": "locked"}, "index: update skipped — another update holds index/.lock")
-        return do_update(ctx, opts, t0)
+        if not opts.get("hub_sync"):
+            return do_update(ctx, opts, t0)
+        do_update(ctx, opts, t0)
+    return hub_sync_here(ctx, opts, [ctx.repo])
+
+
+def hub_sync_here(ctx, opts, repos):
+    h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
+    if not h:
+        return out_line(opts, {"synced": False, "reason": "no hub"}, "hub: " + MSG["en"]["hub"])
+    r = hub.sync(h, repos)
+    return out_line(opts, r, hub.summary_line(r))
+
+
+def cmd_hub_sync(ctx, opts):
+    """hub-sync [--hub DIR] [--repo PATH]…: register planes, rebuild the hub from every registered service."""
+    return hub_sync_here(ctx, opts, opts.get("repos") or [])
+
+
+def cmd_hub_scan(ctx, opts):
+    """hub-scan --repo PATH… [--hub DIR]: register repos without a plane; they are scanned read-only."""
+    if not opts.get("repos"):
+        print("index: usage: hub-scan --repo PATH [--repo PATH…] [--hub DIR]")
+        return 0
+    return hub_sync_here(ctx, opts, opts["repos"])
 
 
 def do_update(ctx, opts, t0):
@@ -528,6 +561,9 @@ def cmd_brief(ctx, opts):
     """Text: Markdown <= budget. --json (the shared contract): {budget, bytes, sections:[{name, lines, rows?}], markdown}
     -- sections hold exactly the lines the markdown kept, so the two cannot drift."""
     budget = int(opts.get("budget") or 3000)
+    own = os.path.join(ctx.plane, "hub")  # only at the hub / workspace root: a service plane without an index
+    if ctx.has_plane() and not ctx.meta() and os.path.isfile(os.path.join(own, "services.json")):  # stays "not built"
+        return brief_hub(ctx, opts, os.path.realpath(own), budget)
     if not ctx.has_plane() or not ctx.meta():
         md = clip(ctx.m["none"] % cli_path(), budget - 1)
         return out_line(opts, {"budget": budget, "bytes": len((md + "\n").encode("utf-8")),
@@ -594,18 +630,72 @@ def cmd_brief(ctx, opts):
     return 0
 
 
+def brief_hub(ctx, opts, h, budget):
+    """brief at the hub / workspace root (no index of its own): rank the components of every registered service
+    (links/<svc>.json), absolute paths so an agent can Read them (07 §5, AC-12)."""
+    rows = []
+    for name in sorted(hub.services_of(h)):
+        link = hub.read_link(h, name)
+        if not link:
+            continue
+        base = os.path.normpath(os.path.join(hub.hub_root(h), link.get("path") or name))
+        rows += [dict(r, file=os.path.join(base, r["file"]), svc=name) for r in link.get("components") or []]
+    terms = tokens(" ".join(opts["args"]))
+    hits = rank(rows, terms)
+    head = ["Hub %s · %d services · %d components" % (h, len(hub.services_of(h)), len(rows)),
+            "CLI: %s svc <service> | links [--service S] | find <term> --svc S" % cli_path()]
+    if terms and not hits:
+        hits = rank(rows, [])
+        head.append("(no component matched %s — top components by kind)" % " ".join(terms[:6]))
+    out, kept, used, more = [], [], 0, None
+    for ln in head + ["Top components:"]:
+        out.append(ln)
+        used += len((ln + "\n").encode("utf-8"))
+    for i, r in enumerate(hits[:12]):
+        ln = "- [%s] %s" % (r["svc"], row_line(r))
+        n = len((ln + "\n").encode("utf-8"))
+        if used + n > budget - 48:
+            more = "… (+%d more — use find --svc)" % (len(hits[:12]) - i)
+            out.append(more)
+            break
+        out.append(ln)
+        kept.append(r)
+        used += n
+    text = clip("\n".join(out), budget - 1)
+    if opts.get("json"):
+        secs = [{"name": "banner", "lines": head}]
+        if kept:
+            secs.append({"name": "top", "lines": out[len(head):len(head) + 1 + len(kept)], "rows": kept})
+        if more:
+            secs.append({"name": "more", "lines": [more]})
+        print(json.dumps({"budget": budget, "bytes": len((text + "\n").encode("utf-8")), "sections": secs,
+                          "markdown": text}, ensure_ascii=False, sort_keys=True))
+        return 0
+    print(text)
+    return 0
+
+
 def cmd_find(ctx, opts):
     if not opts["args"] and not opts.get("kind"):
-        print("index: usage: find <term|glob> [--kind K]")
+        print("index: usage: find <term|glob> [--kind K] [--svc S]")
         return 0
-    if not ctx.meta():
+    if not ctx.meta() and not (opts.get("svc") and opts["svc"] != ctx.svc):
         print(ctx.m["none"] % cli_path())
         return 0
     term = " ".join(opts["args"]).lower() or "*"
     kind = opts.get("kind")
     glob = any(c in term for c in "*?[")
     res = []
-    for r in ctx.rows_enriched():
+    rows = None
+    if opts.get("svc") and opts["svc"] != ctx.svc:
+        h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
+        link = hub.read_link(h, hub.resolve_svc(h, opts["svc"])) if h else None
+        if not link:
+            print(MSG["en"]["hub"] if not h else "index: service %s is not in the hub (%s)" % (opts["svc"], h))
+            return 0
+        base = os.path.normpath(os.path.join(hub.hub_root(h), link["path"]))  # absolute: an agent Reads these rows
+        rows = [dict(r, file=os.path.join(base, r["file"])) for r in link["components"]]
+    for r in (rows if rows is not None else ctx.rows_enriched()):
         if kind and r["kind"] != kind:
             continue
         fields = [r.get("name", ""), r.get("fqn", ""), r.get("file", ""), (r.get("http") or {}).get("path", ""),
@@ -632,7 +722,7 @@ def cmd_find(ctx, opts):
 def cmd_svc(ctx, opts):
     name = opts["args"][0] if opts["args"] else ctx.svc
     if name != ctx.svc:
-        return out_line(opts, {"svc": name, "note": "hub not configured"}, "%s (service %s is not this repo)" % (ctx.m["hub"], name))
+        return svc_other(ctx, opts, name)
     if not ctx.meta():
         print(ctx.m["none"] % cli_path())
         return 0
@@ -686,8 +776,65 @@ def cmd_svc(ctx, opts):
     return 0
 
 
+def svc_other(ctx, opts, name):
+    """svc <other>: the hub's view of another service, ≤2.5 KB. A stale view gets a banner and a detached update of
+    that service's plane (+ hub-sync), never a wait (07 §5)."""
+    h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
+    name = hub.resolve_svc(h, name) if h else name  # the repo dir name (auth-ms) works for the key (auth-service)
+    link = hub.read_link(h, name) if h else None
+    if not h:
+        return out_line(opts, {"svc": name, "note": "hub not configured"}, "%s (service %s is not this repo)" % (ctx.m["hub"], name))
+    if not link:
+        known = sorted(hub.services_of(h))
+        return out_line(opts, {"svc": name, "hub": h, "note": "not in hub", "services": known},
+                        "index: service %s is not in the hub — known: %s" % (name, ", ".join(known) or "none"))
+    n, repo, ent = hub.behind(h, name)
+    note = ""
+    if n:
+        spawned = False
+        plane = os.path.join(repo, ".claude", "claudehut")
+        if ent.get("has_plane") and os.environ.get("CLAUDEHUT_INDEX_NO_SPAWN") != "1" and os.path.isdir(plane):
+            try:
+                subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), "update", "--hub-sync", "--hub", h,
+                                  "--plane", plane],
+                                 cwd=repo, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 start_new_session=True, close_fds=True)
+                spawned = True
+            except Exception:
+                pass
+        if spawned:
+            note = " [%s]" % (ctx.m["stale"] % n)
+        elif not ent.get("has_plane"):  # a hub-scan repo is refreshed by re-scanning it, never by an update
+            note = " [%s]" % (ctx.m["stale_scan"] % (n, repo))
+        else:
+            note = " [%s]" % (ctx.m["stale_noupd"] % n)
+    edges = hub.read_links(h).get("edges", [])
+    if opts.get("json"):
+        print(json.dumps({"svc": name, "hub": h, "behind": n, "link": {k: v for k, v in link.items() if k != "components"},
+                          "edges": [e for e in edges if name in (e["from"], e["to"])]}, ensure_ascii=False, sort_keys=True))
+        return 0
+    print(hub.render_svc(link, edges, note, repo))
+    return 0
+
+
 def cmd_links(ctx, opts):
-    return out_line(opts, {"edges": [], "hub": None, "note": "hub not configured"}, MSG["en"]["hub"])
+    """links [--service S] [--type http|kafka|lib|db] [--json]: cross-service edges from service-links.json."""
+    h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
+    data = hub.read_links(h) if h else None
+    if not data:
+        return out_line(opts, {"edges": [], "hub": h, "note": "hub not configured" if not h else "hub not synced"},
+                        MSG["en"]["hub"] if not h else "hub: no service-links.json yet (run %s hub-sync)" % cli_path())
+    s, t = hub.resolve_svc(h, opts.get("service") or opts.get("svc")), opts.get("type")
+    edges = [e for e in data.get("edges", []) if (not s or s in (e["from"], e["to"])) and (not t or e["type"] == t)]
+    unres = [u for u in data.get("unresolved", []) if not s or u.get("svc") == s]
+    if opts.get("json"):
+        print(json.dumps({"hub": h, "edges": edges, "unresolved": unres}, ensure_ascii=False, sort_keys=True))
+        return 0
+    lines = ["%s → %s %s via %s (%s) %s" % (e["from"], e["to"], e["type"], e["via"], e["confidence"], e["evidence"][0])
+             for e in edges]
+    lines.append("%d edge(s), %d unresolved%s" % (len(edges), len(unres), "" if not unres else " (links --json)"))
+    print(clip("\n".join(lines), 6000))
+    return 0
 
 
 def cmd_memory(ctx, opts):
@@ -860,8 +1007,8 @@ def cmd_uninstall_hooks(ctx, opts):
 # ---------------------------------------------------------------- main ---------------------------------------
 COMMANDS = {"status": cmd_status, "brief": cmd_brief, "find": cmd_find, "svc": cmd_svc, "links": cmd_links,
             "update": cmd_update, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
-            "uninstall-git-hooks": cmd_uninstall_hooks}
-VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo"}
+            "uninstall-git-hooks": cmd_uninstall_hooks, "hub-sync": cmd_hub_sync, "hub-scan": cmd_hub_scan}
+VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo", "--hub"}
 
 
 def parse(argv):
@@ -894,6 +1041,14 @@ def main(argv):
         print("index: unknown command '%s' (try: %s)" % (cmd, " ".join(COMMANDS)))
         return 0
     opts = parse(argv[1:])
+    if cmd in ("hub-sync", "hub-scan"):  # every --repo counts (repeatable, comma-separated); never a --plane
+        rest, repos = argv[1:], []
+        for i, a in enumerate(rest):
+            v = rest[i + 1] if a == "--repo" and i + 1 < len(rest) else a[7:] if a.startswith("--repo=") else None
+            if v:
+                repos += [x for x in v.split(",") if x]
+        opts["repos"] = repos
+        opts.pop("repo", None)
     if opts.get("repo") and not opts.get("plane"):
         opts["plane"] = os.path.join(opts["repo"], ".claude", "claudehut")
     ctx = Ctx(opts.get("plane"))

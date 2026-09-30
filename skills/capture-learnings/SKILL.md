@@ -62,6 +62,8 @@ learner is dispatched **only on genuine novelty**, and the merge always runs (it
    `{added, merged, fuzzy, promoted, dropped, rejected, repaired, recurred, applied, unmapped}`. Rejected
    candidates (under 20 chars, equal to their evidence, or low quality) land in
    `state/${SID}.rejected.jsonl` with the reason. It then refreshes the generated block of `MEMORY.md`.
+   On a microservice plane with a hub, `scope=fleet` entries are also copied to the hub's
+   `fleet-learnings.jsonl` (provenance `{service, id}`) and the report gains `fleet` (hub rows changed).
    `recurred > 0` = a promoted rule is being re-violated (it re-injects next session) — surface it. Never
    hand-append to `learnings.jsonl`: that skips the gate and the receipt.
 4. **Show the learning scoreboard** so memory health is visible this session (measured, not vibes):

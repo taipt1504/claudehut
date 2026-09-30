@@ -81,6 +81,11 @@ MAPPING = {
 LISTENER_ANN = {"KafkaListener"}  # rule:kafka-listener
 ROUTER_RETURN_RE = re.compile(r"\bRouterFunction\s*<")  # rule:router-function
 SEND_RE = re.compile(r"\b(\w+)\s*\.\s*(send|sendDefault)\s*\(")  # rule:kafka-send
+# reactor-kafka receiver site: KafkaReceiver.create(…), ReceiverOptions….subscription/assignment(…), or a call to a
+# receiver factory (KafkaConfigUtil.createReactiveDltReceiver(kafkaProperties, listenerProperties, …)).
+RECEIVER_RE = re.compile(r"\bKafkaReceiver\s*\.\s*create\s*\(|\.\s*(?:subscription|assignment)\s*\(|\.\s*(create\w*Receiver)\s*\(")  # rule:reactor-receiver
+TOPIC_GETTER_RE = re.compile(r"\b([a-z]\w*)((?:\s*\.\s*\w+\s*\(\s*\))*?)\s*\.\s*((?:get)?[Tt]opics?(?:Name)?)\s*\(\s*\)")
+VALUE_TOPIC_RE = re.compile(r'@Value\s*\(\s*"\$\{([\w.\-\[\]]*topic[\w.\-\[\]]*)(?::([^}"]*))?\}"', re.I)
 BASE_URL_RE = re.compile(r"\.\s*(baseUrl|rootUri)\s*\(")  # rule:client-base-url
 CREATE_TABLE_RE = re.compile(r"\b(create\s+table(?:\s+if\s+not\s+exists)?|alter\s+table(?:\s+if\s+exists)?(?:\s+only)?)\s+([\"\w.]+)", re.I)  # rule:flyway-table
 
@@ -319,9 +324,16 @@ def extract_java(rel, text, svc):
                     row["table"] = tab
             if kind == "client":
                 row["target"] = client_target(src, t)
+            if kind in ("client", "config") and not row.get("target"):
+                row.update(client_target_ref(src, t))
+            if kind == "config":
+                pre = props_prefix(t["ann_list"])
+                if pre:
+                    row["props_prefix"] = pre
             rows.append(row)
         rows.extend(member_rows(src, t, members, base, kind))
         rows.extend(producer_rows(src, t, inner, base))
+        rows.extend(receiver_rows(src, t, inner, base))
     return rows
 
 
@@ -465,6 +477,51 @@ def producer_rows(src, t, inner, base):
     return rows
 
 
+def receiver_rows(src, t, inner, base):
+    """reactor-kafka consumers → one listener row per receiver call site (distinct topic refs). The topic is never
+    guessed here: topic_ref = [{types, path}] of the class's own FIELDS — a props field passed to the call (path
+    [topic]) or a props.getTopic() chain — resolved cross-file by receiver_topic_prop; else an @Value topic key
+    (topic_prop). A factory class that only sees parameters (KafkaConfigUtil itself) emits nothing."""
+    code = src.code[t["at"]:t["end"]]
+    fields = {}
+    for m in re.finditer(r"\b([A-Z]\w*(?:\.[A-Z]\w*)*)\s*(?:<[^;{}()]*?>)?\s+(\w+)\s*[;=]", src.skel[t["body"]:t["end"]]):
+        p = t["body"] + m.start(2)
+        if src.depth(p) == t["depth"] and src.pdepth(p) == 0 and not any(lo < p < hi for lo, hi in inner):
+            fields.setdefault(m.group(2), m.group(1))
+    def refs_in(lo, hi):
+        out = []
+        for m in TOPIC_GETTER_RE.finditer(src.skel, lo, hi):
+            if fields.get(m.group(1)) and not any(a < m.start() < b for a, b in inner):
+                out.append({"types": [fields[m.group(1)]], "path": re.findall(r"(\w+)\s*\(", m.group(2)) + [m.group(3)]})
+        return out
+    vt = VALUE_TOPIC_RE.search(code)
+    rows, seen = [], set()
+    for m in RECEIVER_RE.finditer(src.skel, t["body"], t["end"]):
+        if any(lo < m.start() < hi for lo, hi in inner):
+            continue
+        if not m.group(1) and "KafkaReceiver" not in code and "ReceiverOptions" not in code:
+            continue  # .subscription( / .assignment( of some other API
+        close = src.match(m.end() - 1, "(", ")")
+        refs = refs_in(m.end(), close)
+        refs += [{"types": [fields[a.strip()]], "path": ["topic"]} for a in split_top(src.code[m.end():close])
+                 if fields.get(a.strip())]
+        refs = refs or refs_in(t["body"], t["end"])
+        key = repr(refs) if refs else (vt.group(1) if vt else None)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        ln = src.line(m.start())
+        row = dict(base, id="%s:%s!receiver@%d" % (base["svc"], t["fqn"], ln), kind="listener",
+                   name="%s#%s" % (t["name"], m.group(1) or "receiver"), fqn=t["fqn"], line=ln, topic=None)
+        if refs:
+            row["topic_ref"] = refs
+        else:
+            row["topic_prop"] = vt.group(1)
+            row["topic"] = vt.group(2) or None
+        rows.append(row)
+    return rows
+
+
 def table_name(anns):
     for name, args, _a, _e in anns:
         if name in ("Table", "Entity", "Document") and args:
@@ -488,6 +545,151 @@ def client_target(src, t):
         if lit and arg.startswith('"'):
             return lit[0]
         return None  # a property expression: never guessed
+    return None
+
+
+# Client target resolution (M6): a base URL taken from a property is never guessed in the row; the row records
+# where the property comes from, and extract_contracts resolves it against application*.yml.
+#   target_prop  a dotted key from @Value("${key}") on a url/uri/host-like key inside the class
+#   target_ref   {types:[declared type names of the receiver], path:[getter names]} for props.getA().getBaseUrl()
+VALUE_URL_RE = re.compile(r'@Value\s*\(\s*"\$\{([\w.\-\[\]]*(?:url|uri|host)[\w.\-\[\]]*)(?::[^}"]*)?\}"', re.I)
+GETTER_CHAIN_RE = re.compile(r"\b([a-z]\w*)((?:\s*\.\s*\w+\s*\(\s*\))*?)\s*\.\s*((?:get)?(?:BaseUrl|baseUrl|Url|url|Uri|uri|Host|host))\s*\(\s*\)")
+
+
+def props_prefix(anns):
+    for name, args, _a, _e in anns:
+        if name == "ConfigurationProperties" and args:
+            v = strings(args.get("prefix", "")) or strings(args.get("value", ""))
+            if v:
+                return v[0]
+    return None
+
+
+def client_target_ref(src, t):
+    body = src.code[t["at"]:t["end"]]
+    m = VALUE_URL_RE.search(body)
+    if m:
+        return {"target_prop": m.group(1)}
+    for m in GETTER_CHAIN_RE.finditer(src.skel, t["body"], t["end"]):
+        recv = m.group(1)
+        if recv in ("this", "super", "builder", "options", "webClient", "restTemplate"):
+            continue
+        path = re.findall(r"(\w+)\s*\(", m.group(2)) + [m.group(3)]
+        types = []
+        for tm in re.finditer(r"\b([A-Z]\w*(?:\.[A-Z]\w*)*)\s*(?:<[^;{}()]*?>)?\s+%s\b" % re.escape(recv), body):
+            if tm.group(1) not in types and tm.group(1) != "String":
+                types.append(tm.group(1))
+        if types:
+            return {"target_ref": {"types": types, "path": path}}
+    return {}
+
+
+def relax(key):
+    """Spring relaxed binding: baseUrl, base-url, base_url and BASE_URL are one key."""
+    return re.sub(r"[-_]", "", (key or "").lower())
+
+
+def getter_key(name):
+    n = name[3:] if re.match(r"get[A-Z]", name) else name
+    return relax(n)
+
+
+YML_KEY_RE = re.compile(r"^(\s*)(?:\"([^\"]+)\"|'([^']+)'|([^\s:#][^:#]*?))\s*:(?:\s+(.*?))?\s*$")
+YML_REF_RE = re.compile(r"\$\{([A-Za-z0-9_.\-]+)(?::([^}]*))?\}")
+
+
+def yml_flat(text):
+    """application*.yml → [{prop, line, value}] with dotted keys (block mappings only; list items and flow
+    collections are skipped, never guessed). value is the raw scalar, quotes and trailing comment removed."""
+    out, stack, block = [], [], None
+    for i, ln in enumerate(text.splitlines(), 1):
+        if ln.strip() in ("---", "..."):
+            stack, block = [], None
+            continue
+        if not ln.strip():
+            continue
+        ind = len(ln.expandtabs()) - len(ln.expandtabs().lstrip())
+        if block is not None:
+            if ind > block:
+                continue  # block scalar body
+            block = None
+        if ln.lstrip().startswith("#") or ln.lstrip().startswith("- ") or ln.strip() == "-":
+            continue
+        m = YML_KEY_RE.match(ln)
+        if not m:
+            continue
+        key = (m.group(2) or m.group(3) or m.group(4) or "").strip()
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        prop = ".".join([k for _, k in stack] + [key])
+        val = (m.group(5) or "").strip()
+        if val and val[0] not in "\"'":
+            val = re.sub(r"\s+#.*$", "", val)
+        if val[:1] in "\"'" and val[-1:] == val[:1] and len(val) >= 2:
+            val = val[1:-1]
+        if not val:
+            stack.append((ind, key))
+        elif re.fullmatch(r"[|>][+-]?\d*", val):
+            block = ind
+        else:
+            out.append({"prop": prop, "line": i, "value": val})
+    return out
+
+
+def yml_lookup(flat, key):
+    """flat entries of every yml file ({rel: [...]}) → first (rel, entry) whose relaxed prop equals key."""
+    want = relax(key)
+    for rel in sorted(flat, key=lambda r: (not r.endswith(("application.yml", "application.yaml")), r)):
+        for e in flat[rel]:
+            if relax(e["prop"]) == want:
+                return rel, e
+    return None, None
+
+
+def resolve_client_targets(rows, flat):
+    """Client/config rows with target_prop / target_ref → [{client, at, prop, env, default_url, yml_at}]."""
+    prefixes = {}
+    for r in rows:
+        if r.get("props_prefix"):
+            prefixes.setdefault(r["name"], r["props_prefix"])
+    out = []
+    for r in rows:
+        keys = []
+        if r.get("target_prop"):
+            keys.append(r["target_prop"])
+        ref = r.get("target_ref") or {}
+        for ty in ref.get("types") or []:
+            parts = ty.split(".")
+            pre = prefixes.get(parts[0])
+            if pre:
+                keys.append(".".join([pre] + [relax(p) for p in parts[1:]] + [getter_key(p) for p in ref.get("path") or []]))
+        for k in keys:
+            rel, e = yml_lookup(flat, k)
+            if not e:
+                continue
+            m = YML_REF_RE.search(e["value"])
+            env, dflt = (m.group(1), m.group(2)) if m and m.group(1).upper() == m.group(1) else (None, None if m else e["value"])
+            out.append({"client": r["name"], "at": "%s:%d" % (r["file"], r["line"]), "prop": e["prop"], "env": env,
+                        "default_url": dflt, "yml_at": "%s:%d" % (rel, e["line"])})
+            break
+    return out
+
+
+def receiver_topic_prop(row, rows, flat):
+    """A receiver listener row's topic_ref → the application*.yml property it binds to (None when unresolved): the
+    field type's @ConfigurationProperties prefix + the getter path, e.g. kafka.consumer.link-account.topic."""
+    prefixes = {}
+    for r in rows:
+        if r.get("props_prefix"):
+            prefixes.setdefault(r["name"], r["props_prefix"])
+    for ref in row.get("topic_ref") or []:
+        for ty in ref.get("types") or []:
+            parts = ty.split(".")
+            pre = prefixes.get(parts[0])
+            if pre:
+                rel, e = yml_lookup(flat, ".".join([pre] + [relax(p) for p in parts[1:]] + [getter_key(p) for p in ref.get("path") or []]))
+                if e:
+                    return e["prop"]
     return None
 
 
@@ -539,13 +741,25 @@ def extract_contracts(rows, texts):
             c["kafka_consume"].append({"topic": r.get("topic"), "env": r.get("topic_prop"), "at": at})
         elif r["kind"] == "producer":
             c["kafka_produce"].append({"topic": r.get("topic"), "prefix": None, "at": at})
+    flat = {rel: yml_flat(texts[rel]) for rel in texts if rel.endswith((".yml", ".yaml"))}
+    for r, kc in zip([r for r in rows if r["kind"] == "listener"], c["kafka_consume"]):
+        prop = receiver_topic_prop(r, rows, flat) if r.get("topic_ref") else None
+        if prop:  # reactor-kafka: the bound yml value (${ENV:default} → default)
+            _rel, e = yml_lookup(flat, prop)
+            m = YML_REF_RE.search(e["value"])
+            kc.update(topic=(m.group(2) if m else e["value"]) or None, env=prop)
+    props = {rel: {e["line"]: e["prop"] for e in ents} for rel, ents in flat.items()}
+    c["client_targets"] = resolve_client_targets(rows, flat)
     for rel in sorted(texts):
         for i, ln in enumerate(texts[rel].splitlines(), 1):
             at = "%s:%d" % (rel, i)
             if rel.endswith((".yml", ".yaml")):
                 m = YML_URL_RE.search(ln)
                 if m:
-                    c["http_clients"].append({"key": m.group(1), "env": m.group(2), "default_url": m.group(3), "at": at})
+                    hc = {"key": m.group(1), "env": m.group(2), "default_url": m.group(3), "at": at}
+                    if props[rel].get(i):
+                        hc["prop"] = props[rel][i]
+                    c["http_clients"].append(hc)
                 for d in YML_DB_RE.findall(ln):
                     c["db"].append({"name": d, "at": at})
                 m = YML_TOPIC_RE.search(ln)

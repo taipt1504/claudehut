@@ -16,7 +16,9 @@
 #   start --route light|full --slug <s> [--profile <p>] [--repo <path>]…   allocates the next NNNN under the
 #                                     plane lock and creates tasks/NNNN-<s>/task.json; an open task of THIS
 #                                     session becomes superseded (closed as done if it had finished). Prints the
-#                                     task id (line 1) and its dir (line 2).
+#                                     task id (line 1) and its dir (line 2). One --repo per service: base and
+#                                     pre_dirty per repo; ≥2 git toplevels → cross_service:true. The workspace/
+#                                     hub plane is for cross-service tasks only (a notice, never a refusal).
 #   set-route light|full              change the route
 #   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--spec P] [--plan P]
 #   set-reuse-scan --artifact P       (reuse-scan table must carry Fit/Impact + a decision)
@@ -559,11 +561,11 @@ new_task() { # $1 id  $2 route  $3 profile ; repos[] set by the caller. Writes t
     dirty="$(jq -c --arg k "$key" --argjson f "$files" '.[$k]=$f' <<<"$dirty")"
   done
   write_atomic "$TASKS_DIR/$id/task.json" "$(jq -nc --arg id "$id" --arg r "$2" --arg p "$3" --arg ts "$TS" --arg s "$SESSION" \
-    --argjson base "$base" --argjson dirty "$dirty" '{
+    --argjson base "$base" --argjson dirty "$dirty" --argjson cross "${CROSS:-false}" '{
       schema:2, id:$id, route:$r, profile:(if $p=="" then null else $p end), phase:"discover",
       plan_approved:false, review:"pending", plan_review_round:0, doc_schema:2,
       base:$base, pre_dirty:$dirty, scope:["src/main/*","*/src/main/*"], enforcement_set:[],
-      status:"active", session:$s, created:$ts }')"
+      status:"active", session:$s, created:$ts } + (if $cross then {cross_service:true} else {} end)')"
   supersede_active "$id"
   set_pointer "$id"
 }
@@ -634,9 +636,27 @@ case "$sub" in
       case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
       [ -d "$r" ] || err "start: --repo $r is not a directory"
     done
+    # Plane placement (README decision #3, 10 §6 q3): the workspace/hub plane holds only tasks that span services;
+    # a one-service task belongs to that service's plane. task.json stays in this session's plane either way (the
+    # hooks and review-pack read it there) — the rule is stated, never enforced. Services = distinct git toplevels.
+    tops=""; n_top=0
+    for r in "${repos[@]}"; do
+      case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
+      t="$(git -C "$r" rev-parse --show-toplevel 2>/dev/null || (cd "$r" && pwd -P))"
+      t="$(cd "$t" 2>/dev/null && pwd -P || printf '%s' "$t")"
+      case "$tops" in *"|$t|"*) : ;; *) tops="$tops|$t|"; n_top=$((n_top+1)) ;; esac
+    done
+    cross=false; [ "$n_top" -ge 2 ] && cross=true
+    ws_plane=false
+    { [ -d "$PLANE/hub" ] || ! git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; } && ws_plane=true
+    if $ws_plane && ! $cross; then
+      note "placement: this is the workspace/hub plane, which holds only cross-service tasks — a task in one service belongs to that service's session (open Claude Code in the service repo and start it there); for a cross-service task pass one --repo per service"
+    elif ! $ws_plane && $cross; then
+      note "placement: cross-service task ($n_top repos) recorded in this service's plane with a base per repo; a session at the workspace/hub is where cross-service tasks normally live"
+    fi
     mkdir -p "$TASKS_DIR"
     id="$(claim_id "$slug")"
-    new_task "$id" "$route" "$profile"
+    CROSS="$cross" new_task "$id" "$route" "$profile"
     note "start -> $TASKS_DIR/$id/task.json ($route${profile:+, $profile}); write every artifact of this task into that dir"
     echo "$id"
     echo ".claude/claudehut/tasks/$id/"

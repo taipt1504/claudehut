@@ -7,30 +7,34 @@
 # plugin-owned files (regenerate with --refresh), and NEVER clobbers learnings.jsonl.
 #
 # Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect] [--language vi|en] [--mode mono|microservice]
-#                       [--git-hooks yes|no]
+#                       [--git-hooks yes|no] [--hub DIR]
 #   PROJECT_DIR  default ${CLAUDE_PROJECT_DIR:-$PWD}
 #   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl)
 #   --detect     print detected stack values as JSON and exit (no writes) — used by the eval harness
 #   --language   reply/artifact language → topology.json .language (ADR-R7). The skill asks; headless and
 #                unset keep the recorded value, else en
-#   --mode       mono (M5). microservice needs the hub of M6: recorded as requested_mode, mode stays mono
+#   --mode       mono | microservice. microservice needs a hub (--hub, a recorded one, or CLAUDEHUT_HUB); without
+#                one it is recorded as requested_mode and mode stays mono. --mode mono drops a recorded hub
+#   --hub DIR    hub root (07 §4.3); implies microservice. Created + `git init` (local, no remote) when absent;
+#                writes <hub>/.claude/claudehut/hub/{hub.json,aliases.json,services.json} (merge, never clobber)
 #   --git-hooks  yes → claudehut-index install-git-hooks (opt-in, 07 §7); no → uninstall-git-hooks
 set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
 REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; MIGRATE_MEM=false; AUDIT=false; PROJ=""; RETIRED_LIST=""
-LANG_SEL=""; MODE_SEL=""; HOOKS_SEL=""
+LANG_SEL=""; MODE_SEL=""; HOOKS_SEL=""; HUB_SEL=""
 # Valued flags take the next argument (or --flag=value); a bare value must never be read as PROJECT_DIR.
 _args=(); _want=""
 for a in "$@"; do
   if [ -n "$_want" ]; then _args+=("$_want=$a"); _want=""; continue; fi
-  case "$a" in --language|--mode|--git-hooks) _want="$a" ;; *) _args+=("$a") ;; esac
+  case "$a" in --language|--mode|--git-hooks|--hub) _want="$a" ;; *) _args+=("$a") ;; esac
 done
 [ -z "$_want" ] || { echo "claudehut-init: $_want needs a value" >&2; exit 2; }
 for a in ${_args[@]+"${_args[@]}"}; do case "$a" in
   --language=*) LANG_SEL="${a#*=}"; case "$LANG_SEL" in vi|en) : ;; *) echo "claudehut-init: --language takes vi|en" >&2; exit 2 ;; esac ;;
   --mode=*) MODE_SEL="${a#*=}"; case "$MODE_SEL" in mono|microservice) : ;; *) echo "claudehut-init: --mode takes mono|microservice" >&2; exit 2 ;; esac ;;
+  --hub=*) HUB_SEL="${a#*=}"; [ -n "$HUB_SEL" ] || { echo "claudehut-init: --hub needs a directory" >&2; exit 2; } ;;
   --git-hooks=*) HOOKS_SEL="${a#*=}"; case "$HOOKS_SEL" in yes|no) : ;; *) echo "claudehut-init: --git-hooks takes yes|no" >&2; exit 2 ;; esac ;;
   --refresh) REFRESH=true; RULES_REFRESH=true ;;
   --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
@@ -52,6 +56,7 @@ for a in ${_args[@]+"${_args[@]}"}; do case "$a" in
   *) PROJ="$a" ;;
 esac; done
 PROJ="${PROJ:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+case "$HUB_SEL" in ''|/*) : ;; *) HUB_SEL="$PWD/$HUB_SEL" ;; esac   # a relative --hub is relative to the caller's cwd
 cd "$PROJ" 2>/dev/null || { echo "claudehut-init: cannot cd '$PROJ'" >&2; exit 1; }
 # A plane init generated, as opposed to a bare .claude/claudehut/ (hooks create state/ in it). Decided BEFORE
 # any write: an unattended --refresh-rules on a bare plane touches .claude/rules only (10 §M1 deferral).
@@ -186,8 +191,32 @@ if $DETECT; then
     [ -e "$_s/.git" ] && SIBLINGS=$((SIBLINGS+1))
   done
   PARENT_GIT=false; [ -e ../.git ] && PARENT_GIT=true
-  printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s","siblings":%s,"parent_is_git":%s}\n' \
-    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$TEST" "$ARCH" "$PROJECT_NAME" "$BASE_PACKAGE" "$SIBLINGS" "$PARENT_GIT"
+  d_json="$(printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s","siblings":%s,"parent_is_git":%s}' \
+    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$TEST" "$ARCH" "$PROJECT_NAME" "$BASE_PACKAGE" "$SIBLINGS" "$PARENT_GIT")"
+  # Hub facts for the skill's questions (07 §4.1): the recorded hub and its language (asked once per hub), the
+  # default location <workspace>/<name>-knowledge, and sibling repos without a plane (the hub-scan offer).
+  if command -v jq >/dev/null 2>&1; then
+    d_par="$(cd .. 2>/dev/null && pwd -P)"; d_base="${d_par##*/}"; d_base="${d_base%-workspace}"
+    d_hub="$(jq -r 'if .mode=="microservice" then (.hub // empty | strings) else empty end' .claude/claudehut/topology.json 2>/dev/null)"
+    d_hub="${d_hub%/}"; d_hub="${d_hub%/.claude/claudehut/hub}"; d_hl=""; d_habs=""
+    if [ -n "$d_hub" ]; then
+      case "$d_hub" in /*) d_habs="$d_hub" ;; *) d_habs="$PWD/$d_hub" ;; esac
+      d_habs="$(cd "$d_habs" 2>/dev/null && pwd -P)" || d_habs="$d_hub"
+      d_hl="$(jq -r '.language // empty | strings' "$d_habs/.claude/claudehut/hub/hub.json" 2>/dev/null)"
+    fi
+    d_np=()
+    for _s in ../*/; do
+      _p="$(cd "$_s" 2>/dev/null && pwd -P)"
+      [ "$_p" = "$(pwd -P)" ] || [ "$_p" = "$d_habs" ] || [ -d "$_s/.claude/claudehut/hub" ] && continue
+      [ -e "$_s/.git" ] && [ ! -f "$_s/.claude/claudehut/topology.json" ] && { _n="${_s%/}"; d_np+=("${_n##*/}"); }
+    done
+    jq -c --arg h "$d_habs" --arg hl "$d_hl" --arg dh "$d_par/${d_base:-workspace}-knowledge" \
+      '. + {hub:(if $h=="" then null else $h end), hub_language:(if $hl=="" then null else $hl end),
+            default_hub:$dh, siblings_without_plane:($ARGS.positional)}' --args ${d_np[@]+"${d_np[@]}"} <<<"$d_json" \
+      || printf '%s\n' "$d_json"
+  else
+    printf '%s\n' "$d_json"
+  fi
   exit 0
 fi
 
@@ -382,6 +411,61 @@ fi
 # default (07 §4.1), since only the skill can ask. `shared` stays false until the user takes the patch (§8.3).
 IDX_CLI="$PLUGIN_ROOT/bin/claudehut-index"
 TOPO="$CHD/topology.json"
+relpath() { # $1 target  $2 base — relative path (python3), else the absolute target
+  python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$2" 2>/dev/null || printf '%s\n' "$1"
+}
+jwrite() { # $1 file  $2 json — tmp + mv; 0644 like every other hub file (mktemp creates 0600)
+  local tmp; tmp="$(mktemp "$(dirname "$1")/.init.XXXXXX")" || return 1
+  printf '%s\n' "$2" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$1" && return 0
+  rm -f "$tmp"; return 1
+}
+# Hub skeleton (07 §4.3): <hub>/.claude/claudehut/hub/. Only this service's entry in services.json and absent
+# files are written; hub-sync owns the rest. Sets T_HUB_ABS, t_hlang (the hub's language), t_hnew (hub.json had none).
+hub_setup() {
+  local h="${1%/}" hd hj sj aj created=false rel remote l cur
+  h="${h%/.claude/claudehut/hub}"   # the inner hub dir (init prints it for the dashboard) names the same hub
+  if [ ! -e "$h" ]; then
+    mkdir -p "$h" 2>/dev/null || { echo "  WARN: cannot create hub $h — mode stays mono" >&2; return 1; }
+    created=true
+  fi
+  [ -d "$h" ] || { echo "  WARN: hub $h is not a directory — mode stays mono" >&2; return 1; }
+  T_HUB_ABS="$(cd "$h" && pwd -P)"
+  [ "$T_HUB_ABS" != "$(pwd -P)" ] || { echo "  WARN: the hub must be its own directory, not this repo — mode stays mono" >&2; return 1; }
+  # A dedicated knowledge repo is created with a local git and no remote; an existing directory (a workspace root
+  # without git, a knowledge repo someone cloned) is used as it is.
+  if $created; then
+    if command -v git >/dev/null 2>&1 && git -C "$T_HUB_ABS" init -q 2>/dev/null; then
+      echo "  hub: created $T_HUB_ABS (git init, local only — no remote)"
+    else
+      echo "  hub: created $T_HUB_ABS (no git)"
+    fi
+  fi
+  hd="$T_HUB_ABS/.claude/claudehut/hub"
+  mkdir -p "$hd" 2>/dev/null || { echo "  WARN: cannot create $hd — mode stays mono" >&2; return 1; }
+  hj="$hd/hub.json"; t_hnew=false
+  t_hlang="$(jq -r '.language // empty | select(.=="vi" or .=="en")' "$hj" 2>/dev/null)"
+  if [ -z "$t_hlang" ]; then
+    # Asked once per hub: --language, else the language this plane already recorded, else en.
+    l="$LANG_SEL"; [ -n "$l" ] || l="$(jq -r '.language // empty | select(.=="vi" or .=="en")' <<<"$t_old" 2>/dev/null)"
+    t_hlang="${l:-en}"; t_hnew=true
+    cur="$(jq -c 'if type=="object" then . else {} end' "$hj" 2>/dev/null)" || cur=""
+    [ -n "$cur" ] || cur='{}'
+    jwrite "$hj" "$(jq -c --arg l "$t_hlang" '. + {schema:1, language:$l}' <<<"$cur")" && echo "  wrote: $hj (language $t_hlang)"
+  fi
+  aj="$hd/aliases.json"
+  [ -f "$aj" ] || { jwrite "$aj" '{"env":{},"topic_owner":{},"db_owner":{}}' && echo "  wrote: $aj (edit to pin env/topic/db owners)"; }
+  [ -f "$hd/.gitignore" ] || printf 'links/\nservice-links.json\n.understand-anything/\n.lock/\naliases.suggested.json\n.aliases.sha1\n' > "$hd/.gitignore" 2>/dev/null || :
+  sj="$hd/services.json"
+  rel="$(relpath "$(pwd -P)" "$T_HUB_ABS")"
+  # Credentials in an https remote (user:token@) never reach the hub.
+  remote="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#://[^/@]*@#://#')" || remote=""
+  cur="$(jq -c 'if type=="object" then . else {} end' "$sj" 2>/dev/null)" || cur=""
+  [ -n "$cur" ] || cur='{}'
+  jwrite "$sj" "$(jq --arg s "$T_SVC" --arg p "$rel" --arg r "$remote" \
+    '.[$s] = ((.[$s] // {}) + {path:$p, has_plane:true} + (if $r != "" then {remote:$r} else {} end))' <<<"$cur")" \
+    && echo "  hub: registered $T_SVC in $sj (path $rel)"
+  return 0
+}
 if ! $RULES_REFRESH || $REFRESH; then
   if command -v jq >/dev/null 2>&1; then
     t_old='{}'
@@ -389,10 +473,25 @@ if ! $RULES_REFRESH || $REFRESH; then
       if jq -e 'type=="object"' "$TOPO" >/dev/null 2>&1; then t_old="$(cat "$TOPO")"
       else echo "  WARN: $TOPO is not a JSON object — rewriting it from defaults" >&2; fi
     fi
-    t_req=""
-    if [ "$MODE_SEL" = microservice ]; then
-      t_req=microservice
-      echo "  mode: microservice needs the hub (M6-pending) — recorded as requested_mode; mode stays mono for now"
+    # Microservice (07 §4.3): a hub root from --hub, else the recorded one, else CLAUDEHUT_HUB (the headless rule).
+    # --mode mono drops the hub; --mode microservice with no hub anywhere records requested_mode, mode stays mono.
+    t_req=""; t_hub=""; t_hlang=""; t_hnew=false
+    T_SVC="$(jq -r '.service // empty | strings' <<<"$t_old" 2>/dev/null)"; T_SVC="${T_SVC:-$PROJECT_NAME}"
+    t_rec="$(jq -r 'if .mode=="microservice" then (.hub // empty | strings) else empty end' <<<"$t_old" 2>/dev/null)"
+    t_rec="${t_rec%/}"; t_rec="${t_rec%/.claude/claudehut/hub}"
+    t_wasms=false; [ -n "$t_rec" ] && t_wasms=true
+    if [ "$MODE_SEL" != mono ]; then
+      if [ -n "$HUB_SEL" ]; then t_hub="$HUB_SEL"
+      elif [ -n "$t_rec" ]; then case "$t_rec" in /*) t_hub="$t_rec" ;; *) t_hub="$PWD/$t_rec" ;; esac
+      elif [ -n "${CLAUDEHUT_HUB:-}" ]; then t_hub="$CLAUDEHUT_HUB"
+      fi
+      if [ -z "$t_hub" ] && [ "$MODE_SEL" = microservice ]; then
+        t_req=microservice
+        echo "  mode: microservice needs a hub — pass --hub <dir> (default <workspace>/<name>-knowledge); recorded as requested_mode, mode stays mono"
+      fi
+    fi
+    if [ -n "$t_hub" ]; then
+      hub_setup "$t_hub" || { t_hub=""; t_req=microservice; }
     fi
     # git hooks: the CLI installs or declines (core.hooksPath / husky / lefthook → it only prints the block);
     # the recorded value is what is actually on disk afterwards, whoever wrote it.
@@ -406,16 +505,38 @@ if ! $RULES_REFRESH || $REFRESH; then
     fi
     t_hooks=false
     grep -qs '# >>> claudehut-index >>>' .git/hooks/post-merge .git/hooks/post-rewrite .git/hooks/post-checkout && t_hooks=true
-    t_new="$(jq --arg lang "$LANG_SEL" --arg svc "$PROJECT_NAME" --arg req "$t_req" --argjson hooks "$t_hooks" '
-      (.mode == "microservice" and (.hub | type) == "string") as $ms
+    # Language (ADR-R7). mono: the plane records it (default en). microservice: hub.json holds the default and the
+    # service records a language only as an override — a --language that differs from the hub's, or an override
+    # recorded by an earlier microservice init. A mono plane converting to microservice inherits the hub.
+    t_rel=""; t_ovr=""
+    if [ -n "$t_hub" ]; then
+      t_rel="$(relpath "$T_HUB_ABS" "$(pwd -P)")"
+      if [ -n "$LANG_SEL" ]; then
+        if $t_hnew || [ "$LANG_SEL" = "$t_hlang" ]; then t_ovr=""; else t_ovr="$LANG_SEL"; fi
+      elif $t_wasms; then
+        t_ovr="$(jq -r '.language // empty | select(.=="vi" or .=="en")' <<<"$t_old" 2>/dev/null)"
+        [ "$t_ovr" != "$t_hlang" ] || t_ovr=""
+      fi
+      t_req=""
+    fi
+    # Leaving microservice for mono keeps the language the service was inheriting from the hub.
+    t_hl0=""
+    if [ -z "$t_hub" ] && [ -n "$t_rec" ]; then
+      case "$t_rec" in /*) t_hl0="$t_rec" ;; *) t_hl0="$PWD/$t_rec" ;; esac
+      t_hl0="$(jq -r '.language // empty | select(.=="vi" or .=="en")' "$t_hl0/.claude/claudehut/hub/hub.json" 2>/dev/null)" || t_hl0=""
+    fi
+    t_new="$(jq --arg lang "$LANG_SEL" --arg svc "$PROJECT_NAME" --arg req "$t_req" --argjson hooks "$t_hooks" \
+      --arg hub "$t_rel" --arg ovr "$t_ovr" --arg hl0 "$t_hl0" '
+      ($hub != "") as $ms
       | {schema:1,
        mode:(if $ms then "microservice" else "mono" end),
        service:(.service // $svc),
-       hub:(if $ms then .hub else null end),
-       language:(if $lang != "" then $lang elif (.language == "vi" or .language == "en") then .language else "en" end),
-       shared:(.shared // false),
+       hub:(if $ms then $hub else null end)}
+      + (if $ms then (if $ovr != "" then {language:$ovr} else {} end)
+         else {language:(if $lang != "" then $lang elif (.language == "vi" or .language == "en") then .language elif $hl0 != "" then $hl0 else "en" end)} end)
+      + {shared:(.shared // false),
        git_hooks:$hooks}
-      + (if $req != "" then {requested_mode:$req} elif .requested_mode then {requested_mode:.requested_mode} else {} end)' \
+      + (if $ms then {} elif $req != "" then {requested_mode:$req} elif .requested_mode then {requested_mode:.requested_mode} else {} end)' \
       <<<"$t_old" 2>/dev/null)"
     if [ -n "$t_new" ] && [ "$t_new" != "$(jq . "$TOPO" 2>/dev/null)" ]; then
       tmp="$(mktemp)"
@@ -424,7 +545,7 @@ if ! $RULES_REFRESH || $REFRESH; then
     else
       echo "  keep (unchanged): $TOPO"
     fi
-    echo "  topology: $(jq -r '"mode=\(.mode) language=\(.language) git_hooks=\(.git_hooks) shared=\(.shared)"' "$TOPO" 2>/dev/null)"
+    echo "  topology: $(jq -r --arg hl "$t_hlang" '"mode=\(.mode)\(if .hub then " hub=\(.hub)" else "" end) language=\(.language // "\($hl) (hub)") git_hooks=\(.git_hooks) shared=\(.shared)"' "$TOPO" 2>/dev/null)"
     jq -e '.git_hooks' "$TOPO" >/dev/null 2>&1 \
       || echo "  git hooks: not installed (opt-in; refresh the index right after pull/rebase/checkout: claudehut-init --git-hooks yes)"
   else
@@ -594,9 +715,19 @@ echo "    plugin.name reports \"third-party\". No collector at all? Run /usage i
 # commit. Same condition as topology.json: never from the unattended --refresh-rules.
 if { ! $RULES_REFRESH || $REFRESH; } && [ -x "$IDX_CLI" ] && [ -d .git ]; then
   echo
-  "$IDX_CLI" update --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || echo "  index: update failed — the next session start retries it"
+  # microservice: the same update also syncs this service's contracts into the hub (links, service-links, HUB.md,
+  # the service-level graph). The hub-sync writer is claudehut-index; init only asks for it.
+  i_sync=(); [ "$(jq -r '.mode // empty' "$CHD/topology.json" 2>/dev/null)" = microservice ] && i_sync=(--hub-sync)
+  "$IDX_CLI" update ${i_sync[@]+"${i_sync[@]}"} --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || echo "  index: update failed — the next session start retries it"
   "$IDX_CLI" memory --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || :
   "$IDX_CLI" status --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || :
+fi
+if [ -n "${T_HUB_ABS:-}" ] && [ "$(jq -r '.mode // empty' "$CHD/topology.json" 2>/dev/null)" = microservice ]; then
+  echo
+  echo "  hub: $T_HUB_ABS/.claude/claudehut/hub (language $(jq -r '.language // "en"' "$T_HUB_ABS/.claude/claudehut/hub/hub.json" 2>/dev/null))"
+  echo "    cross-service lookups: $IDX_CLI svc <service> | links [--service S] [--type http|kafka|lib|db]"
+  [ -f "$T_HUB_ABS/.claude/claudehut/hub/.understand-anything/knowledge-graph.json" ] \
+    && echo "    service graph: /understand-anything:understand-dashboard $T_HUB_ABS/.claude/claudehut/hub"
 fi
 
 if [ "$(jq -r '.shared // false' "$CHD/topology.json" 2>/dev/null)" = true ]; then

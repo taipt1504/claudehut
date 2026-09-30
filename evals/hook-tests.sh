@@ -30,7 +30,7 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 CORPUS="$W/corpus.out"; : > "$CORPUS"
 ST="$ROOT/bin/claudehut-state"
 FX="$ROOT/evals/hook-fixtures"
-HOOKS="bootstrap maintain inject-phase advise-write record-agent-dispatch format-java lint-reuse doclint-advise record-failure record-dispatch verify-subagent record-rules-loaded"
+HOOKS="bootstrap maintain inject-phase advise-write record-agent-dispatch format-java lint-reuse doclint-advise hint-explore record-failure record-dispatch verify-subagent record-rules-loaded"
 
 # run_hook <script> <project-dir> <payload> [VAR=value …] → OUT, RC; contract asserted on every call.
 N_RUNS=0; N_CONTRACT_BAD=0
@@ -74,6 +74,7 @@ payload_for() { # $1 hook → a representative payload for session S
     bootstrap|maintain) echo '{"session_id":"S","source":"startup","hook_event_name":"SessionStart"}' ;;
     inject-phase) echo '{"session_id":"S","prompt":"fix the settlement completion bug","hook_event_name":"UserPromptSubmit"}' ;;
     advise-write|format-java|lint-reuse) wpl S "src/main/java/a/Foo.java" ;;
+    hint-explore) echo '{"session_id":"S","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"src/main/java/a/Foo.java"},"tool_response":{}}' ;;
     doclint-advise) jq -nc '{session_id:"S",hook_event_name:"PostToolUse",tool_name:"Write",tool_input:{file_path:".claude/claudehut/tasks/0001-x/spec.md"}}' ;;
     record-agent-dispatch) echo '{"session_id":"S","tool_name":"Agent","tool_use_id":"t1","tool_input":{"subagent_type":"claudehut:claudehut-planner","name":"planner-1"}}' ;;
     record-failure) echo '{"session_id":"S","tool_name":"Bash","tool_input":{"command":"false"},"error":"Exit code 1\nboom","is_interrupt":false}' ;;
@@ -470,6 +471,50 @@ P="$W/gr"; touch "$P/.claude/claudehut/PROJECT.md"; : > "$IL"
 run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
 chk "maintain: initialized plane in a git repo → memory then 'update --detach'; old index-head.* swept" \
   'sleep 0.2; grep -q "^memory --plane " "$IL" && grep -q "^update --detach --plane " "$IL" && [ ! -e "$P/.claude/claudehut/state/index-head.old" ] && [ -e "$P/.claude/claudehut/state/index-head.fresh" ]'
+
+echo "== M6: hint-explore — cross-service lookup hint (05 §4 row 9, 07 §6, AC-11) =="
+HXW="$W/hx"; mkdir -p "$HXW/a-ms/.claude/claudehut/state" "$HXW/b-ms/src" "$HXW/c-ms" "$HXW/know/.claude/claudehut/hub"
+printf '{"a-ms":{"path":"../a-ms","has_plane":true},"b-ms":{"path":"../b-ms","has_plane":true},"c-ms":{"path":"../c-ms","has_plane":false},"auth-service":{"path":"../auth-ms/","has_plane":false}}\n' \
+  > "$HXW/know/.claude/claudehut/hub/services.json"
+printf '{"schema":1,"language":"en"}\n' > "$HXW/know/.claude/claudehut/hub/hub.json"
+HXP="$HXW/a-ms"
+hxr() { jq -nc --arg s "${4:-HX1}" --arg t "$1" --arg f "$2" --arg p "${3:-}" --arg a "${5:-}" \
+  '{session_id:$s,hook_event_name:"PostToolUse",tool_name:$t,
+    tool_input:(if $t=="Read" then {file_path:$f} else {path:$f,pattern:$p} end),tool_response:{content:"x"}}
+   + (if $a!="" then {agent_id:$a} else {} end)'; }
+printf '{"schema":1,"mode":"mono","service":"a-ms","hub":null}\n' > "$HXP/.claude/claudehut/topology.json"
+run_hook hint-explore "$HXP" "$(hxr Read "$HXW/b-ms/src/X.java")"
+chk "hint-explore: mono plane → silent" 'silent'
+printf '{"schema":1,"mode":"microservice","service":"a-ms","hub":"../know"}\n' > "$HXP/.claude/claudehut/topology.json"
+run_hook hint-explore "$HXP" "$(hxr Read "$HXP/src/Own.java")"
+chk "hint-explore: Read inside this repo → silent" 'silent'
+run_hook hint-explore "$HXP" "$(hxr Read "$HXW/b-ms/src/X.java")"
+chk "hint-explore: Read of a sibling service → exactly one additionalContext naming svc b-ms / links --service b-ms" \
+  'one_ctx PostToolUse && ctx | grep -q "svc b-ms" && ctx | grep -q "links --service b-ms"'
+run_hook hint-explore "$HXP" "$(hxr Read "$HXW/b-ms/src/Y.java")"
+chk "hint-explore: repeat for the same (session, main, b-ms) → silent" 'silent'
+run_hook hint-explore "$HXP" "$(hxr Read "$HXW/b-ms/src/Y.java" "" HX1 agent-7)"
+chk "hint-explore: a new agent_id → hinted again" 'one_ctx PostToolUse && ctx | grep -q "svc b-ms"'
+run_hook hint-explore "$HXP" "$(hxr Grep "" 'c-ms|foo')"
+chk "hint-explore: Grep pattern naming another service (c-ms) → hint" 'one_ctx PostToolUse && ctx | grep -q "svc c-ms"'
+run_hook hint-explore "$HXP" "$(hxr Grep "" 'a-ms.*|abc-msx' HX2)"
+chk "hint-explore: own service name / a longer word containing a name → silent" 'silent'
+run_hook hint-explore "$HXP" "$(hxr Grep "" 'new AuthMsClient|auth-ms' HX4)"
+chk "hint-explore: Grep naming a repo dir (auth-ms) whose hub key differs → hint for svc auth-service" 'one_ctx PostToolUse && ctx | grep -q "svc auth-service"'
+run_hook hint-explore "$HXP" "$(hxr Grep "" 'b-ms\(|\"x\"' HX5)"
+chk "hint-explore: an escaped Grep regex (\\( and \\\") is read in bash → hint for b-ms, no error" 'one_ctx PostToolUse && ctx | grep -q "svc b-ms" && errlog_empty "$HXP"'
+run_hook hint-explore "$HXP" "$(hxr Grep "$HXW/c-ms" 'b-ms' HX6)"
+chk "hint-explore: Grep under one sibling naming another → the path's service (c-ms) wins" 'one_ctx PostToolUse && ctx | grep -q "svc c-ms"'
+run_hook hint-explore "$HXP" "$(hxr Grep "" 'c-ms|b-ms' HX7)"
+chk "hint-explore: a pattern naming two services → the one it names first (c-ms)" 'one_ctx PostToolUse && ctx | grep -q "svc c-ms"'
+run_hook hint-explore "$HXP" "$(hxr Read "$HXW/know/.claude/claudehut/hub/HUB.md" "" HX3)"
+chk "hint-explore: Read inside the hub repo → silent" 'silent'
+run_hook hint-explore "$HXP" 'not json {{'
+chk "hint-explore: garbage stdin → exit 0, silent" '[ "$RC" = 0 ] && silent'
+chk "hint-explore: never a decision / permissionDecision (static + corpus)" \
+  '! grep -nE "permissionDecision|\"decision\"|exit 2" "$ROOT/scripts/hint-explore.sh" | grep -v "^[0-9]*:[[:space:]]*#" | grep -q . && ! grep -q permissionDecision "$CORPUS"'
+chk "hint-explore: wrote nothing but its once-markers (state/<sid>.nudged*); hook-errors.log empty" \
+  '[ -z "$(find "$HXP/.claude/claudehut" -type f ! -name topology.json ! -name "*.nudged" ! -name "*.nudged.*" ! -name hook-errors.log | head -1)" ] && errlog_empty "$HXP"'
 
 echo "== AC10 / 04-AC9: teammate identity (record-agent-dispatch → resolve-agent → SubagentStart/Stop) =="
 P="$(new_plane ta)"; L="$P/.claude/claudehut/ledger/dispatches.jsonl"
@@ -1114,10 +1159,10 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
-    ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
+    ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 HUB_NO_EWALLET=1 HUB_NO_DASHBOARD=1 HUB_UA_ROOT=/nonexistent bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
     # Echoed with "N passed" reworded, so this suite's own HOOK-TESTS line stays the only "N passed" on stdout
     # (reference-check.sh's standalone fallback reads the first one).
     printf '%s\n' "$ro" | sed -E 's/([0-9]+) passed/\1 ok/g'

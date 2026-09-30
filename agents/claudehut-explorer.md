@@ -15,7 +15,7 @@ by `claudehut:discover`, alongside the reuse-scanner (same message).
 
 ```mermaid
 flowchart TB
-    a([dispatched by claudehut:discover]) --> idx["1 index: brief in the prompt; claudehut-index find / svc"]
+    a([dispatched by claudehut:discover]) --> idx["1 index: brief in the prompt; claudehut-index find / svc;<br/>another service: svc name / links"]
     idx --> kg{"2 knowledge-graph.json present?"}
     kg -- "yes" --> q["query it with jq / Read → candidate files + edges"]
     kg -- "no" --> g
@@ -36,7 +36,11 @@ flowchart TB
    ranked for this task, each `kind fqn path:line — purpose`). Fill gaps with the CLI at the absolute path the
    prompt names, via `Bash` (read-only commands only): `<cli> find <term|glob> [--kind K]` for a component,
    `<cli> svc` for the service summary, `<cli> status` for freshness. A `stale`/`lệch` banner means the
-   index lags HEAD: open each cited path before you rely on it. No brief and no CLI path → say so, map from
+   index lags HEAD: open each cited path before you rely on it.
+   **Another service** (microservice hub): `<cli> svc <name>` gives its endpoints, topics, clients and DB;
+   `<cli> links --service <name> [--type http|kafka|lib|db]` gives the edges between services with evidence
+   `file:line`; `<cli> find <term> --svc <name>` finds its components. Do not Read or Grep another service's repo
+   when these answer the question; open only the evidence lines they cite, or what they lack (`index_miss:`). No brief and no CLI path → say so, map from
    source and flag low confidence; `PROJECT.md`/`architecture.md` still give the layer map.
 2. **understand-anything graph.** Use the path the dispatch prompt names; otherwise test
    `"${CLAUDE_PROJECT_DIR:-$PWD}/.understand-anything/knowledge-graph.json"` with `[ -f … ]`. When present, query it

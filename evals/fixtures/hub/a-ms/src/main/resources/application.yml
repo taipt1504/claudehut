@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: a-ms
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/a_db}
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+server:
+  host: ${SERVER_HOST:0.0.0.0}
+logging:
+  level:
+    org.springframework.security: ${LOG_LEVEL_SPRING_SECURITY:INFO}
+# Downstream HTTP clients (bound by ClientsProperties)
+clients:
+  b-service:
+    base-url: ${B_SERVICE_URL:http://localhost:8081}
+    timeout: ${B_SERVICE_TIMEOUT:5s}
+  partner:
+    base-url: ${PARTNER_BASE_URL:https://api.partner.example.com/v2}
+  mystery:
+    base-url: ${MYSTERY_URL:}

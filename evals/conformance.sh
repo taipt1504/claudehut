@@ -449,17 +449,16 @@ grep -v '^[[:space:]]*#' "$ROOT/scripts/bootstrap.sh" | grep -q 'claude plugin l
 # C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
 HJ="$ROOT/hooks/hooks.json"
 # ── v0.12 M1 hook surface (05-hooks.md §2 K5/K6, §4 matrix, AC14). M3 adds doclint-advise as two entries
-#    (if:Write(*.md) / if:Edit(*.md), one rule per `if`): 12 handlers / 15 entries — the §4 matrix minus
-#    hint-explore (M6, microservice only). Update these two numbers, not the assertions, when it lands
-#    (13 handlers / 16 entries).
+#    (if:Write(*.md) / if:Edit(*.md), one rule per `if`); M6 adds hint-explore (Read|Grep|Glob, microservice only):
+#    the full §4 matrix, 13 handlers / 16 entries.
 HJ_PAIRS="$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "-") as $m | .hooks[]
   | "\($e);\($m);\(.command | capture("scripts/(?<s>[a-z-]+)\\.sh").s);\(if .async then "async" else "sync" end);\(.timeout // "-");\(.if // "-")"' "$HJ" 2>/dev/null)"
-[ "$(printf '%s\n' "$HJ_PAIRS" | grep -c .)" = 15 ] \
-  && ok "M1: hooks.json has 15 entries" || bad "M1: hooks.json entry count is $(printf '%s\n' "$HJ_PAIRS" | grep -c .), expected 15"
+[ "$(printf '%s\n' "$HJ_PAIRS" | grep -c .)" = 16 ] \
+  && ok "M1: hooks.json has 16 entries" || bad "M1: hooks.json entry count is $(printf '%s\n' "$HJ_PAIRS" | grep -c .), expected 16"
 [ "$(printf '%s\n' "$HJ_PAIRS" | awk -F';' '$3=="doclint-advise" {print $6}' | sort | tr '\n' ' ')" = "Edit(*.md) Write(*.md) " ] \
   && ok "M3: doclint-advise spawns only for Write(*.md) / Edit(*.md)" || bad "M3: doclint-advise if-filter drifted"
-[ "$(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-4 | sort -u | grep -c .)" = 12 ] \
-  && ok "M1: 12 distinct (event, matcher, script) handlers" || bad "M1: handler count drifted from 12"
+[ "$(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-4 | sort -u | grep -c .)" = 13 ] \
+  && ok "M1: 13 distinct (event, matcher, script) handlers" || bad "M1: handler count drifted from 13"
 EXPECT_PAIRS='SessionStart;startup|resume|clear|compact|fork;bootstrap;sync;5
 SessionStart;startup;maintain;async;-
 UserPromptSubmit;-;inject-phase;sync;5
@@ -468,6 +467,7 @@ PreToolUse;Agent;record-agent-dispatch;sync;5
 PostToolUse;Write|Edit;format-java;async;-
 PostToolUse;Write|Edit;lint-reuse;async;-
 PostToolUse;Write|Edit;doclint-advise;sync;5
+PostToolUse;Read|Grep|Glob;hint-explore;sync;2
 PostToolUseFailure;Bash;record-failure;async;-
 SubagentStart;-;record-dispatch;sync;5
 SubagentStop;-;verify-subagent;async;-

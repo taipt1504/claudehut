@@ -697,6 +697,74 @@ EOF
   rm -rf "$T"
 fi
 
+echo "== v0.12 M6: fleet learnings (scope=fleet → <hub>/fleet-learnings.jsonl; inject local + fleet) =="
+INJ="$ROOT/scripts/inject-learnings.sh"
+W="$(mktemp -d)"; HD="$W/kb/.claude/claudehut/hub"; FL="$HD/fleet-learnings.jsonl"
+mkdir -p "$HD"; echo '{"schema":1,"language":"en"}' > "$HD/hub.json"
+mksvc() { mkdir -p "$W/$1/.claude/claudehut"
+  printf '{"schema":1,"mode":"microservice","service":"%s","hub":"%s"}\n' "$1" "${2:-../kb}" > "$W/$1/.claude/claudehut/topology.json"; }
+mksvc a-ms; mksvc b-ms; mksvc c-ms
+cat > "$W/cand.jsonl" <<'C'
+{"category":"pitfall","trigger":"kafka, idempotent, producer","learning":"Set `enable.idempotence=true` on every KafkaProducer config","evidence":"Producer.java:12","confidence":0.8,"scope":"fleet"}
+{"category":"convention","trigger":"dto, mapper, naming","learning":"Name MapStruct mappers `XxxMapper` next to the DTO","evidence":"Mapper.java:3","scope":"service"}
+C
+R="$(CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --candidates "$W/cand.jsonl" --ts 2026-10-01T00:00:00Z)"
+{ [ "$(jq -r '.fleet' <<<"$R")" = 1 ] && [ "$(grep -c '' "$FL")" = 1 ] \
+  && [ "$(jq -c '[.id, .sources, .scope]' "$FL")" = '["F-0001",[{"service":"a-ms","id":"L-0001"}],"fleet"]' ]; } \
+  && ok "fleet: a scope=fleet entry is copied to the hub with provenance {service, id}; the service entry is not" \
+  || bad "fleet: hub copy wrong ($R / $(cat "$FL" 2>/dev/null))"
+! grep -q '/' <<<"$(jq -c '.sources' "$FL")" && ! grep -q "$W" "$FL" && ok "fleet: provenance carries no path" || bad "fleet: a path leaked into the hub store"
+[ ! -e "$FL.lock" ] && [ ! -e "$FL.lock.flock" ] && ok "fleet: no hub lock left behind" || bad "fleet: hub lock left behind"
+cp "$FL" "$W/fl.before"
+R2="$(CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --repair --ts 2026-10-01T00:00:00Z)"
+[ "$(jq -r '.fleet' <<<"$R2")" = 0 ] && cmp -s "$FL" "$W/fl.before" && ok "fleet: a re-run with nothing new leaves the hub store byte-identical" \
+  || bad "fleet: re-run changed the hub ($R2)"
+R3="$(CLAUDE_PROJECT_DIR="$W/b-ms" "$SH" --candidates "$W/cand.jsonl" --ts 2026-10-01T01:00:00Z)"
+{ [ "$(grep -c '' "$FL")" = 1 ] && [ "$(jq -c '[.sources[].service]' "$FL")" = '["a-ms","b-ms"]' ] && [ "$(jq -r '.hits' "$FL")" = 2 ]; } \
+  && ok "fleet: the same lesson from a second service adds a source, not a row (dedup across services)" \
+  || bad "fleet: cross-service dedup wrong ($R3 / $(cat "$FL"))"
+# a fleet candidate that folds into an existing service-scoped entry makes that entry fleet
+printf '%s\n' '{"category":"convention","trigger":"mapper, dto, naming","learning":"Name MapStruct mappers `XxxMapper` next to the DTO","evidence":"Mapper.java:3","scope":"fleet"}' > "$W/c2.jsonl"
+CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --candidates "$W/c2.jsonl" --ts 2026-10-01T02:00:00Z >/dev/null
+[ "$(jq -sc 'map(select(.category=="convention")) | [length, .[0].sources[0].id]' "$FL")" = '[1,"L-0002"]' ] \
+  && ok "fleet: a fleet candidate merged into local L-0002 lands in the hub under that id" || bad "fleet: merged fleet candidate not copied ($(cat "$FL"))"
+# inject: c-ms (no local store) sees fleet rows, labelled, confidence x0.7
+O="$(CLAUDE_PROJECT_DIR="$W/c-ms" bash "$INJ" --top 5)"
+{ grep -q '^- \[pitfall\] \[fleet\] Set `enable.idempotence' <<<"$O" && grep -q 'conf 0.56,' <<<"$O"; } \
+  && ok "inject: a service with no local store gets fleet rows labelled [fleet], confidence x0.7" || bad "inject: fleet rows missing/unlabelled ($O)"
+# a-ms is a source of both fleet rows → nothing doubled; a text duplicate is dropped too
+O="$(CLAUDE_PROJECT_DIR="$W/a-ms" bash "$INJ" --top 10 --compact)"
+{ [ "$(grep -c 'enable.idempotence' <<<"$O")" = 1 ] && ! grep -q '\[fleet\]' <<<"$O"; } \
+  && ok "inject: a fleet row whose sources include this service is not injected twice" || bad "inject: self-provenance dedup ($O)"
+printf '%s\n' '{"id":"L-0001","ts":"2026-10-01T00:00:00Z","category":"pitfall","trigger":"kafka|producer","learning":"Set `enable.idempotence=true` on every KafkaProducer config","evidence":"P.java:1","confidence":0.7,"hits":1}' \
+  > "$W/c-ms/.claude/claudehut/learnings.jsonl"
+O="$(CLAUDE_PROJECT_DIR="$W/c-ms" bash "$INJ" --top 10 --compact)"
+{ [ "$(grep -c 'enable.idempotence' <<<"$O")" = 1 ] && grep -q '^- \[pitfall\] Set' <<<"$O" && grep -q '^- \[convention\] \[fleet\] Name' <<<"$O"; } \
+  && ok "inject: a fleet row with the same text as a local learning is dropped; --compact keeps the [fleet] label" || bad "inject: text dedup/compact label ($O)"
+# combined cap: 3 local + 2 fleet with --top 3 → exactly 3 rows; the snapshot namespaces fleet ids
+for i in 2 3; do printf '{"id":"L-000%s","ts":"2026-10-01T00:00:00Z","category":"decision","trigger":"t%s|x","learning":"local decision number %s long enough","evidence":"D.java:%s","confidence":0.9,"hits":3}\n' "$i" "$i" "$i" "$i"; done >> "$W/c-ms/.claude/claudehut/learnings.jsonl"
+O="$(CLAUDE_PROJECT_DIR="$W/c-ms" bash "$INJ" --top 3 --compact --snapshot "$W/snap.json")"
+{ [ "$(grep -c '^- ' <<<"$O")" = 3 ] && [ "$(jq -r 'length' "$W/snap.json")" = 3 ]; } && ok "inject: --top is ONE cap over local + fleet" || bad "inject: combined cap ($O)"
+O="$(CLAUDE_PROJECT_DIR="$W/c-ms" bash "$INJ" --top 10 --snapshot "$W/snap.json")"
+jq -e 'index("fleet:F-0002") != null and index("F-0002") == null' "$W/snap.json" >/dev/null && ok "inject: fleet ids are namespaced fleet:F-#### in the snapshot" || bad "inject: fleet ids ($(cat "$W/snap.json"))"
+# no hub → nothing written: mono plane with a hub path set, and a microservice plane whose hub dir is absent
+mkdir -p "$W/m/.claude/claudehut"; echo '{"schema":1,"mode":"mono","hub":"../kb"}' > "$W/m/.claude/claudehut/topology.json"
+cp "$FL" "$W/fl.before"
+R4="$(CLAUDE_PROJECT_DIR="$W/m" "$SH" --candidates "$W/cand.jsonl" --ts 2026-10-01T03:00:00Z)"
+{ [ "$(jq -r 'has("fleet")' <<<"$R4")" = false ] && cmp -s "$FL" "$W/fl.before" && [ "$(jq -sc 'map(select(.scope=="fleet"))|length' "$W/m/.claude/claudehut/learnings.jsonl")" = 1 ]; } \
+  && ok "no hub: a mono plane keeps scope=fleet local, writes nothing to the hub, and its report has no fleet key" || bad "no hub: mono wrote to the hub ($R4)"
+mksvc d-ms ../nohub
+R5="$(CLAUDE_PROJECT_DIR="$W/d-ms" "$SH" --candidates "$W/cand.jsonl" --ts 2026-10-01T03:00:00Z)"
+{ [ "$(jq -r 'has("fleet")' <<<"$R5")" = false ] && [ ! -e "$W/nohub" ]; } && ok "no hub: a missing hub dir is never created" || bad "no hub: created $W/nohub ($R5)"
+# mono inject output is unchanged by M6 (vs HEAD's script, nonce lines stripped)
+if git -C "$ROOT" cat-file -e f1c4aec:scripts/inject-learnings.sh 2>/dev/null; then
+  git -C "$ROOT" show f1c4aec:scripts/inject-learnings.sh > "$W/inj-head.sh"
+  a="$(CLAUDE_PROJECT_DIR="$W/m" bash "$W/inj-head.sh" --top 12 | grep -v CLAUDEHUT_UNTRUSTED)"
+  b="$(CLAUDE_PROJECT_DIR="$W/m" bash "$INJ" --top 12 | grep -v CLAUDEHUT_UNTRUSTED)"
+  [ -n "$a" ] && [ "$a" = "$b" ] && ok "inject: a mono plane's block is identical to M5 (f1c4aec)" || bad "inject: mono output changed"
+fi
+rm -rf "$W"; unset -f mksvc
+
 # Real stores (read-only source, COPIES only): the before/after the milestone is judged on. Skipped when the
 # workspace is not on this machine (CI).
 EW="${EWALLET_WORKSPACE:-/Users/taiphan/Documents/Projects/ewallet-workspace}"

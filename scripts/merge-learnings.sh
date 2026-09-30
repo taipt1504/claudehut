@@ -17,7 +17,7 @@
 #   --project NAME      project tag for new entries (default: existing entries' project, else "unknown")
 #   --ts ISO8601        timestamp for merged/new entries (default: now, UTC)
 # Emits a one-line JSON report: {added, merged, fuzzy, promoted, dropped, rejected, repaired, recurred, applied,
-# unmapped}. Rejected candidates go to state/<sid>.rejected.jsonl with the reason. After the write it refreshes
+# unmapped} (+ fleet: hub rows changed, only on a microservice plane with a hub). Rejected candidates go to state/<sid>.rejected.jsonl with the reason. After the write it refreshes
 # the generated block of MEMORY.md (scripts/index/memory.py --no-migrate; only a file that already has markers).
 # Never corrupts the store (atomic write); fails open (exit 0) when jq or the inputs are missing.
 set -euo pipefail
@@ -262,7 +262,7 @@ STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts 
             confidence: ($c.confidence // 0.6),
             hits: 1, recurrence: 0
           }
-          # scope=fleet is kept on the entry; routing it to the hub store is M6 (07 §8.2 "Fleet").
+          # scope=fleet is kept on the entry; the FLEET step below copies it to the hub (07 §8.2 "Fleet").
           + (if (($c.scope // "") | IN("service", "fleet")) then { scope: $c.scope } else {} end)
           # v0.7: a candidate may declare it refines an earlier learning (mattpocock Learning Records).
           + (if ($c.supersedes) then { supersedes: $c.supersedes, status: "refines" } else {} end)
@@ -278,6 +278,8 @@ STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts 
           | .arr[$idx].confidence = ([ ((.arr[$idx].confidence // 0.5) + 0.05), 1.0 ] | min)
           | .arr[$idx].ts = $ts
           | .arr[$idx].evidence = evmerge(.arr[$idx].evidence; $c.evidence)
+          # a fleet candidate that folds into a local entry makes that entry fleet (copied to the hub below)
+          | (if (($c.scope // "") == "fleet") then .arr[$idx].scope = "fleet" else . end)
           | (if ($exact == null) then .fuzzy += 1 else . end)
           # v0.7 EFFECTIVENESS (Issue 7): a pitfall already PROMOTED into a rule that resurfaces as a fresh
           # candidate means the rule did not stop it — the negative RL signal. Count it on the entry + report.
@@ -432,6 +434,92 @@ REPORT="$(jq -nc --argjson a "$ADDED" --argjson m "$MERGED" --argjson p "$PROMOT
   --argjson r "${REJECTED:-0}" --argjson rc "${RECURRED:-0}" --argjson ap "${APPLIED:-0}" \
   --argjson um "${UNMAPPED:-0}" --argjson fz "${FUZZY:-0}" --argjson rp "${REPAIRED:-0}" \
   '{added:$a, merged:$m, fuzzy:$fz, promoted:$p, dropped:$d, rejected:$r, repaired:$rp, recurred:$rc, applied:$ap, unmapped:$um}')"
+
+# ── FLEET (07 §8.2, M6): a live scope=fleet entry of a microservice plane is copied into the hub's
+#    fleet-learnings.jsonl under the hub's own lock, with provenance sources:[{service,id}] (a name and a local
+#    id — never a path: the file is on the hub's commit list). Upsert from the FINAL store, so a fleet candidate
+#    that folded into an existing L-#### still lands with that id, and a re-run is a no-op. The same lesson
+#    from a second service (same category, Jaccard ≥0.5 on trigger ∪ learning tokens) gains a source instead
+#    of a row. promoted/recurrence/applied stay local (a rule promoted in one repo does not exist in another).
+#    No hub (mono, no topology.hub/CLAUDEHUT_HUB, or the hub dir absent) → nothing is written, no dir created.
+FLEET_DIR=""
+if [ "$(jq -r '.mode // empty' "$DIR/topology.json" 2>/dev/null)" = microservice ]; then
+  _hb="$(jq -r '.hub // empty | strings' "$DIR/topology.json" 2>/dev/null)" || _hb=""
+  [ -z "${CLAUDEHUT_HUB:-}" ] || _hb="$CLAUDEHUT_HUB"
+  if [ -n "$_hb" ]; then
+    case "$_hb" in /*) : ;; *) _hb="$PROJECT_DIR/$_hb" ;; esac
+    if [ -d "$_hb/.claude/claudehut/hub" ]; then FLEET_DIR="$_hb/.claude/claudehut/hub"
+    elif [ -f "$_hb/hub.json" ]; then FLEET_DIR="$_hb"; fi
+  fi
+fi
+if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then
+  release_lock   # the local store is written; never hold two locks
+  FSVC="$(jq -r '.service // empty | strings' "$DIR/topology.json" 2>/dev/null)" || FSVC=""
+  [ -n "$FSVC" ] || FSVC="$(basename "$PROJECT_DIR")"
+  FLEET="$FLEET_DIR/fleet-learnings.jsonl"; FLOCK="$FLEET.lock"
+  # mkdir-lock only (a flock file would persist in the hub repo); steal after 30 s, proceed after 10 s.
+  _fstart="$(date -u +%s)"; _fheld=0
+  while :; do
+    if mkdir "$FLOCK" 2>/dev/null; then _fheld=1; break; fi
+    [ -e "$FLOCK" ] && [ ! -d "$FLOCK" ] && { rm -f "$FLOCK" 2>/dev/null; continue; }
+    _fnow="$(date -u +%s)"; _flm="$(_lock_mtime "$FLOCK")"
+    if [ "${_flm:-0}" -gt 0 ] && [ "$(( _fnow - _flm ))" -ge 30 ]; then rm -rf "$FLOCK" 2>/dev/null; continue; fi
+    [ "$(( _fnow - _fstart ))" -ge 10 ] && break
+    sleep 0.02 2>/dev/null || true
+  done
+  [ "$_fheld" = 1 ] && trap 'rm -rf "$FLOCK" 2>/dev/null' EXIT INT TERM
+  FEX='[]'; [ -f "$FLEET" ] && FEX="$(jq -R 'fromjson? // empty' "$FLEET" 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')"
+  FOUT="$(jq -c -n --argjson fex "$FEX" --argjson arr "$ARR" --arg svc "$FSVC" "$JQ_TOK"'
+    def lpad4($n): ($n|tostring) as $s | (if (4 - ($s|length)) > 0 then ("0" * (4 - ($s|length))) else "" end) + $s;
+    def ffz: ((.trigger | trig([])) + (.learning | ltok)) | unique;
+    def issrc($i): any((.sources // [])[]; .service == $svc and .id == $i);
+    reduce ($arr[] | select((.scope // "") == "fleet" and ((.learning // "") != ""))) as $e (
+      { f: $fex, n: ([ $fex[] | (.id // "") | tostring | capture("F-(?<n>[0-9]+)")? | .n | tonumber ] | max // 0),
+        c: 0 };
+      ( $e | ffz ) as $ef | (($e.status // "") == "superseded") as $sup
+      | ( [ .f | to_entries[] | select(.value | issrc($e.id)) | .key ] | first ) as $own
+      | if $own != null then
+          ( .f[$own] ) as $o
+          | ( if $sup then
+                (if (($o.sources // []) | length) <= 1 then $o + {status: "superseded"}
+                 else $o + {sources: [ $o.sources[] | select((.service == $svc and .id == $e.id) | not) ]} end)
+              elif (($o.sources[0].service == $svc) and ($o.sources[0].id == $e.id)) then
+                $o + {trigger: $e.trigger, learning: $e.learning, evidence: $e.evidence,
+                      confidence: ([($o.confidence // 0), ($e.confidence // 0)] | max),
+                      hits: ([($o.hits // 1), ($e.hits // 1)] | max), ts: ([($o.ts // ""), ($e.ts // "")] | max)}
+              else $o end ) as $u
+          | if $u != $o then .f[$own] = $u | .c += 1 else . end
+        elif $sup then .
+        else
+          ( [ .f | to_entries[]
+              | select((.value.category // "note") == ($e.category // "note") and ((.value.status // "") != "superseded"))
+              | {key, j: jac($ef; (.value | ffz))} | select(.j >= 0.5) ] | sort_by(-.j, .key) | first | .key ) as $fz
+          | if $fz != null then
+              .f[$fz].sources = ((.f[$fz].sources // []) + [{service: $svc, id: $e.id}])
+              | .f[$fz].hits = ((.f[$fz].hits // 1) + 1)
+              | .f[$fz].confidence = ([(.f[$fz].confidence // 0), ($e.confidence // 0)] | max)
+              | .c += 1
+            else
+              .n += 1
+              | .f += [ {id: ("F-" + lpad4(.n)), ts: $e.ts, category: ($e.category // "note"), trigger: $e.trigger,
+                         learning: $e.learning, evidence: $e.evidence, confidence: ($e.confidence // 0.6),
+                         hits: ($e.hits // 1), scope: "fleet", sources: [{service: $svc, id: $e.id}]} ]
+              | .c += 1
+            end
+        end )
+    | {c, f: (.f | if length > 400 then sort_by(-((.confidence // 0.5) * (.hits // 1))) | .[0:400] else . end)}
+  ' 2>/dev/null || true)"
+  FCOUNT=0
+  if jq -e '(.f | type) == "array"' <<<"$FOUT" >/dev/null 2>&1; then
+    FCOUNT="$(jq -r '.c' <<<"$FOUT")"
+    if [ "${FCOUNT:-0}" -gt 0 ]; then
+      jq -c '.f[]' <<<"$FOUT" > "$FLEET.tmp.$$" 2>/dev/null && mv -f "$FLEET.tmp.$$" "$FLEET" 2>/dev/null \
+        || { rm -f "$FLEET.tmp.$$" 2>/dev/null; FCOUNT=0; }
+    fi
+  fi
+  [ "$_fheld" = 1 ] && rm -rf "$FLOCK" 2>/dev/null
+  REPORT="$(jq -c --argjson fl "${FCOUNT:-0}" '. + {fleet: $fl}' <<<"$REPORT")"
+fi
 
 # WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (v0.11's Stop gate checked its
 # freshness; that gate is gone in v0.12, and capture-learnings still reads the receipt before set-phase learn).

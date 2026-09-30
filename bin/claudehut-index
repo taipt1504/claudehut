@@ -3,8 +3,9 @@
 # Thin wrapper: python3 stdlib only, no pip. Always exits 0; without python3 it prints `index: unavailable`.
 #
 #   read (agents):   status [--fast] [--json] · brief [text…] [--budget BYTES] [--task ID] · find <term|glob> [--kind K]
-#                    · svc [service] · links
-#   write (hooks):   update [--full] [--detach] · memory · install-git-hooks · uninstall-git-hooks
+#                    [--svc S] · svc [service] · links [--service S] [--type http|kafka|lib|db]
+#   write (hooks):   update [--full] [--detach] [--hub-sync] · memory · install-git-hooks · uninstall-git-hooks
+#   write (hub):     hub-sync [--hub DIR] [--repo P…] · hub-scan --repo P… [--hub DIR]   (microservice: update hub-syncs)
 #   every command:   [--json] [--plane DIR]   (default plane: <git toplevel of $CLAUDE_PROJECT_DIR or $PWD>/.claude/claudehut)
 #
 # Call it by absolute path: bin/ is not on PATH.

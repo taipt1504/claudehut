@@ -96,7 +96,7 @@ while IFS=$'\t' read -r kind file line; do
   [ -f "$R/$file" ] || { nbad=$((nbad+1)); continue; }
   txt="$(sed -n "${line}p" "$R/$file")"
   case "$kind" in
-    endpoint) pat='Mapping' ;; listener) pat='@KafkaListener' ;; producer) pat='\.send' ;; router) pat='@Bean' ;;
+    endpoint) pat='Mapping' ;; listener) pat='@KafkaListener|KafkaReceiver\.create\(|\.subscription\(|\.assignment\(|\.create[A-Za-z]*Receiver\(' ;; producer) pat='\.send' ;; router) pat='@Bean' ;;
     migration) pat='CREATE TABLE' ;; *) pat='^@|class |interface |record ' ;;
   esac
   printf '%s' "$txt" | grep -qE "$pat" || { nbad=$((nbad+1)); echo "    bad line: $kind $file:$line → $txt"; }
@@ -113,7 +113,7 @@ ix "$R" update --full
 chk "deterministic: a second full update writes identical components.jsonl" 'cmp -s "$W/c1.jsonl" "$R/.claude/claudehut/index/components.jsonl"'
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts/index" -name __pycache__ 2>/dev/null)" ]'
 chk "contracts.json: http_exposed mirrors the endpoints (M6 hub-sync input)" \
-  '[ "$(jq ".http_exposed | length" "$R/.claude/claudehut/index/contracts.json")" = 7 ] && jq -e ".kafka_consume | length == 2" "$R/.claude/claudehut/index/contracts.json" >/dev/null'
+  '[ "$(jq ".http_exposed | length" "$R/.claude/claudehut/index/contracts.json")" = 7 ] && jq -e ".kafka_consume | length == 3" "$R/.claude/claudehut/index/contracts.json" >/dev/null'
 
 chk "a package named out/ (hexagonal adapter/out/persistence) is source, not build output" \
   'probe "$R" c "any(.[]; .name==\"OrderPersistenceAdapter\" and .kind==\"component\")"'

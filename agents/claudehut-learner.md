@@ -48,7 +48,8 @@ Write to `${task_dir}/learn-candidates.jsonl` (the task dir given in your dispat
      into a rule file **verbatim**. Write it in the language of the dispatch brief's language line; code,
      identifiers and paths stay as they are.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
-   - `scope` (optional): `service` (default) or `fleet` for a lesson that holds for every service in the hub.
+   - `scope` (optional): `service` (default) or `fleet` for a lesson that holds for every service in the hub;
+     the merge copies a fleet lesson to the hub's `fleet-learnings.jsonl` (no hub → it stays local).
    - `supersedes` (optional): `"L-####"` when this learning **refines/corrects an earlier one**; the merge keeps
      both and marks the old one superseded instead of folding them together.
    - **Gate:** `merge-learnings.sh` rejects a candidate under 20 chars, equal to its evidence, or scoring <0.4

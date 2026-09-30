@@ -6,18 +6,17 @@ allowed-tools: Read Write Grep Glob Bash
 
 # ClaudeHut Init (Bootstrap prerequisite)
 
-Bootstrap is a **deterministic script**, not a hand-generation task. Run it; it writes the canonical project
-plane + stack-gated rules + the `@import` slice with zero guesswork. Then optionally enrich the seeded stubs.
-**Do NOT** hand-write these files or emit a JSON analysis instead — the script is the source of the writes.
+Bootstrap is a **deterministic script**: it writes the project plane, stack-gated rules and the `@import`
+slice; then optionally enrich the seeded stubs. **Do NOT** hand-write these files or emit a JSON analysis.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-  start(["/claudehut:claudehut-init"]) --> det["claudehut-init --detect<br/>(siblings, parent_is_git)"]
+  start(["/claudehut:claudehut-init"]) --> det["claudehut-init --detect<br/>(siblings, hub, default_hub)"]
   det --> ask{"interactive (AskUserQuestion available)?"}
-  ask -- "yes" --> q["one AskUserQuestion: mode · language · git hooks"]
-  ask -- "no (-p)" --> dflt["no questions: mono · en · no hooks"]
+  ask -- "yes" --> q["one AskUserQuestion: mode · hub location · language · git hooks"]
+  ask -- "no (-p)" --> dflt["no questions: mono (hub only via CLAUDEHUT_HUB) · en · no hooks"]
   q --> gen["run claudehut-init with the answers as flags + ls plane<br/>(deterministic script — never hand-write)"]
   dflt --> gen
   gen --> verify{"all 5 present? MEMORY · PROJECT ·<br/>LANGUAGE · architecture · topology.json"}
@@ -36,14 +35,22 @@ flowchart TB
 
 **Detect first** (read-only JSON): `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" --detect`.
 
-**Ask once, interactive sessions only** — one AskUserQuestion carrying three questions (headless `-p`: skip it;
-the script defaults to mono, `en`, no git hooks, and a re-run keeps what was recorded before):
+**Ask once, interactive sessions only** — one AskUserQuestion, up to four questions (headless `-p`: skip it;
+the script defaults to mono — microservice only when `CLAUDEHUT_HUB` names a hub — no git hooks, the recorded or
+hub language, else `en`; a re-run keeps what was recorded):
 
 | Question | Options (recommended first) | Flag |
 |---|---|---|
-| Mono or microservice? | mono; microservice — recommend it when `siblings` ≥ 2. Microservice needs the hub (M6-pending): the script records `requested_mode` and keeps `mode: mono` | `--mode mono\|microservice` |
-| Reply and artifact language? | Tiếng Việt; English | `--language vi\|en` |
-| Refresh the index from git hooks after pull/rebase/checkout? | No (the next prompt catches up anyway); Yes | `--git-hooks yes\|no` |
+| Mono or microservice? | mono; microservice — recommend it when `siblings` ≥ 2 | `--mode mono\|microservice` |
+| Hub location? (microservice; skip when `hub` is set) | knowledge repo at `default_hub` (created, local `git init`, no remote); workspace root (no git); other path | `--hub <dir>` |
+| Language? (skip when `hub_language` is set: inherited; a different answer is an override) | Tiếng Việt; English | `--language vi\|en` |
+| Git hooks refresh the index after pull/rebase/checkout? | No (the next prompt catches up); Yes | `--git-hooks yes\|no` |
+
+Microservice writes `hub.json` (`{schema:1, language}`, once), `aliases.json` and this service's
+`services.json` entry under `<hub>/.claude/claudehut/hub/`, then runs the index update with `--hub-sync`. After
+it, when `siblings_without_plane` is non-empty, ask: hub-scan them read-only now (`claudehut-index hub-scan`)?
+The service graph opens with `/understand-anything:understand-dashboard <hub>/.claude/claudehut/hub`; no
+repo's own `.understand-anything/` is written.
 
 Git hooks are opt-in. With `core.hooksPath`, husky or lefthook the CLI writes nothing and prints the block to
 add by hand; show that block to the user.
@@ -52,18 +59,15 @@ add by hand; show that block to the user.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" --language vi --mode mono --git-hooks no \
-  && ls "${CLAUDE_PROJECT_DIR}/.claude/claudehut/"
+  && ls "${CLAUDE_PROJECT_DIR}/.claude/claudehut/"   # microservice: --mode microservice --hub "<dir>"
 ```
 
-No hook creates a plane: without one ClaudeHut stays silent, so this skill is the only way in (and the
-`--refresh` path).
+No hook creates a plane (ClaudeHut stays silent without one): this skill, or `--refresh`, is the way in.
 
-It detects the stack from the build files and writes, under `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`:
-`MEMORY.md` (its generated block ≤2 KB comes from `claudehut-index memory`), `PROJECT.md`, `LANGUAGE.md`,
-`architecture.md`, `topology.json` (`mode`, `language`, `git_hooks`, `shared`), `learnings.jsonl`, `state/` —
-plus the **stack-gated** rule tree under `.claude/rules/`, and appends the always-load `@import` slice to
-`CLAUDE.md`. In a git repo it then builds the codebase index (`claudehut-index update`, deterministic) and
-prints its status. Idempotent: it skips existing plugin-owned files (pass `--refresh` to regenerate) and
+It writes, under `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`: `MEMORY.md` (generated block ≤2 KB, from
+`claudehut-index memory`), `PROJECT.md`, `LANGUAGE.md`, `architecture.md`, `topology.json`, `learnings.jsonl`,
+`state/`; the **stack-gated** rules under `.claude/rules/`; the always-load `@import` slice in `CLAUDE.md`; in a
+git repo, the codebase index (`claudehut-index update`) and its status. Idempotent (`--refresh` regenerates);
 **never** clobbers `learnings.jsonl`.
 
 Verify-and-retry per the Flow. **Init is not complete until all five files exist.**
@@ -80,19 +84,11 @@ provenance line — re-`init` treats them as authoritative and won't overwrite t
 
 ## 3. Suggest MCP servers (optional, opt-in — never auto-install)
 
-ClaudeHut ships **no** active MCP config and connects **nothing** automatically. Read the catalog at
-`${CLAUDE_PLUGIN_ROOT}/templates/mcp-recommendations.md` and match it against the detected stack to build the
-candidate list:
-
-- **tech-stack bucket** — each server whose `detect-when` matches a detected dependency (gives the Review
-  auditors live data; without them they review statically).
-- **memory bucket** — the knowledge-graph memory MCP.
-- **research bucket** — the docs MCP (context7) for current library best-practice.
-
-Interactive vs `-p` selection follows the Flow: emit a `claude mcp add --scope project …` line **only** for
-each selected server.
-
-The developer substitutes their own connection string / token — **never** print or store real secrets, and do
-**not** run these commands yourself (suggest, don't force).
+ClaudeHut ships **no** active MCP config and connects **nothing** automatically. Match
+`${CLAUDE_PLUGIN_ROOT}/templates/mcp-recommendations.md` against the detected stack: **tech-stack** servers whose
+`detect-when` matches a dependency (live data for the Review auditors), the **memory** knowledge-graph MCP, and
+the **research** docs MCP (context7). Emit a `claude mcp add --scope project …` line **only** per selected
+server (interactive vs `-p` per the Flow). The developer substitutes their own connection string / token —
+**never** print or store real secrets, and do **not** run these commands yourself (suggest, don't force).
 
 Finish: "Bootstrapped. Commit `.claude/` (except `state/`) to share with the team."

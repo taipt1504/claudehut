@@ -113,6 +113,8 @@ Các hook khác dùng tập con của predicate:
 | 13 | InstructionsLoaded | — | `record-rules-loaded.sh` | async | — | không (event bỏ output) | P-plane | — |
 
 ¹ Chọn 5 s; Đã chốt (2026-09-29), xem [§10](#10-mục-mở).
+
+Trạng thái #9 (M6, 2026-10-01): `hint-explore.sh` đã được nối vào hook. Ngoài Read/Glob vào repo của service khác, hook còn gợi ý khi pattern Grep nhắc tên một service khác. Fast path chỉ dùng bash, và jq duy nhất là lần đọc topology. p95 trên 1.000 payload là 22,2 ms (`hook-bench` cho số liệu tham khảo, không gate).
 ² Handler phải sync, vì output của hook async đến ở lượt kế tiếp và lỡ thời điểm subagent bắt đầu ([async](https://code.claude.com/docs/en/hooks#run-hooks-in-the-background)). Mặc định 600 s của command hook là quá lớn; timeout Đã chốt (2026-09-29): 5 s, xem [§10](#10-mục-mở).
 
 ³ Lệch so với bản thiết kế đầu (async), sửa ở M1 (HC2-3): PreToolUse async không giữ tool Agent lại, nên SubagentStart (#11, sync) có thể đọc ledger `name`↔`subagent_type` trước khi dòng được ghi, và teammate rơi về tên tự đặt (đúng ca F-1). Hook không in gì và tốn ~16 ms mỗi lần gọi Agent, nên chạy sync với timeout 5 s.

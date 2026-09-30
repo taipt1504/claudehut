@@ -46,6 +46,12 @@
           { "type": "command", "if": "Write(*.md)", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/doclint-advise.sh\"", "timeout": 5 },
           { "type": "command", "if": "Edit(*.md)",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/doclint-advise.sh\"", "timeout": 5 }
         ]
+      },
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/hint-explore.sh\"", "timeout": 2 }
+        ]
       }
     ],
     "PostToolUseFailure": [
