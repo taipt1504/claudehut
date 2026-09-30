@@ -5,6 +5,8 @@
 #          set-review pass with evidence outside its own dir) — no-op + notice, task.json byte-identical
 #   V3-6   one shape-change rule: after findings, set-profile/set-route are no-op + notice and
 #          `start --profile <new>` opens the new task; CLI and both skills say the same
+#   M2     legacy verbs (04 §3): the removed ones are no-op + notice (exit 0, nothing written, even with a task
+#          open), set-complexity is a deprecated route alias, and the CLI header records why each is kept
 # Self-contained temp planes, no network, < 60 s. Prints "STATE-TESTS: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 
@@ -99,6 +101,24 @@ done
 check "V3-6 doc: discover treats a findings_path task as a previous request's (start a new one)" \
   'tr "\n" " " <"$DS" | grep -qE "findings_path. set: that is a previous request.s.{0,80}start"'
 check "V3-6 doc: CLI header names the shape change as a new request" 'grep -q "shape change via set-profile/set-route" "$CS"'
+
+# ── M2: legacy verbs — kept, per the "Legacy verbs" decision in the CLI header ─────────────────────────────
+P="$(newplane legacy)"
+id="$(cs "$P" sL start --route light --slug lg 2>/dev/null | head -1)"
+before="$(tj "$P" "$id")"; ptr="$(cat "$P/.claude/claudehut/state/sL.json")"
+lr=0; for v in "set-bypass true --reason x" "mark-skill implement" "pause" "rename x" "route --confirmed full"; do
+  # shellcheck disable=SC2086
+  e="$(cs "$P" sL $v 2>&1)" || lr=1
+  grep -q "removed in v0.12" <<<"$e" || lr=1
+done
+check "M2: removed verbs (set-bypass mark-skill pause rename route) exit 0 with a 'removed in v0.12' notice" '[ "$lr" = 0 ]'
+check "M2: removed verbs leave the open task and the session pointer byte-identical" \
+  '[ "$(tj "$P" "$id")" = "$before" ] && [ "$(cat "$P/.claude/claudehut/state/sL.json")" = "$ptr" ]'
+e="$(cs "$P" sL set-complexity full 2>&1)"; r=$?
+check "M2: set-complexity is a deprecated alias — notice says deprecated, the route becomes full" \
+  '[ "$r" = 0 ] && grep -q deprecated <<<"$e" && [ "$(tj "$P" "$id" | jq -r .route)" = full ]'
+check "M2 doc: the CLI header records the legacy-verb decision (set-profile live, the rest kept until M7)" \
+  'grep -q "Legacy verbs — M2 decision" "$CS" && grep -q "set-profile     a LIVE verb" "$CS"'
 
 echo "STATE-TESTS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

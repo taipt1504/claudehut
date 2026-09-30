@@ -10,7 +10,7 @@
 #
 # Run: evals/hook-tests.sh --fast     contract + behavior only (deterministic, no Claude, no timing)
 #      evals/hook-tests.sh            --fast, then the regression suites evals/regress/state-tests.sh and
-#                                     evals/regress/script-tests.sh when present (their counts are added)
+#                                     evals/regress/script-tests.sh (their counts are added; a missing one fails)
 # Latency (AC12) is NOT gated here: wall-clock time depends on the machine and its load. It is the benchmark
 # evals/hook-bench.sh (a report; HOOK_BENCH_STRICT=1 gates it).
 set -uo pipefail
@@ -310,6 +310,12 @@ run_hook bootstrap "$P" '{"session_id":"x","source":"startup"}'
 chk "bootstrap: graph and Summer KB are stated as facts (path, modules, commit)" \
   'ctx | grep -q "^understand-anything graph: .understand-anything/knowledge-graph.json" && ctx | grep -q "modules summer-core,summer-kafka; summerCommit abcdef1"'
 chk "bootstrap: no hook error logged" 'errlog_empty "$P"'
+# D5 (v0.12 M2): the explorer's graph query, taken verbatim from its prompt, must survive nodes without
+# name or summary. A bare .name+... throws on the first nameless node and the explorer loses every lead.
+EXQ="$(sed -n '/jq -r --arg t "settlement"/,/@tsv. "\$G"/p' "$ROOT/agents/claudehut-explorer.md" | tr '\n' ' ' | sed -E "s/^[^']*'//; s/'[^']*\$//")"
+printf '%s' '{"nodes":[{"id":"n1","type":"file"},{"id":"n2","type":"class","name":"Settlement"},{"id":"n3","type":"class","name":"PayoutJob","summary":"runs the settlement batch","filePath":"a/B.java"}],"edges":[]}' > "$W/kg-nameless.json"
+chk "explorer: graph query tolerates a nameless node and a node without summary (D5)" \
+  'case "$EXQ" in *ascii_downcase*) :;; *) false;; esac && out="$(jq -r --arg t settlement "$EXQ" "$W/kg-nameless.json")" && [ "$(printf "%s\n" "$out" | cut -f1 | tr "\n" " ")" = "n2 n3 " ]'
 
 P="$(new_plane mt)"; S_="$P/.claude/claudehut/state"; mkdir -p "$S_"
 ( cd "$S_" && touch -t 202607010000 old.failures.jsonl old.nudged old.nudged.advise-write_0001-x old.json CUR.failures.jsonl && touch fresh.nudged )
@@ -671,13 +677,11 @@ chk "the review skill's Exit closes a task that skips Learn; the digest names en
   'sed -n "/^## Exit/,/^## /p" "$ROOT/skills/review/SKILL.md" | grep -q "end --status done" && grep -q "end --status done" "$ROOT/skills/claudehut-workflow/references/digest.md" && grep -q "resume <id>" "$ROOT/skills/discover/SKILL.md" && grep -q "resume <id>" "$ROOT/skills/claudehut-workflow/SKILL.md"'
 chk "no skill tells the model to run set-bypass or a set-findings path outside .claude/claudehut/ (V1-5, C3, C8)" \
   '! grep -rnE "set-bypass true|set-findings tasks/" "$ROOT/skills" >/dev/null'
-# The one exception is discover's frontmatter description: trigger-eval pins it by fixture, so its rewrite
-# goes with the M2 description refresh (10-rollout-eval row M2), which re-runs the model arm.
 chk "no skill or agent BODY describes a removed deny gate as live: no write gate / skill rail / hook-gated / denied write (R2-C4)" \
-  '! grep -rniE "write gate|skill[ -]rail|hook-gated|write (is|was) denied|every production write .*denied" "$ROOT/skills" "$ROOT/agents" --include=*.md | grep -v summer-kb | grep -vE "skills/discover/SKILL.md:3:description:" | grep -q .'
+  '! grep -rniE "write gate|skill[ -]rail|hook-gated|write (is|was) denied|every production write .*denied" "$ROOT/skills" "$ROOT/agents" --include=*.md | grep -v summer-kb | grep -q .'
 # R3-C3: the same for eval prompts fed to a live model and eval comments. Excluded on purpose: this file (it
-# asserts the gate's deletion and replays the v0.11 gate as a fixture), tasks/shortcut-attempt (marked STALE,
-# retired in M2) and trigger-eval/discover.json (pins the discover description, M2).
+# asserts the gate's deletion and replays the v0.11 gate as a fixture). tasks/shortcut-attempt, whose oracle
+# observed the gate, was deleted in M2; its "skip workflow" scenario is router-eval case rc-04.
 chk "no eval prompt or comment describes the removed write gate as live (probes, conformance, .diag; R3-C3)" \
   '! grep -niE "write gate|gate-write" "$ROOT"/evals/*.sh "$ROOT/evals/.diag.sh" "$ROOT"/evals/lib/*.sh 2>/dev/null | grep -v "^$ROOT/evals/hook-tests.sh:" | grep -q .'
 chk "discover branches on the tier recorded as route light/full, not on an unrecorded complexity tier (R2-5)" \
@@ -950,7 +954,7 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
   for rs in state-tests script-tests; do
-    f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || continue
+    f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
     ro="$(EVAL_COUNT_DIR= bash "$f" 2>&1)"; rr=$?
     # Echoed with "N passed" reworded, so this suite's own HOOK-TESTS line stays the only "N passed" on stdout

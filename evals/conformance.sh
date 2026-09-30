@@ -96,20 +96,13 @@ else
   ok "RES-K5: slash commands are plugin-scoped (/claudehut:claudehut-<skill>)"
 fi
 DG="$ROOT/skills/claudehut-workflow/references/digest.md"; WF="$ROOT/skills/claudehut-workflow/SKILL.md"
-# law HEADINGS must be the same set in both documents (normalised: number + bold title, punctuation stripped)
-# Normalise hard: SKILL.md writes "**Canonical store — one dir per task.**" where the digest writes
-# "**Canonical store**". Same law, more room. So compare the number plus the title's leading clause only,
-# cut at the first '.' or em-dash, lowercased, alphanumerics only. What must not drift is the SET and the
-# ORDER of the laws — a renumbered or dropped law, not a longer subtitle.
-# Strip the "N. " numbering FIRST — otherwise the cut-at-first-period eats the whole title and the check
-# degrades to "both files have 7 numbered items", which a renamed law would sail straight through.
-laws_of(){ grep -oE '^[0-9]+\. \*\*[^*]+\*\*' "$1" \
-             | sed -E -e 's/^([0-9]+)\. \*\*/\1|/' -e 's/\*\*.*$//' -e 's/[.—].*$//' \
-             | tr '[:upper:]' '[:lower:]' | tr -cd '[:alnum:]|\n'; }
-if [ "$(laws_of "$DG")" = "$(laws_of "$WF")" ]; then
-  ok "SKILL-F5: digest and claudehut-workflow/SKILL.md carry the same law headings"
+# SKILL-F5 (v0.12 M2) — the numbered laws are gone with the router design (04 §6, ADR-R5): neither the
+# injected digest nor SKILL.md may coerce with MUST / "1% rule" / REQUIRED NEXT. Replaces the law-heading
+# parity check, which passed vacuously once both files had zero laws.
+if grep -nE '\bMUST\b|1% rule|REQUIRED NEXT' "$DG" "$WF" >/dev/null 2>&1; then
+  bad "SKILL-F5: digest or claudehut-workflow/SKILL.md still coerces (MUST / 1% rule / REQUIRED NEXT)"
 else
-  bad "SKILL-F5: law headings diverged between the injected digest and SKILL.md"
+  ok "SKILL-F5: digest and claudehut-workflow/SKILL.md route without MUST / 1% rule / REQUIRED NEXT"
 fi
 
 # RULE-09/10/11/12/18 — a rule that never matches a real filename is indistinguishable from a rule that is
@@ -346,6 +339,10 @@ for f in "$ROOT"/agents/*.md; do
   [ -n "$tl" ] || continue
   for tool in $(printf '%s' "$tl" | tr ',' ' '); do
     case "$tool" in mcp__*|'') continue ;; esac
+    # v0.12 M2 (03 §6, 04 §6): LSP is optional by design for the explorer and the reuse-scanner — each body
+    # falls back to Grep when the tool is absent, which is exactly what a background run gets. Exempt only while
+    # that fallback is stated.
+    if case "$(basename "$f" .md):$tool" in claudehut-explorer:LSP|claudehut-reuse-scanner:LSP) true ;; *) false ;; esac && grep -v '^tools:' "$f" | grep -qi 'without LSP\|LSP.*fall.*back\|fall.*back.*Grep'; then continue; fi
     case "$BG_OK" in *" $tool "*) : ;; *) BAD_TOOLS="$BAD_TOOLS $(basename "$f" .md):$tool" ;; esac
   done
 done
@@ -511,21 +508,24 @@ ok "contract: every plane-bound hook sources lib/hook-common.sh (exit 0, ≤1 JS
 # because "small skips the scan" is the failure this must not become — the reuse-scan rail is unconditional
 # in every tier and set-reuse-scan still records the file.
 DSC="$ROOT/skills/discover/SKILL.md"
-grep -q '`trivial` and `small` tiers → INLINE DISCOVER' "$DSC" \
-  && ok "RES-M14: small runs discover inline (no dispatch floor)" \
-  || bad "RES-M14: small still pays the two-subagent dispatch floor"
+grep -q '`light` route → INLINE DISCOVER' "$DSC" \
+  && ok "RES-M14: the light route runs discover inline (no dispatch floor)" \
+  || bad "RES-M14: the light route still pays the two-subagent dispatch floor"
 grep -q 'Inline replaces the \*dispatch\*, never the \*scan\*' "$DSC" \
   && ok "IDEA-F2: the artifact is still mandatory on the inline path" \
   || bad "IDEA-F2: the inline carve-out no longer states that the scan itself is unconditional"
-# the tier table is duplicated in the injected digest and in SKILL.md; row 11 pins them to agree
+# v0.12 M2 — the tier table became a route table (04 §2). Both copies (injected digest, SKILL.md) must carry
+# all three routes, and the digest must be self-contained on the ask and override rules (04 §6, 10 §5).
 for f in "$ROOT/skills/claudehut-workflow/references/digest.md" "$ROOT/skills/claudehut-workflow/SKILL.md"; do
-  grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$f" \
-    || bad "RES-M14: $(basename "$f") tier table still routes small through a dispatched Discover"
+  for r in direct light full; do
+    grep -qE "^\| .*\`$r\` \|" "$f" || bad "RES-M14: $(basename "$f") route table has no \`$r\` row"
+  done
 done
-grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/references/digest.md" \
-  && grep -qE '^\| \*\*small\*\* \|.*Discover \(inline\)' "$ROOT/skills/claudehut-workflow/SKILL.md" \
-  && ok "RES-M14: both copies of the tier table route small through an inline Discover" \
-  || bad "RES-M14: the two tier tables disagree about small"
+DGF="$ROOT/skills/claudehut-workflow/references/digest.md"
+grep -q 'AskUserQuestion' "$DGF" && grep -q 'end --status abandoned' "$DGF" \
+  && grep -qE '^\| `light` \|' "$DGF" && grep -qE '\| `light` \|' "$ROOT/skills/claudehut-workflow/SKILL.md" \
+  && ok "RES-M14: both copies carry the route table; the digest names AskUserQuestion and the override end" \
+  || bad "RES-M14: route table or ask/override rule missing from the digest or SKILL.md"
 
 # PLUMB-F-02/F-06 — SubagentStart does not carry the requested subagent_type, so record-dispatch.sh could
 # log that something was dispatched but not what. The Agent tool call carries it, with a tool_use_id both

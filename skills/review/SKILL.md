@@ -1,20 +1,17 @@
 ---
 name: review
-description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and re-spawns for at most two fix rounds before reporting what survives. Runs inline on the main thread because it owns the set-review state write.
+description: Use when a ClaudeHut light- or full-route task is implemented and about to be called done - dispatches the applicable ClaudeHut auditors, gets fresh test evidence, allows at most two fix rounds, and records the verdict. Not for reviewing an arbitrary PR or diff.
 ---
 
 # Review (phase 6 of 7)
 
 Prove the change is done — against the enforcement set, the project rules, and fresh test evidence — before
-any completion claim. Runs **inline on the main thread** — Law 7: it owns the `set-review pass` state write.
+any completion claim. Runs **inline on the main thread** — it owns the `set-review pass` state write.
 
-## Iron Law
+## Evidence before the claim
 
-```
-NO COMPLETION CLAIM WHILE ANY APPLICABLE SKILL, RULE, OR MEMORY ITEM IS UNSATISFIED — AND NONE WITHOUT FRESH REVIEW EVIDENCE
-```
-
-If you have not re-run the auditors **this turn**, you cannot say it passes — paraphrases included ("should
+A task is done when every applicable skill, rule and memory item is satisfied and fresh review evidence
+shows it. If the auditors did not re-run **this turn**, there is no basis to say it passes — paraphrases included ("should
 pass", "looks compliant"). `set-review pass` **requires the `review.md` evidence file**.
 
 ## The rigor contract
@@ -32,7 +29,7 @@ makes it safe.)
 ```mermaid
 flowchart TB
     start([Review phase]) --> lock["SELECT auditor set — criteria before dispatch<br/>(enforcement set + git diff → which reviewers + defect floor)"]
-    lock --> fan["FAN-OUT — dispatch SELECTED auditors in ONE message<br/>(each carries review-rigor.md verbatim; test-runner ALWAYS, reviewer ALWAYS)"]
+    lock --> fan["FAN-OUT — dispatch SELECTED auditors in ONE message<br/>(each carries review-rigor.md verbatim; test-runner and reviewer in every review)"]
     fan --> crit["VALIDATE/REFUTE — assume each table is wrong:<br/>open every ✓ cited locus; attack each CRITICAL/HIGH at file:line"]
     crit --> complete{"every table complete?<br/>(row per enforcement item, ✓ rows cited, test-runner showed cmd+counts)"}
     complete -- "no — empty/uncited table" --> redis["re-dispatch the incomplete auditor only<br/>('cite the source line or mark ✗')"]
@@ -42,7 +39,7 @@ flowchart TB
     conv -- "no" --> fix["fix → claudehut:implement → re-spawn SELECTED → re-validate"]
     fix --> fan
     conv -- "yes" --> rec["write review.md (coverage table + cited ✓ rows + test summary)"]
-    rec --> pass(["set-review pass --evidence review.md<br/>REQUIRED NEXT: claudehut:capture-learnings (or Exit)"])
+    rec --> pass(["set-review pass --evidence review.md<br/>next: claudehut:capture-learnings (or Exit)"])
     conv -. "round cap" .-> capped(["set-review capped + surface remaining items"])
 ```
 
@@ -50,7 +47,7 @@ flowchart TB
 
 1. **Select the reviewers this change needs, then spawn them in ONE message.** Spawning a specialist with
    nothing to review wastes tokens (db-reviewer on a no-DB change). Decide from two signals: the **enforcement
-   set** (Brainstorm — its rules map to reviewers) and the **changed files**. Fast-lane tiers have NO
+   set** (Brainstorm — its rules map to reviewers) and the **changed files**. The light route has NO
    enforcement set — select from changed files alone. **Profile branch — read `.profile` from the same `jq` call as the enforcement set below: on `audit`/`investigation` the deliverable is `findings.md`, not code, so review THAT with `claudehut-reviewer` + the security-auditor, and skip the test-runner UNLESS the diff below still names production files (`src/main/**`) — an audit that incidentally changed code is still tested.** Get the diff (base: upstream → remote default → `HEAD~1` only as a last resort — `HEAD~1` alone shows just the last commit of a multi-commit task):
 
    ```
@@ -59,22 +56,22 @@ flowchart TB
 
    | Reviewer | Spawn when |
    |---|---|
-   | `claudehut:claudehut-test-runner` | always (full tier) — evidence is non-negotiable |
+   | `claudehut:claudehut-test-runner` | always on the full route — the test evidence comes from it |
    | `claudehut:claudehut-reviewer` | always — correctness/conventions apply to any change |
-   | `claudehut:claudehut-security-auditor` | enforcement has `security/*` OR diff touches controllers/auth/security/deserialization/secrets. **Full tier: when in doubt, run it** (a false-skip ships a vuln). trivial/small: skip by default (the fast-lane bound already denied any security/auth path) |
-   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Full tier: default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs. trivial/small: skip (the reviewer's fast-lane fallback table carries the same N+1/EAGER/`.block()` floor) |
-   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files. trivial/small: skip — the fast-lane bound already denied any migration path, and the reviewer's fallback table covers `@Entity` LAZY/Lombok |
-   | `claudehut:claudehut-observability-reviewer` | enforcement has `observability/*` OR diff adds/changes an HTTP endpoint, `@KafkaListener`/message handler, `@Scheduled` job, or outbound client. **Full tier: default ON** — a new operation that ships with no metric/trace is undiagnosable in prod. trivial/small: skip |
-   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently. trivial/small: only when a schema/public contract file is actually in the diff |
+   | `claudehut:claudehut-security-auditor` | enforcement has `security/*` OR diff touches controllers/auth/security/deserialization/secrets. **Full route: when in doubt, run it** (a false-skip ships a vuln). Light: skip by default (the router already sends security/auth changes to full) |
+   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Full route: default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs. Light: skip (the reviewer's fallback table carries the same N+1/EAGER/`.block()` floor) |
+   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files. Light: skip — the router already sends migrations to full, and the reviewer's fallback table covers `@Entity` LAZY/Lombok |
+   | `claudehut:claudehut-observability-reviewer` | enforcement has `observability/*` OR diff adds/changes an HTTP endpoint, `@KafkaListener`/message handler, `@Scheduled` job, or outbound client. **Full route: default ON** — a new operation that ships with no metric/trace is undiagnosable in prod. Light: skip |
+   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently. Light: only when a schema/public contract file is actually in the diff |
 
-   **Fast-lane fold (trivial/small):** do NOT spawn a separate test-runner — fold the test run into
+   **Light-route fold:** do NOT spawn a separate test-runner — fold the test run into
    `claudehut-reviewer` (its prompt adds "run the cheapest test that proves the behavior; include the exact
-   command + real pass/fail counts"). Full tier keeps the dedicated test-runner.
+   command + real pass/fail counts"). The full route keeps the dedicated test-runner.
 
    Dispatch by **qualified type** (`claudehut:claudehut-…`) — unqualified names can fail to resolve. State
    which reviewers you selected and why (one line each) so any skip is auditable. **`$ARGUMENTS` NARROWS, never widens:** when the operator names aspects (`security`, `perf`, `db`, `contract`, `observability`, `tests`), select only those plus the always-on `claudehut-reviewer`; **with no argument the rule-driven selection above is unchanged.**
 
-   **Every code-review dispatch prompt MUST carry** (none of this is auto-present in the isolated subagent):
+   **Every code-review dispatch prompt carries** (none of this is auto-present in the isolated subagent):
    - **The diff itself** — paste `git diff` hunks (not just names) for the files that auditor owns. Each subagent
      starts cold: without the hunks they all re-Read the same files, once per auditor.
    - **`references/review-rigor.md`** verbatim + the auditor's defect-class floor. (test-runner: only "run the
@@ -138,7 +135,7 @@ Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last re
 ## Exit
 
 `outstanding == []` + evidence green → `set-review pass`. **OR** the round cap below reached → `set-review
-capped` + surface the remaining items, rather than loop forever. **A task that skips Learn** (trivial tier, or an
+capped` + surface the remaining items, rather than loop forever. **A task that skips Learn** (a light task with nothing novel, or an
 audit/investigation stopping at `set-findings`) **ends here:** `claudehut-state --session ${CLAUDE_SESSION_ID} end --status done`.
 
 **Round cap — 2 fix→re-spawn rounds.** Each round re-pays every dispatch from a cold context, so an uncapped
@@ -148,7 +145,7 @@ those items.
 
 **Java symbol lookups:** use the LSP tool (`findReferences`, `goToDefinition`), not grep — it finds the *symbol*, so it catches an implementation reached through an interface and ignores the name in a comment. Diagnostics are off here: build and tests stay the only signal for type errors.
 
-## Red flags — STOP
+## Red flags
 
 - "should pass" / "looks compliant" before the auditors re-ran this turn
 - Done with a non-empty outstanding set
@@ -157,4 +154,4 @@ those items.
 - `set-review pass` without a `review.md` carrying the coverage table + test evidence
 - Downgrading a plausible correctness/perf defect to LOW to avoid blocking (confidence ≠ severity)
 
-**REQUIRED NEXT:** `claudehut:capture-learnings` — unless the task ended at *Exit*.
+**Next:** `claudehut:capture-learnings` — unless the task ended at *Exit*.

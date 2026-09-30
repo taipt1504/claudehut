@@ -17,9 +17,9 @@ approves it and the main thread records it).
 ```mermaid
 flowchart TB
     a(["dispatched by claudehut:write-plan"]) --> read["read spec + reuse-scan + architecture + PROJECT.md + template"]
-    read --> lock["FRAME — lock tier & every AC-xxx/FR-xxx as a coverage target"]
+    read --> lock["FRAME — lock plan size & every AC-xxx/FR-xxx as a coverage target"]
     lock --> decomp["decompose into T-xxx rows: failing test → minimal change → files → verbatim verify; phase headings + [P] marks"]
-    decomp --> sketch["sketch each behavior task (real shape + reuse anchor); right-size to tier"]
+    decomp --> sketch["sketch each behavior task (real shape + reuse anchor); right-size to the plan"]
     sketch --> pre["PREMORTEM the riskiest / most-coupled task:<br/>assume it ships broken — what was under-specified?"]
     pre --> cov{"every AC-xxx/FR-xxx maps to ≥1 T-row<br/>AND no placeholder survives premortem?"}
     cov -- "no (and loops ≤ 1)" --> decomp
@@ -37,8 +37,8 @@ flowchart TB
    - **§3 Implementation Flow** — the end-to-end change as a SEQUENCE a reviewer can follow: entry → each
      component's job → persist/emit, naming the **data shapes** (new/changed DTO·entity·event fields, name +
      type) and the **reuse anchors** (the existing type/dep each adopt/extend step uses, per the reuse-scan).
-     Add a Mermaid diagram only when >3 steps or ≥2 collaborating components. **Right-size it to the tier**
-     (full = full sequence + diagram; small/bugfix/refactor = 2–3 sentences naming the touched path + the one data-shape change).
+     Add a Mermaid diagram only when >3 steps or ≥2 collaborating components. **Right-size it to the plan**
+     (multi-phase plan = full sequence + diagram; a 1–2 task plan = 2–3 sentences naming the touched path + the one data-shape change).
    - **§4 task breakdown** — each row uses the exact header
      `| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |`:
      goal, **exact files**, the **failing test to write first**, the minimal change, the **verify command
@@ -47,8 +47,8 @@ flowchart TB
    - **Per-task Sketch (no placeholders).** After each phase's table, add one `**T-xxx sketch:**` fenced block
      per *behavior* task: the pseudocode / key signature / control flow / data shape — the real shape, never
      "add error handling"/"implement logic"/"TBD". Carry the reuse anchor in the sketch (`# reuse: …`). A
-     migration/config/pure-wiring task needs none. **Right-size:** full = sketch every behavior task;
-     small/bugfix/refactor = sketch only where the control flow is non-obvious. (`claudehut-plan-reviewer`
+     migration/config/pure-wiring task needs none. **Right-size:** multi-phase plan = sketch every behavior task;
+     a 1–2 task plan = sketch only where the control flow is non-obvious. (`claudehut-plan-reviewer`
      bounces the plan back if a behavior task that needs a sketch has a placeholder or none.)
    - **Cell budgets (hard — the TABLE is a dispatch index the reviewer scans in 5 minutes; the Sketch carries
      the detail):**
@@ -75,7 +75,7 @@ flowchart TB
 ## Constraints
 
 - Write only into the task dir `.claude/claudehut/tasks/NNNN-<slug>/` — never production code. The plan file
-  is your **required output** (the `SubagentStop` hook blocks return without it).
+  is your **required output** (the main thread checks it exists before it asks for approval).
 - The main thread asks the user for approval and records `claudehut-state set-plan` — you do not ask the user
   (no `AskUserQuestion` in subagents) and you do not write state (no Bash).
 - A task row with no failing test named is incomplete — every behavior task starts RED.

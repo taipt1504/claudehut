@@ -1,6 +1,6 @@
-# Implement — plan orchestration (full tier)
+# Implement — plan orchestration (full route)
 
-Read this BEFORE dispatching any `full`-tier plan. `skills/implement/SKILL.md` carries the non-negotiables in
+Read this before dispatching a `full`-route plan. `skills/implement/SKILL.md` carries the key rules in
 summary; this file is the mechanism. It lives here rather than in the skill body because the skill is
 preloaded into every implementer subagent, and an implementer has no Agent or task tools — none of the
 orchestration below is actionable there. The main thread is the only reader that can act on it.
@@ -20,7 +20,7 @@ flowchart TB
     rec --> upd["TaskUpdate each task → completed (verify green) / blocked (boundary update, after reconcile)"]
     upd --> more{"more phases?"}
     more -- yes --> ph
-    more -- no --> sweep["worktree sweep — remove merged worktrees"] --> done([REQUIRED NEXT: claudehut:review])
+    more -- no --> sweep["worktree sweep — remove merged worktrees"] --> done([Next: claudehut:review])
 ```
 
 **Who executes a task within a phase** (decide per task, not per plan):

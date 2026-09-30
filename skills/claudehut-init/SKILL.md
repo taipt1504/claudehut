@@ -1,6 +1,6 @@
 ---
 name: claudehut-init
-description: Use once per project before starting work (or when ClaudeHut reports no codebase index) to bootstrap ClaudeHut for a Java/Spring repository - detects the stack, generates the project memory + index + path-scoped rules, and wires the always-load @import slice. Invoked as /claudehut:claudehut-init. Idempotent.
+description: Use when a Java/Spring repository has no ClaudeHut project memory yet (no .claude/claudehut/PROJECT.md), or the user asks to initialize or refresh ClaudeHut - detects the stack and generates the project memory, index and path-scoped rules. Idempotent; run as /claudehut:claudehut-init.
 allowed-tools: Read Write Grep Glob Bash
 ---
 

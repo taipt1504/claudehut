@@ -1,6 +1,6 @@
 ---
 name: write-spec
-description: Use in the Spec phase after an approach is chosen in Brainstorm and before planning - produces the implementation spec from the standard template (EARS requirements, acceptance criteria, MADR decision record, enforcement manifest) and gets the user's approval before recording it. Runs inline on the main thread (it owns the approval gate and the state write).
+description: Use when a ClaudeHut full-route task has a chosen approach and needs its implementation spec - EARS requirements, acceptance criteria, decision record and enforcement manifest, approved by the user before it is recorded.
 allowed-tools: Read Grep Glob Write Bash AskUserQuestion
 ---
 
@@ -14,7 +14,7 @@ Turn the chosen approach into the **contract** the implementation and Review are
 flowchart TB
   start(["approach chosen in Brainstorm"]) --> dir{"reuse-scan recorded<br/>in session state?"}
   dir -- "no" --> back(["BLOCKED: go back to Brainstorm<br/>(it owns task-dir creation)"])
-  dir -- "yes" --> derive["derive task dir = dirname(reuse-scan)<br/>NEVER recompute next NNNN"]
+  dir -- "yes" --> derive["derive task dir = dirname(reuse-scan)<br/>do not recompute next NNNN"]
   derive --> size{"type == feature?"}
   size -- "yes" --> full["write spec.md — ALL ## sections<br/>(template, canonical .claude/claudehut path)"]
   size -- "no" --> red["write spec.md — reduced subset<br/>(1,9,5,10,12) — no N/A walls"]
@@ -30,7 +30,7 @@ flowchart TB
   ask --> verdict{"Approved?"}
   verdict -- "no — revise and re-ask" --> fix
   verdict -- "yes" --> record["set-spec .claude/claudehut/tasks/NNNN-slug/spec.md"]
-  record --> done(["REQUIRED NEXT: claudehut:write-plan"])
+  record --> done(["Next: claudehut:write-plan"])
 ```
 
 ## Process
@@ -43,7 +43,7 @@ Derive the task dir from the recorded reuse-scan (`dirname` of `set-reuse-scan -
 
 **Summer KB (when the project has `.claude/summer-kb/`):** every FR/AC and Enforcement-Manifest row that
 touches Summer (`io.f8a.summer` wiring, `f8a.*`/`summer.*` properties, gates, `Ufid`/`Txid` annotations,
-Kafka contracts, Summer types) MUST carry a KB citation — `.claude/summer-kb/<module>.md §<section>` — and use
+Kafka contracts, Summer types) carries a KB citation — `.claude/summer-kb/<module>.md §<section>` — and use
 only property names / gate defaults / coordinates that appear there. A Summer requirement with no KB
 citation is incomplete; a fact the KB cannot verify is written `[unverified]`, never guessed.
 
@@ -53,4 +53,4 @@ citation is incomplete; a fact the KB cannot verify is written `[unverified]`, n
 claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/NNNN-<slug>/spec.md
 ```
 
-Do NOT write production code yet — not until a plan is approved and recorded. **REQUIRED NEXT:** `claudehut:write-plan`.
+Do NOT write production code yet — not until a plan is approved and recorded. **Next:** `claudehut:write-plan`.

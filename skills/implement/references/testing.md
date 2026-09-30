@@ -227,7 +227,7 @@ class UserHandlerTest {
 
         StepVerifier.create(handler.findById("u1"))
             .assertNext(u -> assertThat(u.email()).isEqualTo("alice@x.com"))
-            .verifyComplete();                          // MUST terminate; silent pass without it
+            .verifyComplete();                          // terminates the check; without it the test passes silently
     }
 
     @Test

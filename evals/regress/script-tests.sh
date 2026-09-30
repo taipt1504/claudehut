@@ -4,7 +4,9 @@
 #   V3-C2  verify-subagent.sh / record-dispatch.sh  numeric fields are tostring'd before jq slicing
 #   V3-C3  lint-reuse.sh  project-path prefix stripped by shell expansion, not a sed regex
 #   V3-5   merge-learnings.sh  the flock branch must not redirect the script's stderr for the rest of the run
-# Deterministic, no Claude, < 60 s (the V3-C1 case waits out its ~2 s fail-open cap).
+# plus two M2 record-failure pins: the lock wait is bounded by time (<=5 s deadline) and not only by a 200-wait
+# count, and a paused holder whose lock was stolen and retaken never releases the new owner's lock (nonce check).
+# Deterministic, no Claude, < 60 s (the V3-C1 and time-bound cases wait out the <=5 s fail-open deadline).
 #
 # Run: evals/regress/script-tests.sh
 #      SCRIPT_TESTS_SCRIPTS_DIR=<copy of scripts/> …   (point at a modified copy, e.g. to prove a pin fails)
@@ -41,6 +43,23 @@ hook record-dispatch "$P" '{"session_id":"s1","agent_type":"planner-1","agent_id
 chk "record-dispatch: agent_id=7, cwd=5 → start record written with agent_id \"7\"" \
   "jq -se 'map(select(.event==\"start\")) | length==1 and .[0].agent_id==\"7\"' \"\$LG\" >/dev/null 2>&1"
 chk "ledger hooks: nothing in hook-errors.log" "errlog_empty \"\$P\""
+# Per-field isolation: one numeric field at a time, each on its own plane (the checks above count records), so a
+# missing tostring on either field alone fails its own named check.
+P="$(new_plane led-aid)"; LG="$P/.claude/claudehut/ledger/dispatches.jsonl"
+hook verify-subagent "$P" '{"session_id":"s1","agent_type":"planner-1","agent_id":7,"effort":{"level":"high"}}'
+chk "verify-subagent: numeric agent_id alone (effort a string) → stop record with agent_id \"7\"" \
+  "jq -se 'map(select(.event==\"stop\")) | length==1 and .[0].agent_id==\"7\" and .[0].effort==\"high\"' \"\$LG\" >/dev/null 2>&1"
+hook record-dispatch "$P" '{"session_id":"s1","agent_type":"planner-1","agent_id":7,"cwd":"/x"}'
+chk "record-dispatch: numeric agent_id alone (cwd a string) → start record with agent_id \"7\"" \
+  "jq -se 'map(select(.event==\"start\")) | length==1 and .[0].agent_id==\"7\"' \"\$LG\" >/dev/null 2>&1"
+P="$(new_plane led-eff)"; LG="$P/.claude/claudehut/ledger/dispatches.jsonl"
+hook verify-subagent "$P" '{"session_id":"s1","agent_type":"planner-1","agent_id":"a7","effort":{"level":3}}'
+chk "verify-subagent: numeric effort.level alone (agent_id a string) → stop record with effort \"3\"" \
+  "jq -se 'map(select(.event==\"stop\")) | length==1 and .[0].effort==\"3\" and .[0].agent_id==\"a7\"' \"\$LG\" >/dev/null 2>&1"
+hook record-dispatch "$P" '{"session_id":"s1","agent_type":"planner-1","agent_id":"a7","cwd":5}'
+chk "record-dispatch: numeric cwd alone (agent_id a string) → start record with agent_id \"a7\"" \
+  "jq -se 'map(select(.event==\"start\")) | length==1 and .[0].agent_id==\"a7\"' \"\$LG\" >/dev/null 2>&1"
+chk "ledger hooks (isolated fields): nothing in hook-errors.log" "errlog_empty \"\$P\" && errlog_empty \"\$W/led-aid\""
 
 echo "== V3-C3: a '#', '&', '.' or '*' in the project path does not break the duplicate-helper suspect"
 for nm in 'p lr #1' 'p lr &.*'; do
@@ -120,6 +139,45 @@ L2="$SD/s1.failures.jsonl.lock"; mkdir "$L2"; printf dead > "$L2/o"; touch -t 20
 hook record-failure "$P" '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"cmd 2"},"error":"Exit code 1\nx"}'
 chk "record-failure: a genuinely stale lock is stolen, the record lands, and no lock is left" \
   "[ ! -e \"\$L2\" ] && [ ! -e \"\$L2.steal\" ] && jq -se 'length==1 and .[0].command==\"cmd 2\"' \"\$SD/s1.failures.jsonl\" >/dev/null 2>&1"
+
+echo "== record-failure: the lock wait is bounded by TIME, not only by its 200-wait count (M1 backlog)"
+# A held, genuinely fresh lock (a background toucher keeps its mtime current) and a `sleep` shim that takes 0.2 s
+# and counts itself stand in for a loaded scheduler: the 200 waits alone would take >=40 s. The deadline stops the
+# loop after <=5 s, i.e. <=25 such waits; 100 is the verdict line, far from both. No wall clock in the verdict.
+P="$(new_plane rft)"; SD="$P/.claude/claudehut/state"; mkdir -p "$SD"
+L3="$SD/s1.failures.jsonl.lock"; mkdir "$L3"; printf held > "$L3/o"
+( n=0; while [ ! -e "$W/rft.stop" ] && [ $n -lt 240 ]; do /usr/bin/touch -c "$L3"; /bin/sleep 0.25; n=$((n+1)); done ) >/dev/null 2>&1 &
+SL="$W/slowsleep"; mkdir -p "$SL"; : > "$W/slow.log"
+printf '#!/bin/sh\necho s >> "%s"\nexec /bin/sleep 0.2\n' "$W/slow.log" > "$SL/sleep"; chmod +x "$SL/sleep"
+hook record-failure "$P" '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"cmd 3"},"error":"Exit code 1\nx"}' \
+  PATH="$SL:$PATH"
+: > "$W/rft.stop"
+nw="$(grep -c '^s$' "$W/slow.log" 2>/dev/null || true)"
+chk "record-failure: the wait gave up on its deadline — $nw slow waits (< 100; the 200-wait cap alone is 200), exit 0" \
+  "[ \"\${nw:-0}\" -ge 1 ] && [ \"\${nw:-0}\" -lt 100 ] && [ \"\$RC\" = 0 ]"
+chk "record-failure: the held lock is untouched and the record still lands unlocked (fail-open)" \
+  "[ \"\$(cat \"\$L3/o\" 2>/dev/null)\" = held ] && jq -se 'length==1 and .[0].command==\"cmd 3\"' \"\$SD/s1.failures.jsonl\" >/dev/null 2>&1"
+
+echo "== record-failure: a paused holder never releases a lock that was stolen from it (nonce check on release)"
+# A `wc` shim runs once while the hook holds the lock (its 20-line cap check, after the append): it plays the
+# steal-and-retake a paused holder can suffer — the lock is replaced by one owned by nonce "other". The holder's
+# EXIT release must then find another owner's nonce and leave that lock in place.
+P="$(new_plane rfn)"; SD="$P/.claude/claudehut/state"; mkdir -p "$SD"
+L4="$SD/s1.failures.jsonl.lock"; REALWC="$(command -v wc)"; WS="$W/wcshim"; mkdir -p "$WS"
+cat > "$WS/wc" <<WCEOF
+#!/bin/sh
+if [ -d "$L4" ] && [ "\$(cat "$L4/o" 2>/dev/null)" != other ] && /bin/mkdir "$W/wc.once" 2>/dev/null; then
+  /bin/rm -rf "$L4"; /bin/mkdir "$L4"; printf other > "$L4/o"
+fi
+exec "$REALWC" "\$@"
+WCEOF
+chmod +x "$WS/wc"
+hook record-failure "$P" '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"cmd 4"},"error":"Exit code 1\nx"}' \
+  PATH="$WS:$PATH"
+chk "record-failure: the swap fired inside the critical section (the scenario really ran)" \
+  "[ -d \"\$W/wc.once\" ] && jq -se 'length==1 and .[0].command==\"cmd 4\"' \"\$SD/s1.failures.jsonl\" >/dev/null 2>&1"
+chk "record-failure: the new owner's lock (nonce \"other\") survives the paused holder's release, no token left" \
+  "[ \"\$(cat \"\$L4/o\" 2>/dev/null)\" = other ] && [ ! -e \"\$L4.steal\" ]"
 
 echo
 echo "SCRIPT-TESTS: $PASS passed, $FAIL failed"

@@ -23,7 +23,7 @@ survey — a quick classpath/stdlib check, then build. (Over-analyzing the ladde
 to kill.) The Discover reuse-scan settles rungs 0–3 with an artifact; this playbook is the create-time
 reminder of *what* rungs 1–2 already give you in Spring so you don't hand-roll it.
 
-## The safety floor — NEVER on the chopping block
+## The safety floor — not up for cutting
 
 Minimalism cuts **unnecessary complexity**, never **necessary robustness**. These are never "simplified away":
 **input validation, error handling, security/authz, transaction correctness, observability.** Dropping a
@@ -64,7 +64,7 @@ tempts you to cut one of these, you are on the wrong rung.
 - **Defensive handling for impossible states** — a branch for input the type system already forbids.
 - **Re-exporting / re-wrapping** a stdlib type to "decouple" from it.
 
-## Red flags — STOP
+## Red flags
 
 - Writing a loop/class/interface whose job a table row above names. Use the framework feature.
 - "I'll make it configurable/generic so it's flexible later." That later rarely comes; the complexity ships now.

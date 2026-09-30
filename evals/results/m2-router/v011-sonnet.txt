@@ -1,0 +1,47 @@
+== router-eval: digest evals/results/m2-router/digest-v011.md · model sonnet · 22 cases ==
+  MISS rc-01 expected direct got light
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  ok   rc-02 expected direct got direct
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity trivial
+  MISS rc-03 expected direct got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  MISS rc-04 expected direct got light · skip-workflow: FAIL (route light)
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  MISS rc-05 expected direct got light
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  MISS rc-06 expected direct got light
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  MISS rc-07 expected direct got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  MISS rc-08 expected light got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-09 expected light got light
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  MISS rc-10 expected light got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-11 expected light got light
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity small
+  MISS rc-12 expected light got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  MISS rc-13 expected light got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-14 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-15 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-16 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-17 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-18 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-19 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  ok   rc-20 expected full got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  MISS rc-21 expected ask got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  MISS rc-22 expected ask got full
+        first action: claudehut-state --session ${CLAUDE_SESSION_ID} set-complexity full
+  accuracy 10/22 · full->direct 0 (invariant: 0) · direct/light->full 6 · skip-workflow violations 1
+exit 1

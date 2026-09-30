@@ -51,11 +51,11 @@ flowchart TB
   generics, one-case strategy/factory), unrequested "flexibility", a new class for a one-liner, and **hand-rolling what
   the framework ships** (map-as-cache vs `@Cacheable`, retry loop vs Resilience4j, manual null checks vs `@Valid`, timer
   thread vs `@Scheduled`). Cross-check the reuse-scan's `drop`/`framework` decisions were honored (full catalog:
-  `skills/implement/references/minimalism.md`). Usually MED. **NEVER flag a safety floor — validation, error handling,
+  `skills/implement/references/minimalism.md`). Usually MED. **Do not flag a safety floor — validation, error handling,
   security/authz, tx boundaries, observability — as over-engineering; cutting those is the defect, not the code.**
 - **Enforcement set** — every listed skill/rule actually satisfied.
 
-**Fast-lane fallback — when the enforcement set is EMPTY (trivial/small skipped Brainstorm), you are the only
+**Fast-lane fallback — when the enforcement set is EMPTY (a light-route task skips Brainstorm), you are the only
 domain reviewer; run these against the diff:**
 
 | Diff touches | Verify |

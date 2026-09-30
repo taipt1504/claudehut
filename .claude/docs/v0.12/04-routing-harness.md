@@ -117,8 +117,11 @@ Dùng mô hình state của Hooks và verb của Router (ADR-R2, ADR-H6). Cả h
 | `end --status done\|abandoned` | Đóng task, `active_task=null` | — |
 | `resume <id>` | Gắn task vào session mới hoặc fork | — |
 | `status` | In JSON một dòng | — |
+| `set-profile <p>` | Đổi profile của task đang mở, chưa xong | Task đã xong: no-op kèm thông báo, request mới dùng `start --profile` (quyết định M2, xem dưới) |
 
-Bỏ: `pause` (Stop đã bỏ nên không còn gì để tạm dừng), `set-bypass`, `set-complexity`, `set-profile`, `mark-skill`, `route --confirmed`, `rename` (A5, B6). Content-regex cũ ở `claudehut-state:440-441` và `:485-507` được doclint thay thế (A8).
+Bỏ: `pause` (Stop đã bỏ nên không còn gì để tạm dừng), `set-bypass`, `set-complexity`, `mark-skill`, `route --confirmed`, `rename` (A5, B6).
+
+**Quyết định M2 — giữ `set-profile`.** Bản thiết kế ban đầu bỏ verb này, nhưng [03 §6](03-architecture.md#6-quyết-định-xuyên-vùng) (thắng khi mâu thuẫn) giữ `profile` trong `task.json` và không đưa `set-profile` vào danh sách bỏ. `profile` là metadata của task: right-size artifact ([06 §9](06-artifact-standards.md)) và điều kiện plan-review `profile=migration` đọc nó. Profile chọn ở `start` có thể sai khi Discover mới lộ ra việc thật (bugfix hoá ra là migration); nếu bỏ verb, cách sửa duy nhất là `start` lại và supersede task đang làm. Vì vậy `set-profile` vẫn là verb sống, chỉ dùng giữa luồng trên task chưa xong; trên task đã xong nó là no-op kèm thông báo, như `set-route`. Content-regex cũ ở `claudehut-state:440-441` và `:485-507` được doclint thay thế (A8).
 
 ### Vòng đời
 
@@ -231,7 +234,7 @@ Giọng khẳng định, không MUST, "1%", "REQUIRED NEXT"; tự đủ để đ
 | Thành phần | Thay đổi | Chi tiết | Sửa finding |
 |---|---|---|---|
 | `skills/claudehut-workflow/references/digest.md` | sửa | Viết lại theo §6, ≤2.500 B | A3, A4, A5, A10, F-1, F-3, F-7, B7 |
-| `skills/claudehut-workflow/SKILL.md` | sửa | Description "Use when a Java/Spring change needs a planned multi-step task…"; bảng phase theo route; xoá tier, profile, 7 law | A3, A4, A10, F-1, F-3 |
+| `skills/claudehut-workflow/SKILL.md` | sửa | Description "Use when a Java/Spring change needs a planned multi-step task…"; bảng phase theo route; xoá tier và 7 law; giữ một đoạn về profile và `set-profile` giữa luồng (quyết định M2 ở §3) | A3, A4, A10, F-1, F-3 |
 | `bin/claudehut-state` | sửa | Schema 2 và bảng verb §3; bỏ skeleton `complexity:"full"` (:281) | A6, B4, B6, B7, A8, B9, A3 |
 | `scripts/bootstrap.sh` | sửa | Bỏ arm (:62-65), snapshot, `claude plugin list` (:123-139), auto-init; thêm `CLAUDE_ENV_FILE`, dòng sid/task/graph/ngôn ngữ | A9, B2, B7, B10, F-2, F-7, F-PA-3 |
 | `scripts/inject-phase.sh` | sửa | Lọc lượt máy sinh (§4); bỏ Untriaged, phase-line | A10, F-6, F-5, B10 |

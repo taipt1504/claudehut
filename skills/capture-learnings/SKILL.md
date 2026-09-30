@@ -1,18 +1,16 @@
 ---
 name: capture-learnings
-description: Use in the Learn phase at the end of every task, before declaring done - dispatches the learner agent to record what was learned (conventions, pitfalls, reuse points, decisions) to the cross-session store and refresh the committed memory index, then closes the phase. Runs inline on the main thread (it owns the state write).
+description: Use when a ClaudeHut full-route task has passed Review, or a light-route task surfaced something novel - records conventions, pitfalls, reuse points and decisions to the cross-session learnings store and refreshes the memory index.
 allowed-tools: Read Grep Glob Bash Agent
 ---
 
 # Capture Learnings (Learn phase)
 
-## Iron Law
+## When it runs
 
-```
-NO TASK ENDS WITHOUT A LEARN PASS
-```
-
-If you learned a project pattern, a pitfall, or a reuse point, record it before stopping. Runs **inline on the main thread** — the learner agent does the recording in
+A full-route task runs a Learn pass before it ends; a light-route task runs one when it surfaced something
+novel; a direct-route request has no task and no Learn pass. A project pattern, a pitfall, or a reuse point
+learned on the task is recorded before stopping. Runs **inline on the main thread** — the learner agent does the recording in
 isolation; this skill owns the state write (the learner has no Bash).
 
 ## Flow
@@ -43,9 +41,9 @@ learner is dispatched **only on genuine novelty**, and the merge always runs (it
    "${CLAUDE_PLUGIN_ROOT}/scripts/harvest-candidates.sh" --session ${CLAUDE_SESSION_ID} --task-dir .claude/claudehut/tasks/NNNN-<slug>
    ```
 
-2. **Dispatch `claudehut:claudehut-learner` ONLY on genuine novelty — default to SKIP.** **Tier does NOT
-   force it** — a full-tier task that only confirmed existing patterns records nothing new, so skip the agent
-   even on full tier; when in doubt and the harvest already surfaced ≥2 candidates, dispatch. When dispatched,
+2. **Dispatch `claudehut:claudehut-learner` ONLY on genuine novelty — default to SKIP.** **The route does NOT
+   force it** — a full-route task that only confirmed existing patterns records nothing new, so skip the agent
+   even on the full route; when in doubt and the harvest already surfaced ≥2 candidates, dispatch. When dispatched,
    the learner **appends** to the same `learn-candidates.jsonl`, **updates `reuse-index.json`**, **refreshes
    `MEMORY.md`**, and never records secrets. It does NOT dedup, assign ids, promote, or prune.
 
@@ -73,5 +71,5 @@ learner is dispatched **only on genuine novelty**, and the merge always runs (it
    claudehut-state --session ${CLAUDE_SESSION_ID} end --status done
    ```
 
-**REQUIRED NEXT:** the task has ended. The next session's SessionStart will
+**Next:** the task has ended. The next session's SessionStart will
 inject the top of what you recorded.

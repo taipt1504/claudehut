@@ -1,6 +1,6 @@
 ---
 name: write-plan
-description: Use in the Plan phase after the spec is approved - dispatches the planner agent to draft the executable plan from the standard template (decision summary, T-xxx task breakdown with test-first + verify per task), gets the user's approval, records the plan (the go-ahead for Implement), and mirrors the breakdown into Claude Code's native task list. Runs inline on the main thread (it owns the approval gate, the state write, and the task mirror).
+description: Use when a ClaudeHut full-route task has an approved spec and needs its executable plan - T-xxx tasks with test-first and verify steps, a plan review when warranted, and user approval before Implement.
 allowed-tools: Read Grep Glob Bash Agent AskUserQuestion TaskCreate TaskUpdate
 ---
 
@@ -16,9 +16,9 @@ flowchart TB
     s(["spec approved (set-spec recorded)"]) --> draft["dispatch claudehut-planner → draft plan.md<br/>(T-rows + §3 flow + per-task Sketch)"]
     draft --> check{"§1 restates decision, §3 traces end-to-end,<br/>every behavior task RED-first + verbatim verify?"}
     check -- "no" --> draft
-    check -- "yes" --> smart{"full tier AND (≥5 tasks OR sensitive keyword)?<br/>the SAME predicate set-plan gates on"}
+    check -- "yes" --> smart{"full route AND (≥5 tasks OR sensitive keyword)?<br/>the SAME predicate set-plan gates on"}
     smart -- "no" --> ask
-    smart -- "yes" --> rev["dispatch claudehut-plan-reviewer → REFUTE vs spec<br/>writes plan-review.md (SubagentStop blocks empty return)"]
+    smart -- "yes" --> rev["dispatch claudehut-plan-reviewer → REFUTE vs spec<br/>writes plan-review.md (main thread checks the file exists)"]
     rev --> verdict{"Verdict == APPROVE?"}
     verdict -- "REVISE (route items back)" --> draft
     verdict -- "APPROVE" --> record["set-plan-review APPROVE --evidence plan-review.md<br/>(byte-identical plan; edit forces re-review)"]
@@ -28,7 +28,7 @@ flowchart TB
     ask -- "Approve" --> setplan["set-plan plan.md (plan_approved=true)"]
     bypass --> setplan
     setplan --> mirror["IF task tools available: TaskCreate per T-row + TaskUpdate addBlockedBy<br/>(absent → skip; plan.md is the source of truth)"]
-    mirror --> phase["set-phase implement → REQUIRED NEXT claudehut:implement"]
+    mirror --> phase["set-phase implement → next claudehut:implement"]
 ```
 
 ## Process
@@ -38,7 +38,7 @@ flowchart TB
    `references/plan-template.md`. It writes `…/tasks/NNNN-<slug>/plan.md`; it does NOT write state. (**`set-plan`
    REJECTS a plan with no `| T-xxx` rows**.)
    **Summer KB (when the project has `.claude/summer-kb/`):** every T-xxx row whose files touch Summer wiring
-   MUST carry the KB citation from the spec (`.claude/summer-kb/<module>.md §<section>`) in its verify column —
+   carries the KB citation from the spec (`.claude/summer-kb/<module>.md §<section>`) in its verify column —
    the implementer verifies against it, and the plan-reviewer REVISEs a plan whose Summer tasks cite nothing.
 2. **Dispatch `claudehut:claudehut-plan-reviewer` — on the SAME predicate `set-plan` gates on, not on every
    plan.** It fires when the plan is **substantial (≥5 `| T-` rows) OR sensitive** — `security`, `/auth`,
@@ -53,7 +53,7 @@ flowchart TB
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan-review APPROVE --evidence .claude/claudehut/tasks/NNNN-<slug>/plan-review.md
    ```
-   The wire that makes the reviewer fire: **`set-plan` REFUSES a full-tier plan meeting that same predicate
+   The wire that makes the reviewer fire: **`set-plan` REFUSES a full-route plan meeting that same predicate
    unless `plan_review==APPROVE` is recorded for the byte-identical plan** (smart-gate; editing forces
    re-review via content-hash). Headless `-p`, no Agent budget:
    `set-bypass` is gone (now a no-op): the refusal clears only with a plan-reviewer APPROVE, or with `claudehut-state set-route light` when the task does not need the full route — **ask the human, do not decide it yourself**.
@@ -71,4 +71,4 @@ flowchart TB
    addBlockedBy`** per Depends-on. `plan.md` stays the durable source of truth. Then enter Implement:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase implement`.
 
-**REQUIRED NEXT:** `claudehut:implement` (test-first; the enforcement-set rules auto-load by path).
+**Next:** `claudehut:implement` (test-first; the enforcement-set rules auto-load by path).

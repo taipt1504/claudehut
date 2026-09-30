@@ -14,6 +14,15 @@
 #                                              that burns +2x its own CPU (a 3x regression) and one that sleeps
 #                                              50 ms first. Default keys: all four. Run it at the load you want to
 #                                              prove (quiet, and e.g. with NCPU `yes` burners).
+#
+# Reading the verdict (M1 backlog):
+#   * The load-normalized bound relaxes with the baseline, so under load it passes a hook that got slower (a 50 ms-
+#     sleep copy measured "normalized true" at load ~8-10). Treat it as informational there: the per-hook CPU ratio
+#     and the off-CPU wait gates are what catch a slowdown under load, and the strict self-test proves both.
+#   * CPU_CEIL (evals/lib/hook-latency.py) is calibrated on Darwin; the Linux column comes from a docker ubuntu and
+#     was never re-measured on a CI ubuntu-latest runner. Harmless while CI runs report-only; calibrate it there
+#     before anyone turns HOOK_BENCH_STRICT=1 on for Linux.
+#   * A probe with no ratio ceiling (the machine-local va-ms info probe) prints "vs ceiling n/a".
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$ROOT/evals/lib/hook-latency.py"
@@ -112,7 +121,7 @@ LAT="$(lat "$ROOT/scripts" "" 0)"
 echo "$LAT" | jq -r 'to_entries[] | select(.key != "_meta") | .value as $v
   | "  \(.key): p95 \($v.h95) ms (p50 \($v.h50)), baseline p95 \($v.b95) ms, wall ratio \($v.r95)x\n"
   + "      normalized p95 \($v.norm) ms vs bound \($v.bound // "-") ms (relaxed bound \($v.eff) ms; batches p95/bound \($v.batches|join(" ")))\n"
-  + "      CPU ratio hook/baseline \($v.rc)x vs ceiling \($v.cmax) (batches \($v.rcs|join(" "))); off-CPU over baseline \($v.wait) ms vs ≤\($v.wmax); load \($v.load)"
+  + "      CPU ratio hook/baseline \($v.rc)x vs ceiling \(if ($v.cmax // 0) > 0 then $v.cmax else "n/a" end) (batches \($v.rcs|join(" "))); off-CPU over baseline \($v.wait) ms vs ≤\($v.wmax); load \($v.load)"
   + (if $v.first then "\n      RE-MEASURED, first attempt: p95 \($v.first.h95) ms vs \($v.first.eff) ms, CPU \($v.first.rc)x, off-CPU \($v.first.wait) ms, load \($v.first.load)" else "" end)'
 echo "  (load = median 1-min load average over the batches, on $(jq -r '._meta.ncpu' <<<"$LAT") CPUs, $(jq -r '._meta.os' <<<"$LAT"); reference baseline p95 $(jq -r '._meta.ref_base_p95' <<<"$LAT") ms)"
 jq -e '._meta.rc_bad == []' <<<"$LAT" >/dev/null || echo "  hook runs that exited non-zero: $(jq -r '._meta.rc_bad | join(", ")' <<<"$LAT")"

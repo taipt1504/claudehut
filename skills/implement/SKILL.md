@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Use in the Implement phase whenever writing or editing production Java code, or fixing a bug, in a Spring/Spring Boot project. Enforces test-first (red-green-refactor), executes the approved plan step by step, and honors the project's path-scoped tech-stack rules and the task's enforcement set. Preloaded into claudehut-implementer.
+description: Use when writing or changing production code for a ClaudeHut light- or full-route task in a Java/Spring project - test-first red-green-refactor, following task.md or the approved plan and the path-scoped project rules. Preloaded into claudehut-implementer.
 ---
 
 # Implement (phase 5 of 7)
@@ -11,31 +11,28 @@ the main thread's playbook when implementing directly. The per-file tech-stack s
 project's `.claude/rules/` tree and **auto-load by path** as you touch matching files — follow them; this
 skill carries the workflow discipline and the deeper playbooks.
 
-## Iron Law
+## Test first
 
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
+Each behavior starts with a failing test; production code follows it. When production code was written
+before its test, delete it and restart the step from the test — code kept "as reference" shapes the test
+to fit the code, and the test then proves nothing.
 
-Wrote production code before the test? Delete it. Start over. **No exceptions** — don't keep it "as
-reference," don't "adapt" it while writing the test, don't even look at it. Delete means delete.
-**Violating the letter of this law is violating the spirit of it.**
+## Preconditions (route-aware; no hook denies a write — the advise-write hook only notes)
 
-## Preconditions (tier-aware; no hook denies a write — the advise-write hook only notes)
-
-Before production writes: `reuse_scan=true` (**every tier** — Discover produces it), plus — **in the `full`
-tier only** — `spec_path` and `plan_path` set (a full-route write before the plan is approved gets one
-advisory note). In the `trivial`/`small` fast lanes the change must stay within the bound (≤2 files, no
-security/auth/migration path); exceed it and escalate (`set-route full` → Spec + Plan). The RED test may be
+Before production writes: `reuse_scan=true` (light and full routes — Discover produces it), plus — **on the
+`full` route only** — `spec_path` and `plan_path` set (a full-route write before the plan is approved gets one
+advisory note). On the `light` route the change stays clear-intent, one obvious approach, in one service, with
+no contract/schema/migration/authn-authz signal; once it grows past that, escalate (`set-route full` → Spec +
+Plan) and tell the user in one line. The RED test may be
 written first (`*Test.java`, `*IT.java`, `*/test/*`). A missing precondition (the Flow's `no` branches) means:
-complete the missing phase or escalate the fast lane; never route around it.
+complete the missing phase or escalate the light task; never route around it.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-    start(["Implement phase"]) --> gate{"preconditions met?<br/>reuse_scan + (full: spec+plan)<br/>+ within fast-lane bound?"}
-    gate -- "no: out-grew fast lane" --> esc(["escalate: set-route full → Spec + Plan"])
+    start(["Implement phase"]) --> gate{"preconditions met?<br/>reuse_scan + (full: spec+plan)<br/>+ light task still light?"}
+    gate -- "no: out-grew light" --> esc(["escalate: set-route full → Spec + Plan"])
     gate -- "no: phase/skill missing" --> esc2(["BLOCKED — complete missing phase, do not route around"])
     gate -- "yes" --> step["take next plan step (T-xxx), dependency order"]
     step --> red["RED — smallest failing test for ONE behavior"]
@@ -44,29 +41,27 @@ flowchart TB
     rr -- "yes" --> beat["DESIGN-BEAT (≤30s, ultrathink) — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
     beat --> green["GREEN — minimal code to pass<br/>(.claude/rules/ auto-load on edit; READ playbook on CREATE)"]
     green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
-    ev -- "no" --> iron{"production code written before its test?"}
-    iron -- "yes" --> del(["IRON LAW — delete it, restart this step"])
-    iron -- "no — code just wrong, not an Iron-Law violation" --> beat
+    ev -- "no" --> first{"production code written before its test?"}
+    first -- "yes" --> del(["delete it, restart this step from the test"])
+    first -- "no — code just wrong, test came first" --> beat
     ev -- "yes" --> refactor["REFACTOR with tests green"]
     refactor --> more{"more plan steps AND<br/>enforcement set fully satisfied?"}
     more -- "no (steps remain)" --> step
     more -- "no (enforcement gap)" --> beat
-    more -- "yes (done + green)" --> done(["REQUIRED NEXT: claudehut:review"])
+    more -- "yes (done + green)" --> done(["Next: claudehut:review"])
 ```
 
 ## Execution — the main thread orchestrates the plan PHASE BY PHASE
 
-**The main thread is the orchestrator. The default for ANY multi-task plan is to WALK THE PLAN PHASE BY
-PHASE and fan out within each phase — NEVER hand the whole plan to one implementer.** A real plan is
+**The main thread is the orchestrator. The default for a multi-task plan is to walk the plan phase by
+phase and fan out within each phase, not to hand the whole plan to one implementer.** A real plan is
 *phased and mixed* (a sequential setup phase, then a domain phase with several independent tasks, then an
 API phase…). Collapsing all of it onto a single implementer is the serial bottleneck this rule exists to
 kill: you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
 
-Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** from the task description and
-skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm:** name ≥2 approaches +
-the one you chose and why, in a single line, before the first test. If you can only find one approach and it
-needs defending, the task was really `full` — escalate (`set-route full`). `trivial` (comment/rename)
-needs none.
+The `light` route has no `plan.md` — implement **inline** from `task.md` (Approach + Tasks) and skip to
+*The cycle*. If the approach needs defending against a materially different one, the task was really
+`full` — escalate (`set-route full`) and tell the user in one line.
 
 **Main thread only — if you have no Agent tool, skip this section; it is not yours to run.**
 
@@ -74,7 +69,7 @@ needs none.
 `check-disjoint` batch schedule, worktree reconcile/sweep, and the task-mirror rules. Dispatching a plan
 without reading it produces the single-implementer collapse this phase exists to prevent.
 
-The non-negotiables it expands — summarised so a skipped read is a violation, not a gap:
+The key rules it expands, summarised here so they still apply if the file is not read:
 
 - **Walk phases in ORDER; fan out within a phase.** One implementer per `[P]` task, all Agent calls in ONE
   message, max 3 concurrent. Never hand a whole plan to one implementer. Within a phase: ≤2 files and no
@@ -158,10 +153,10 @@ callers, `goToDefinition` for the declaration. grep finds the string, LSP finds 
 not miss an implementation reached through an interface nor match the name in a comment. Non-Java: grep.
 Diagnostics are **off** in this config — the build and tests stay the only signal for type errors.
 
-## Red flags — STOP and start over
+## Red flags — go back to the last green step
 
 - Production code before a failing test
 - "It's about spirit, not ritual" / "this case is different because…"
 - A missing precondition you tried to route around instead of completing the missing phase
 
-**REQUIRED NEXT:** `claudehut:review`.
+**Next:** `claudehut:review`.

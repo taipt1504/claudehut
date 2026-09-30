@@ -62,8 +62,12 @@ mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.failures.jsonl"
 
 # The hook runs async, so identical failures arrive concurrently: the read-bump-rewrite below and the 20-line
-# cap are one critical section. A short mkdir-lock serializes them; bounded (~2 s) and fail-open (never hang),
-# with a stale-lock breaker for a killed holder. Released on every path by the EXIT trap below.
+# cap are one critical section. A short mkdir-lock serializes them, with a stale-lock breaker for a killed holder.
+# The wait is fail-open and bounded twice, whichever comes first: 200 waits of 0.01 s (~2 s on an idle machine) and
+# a 5 s deadline on bash's whole-second SECONDS clock (so 4-5 s of wall time). A loaded scheduler stretches the
+# 200 waits, and the deadline keeps the give-up well under the 10 s stale age: a waiter stops before a lock that a
+# live holder took at the start of its wait can age into one it would steal as stale.
+# Released on every path by the EXIT trap below.
 # The staged file is an advisory signal for Learn, so fail-open after the cap is accepted: its worst case is one
 # lost .hits bump or record, never a hang.
 L="$F.lock"; _held=""; _me="$$.${RANDOM:-0}"
@@ -73,10 +77,13 @@ _lm() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/d
         case "$m" in ''|*[!0-9]*) m=0 ;; esac; printf '%s' "$m"; }
 _old() { local m; m="$(_lm "$1")"; [ "${m:-0}" -gt 0 ] && [ $(( $(date +%s) - m )) -ge 10 ]; }
 # Every REMOVAL of the lock runs under a second, short-lived token dir ($L.steal) and re-checks, under it, that the
-# lock is still the one it means to remove: its owner nonce is unchanged (and, for a steal, it is still old). A
-# steal decided from one earlier observation is otherwise check-then-act — another waiter could break the stale
-# lock and a new writer take a fresh one before this `rmdir` ran, which then deleted that fresh lock (V3-C1). The
-# same check keeps a holder that was paused past the stale age from releasing a lock that was stolen from it.
+# lock is still the one it means to remove. A steal decided from one earlier observation is otherwise
+# check-then-act: another waiter could break the stale lock and a new writer take a fresh one before this `rmdir`
+# ran, which then deleted that fresh lock (V3-C1). For a STEAL the age re-check under the token is the real guard —
+# a lock taken in the meantime is fresh, so it is left alone. The nonce is only a secondary check there: it is read
+# after the stale observation, so it names whichever lock is present by then, not the one that was judged stale.
+# For a RELEASE the nonce is the whole guard: a holder paused past the stale age, whose lock was stolen and retaken,
+# finds another owner's nonce and removes nothing.
 _rm_lock() { # $1 = owner nonce the caller expects  $2 = steal|release
   local k
   for k in 1 2 3 4 5 6 7 8 9 10; do
@@ -88,7 +95,9 @@ _rm_lock() { # $1 = owner nonce the caller expects  $2 = steal|release
   if [ "$(cat "$L/o" 2>/dev/null)" = "$1" ] && { [ "$2" = release ] || _old "$L"; }; then rm -rf "$L" 2>/dev/null; fi
   rmdir "$L.steal" 2>/dev/null
 }
+_dl=$((SECONDS + 5))
 for _i in $(seq 1 200); do
+  [ "$SECONDS" -lt "$_dl" ] || break
   if mkdir "$L" 2>/dev/null; then _held=1; printf '%s' "$_me" > "$L/o" 2>/dev/null; break; fi
   if _old "$L"; then _rm_lock "$(cat "$L/o" 2>/dev/null)" steal; continue; fi
   sleep 0.01 2>/dev/null || true

@@ -30,14 +30,21 @@
 #   resume <id>                       attach an existing task to this session (new session or fork); the task is
 #                                     then that session's: the previous owner's pointer is cleared, and every verb of
 #                                     another session treats it as no task (a notice, nothing written, exit 0)
-#   set-profile <p>                   v0.11 verb: set the open task's profile (feature|bugfix|audit|migration|investigation)
-#   set-complexity trivial|small|full v0.11 verb: set the open task's route (trivial/small → light, full → full)
+#   set-profile <p>                   set the open task's profile (feature|bugfix|audit|migration|investigation)
+#   set-complexity trivial|small|full deprecated: set the open task's route (trivial/small → light, full → full)
 #   status                            one-line JSON (read-only): the task's route, profile, phase, gates,
 #                                     scope, enforcement_set and artifact paths — task.json is the only store
 #   cost-report [--count]             read-only dispatch-ledger report (F6)
 #
-# Removed in v0.12 (accepted as no-ops with a one-line notice, so v0.11 skill text keeps running):
+# Legacy verbs — M2 decision. 04-routing-harness.md §3 lists all of these as removed; each is kept, for this reason:
+#   set-profile     a LIVE verb, no deprecation notice: skills/claudehut-workflow/SKILL.md tells the model to run it
+#                   for a mid-flow shape change; `start --profile` covers only a new task.
+#   set-complexity  deprecated: maps onto the route with a notice. No skill or agent runs it any more.
 #   set-bypass, mark-skill, pause, rename, route
+#                   removed in v0.12: accepted as no-ops with a one-line notice. No skill or agent runs them.
+# None is deleted outright: an unknown verb exits 1, so deleting one would turn v0.11 skill text that is still
+# installed (migrated planes, cached plugin copies) into hard errors mid-workflow. They are candidates for deletion
+# with the 0.12.0 migration (M7), once no v0.11 text can reach them.
 # With no active task, every verb except start and resume records nothing, prints a notice and exits 0
 # (set-complexity, set-profile and set-phase discover included). Only `start` creates a task; nothing ever
 # guesses one from the tasks/ listing. On a FINISHED open task (review pass / learn / findings), a new request's
@@ -237,6 +244,7 @@ case "$sub" in
   set-bypass)     note "set-bypass was removed in v0.12 and did nothing: hooks are advisory; the one remaining refusal (set-plan on a sensitive or ≥5-task full-route plan) is cleared by a plan-reviewer APPROVE or by claudehut-state set-route light."; exit 0 ;;
   mark-skill)     note "mark-skill was removed in v0.12 and did nothing: there is no skill rail."; exit 0 ;;
   pause|rename|route) note "$sub was removed in v0.12 and did nothing."; exit 0 ;;
+  # set-complexity (deprecated) and set-profile (live) are real verbs below; see "Legacy verbs" in the header.
 esac
 is_verb "$sub" || err "unknown verb: $sub"
 

@@ -31,9 +31,11 @@ DIGEST="$PLUGIN_ROOT/skills/claudehut-workflow/references/digest.md"
 ctx="$(cat "$DIGEST" 2>/dev/null || cat "$PLUGIN_ROOT/skills/claudehut-workflow/SKILL.md" 2>/dev/null)" \
   || ctx="ClaudeHut workflow digest not found."
 
-# claudehut-state is not on PATH; stating the resolved path once saves the model a search per state write.
+# claudehut-state is not on PATH; stating the plugin root once saves the model a search per state write.
+# The same root locates skills/<name>/SKILL.md, the digest's Read fallback when a Skill call returns no body
+# (#80802). The root is printed once: repeating the full path cost ~60-80 B of context for nothing.
 if [ -x "$PLUGIN_ROOT/bin/claudehut-state" ]; then
-  ctx="$ctx"$'\n\n'"State CLI: \`$PLUGIN_ROOT/bin/claudehut-state\` (not on PATH; claudehut-init and claudehut-worktree live in the same directory)."
+  ctx="$ctx"$'\n\n'"State CLI: \`bin/claudehut-state\` under plugin root \`$PLUGIN_ROOT\` (not on PATH)."
 fi
 [ -n "$HC_SID" ] && ctx="$ctx"$'\n'"Session id: $HC_SID"
 if hc_active_task; then
@@ -43,7 +45,7 @@ fi
 
 if [ -s "$PLANE/learnings.jsonl" ]; then
   n_learn="$(grep -c '' "$PLANE/learnings.jsonl" 2>/dev/null)" || n_learn="?"
-  ctx="$ctx"$'\n'"Learnings: $n_learn entries in .claude/claudehut/learnings.jsonl; the ones relevant to a prompt are added to that prompt."
+  ctx="$ctx"$'\n'"Learnings: $n_learn entries in .claude/claudehut/learnings.jsonl; relevant ones are added to each prompt."
 fi
 
 UA_GRAPH="$PROJECT_DIR/.understand-anything/knowledge-graph.json"
@@ -55,8 +57,11 @@ fi
 KB_META="$PROJECT_DIR/.claude/summer-kb/.summer-kb-meta.json"
 if [ -f "$KB_META" ]; then
   read -r kb_commit kb_mods <<<"$(jq -r '"\((.summerCommit // "unknown")[0:7]) \((.includedModules // []) | join(","))"' "$KB_META" 2>/dev/null)"
-  ctx="$ctx"$'\n'"Summer Framework KB: .claude/summer-kb/ (modules ${kb_mods:-unknown}; summerCommit ${kb_commit:-unknown}). Summer properties, auto-config gates, annotations and Kafka contracts are documented there; start at USAGE.md, then INDEX.md."
+  ctx="$ctx"$'\n'"Summer Framework KB: .claude/summer-kb/ (modules ${kb_mods:-unknown}; summerCommit ${kb_commit:-unknown}) documents Summer properties, auto-config, annotations and Kafka contracts; start at USAGE.md."
 fi
+
+# Reserved (M5, ADR-R7): one language line from topology.json/hub.json `language` goes here, <=120 B,
+# inside the <=4,000 B SessionStart budget and outside the digest's 2,500 B.
 
 hc_ctx SessionStart "$ctx"
 exit 0

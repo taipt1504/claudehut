@@ -45,9 +45,9 @@ flowchart TB
 5. **Test-first + verify** — every behavior task names a failing test FIRST and an exact verify command.
 6. **Structure** — `### Phase N` headings present (not one combined table); `[P]` marks consistent with
    disjoint Files and Depends-on; data flow in §3 matches the tasks.
-7. **Right-size sanity** — `full` tier has §3 flow + per-behavior-task sketches; `small`/`bugfix`/`refactor`
-   has a 2–3 sentence flow and sketches only where control flow is non-obvious. Flag a plan that is padded
-   beyond its tier as well as one that is too thin — both fail the contract.
+7. **Right-size sanity** — a multi-phase plan has §3 flow + per-behavior-task sketches; a 1–2 task
+   plan has a 2–3 sentence flow and sketches only where control flow is non-obvious. Flag a plan that is padded
+   beyond its size as well as one that is too thin — both fail the contract.
 
 ## Output contract
 
@@ -68,7 +68,7 @@ Return a coverage table, then a verdict:
 
 **WRITE your verdict to `${task_dir}/plan-review.md`** (the coverage table + `Verdict: APPROVE|REVISE` +
 the fix list). This is your only write — you do **not** edit the plan/spec/code, do not ask the user, and do
-not write state. The `SubagentStop` gate blocks your return until `plan-review.md` exists, and the main thread
+not write state. The main thread checks that `plan-review.md` exists and
 then records `claudehut-state set-plan-review <verdict> --evidence <that path>` (only the main thread writes state).
 
 ## Summer KB grounding (when `.claude/summer-kb/` exists)

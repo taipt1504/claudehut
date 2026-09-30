@@ -121,7 +121,7 @@ public class OrderService {
 ## Anti-pattern
 
 ```java
-// @Data walks all fields including lazy collections — NEVER on @Entity
+// @Data walks all fields including lazy collections — keep it off @Entity
 @Entity
 @Data                                       // ← LazyInitializationException, hashCode explosion
 public class Order {

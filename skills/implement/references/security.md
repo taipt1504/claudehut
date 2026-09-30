@@ -162,7 +162,7 @@ public abstract class OrderEvent { ... }
 public Jackson2ObjectMapperBuilderCustomizer jacksonCustomizer() {
     return builder -> builder
         .featuresToEnable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    // activateDefaultTyping is NEVER called
+    // activateDefaultTyping is deliberately not called
 }
 ```
 

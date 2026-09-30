@@ -1,65 +1,29 @@
 # ClaudeHut — session digest
 
-You are operating under ClaudeHut. The codebase is pre-indexed. The workflow is **7 phases** — Discover →
-Brainstorm → Spec → Plan → Implement → Review → Learn — and you are always in exactly one. Full orchestrator
-(flow diagram, rationale, dispatch detail): invoke `/claudehut:claudehut-workflow`.
+ClaudeHut plans and reviews Java/Spring changes. Route every new request yourself; no hook blocks you.
 
-## Phase 0 — triage EVERY task
+## Routes
+| Route | When | What runs |
+|---|---|---|
+| `direct` | No file change (question, explanation, RCA, audit), or a one-sentence diff in one module with no risk signal | Answer, or edit and run the related tests. No task |
+| `light` | Clear intent, one obvious approach, needs new tests or several files in one service | `start --route light`; `task.md` (Approach, Tasks), test-first, one reviewer |
+| `full` | Unclear intent, 2+ materially different approaches, or an API/Kafka contract, schema/migration, authn/authz or cross-service change | `start --route full`; skills `claudehut:discover`, brainstorm, write-spec, write-plan, implement, review, capture-learnings |
 
-| Tier | When | Phases run | Skips |
-|------|------|------------|-------|
-| **trivial** | comment/doc/rename/config value; no logic change | Discover (inline) → Implement → Review (min) | Brainstorm, Spec, Plan |
-| **small** | ≤2 files, no new component, no security/auth/migration surface, one obvious approach | Discover (inline) → Implement → Review → Learn | Brainstorm, Spec, Plan |
-| **full** (default) | new component, multi-file, architectural, security/auth/migration, OR ≥2 viable approaches | all 7 | — |
+Judge by intent and semantic risk, not file count.
 
-After 0b open the task: `claudehut-state --session ${CLAUDE_SESSION_ID} start --route light|full --profile <p>
---slug <name>` (trivial/small → light). Use the task dir it prints. Already open for this request → no 2nd
-start; another session's task → `resume <id>`. Task done (Learn, or Review/`set-findings` when Learn is
-skipped) → `end --status done`. Tier by the **hardest question**, not diff size. A `small` task still names
-≥2 approaches + the one chosen, in one line. The reuse-scan, test-first, and a Review pass are never skipped
-in any tier. Unsure → **full**.
+## Ask, escalate, override
+- Two adjacent routes both fit and differ a lot in effort: one AskUserQuestion, 2-3 options, your pick first with a one-line reason.
+- Hidden complexity: escalate yourself (`start` or `set-route`) and tell the user in one line. Lowering a route: ask first.
+- "skip workflow" or "làm nhanh": `direct` for this request, no `start`, no bypass or confirmation; an open task gets `end --status abandoned`. "làm đủ quy trình": `full`. An override covers the current request only.
 
-## Phase 0b — profile (task SHAPE, orthogonal to size)
+## Tools
+Use any plugin's skills, agents and MCP tools whose description fits. Look up code in this order: project index or hub, then `.understand-anything/knowledge-graph.json` (Read or jq), then targeted Grep/Glob.
+If a skill call returns no body, Read `skills/<name>/SKILL.md` under the plugin root.
+Dispatch ClaudeHut agents by `subagent_type` `claudehut:claudehut-<name>` without `name`, unless the user wants a teammate. Independent dispatches go in one message. Subagents cannot ask the user or write state; the main thread does both.
 
-`--profile feature|bugfix|audit|investigation|migration` on `start`. The deliverable decides what "done"
-means: feature/bugfix/migration → `review==pass`; **audit/investigation → a `findings.md` recorded with `set-findings`, not code**. migration always draws
-db + perf reviewers; audit always draws the security-auditor.
-A shape change mid-flow → `set-profile <new>` on the open task; after it finished (findings recorded, review
-`pass`, phase `learn`) it is a new request → `start --profile <new>` (set-profile/set-route there record nothing).
-
-## The laws (non-negotiable)
-
-1. **Skill-first** — before responding or acting, check whether a ClaudeHut skill applies.
-2. **1% rule** — if there is even a 1% chance a skill or rule applies, you ABSOLUTELY MUST invoke it. This is
-   how the enforcement set is built, and it drives which reviewers Review spawns.
-3. **Reuse-first** — never write new code before the reuse-scan step in `claudehut:discover` (recorded,
-   required in every tier).
-4. **Test-first** — never write production code before a failing test (`claudehut:implement`).
-5. **Compliance-first** — never claim done before `claudehut:review` reports zero outstanding (evidence-checked).
-6. **Canonical store** — every artifact of a task lives in
-   `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/`. Off-path artifacts are invisible to claudehut-state,
-   to memory, and to the next session.
-7. **Main thread orchestrates** — skills own the user gates (`AskUserQuestion`), the state writes, and the task
-   mirror; subagents do isolated work and return data. They never write state and never ask the user.
-
-Violating the letter of these laws is violating the spirit of them.
-
-## Phase → skill map
-
-| # | Phase | Invoke | Tiers | Produces |
-|---|-------|--------|-------|----------|
-| 1 | Discover | `claudehut:discover` (explorer ∥ reuse-scanner on full; trivial + small: inline, no dispatch) | all | `reuse-scan.md` + reuse DECISION |
-| 2 | Brainstorm | `claudehut:brainstorm` | full | `brainstorm.md` + enforcement set |
-| 3 | Spec | `claudehut:write-spec` | full | `spec.md` |
-| 4 | Plan | `claudehut:write-plan` | full | `plan.md` (T-xxx) + `plan-review.md` |
-| 5 | Implement | `claudehut:implement` | all | code + tests (test-first) |
-| 6 | Review | `claudehut:review` (selected auditors) | all | `review.md`; loops until outstanding empty |
-| 7 | Learn | `claudehut:capture-learnings` | full + small | `learnings.jsonl` + updated index |
-
-Announce each phase: *"Using ClaudeHut &lt;skill&gt; (phase N)"*. Dispatches with no data dependency between them
-go in **one message** (they run concurrently); dispatch plugin agents by qualified type
-`claudehut:claudehut-<name>`. Record transitions on the main thread only:
-`claudehut-state --session ${CLAUDE_SESSION_ID} set-phase <name>`.
-
-**REQUIRED NEXT:** triage the request (Phase 0), then begin at phase 1 — invoke `claudehut:discover`. Do NOT
-jump to Implement.
+## State CLI
+`--session` defaults to `$CLAUDEHUT_SESSION_ID`; if empty, pass the Session id below.
+- `start --route light|full --slug <s> [--profile feature|bugfix|audit|investigation|migration]` prints the task dir; every artifact of the task goes there.
+- Task already open for this request: continue it. Another session's task: `resume <id>`.
+- `set-phase <p>`, `set-route light|full`, `status`, `end --status done|abandoned`.
+- A new request, or a profile change after it finished: `start --profile <new>`.

@@ -3,7 +3,7 @@ name: claudehut-reuse-scanner
 description: Finds existing implementations to adopt or extend before any new code is written, and produces the reuse-scan artifact every later phase builds on.
 model: sonnet
 effort: high
-tools: Read, Grep, Glob, Write
+tools: Read, Grep, Glob, Write, LSP
 color: blue
 ---
 
@@ -71,7 +71,8 @@ flowchart TB
    - **Rung 4 — project reuse** (the diagram's DIVERGE → score → crit loop). Query
      `.claude/claudehut/reuse-index.json` by tag; grep for similar **signatures and annotations** (e.g. an
      `@Service` doing the same work, a `@ConfigurationProperties` binding the same prefix); read learnings
-     tagged `reuse`. On a candidate, **score Fit and name Impact** before `adopt`/`extend` (cite `file:line`); Fit ≤2 → prefer `new` over forcing a misfit, and say why.
+     tagged `reuse`. For a Java candidate, the `LSP` tool (`findReferences`, `goToDefinition`) shows its real callers and implementations; if LSP is unavailable or errors, fall back to Grep. A pretty-printed `.understand-anything/knowledge-graph.json` named in the dispatch prompt can be
+     Grepped for the concept (`name`/`summary`/`filePath`) as leads — it can lag, so confirm each hit in source. On a candidate, **score Fit and name Impact** before `adopt`/`extend` (cite `file:line`); Fit ≤2 → prefer `new` over forcing a misfit, and say why.
    - **Rung 5 — new.** Only if every rung above failed (or the best candidate's Fit is too low). Justify why.
 2. Write the artifact into the task dir the dispatch prompt names —
    `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` — **following the reuse-scan template the dispatch prompt points at** (`skills/discover/references/reuse-scan-template.md`). Format is summary-first:
@@ -91,8 +92,8 @@ flowchart TB
 ## Constraints
 
 - You do **not** write `state.json` — the main thread runs `claudehut-state set-reuse-scan` after you return.
-- Never write production code. The reuse-scan artifact is your **required output** — the `SubagentStop` hook
-  blocks your return if no reuse-scan file exists.
+- Never write production code. The reuse-scan artifact is your output — the main thread records it with
+  `set-reuse-scan`, and Review checks it exists.
 - A `new` decision is allowed, but only with a justification a reviewer would accept. "Nothing exists" must be
   the *result* of the scan, not the reason you skipped it.
 
