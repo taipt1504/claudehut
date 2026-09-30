@@ -9,8 +9,8 @@
 # cases must leave state/hook-errors.log empty, so a hook that fails silently cannot pass as "silent".
 #
 # Run: evals/hook-tests.sh --fast     contract + behavior only (deterministic, no Claude, no timing)
-#      evals/hook-tests.sh            --fast, then the regression suites evals/regress/state-tests.sh and
-#                                     evals/regress/script-tests.sh (their counts are added; a missing one fails)
+#      evals/hook-tests.sh            --fast, then the regression suites evals/regress/state-tests.sh,
+#                                     script-tests.sh and doclint-tests.sh (their counts are added; a missing one fails)
 # Latency (AC12) is NOT gated here: wall-clock time depends on the machine and its load. It is the benchmark
 # evals/hook-bench.sh (a report; HOOK_BENCH_STRICT=1 gates it).
 set -uo pipefail
@@ -29,7 +29,7 @@ W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
 CORPUS="$W/corpus.out"; : > "$CORPUS"
 ST="$ROOT/bin/claudehut-state"
 FX="$ROOT/evals/hook-fixtures"
-HOOKS="bootstrap maintain inject-phase advise-write record-agent-dispatch format-java lint-reuse record-failure record-dispatch verify-subagent record-rules-loaded"
+HOOKS="bootstrap maintain inject-phase advise-write record-agent-dispatch format-java lint-reuse doclint-advise record-failure record-dispatch verify-subagent record-rules-loaded"
 
 # run_hook <script> <project-dir> <payload> [VAR=value …] → OUT, RC; contract asserted on every call.
 N_RUNS=0; N_CONTRACT_BAD=0
@@ -61,11 +61,19 @@ mk_task() { # $1 project  $2 sid  $3 id  $4 route  $5 plan_approved  [$6 extra j
 wpl() { jq -nc --arg s "$1" --arg f "$2" --arg t "${3:-Write}" '{session_id:$s,hook_event_name:"PreToolUse",tool_name:$t,tool_input:{file_path:$f}}'; }
 fsum() { find "$1" -type f ! -name hook-errors.log ! -name '*.nudged' ! -name '*.nudged.*' -exec shasum {} + 2>/dev/null | sort | shasum | awk '{print $1}'; }
 
+# v0.12 M3: set-spec/set-plan/set-plan-review run doclint, so fixtures are the templates' own filled-in examples.
+exa() { sed -n "/^# $2/,\$p" "$ROOT/skills/$1"; }   # the example, from its "# Kind:" line down
+EXSPEC="$(exa write-spec/references/spec-template.md Spec:)"
+EXPLAN="$(exa write-plan/references/plan-template.md Plan:)"
+EXPR="$(exa write-plan/references/plan-review-template.md 'Plan review')"
+[ -n "$EXSPEC" ] && [ -n "$EXPLAN" ] && [ -n "$EXPR" ] || bad "fixtures: a template example came out empty (its '# Kind' heading moved)"
+
 payload_for() { # $1 hook → a representative payload for session S
   case "$1" in
     bootstrap|maintain) echo '{"session_id":"S","source":"startup","hook_event_name":"SessionStart"}' ;;
     inject-phase) echo '{"session_id":"S","prompt":"fix the settlement completion bug","hook_event_name":"UserPromptSubmit"}' ;;
     advise-write|format-java|lint-reuse) wpl S "src/main/java/a/Foo.java" ;;
+    doclint-advise) jq -nc '{session_id:"S",hook_event_name:"PostToolUse",tool_name:"Write",tool_input:{file_path:".claude/claudehut/tasks/0001-x/spec.md"}}' ;;
     record-agent-dispatch) echo '{"session_id":"S","tool_name":"Agent","tool_use_id":"t1","tool_input":{"subagent_type":"claudehut:claudehut-planner","name":"planner-1"}}' ;;
     record-failure) echo '{"session_id":"S","tool_name":"Bash","tool_input":{"command":"false"},"error":"Exit code 1\nboom","is_interrupt":false}' ;;
     record-dispatch) echo '{"session_id":"S","agent_id":"a1","agent_type":"planner-1","hook_event_name":"SubagentStart"}' ;;
@@ -430,7 +438,8 @@ chk "start: tasks/0001-fix-ilike/task.json schema 2 with the documented fields" 
 chk "start: base{repo:sha} and pre_dirty{repo:[files]} are captured per repo, '.' = the project (ADR-H6)" \
   'jq -e ".base[\".\"]|test(\"^[0-9a-f]{7,}\$\")" "$T1" >/dev/null && jq -e ".pre_dirty[\".\"]==[\"docs-notes.md\"]" "$T1" >/dev/null'
 chk "start: state/<sid>.json is only a pointer" 'jq -e ". == {schema:2, active_task:\"0001-fix-ilike\"}" "$P/.claude/claudehut/state/S.json" >/dev/null'
-mkdir -p "$P/.claude/claudehut/tasks/$id1"; printf '## A\nDecision: x\nAC-001 g/w/t\n' > "$P/.claude/claudehut/tasks/$id1/spec.md"
+mkdir -p "$P/.claude/claudehut/tasks/$id1"
+printf '%s\n' "$EXSPEC" | sed 's/profile: feature · route: full/profile: bugfix · route: light/' > "$P/.claude/claudehut/tasks/$id1/spec.md"
 cs --session S set-spec ".claude/claudehut/tasks/$id1/spec.md" 2>/dev/null
 cs --session S set-enforcement --skills claudehut:implement --rules framework/jpa.md 2>/dev/null
 chk "set-* write into task.json (spec_path, enforcement_set as one list)" 'jq -e ".spec_path|test(\"spec.md\")" "$T1" >/dev/null && jq -e ".enforcement_set==[\"claudehut:implement\",\"framework/jpa.md\"]" "$T1" >/dev/null'
@@ -472,7 +481,7 @@ run_hook advise-write "$P" "$(wpl S "$LONGP")" LC_ALL=C LANG=C
 chk "advise-write under LC_ALL=C with a long UTF-8 path: valid UTF-8, fixed text intact (R2-4)" \
   'printf "%s" "$OUT" | python3 -c "import sys,json; t=json.loads(sys.stdin.buffer.read().decode(\"utf-8\"))[\"hookSpecificOutput\"][\"additionalContext\"]; sys.exit(0 if t.endswith(\"once per task.\") and len(t)<=500 else 1)"'
 PL="$P/.claude/claudehut/tasks/$id2/plan.md"
-printf '# P\n## Implementation Flow\nx\n**T-001 sketch**: s\n| T-001 | a | tf | v | - |\n' > "$PL"
+printf '%s\n' "$EXPLAN" > "$PL"; printf '%s\n' "$EXSPEC" > "${PL%/*}/spec.md"   # full route: L10 needs the spec
 cs --session S set-plan ".claude/claudehut/tasks/$id2/plan.md" 2>/dev/null
 chk "set-plan records the plan and sets plan_approved=true" 'jq -e ".plan_approved==true and (.plan_path|test(\"plan.md\"))" "$T2" >/dev/null'
 mk_task "$P" S2 0099-z full false; rm -f "$P/.claude/claudehut/state/S.nudged"*
@@ -912,17 +921,50 @@ printf '| src/main/java/U.java | ✓ satisfied resolved | U.java:3 |\n' >> "$ev"
 chk "set-review pending needs no evidence" 'cs --session s set-review pending 2>/dev/null && jq -e ".review==\"pending\"" "$TD/task.json" >/dev/null'
 chk "accept: valid review.md → review=pass + review_evidence in task.json" 'cs --session s set-review pass --evidence "$ev" 2>/dev/null && jq -e ".review==\"pass\" and (.review_evidence|type==\"string\")" "$TD/task.json" >/dev/null'
 
+echo "== doclint-advise: advisory lint of a task artifact after Write|Edit (06 §4, AC-10) =="
+P="$(new_plane da)"; mk_task "$P" S 0001-x full false; DT="$P/.claude/claudehut/tasks/0001-x"
+dpl() { jq -nc --arg f "$1" '{session_id:"S",hook_event_name:"PostToolUse",tool_name:"Write",tool_input:{file_path:$f}}'; }
+mkdir -p "$P/src/main/java"; printf 'class Foo {}\n' > "$P/src/main/java/Foo.java"
+run_hook doclint-advise "$P" "$(dpl "$P/src/main/java/Foo.java")"
+chk "doclint-advise: a Write to src/main/java/Foo.java is silent, exit 0" 'silent'
+printf '%s\n' "$EXSPEC" > "$DT/spec.md"
+printf '%s\n' "$EXPLAN" | awk '/^## 2\. Design/{print; print "```java"; print "class X {}"; print "```"; next} 1' > "$DT/plan.md"
+h0="$(fsum "$P/.claude/claudehut")"
+run_hook doclint-advise "$P" "$(dpl "$DT/plan.md")"
+chk "doclint-advise: a plan.md with a blocking violation → one PostToolUse additionalContext naming it, ≤500 chars" \
+  'one_ctx PostToolUse && ctx | grep -q "plan.md" && [ "$(ctx | wc -l | tr -d " ")" -le 10 ] && [ "$(ctx | wc -m | tr -d " ")" -le 500 ]'
+chk "doclint-advise: writes nothing to the plane (K8)" '[ "$(fsum "$P/.claude/claudehut")" = "$h0" ]'
+printf '%s\n' "$EXPLAN" > "$DT/plan.md"
+run_hook doclint-advise "$P" "$(dpl "$DT/plan.md")"
+chk "doclint-advise: the clean template example is silent" 'silent'
+printf 'scratch\n' > "$DT/notes.md"
+run_hook doclint-advise "$P" "$(dpl "$DT/notes.md")"
+chk "doclint-advise: a non-artifact file in the task dir is silent" 'silent'
+printf '%s\n' "$EXPLAN" | awk '/^## 2\. Design/{print; print "```java"; print "class X {}"; print "```"; next} 1' > "$DT/plan.md"
+run_hook doclint-advise "$P" "$(dpl "$DT/plan.md")" DOCLINT_TEMPLATES="$W/no-templates"
+chk "doclint-advise: a missing template is silent (advise mode never fails)" 'silent'
+# M3 backlog: a hung engine is killed at DOCLINT_ADVISE_TIMEOUT (default 3 s) — silent, exit 0, nothing logged
+mkdir -p "$W/dla-scripts"; cp -R "$ROOT/scripts/." "$W/dla-scripts/"; printf '#!/usr/bin/env bash\nsleep 20\n' > "$W/dla-scripts/doclint.sh"
+: > "$P/.claude/claudehut/state/hook-errors.log"; t0="$(date +%s)"
+OUT="$(printf '%s' "$(dpl "$DT/plan.md")" | CLAUDE_PROJECT_DIR="$P" DOCLINT_ADVISE_TIMEOUT=1 bash "$W/dla-scripts/doclint-advise.sh" 2>/dev/null)"; RC=$?
+chk "doclint-advise: a hung engine is killed at DOCLINT_ADVISE_TIMEOUT — silent, exit 0, <5 s, no hook error" \
+  '[ "$RC" = 0 ] && silent && [ $(( $(date +%s) - t0 )) -lt 5 ] && errlog_empty "$P"'
+
 echo "== claudehut-state: set-plan smart gate on the full route (kept; route replaces tier) =="
 P="$(new_plane pg)"; cs() { CLAUDE_PROJECT_DIR="$P" "$ST" "$@"; }   # a fresh task: the one above passed review (finished)
 cs --session s start --route full --slug x >/dev/null 2>&1; TD="$P/.claude/claudehut/tasks/0001-x"
-printf '%s\n' '# P' '## Implementation Flow' 'x' '**T-001 sketch**: liquibase changeSet' '| T-001 | db/changelog.xml | tf | v | - |' > "$TD/plan.md"
-chk "a sensitive full-route plan needs a plan-reviewer APPROVE" '! cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>/dev/null'
-printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$TD/plan-review.md"
+# M3 (06 §8): the sensitive trigger is a T-row's Files cell (3rd column), so the changelog path goes there.
+printf '%s\n' "$EXSPEC" > "$TD/spec.md"
+printf '%s\n' "$EXPLAN" | sed 's#src/main/java/app/order/OrderMetrics.java#src/main/resources/db/changelog.xml#' > "$TD/plan.md"
+chk "a sensitive full-route plan needs a plan-reviewer APPROVE" '! cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>"$W/pg.err" && grep -q "needs a plan-reviewer APPROVE" "$W/pg.err"'
+printf '%s\n' "$EXPR" > "$TD/plan-review.md"
 cs --session s set-plan-review APPROVE --evidence .claude/claudehut/tasks/0001-x/plan-review.md 2>/dev/null
 chk "APPROVE of the same bytes unblocks set-plan; plan_review_round counts reviews" 'cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>/dev/null && jq -e ".plan_approved==true and .plan_review_round==1" "$TD/task.json" >/dev/null'
-printf '| T-002 | b | tf | v | - |\n' >> "$TD/plan.md"
-chk "an edit after the APPROVE is caught by the content hash" '! cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>/dev/null'
+printf '<!-- edited after the review -->\n' >> "$TD/plan.md"
+chk "an edit after the APPROVE is caught by the content hash" '! cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>"$W/pg.err" && grep -q "content hash mismatch" "$W/pg.err"'
 cs --session s set-route light 2>/dev/null
+# L1 (06 §6): the artifact header follows the task's route, so the change is recorded in the plan too.
+sed -i.bak 's/route: full · rev/route: light · rev/' "$TD/plan.md" && rm -f "$TD/plan.md.bak"
 chk "the way out of the gate is a route change, not a bypass (light: structure only)" 'cs --session s set-plan .claude/claudehut/tasks/0001-x/plan.md 2>/dev/null'
 chk "canon: a traversal artifact path is rejected" '! cs --session s set-spec ".claude/claudehut/../../src/main/Evil.md" 2>/dev/null'
 
@@ -953,7 +995,7 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests; do
+  for rs in state-tests script-tests doclint-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
     ro="$(EVAL_COUNT_DIR= bash "$f" 2>&1)"; rr=$?

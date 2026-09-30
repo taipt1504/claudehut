@@ -77,45 +77,51 @@ expect "reuse-scan: BAD (Fit=2 with no ## Evidence section) fails" 1 check_reuse
 echo "== artifact oracle: plan flow + no-placeholder =="
 cat > "$T/plan-good.md" <<'EOF'
 # Plan: x
-> spec: t/spec.md · tier: full · status: draft
-## 3. Implementation Flow
-1. Controller receives CreateOrderRequest → 2. OrderService validates → 3. persists Order(status).
-**T-002 sketch:**
+> id: 0001-x · spec-rev: 1 · route: full · rev: 1 · status: draft
+## 2. Design
+```mermaid
+sequenceDiagram
+  OrderController->>OrderService: create(req)
+  OrderService->>OrderRepository: save(order)
 ```
-class OrderService: create(req): validate(req); repo.save(toEntity(req)); return id
-```
+## 3. Interfaces & Data
+| Element | Change | Contract | Req |
+|---|---|---|---|
+| `OrderService` | new | `OrderService#create(req: CreateOrderRequest): OrderId` | AC-001 |
 EOF
-expect "plan: GOOD (§3 + sketch, no placeholder) passes" 0 check_plan_no_placeholder "$T/plan-good.md"
+expect "plan: GOOD (§2 Design + §3 contract table, no placeholder) passes" 0 check_plan_no_placeholder "$T/plan-good.md"
 
 cat > "$T/plan-noflow.md" <<'EOF'
 # Plan: x
-> tier: full
-## 4. Task Breakdown
-| T-001 | do it | A.java | ATest#x | minimal | gradle | - | FR-1 |
+> route: full
+## 4. Tasks
+| T-001 | do it | A.java | ATest#x | gradle | - | AC-001 |
 EOF
-expect "plan: BAD (no §3 Implementation Flow) fails" 1 check_plan_no_placeholder "$T/plan-noflow.md"
+expect "plan: BAD (no §2 Design / §3 Interfaces & Data) fails" 1 check_plan_no_placeholder "$T/plan-noflow.md"
 
 cat > "$T/plan-placeholder.md" <<'EOF'
 # Plan: x
-> tier: full
-## 3. Implementation Flow
+> route: full
+## 2. Design
 Request comes in, then we handle it.
-**T-001 sketch:**
-```
-// TODO: implement logic, add error handling
-```
+## 3. Interfaces & Data
+| Element | Change | Contract | Req |
+|---|---|---|---|
+| `A` | new | TODO: implement logic, add error handling | AC-001 |
 EOF
 expect "plan: BAD (placeholder 'implement logic'/'add error handling') fails" 1 check_plan_no_placeholder "$T/plan-placeholder.md"
 
-cat > "$T/plan-fullnosketch.md" <<'EOF'
+cat > "$T/plan-java.md" <<'EOF'
 # Plan: x
-> tier: full
-## 3. Implementation Flow
+> route: full
+## 2. Design
 1. A → 2. B → 3. persist.
-## 4. Task Breakdown
-| T-001 | behavior | A.java | ATest#x | minimal | gradle | - | FR-1 |
+## 3. Interfaces & Data
+```java
+class OrderService { OrderId create(CreateOrderRequest req) { return repo.save(req); } }
+```
 EOF
-expect "plan: BAD (full tier, no per-task sketch) fails" 1 check_plan_no_placeholder "$T/plan-fullnosketch.md"
+expect "plan: BAD (java code block instead of the §3 table) fails" 1 check_plan_no_placeholder "$T/plan-java.md"
 
 echo "== artifact oracle: brainstorm persisted + linked =="
 cat > "$T/brainstorm-good.md" <<'EOF'
@@ -127,8 +133,8 @@ Recommendation: A.
 EOF
 cat > "$T/spec-good.md" <<'EOF'
 # Spec: x
-> id: 0001-x · type: feature
-> brainstorm: tasks/0001-x/brainstorm.md
+> id: 0001-x · profile: feature · route: full · rev: 1 · status: draft
+> options: tasks/0001-x/brainstorm.md
 EOF
 expect "brainstorm: GOOD (2 options + premortem + rec, spec linked) passes" 0 check_brainstorm_persisted "$T/brainstorm-good.md" "$T/spec-good.md"
 

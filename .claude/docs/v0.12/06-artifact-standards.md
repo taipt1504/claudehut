@@ -11,7 +11,7 @@ Mỗi template trở thành schema máy đọc được, và `scripts/doclint.sh
 | Nội dung | Ở đâu |
 |---|---|
 | Chọn tuyến, schema `task.json`, lệnh `start`/`set-*` | [04-routing-harness.md](04-routing-harness.md) |
-| Hook `doclint-advise.sh` trong hooks.json 13 handler | [05-hooks.md](05-hooks.md) |
+| Hook `doclint-advise.sh` (PostToolUse, `if` `Write(*.md)`/`Edit(*.md)`); hooks.json hiện 12 handler / 15 entry, ma trận cuối 13 handler / 16 entry khi `hint-explore` vào ở M6 | [05-hooks.md](05-hooks.md) |
 | Cách sinh `context.md` (`claudehut-index brief`) | [07-index-memory.md](07-index-memory.md) |
 | `review.md`: giữ nguyên gate `set-review pass`, không có chuẩn mới | [08-review.md](08-review.md) |
 | Quyết định ADR-D1..D7 | [09-adr.md](09-adr.md) |
@@ -67,7 +67,7 @@ spec-kit, Kiro và Rust RFC không đặt giới hạn độ dài; ngoài các c
 
 | Điểm chạy | Chế độ | Ai thấy |
 |---|---|---|
-| PostToolUse `Write\|Edit` trên `tasks/*/{spec,plan,brainstorm,plan-review,task}.md` | `advise`, ≤10 dòng `additionalContext`, luôn exit 0 | Người viết, kể cả planner (không có Bash) |
+| PostToolUse `Write\|Edit` trên `tasks/*/{spec,plan,brainstorm,plan-review,task,context}.md` | `advise`: một dòng `additionalContext` dạng `<L-id> <section>: <message ≤90 ký tự>` (tối đa 2, blocking trước) `— N blocking, M advisory in <file>`, không kèm lệnh (planner không có Bash); engine bị kill sau 3 s; luôn exit 0 | Người viết, kể cả planner (không có Bash) |
 | Main thread, trước AskUserQuestion | `gate` chỉ đọc + `report` | User nhận bảng từ/ngân sách trong tóm tắt duyệt |
 | `set-spec`, `set-plan`, `set-plan-review`, `set-brainstorm`, `set-phase --spec/--plan` | `gate` | CLI từ chối nếu vi phạm cấu trúc; `set-phase` không còn là đường né doclint |
 
@@ -79,7 +79,7 @@ Mỗi template mở đầu bằng một khối `<!-- ch:schema … -->`, mỗi d
 
 ### 5.1 `context.md` (full)
 
-Mục đích: cache dẫn chứng codebase; spec §1 dẫn node/file:line từ đây thay vì kể lại. Discover sinh file ([07](07-index-memory.md)); doclint không kiểm.
+Mục đích: cache dẫn chứng codebase; spec §1 dẫn node/file:line từ đây thay vì kể lại. Discover sinh file ([07](07-index-memory.md)); doclint chỉ kiểm heading (L2) theo khối `ch:schema` của `skills/discover/references/context-template.md`, và chỉ qua hook advise: không có `set-*` nào gate `context.md`.
 
 ```markdown
 # Context: <slug>
@@ -194,17 +194,17 @@ Findings | cells=Gap:30w,Fix:30w
 > id: NNNN-slug · plan-rev: N · round: 1|2
 Verdict: APPROVE|REVISE
 ## Findings
-| ID | Sev | Locus | Gap | Fix |     <!-- ≤10 dòng; Sev ∈ CRIT|HIGH|MED; APPROVE → có thể rỗng -->
+| ID | Sev | Locus | Gap | Fix |     <!-- ≤10 dòng (advisory, L11: báo, không chặn); Sev ∈ CRIT|HIGH|MED; APPROVE → có thể rỗng -->
 ## Notes
 ```
 
 ## 6. Luật doclint
 
-"Từ" là token chứa ≥1 chữ cái hoặc chữ số; bỏ qua `|`, dòng `|---|`, mermaid, `<!-- -->`. `\|` và `|` trong backtick không tách ô. Cap `c` đếm byte (BSD awk), chỉ dùng cho cột ASCII như `Test first`.
+"Từ" là token chứa ≥1 chữ cái hoặc chữ số; bỏ qua `|`, dòng `|---|`, mermaid, `<!-- -->`. `\|` và `|` trong backtick không tách ô. Cap `c` đếm byte UTF-8, chỉ dùng cho cột ASCII như `Test first`.
 
 | L-id | Luật | Loại | Sửa |
 |---|---|---|---|
-| L1 | `profile:`/`route:` khớp `task.json` (bỏ qua khi không có `--state`) | blocking | C8 |
+| L1 | `profile:`/`route:` khớp giá trị authoritative (`--profile`/`--route`, rồi `task.json` qua `--state`); bỏ qua khi không có giá trị nào. Có giá trị (gate `set-*` luôn truyền `--route`/`--profile`) thì header thiếu key mà ví dụ trong template cùng kind khai báo cũng vi phạm. Thông báo ghi nguồn: `expected X (from --profile\|task.json)` | blocking | C8 |
 | L2 | Đủ heading bắt buộc theo `req`; không có heading ngoài allowlist (lỗi liệt kê allowlist); cấm `/amend\|round [0-9]\|revision [0-9]/i` | blocking | C3, C8 |
 | L3 | Số từ mỗi section có `budget` | advisory | C1 |
 | L4 | Tổng số từ theo profile/route | advisory | C1, C2 |
@@ -213,12 +213,12 @@ Verdict: APPROVE|REVISE
 | L7 | `diagram=required` ⇒ có ≥1 mermaid hoặc dòng `n/a — <≥3 từ>` | blocking | C5 |
 | L8 | `[NEEDS CLARIFICATION` ≤3; ở gate phải =0, trừ mục gắn `non-blocking` trong §7 | blocking | C8 |
 | L9 | Decisions: Status ∈ {`accepted`, `superseded-by D-k`}, D-k tồn tại, ID không trùng | blocking | C3 |
-| L10 | Plan: `spec-rev` == `rev` của spec; mọi `AC-xxx` có trong ≥1 ô Req; mọi ID trong Req tồn tại trong spec | blocking | C3, C6 |
-| L11 | plan-review: đúng một dòng `Verdict:`; bảng Findings đúng cột | blocking | C6 |
+| L10 | Plan: `spec-rev` == `rev` của spec; mọi `AC-xxx` có trong ≥1 ô Req; mọi ID trong Req tồn tại trong spec. Spec lấy từ `--spec` (gate `set-plan` truyền `spec_path` đã ghi), không thì `spec.md` cùng thư mục; không tìm thấy spec: blocking khi route authoritative là full (gate), advisory khi chạy standalone | blocking | C3, C6 |
+| L11 | plan-review: đúng một dòng `Verdict:`; bảng Findings đúng cột; Sev ∈ CRIT\|HIGH\|MED. Findings >10 dòng chỉ advisory (cap, như §4) | blocking | C6 |
 
 Không có L0 (nhánh legacy `doc_schema`): file thiếu `schema:2` được coi là không có task ([04](04-routing-harness.md)).
 
-CLI: `doclint.sh <task|spec|plan|brainstorm|plan-review> <path> [--spec <spec.md>] [--state <task.json>] --mode advise|gate|report [--self-test]`. `gate` exit 1 khi có vi phạm blocking, in ngân sách dưới mục `budget:`; `report` chỉ in bảng section|từ|ngân sách. Thiếu template: `gate` báo lỗi, `advise` im lặng. Hook `doclint-advise.sh` fail-open, không bao giờ exit 2 ([hooks](https://code.claude.com/docs/en/hooks#exit-code-output)).
+CLI: `doclint.sh [--json] [--kind task|spec|plan|brainstorm|plan-review|context] [--route R] [--profile P] [--language en|vi] [--state <task.json>] [--spec <spec.md>] [--verdict APPROVE|REVISE] [--mode gate|advise|report] FILE…`, và `doclint.sh --self-test`; kind suy từ tên file khi thiếu `--kind`, `--advise`/`--report` là dạng ngắn của `--mode`. `gate` exit 1 khi có vi phạm blocking, in ngân sách dưới mục `budget:`; `report` chỉ in bảng section|từ|ngân sách. Thiếu template: `gate` báo lỗi, `advise` im lặng. Hook `doclint-advise.sh` fail-open, không bao giờ exit 2 ([hooks](https://code.claude.com/docs/en/hooks#exit-code-output)).
 
 ## 7. Sửa đổi và thay thế (ADR-D4)
 
@@ -236,7 +236,7 @@ stateDiagram-v2
 |---|---|
 | Living doc | Sửa tại chỗ, `rev` tăng, thêm dòng Changelog; cấm heading Amendment/Round/Revision (L2) |
 | Quyết định | ID `D-n` vĩnh viễn; đổi thì Status `superseded-by D-k`: dòng bất biến như ADR, tài liệu vẫn sống |
-| Ghim | Plan ghi `spec-rev`. `set-plan` từ chối khi lệch (L10); `set-spec` chỉ cảnh báo (exit 0), không lưu cờ vào state |
+| Ghim | Plan ghi `spec-rev`. `set-plan` từ chối khi lệch (L10); `set-spec` chỉ in note ra stderr khi plan (`plan_path` đã ghi, không thì `plan.md` cùng thư mục) ghim rev cũ hơn (`note: plan <path> pins spec-rev N, spec is now rev M — re-plan …`), exit 0, không lưu cờ vào state |
 | plan-review | Bị ghi đè mỗi vòng; số vòng nằm trong state |
 | Giới hạn | Protocol chỉ làm quyết định hiện hành hiển thị rõ, không ngăn owner đổi yêu cầu (va-ms 0024 amendment 2/3, C3) |
 
@@ -272,13 +272,15 @@ Ngôn ngữ artifact — Đã chốt (2026-09-29): theo `language` chọn khi in
 
 Đơn vị ngân sách — Đã chốt (2026-09-29): phương án (a), giữ đơn vị từ; khi `language=vi`, doclint nhân mọi ngân sách tính bằng từ (`budget=W` và ô `Col:Nw`) với 1,4; ô `Col:Nc` tính bằng ký tự, hệ số chốt sau replay (tiếng Việt đơn âm tiết phình khoảng 1,3–1,5× so với corpus audit tiếng Anh). Không đổi sang byte (b), vì ngân sách trong khối `ch:schema` và mốc audit C2 đều tính bằng từ. doclint đọc `language` theo thứ tự phân giải của 07; output ghi rõ hệ số, ví dụ `900/840 (600×1,4)`. Con số khởi điểm và hệ số chốt sau `doclint-replay.sh` ở M3. Ngân sách chỉ đo và hiển thị — Đã chốt (2026-09-29): advisory (ADR-D1).
 
+Ngân sách sau replay — Đã chốt (2026-09-30, M3): giữ nguyên các con số khởi điểm trong khối `ch:schema` (spec 1200/500/700 theo profile, plan 1500, brainstorm 600, plan-review 400, task 600; ô `Decision (Y-statement)` 80w, `Test first` 60c). `evals/doclint-replay.sh` trên 613 artifact v0.11 (207/244 task dir) cho p50/p90 số từ: spec 900/2342, plan 921/3870, brainstorm 655/1864, plan-review 611/1910; L4 vượt ngân sách ở spec 87/200, plan 66/203, brainstorm 56/92, plan-review 101/118. Corpus là định dạng v1 (sketch Java, amendment, bảng coverage trong plan-review), nên p50 của nó cao hơn kích thước v2: brainstorm 600 và plan-review 400 nằm dưới p50 là có chủ ý, vì v2 bỏ phần chấm điểm dài và coverage đã chuyển sang L10; vì ngân sách chỉ advisory (ADR-D1), không nâng số theo corpus cũ. Cap `c` đếm byte (như §6, không phải ký tự); hệ số `vi` cho `c` là 1,0 vì các cột có cap `c` là định danh ASCII (replay: 2709 byte / 2685 ký tự ở party-ms 0002). Engine hiện dùng python3 stdlib nhúng trong bash thay vì awk POSIX dự kiến ban đầu (§11 đã ghi theo cây hiện tại): gate `set-*` từ chối (exit 1) nếu máy không có python3, hook advise thì im lặng.
+
 Lệnh gate `task.md` của tuyến light ([03 §6](03-architecture.md#6-quyết-định-xuyên-vùng) không nêu) — Đã chốt (2026-09-29): `set-plan` nhận `task.md` khi `route=light`; hiện thực ở M3.
 
 ## 11. Thành phần thay đổi (M3)
 
 | Thành phần | Thay đổi |
 |---|---|
-| `scripts/doclint.sh`, `scripts/doclint-advise.sh`, `hooks/hooks.json` | Thêm mới (bash + awk POSIX, jq); đăng ký PostToolUse `Write\|Edit` |
+| `scripts/doclint.sh`, `scripts/doclint-advise.sh`, `hooks/hooks.json` | Thêm mới (bash + python3 stdlib nhúng, jq; thay awk POSIX dự kiến ban đầu, xem §10); đăng ký PostToolUse `Write\|Edit` với `if` `Write(*.md)`/`Edit(*.md)` |
 | `skills/{write-spec,write-plan,brainstorm}/references/*-template.md` | Viết lại; thêm `plan-review-template.md` và template `task.md` |
 | `bin/claudehut-state` | Gate doclint ở `set-*`, `set-phase --spec/--plan`; bỏ grep `Implementation Flow`/`[Ss]ketch` và content-regex cũ; thêm `plan_review_round`, `--user-decision` |
 | `agents/claudehut-{planner,plan-reviewer,brainstormer,implementer}.md` | Planner `effort: xhigh`→`high`; còn lại như §5, §8 |

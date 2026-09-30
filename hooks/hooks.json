@@ -42,7 +42,9 @@
           { "type": "command", "if": "Write(*.java)", "statusMessage": "formatting Java", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh\"", "async": true },
           { "type": "command", "if": "Edit(*.java)",  "statusMessage": "formatting Java", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh\"", "async": true },
           { "type": "command", "if": "Write(*.java)", "statusMessage": "checking reuse",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh\"",  "async": true },
-          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "checking reuse",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh\"",  "async": true }
+          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "checking reuse",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh\"",  "async": true },
+          { "type": "command", "if": "Write(*.md)", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/doclint-advise.sh\"", "timeout": 5 },
+          { "type": "command", "if": "Edit(*.md)",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/doclint-advise.sh\"", "timeout": 5 }
         ]
       }
     ],

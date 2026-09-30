@@ -61,7 +61,7 @@ An override covers the current request only.
 | Phase | Skill | `direct` | `light` | `full` |
 |---|---|---|---|---|
 | Discover + reuse-scan | `claudehut:discover` | lookup only | inline | explorer and reuse-scanner in one message |
-| Brainstorm | `claudehut:brainstorm` | — | — | yes |
+| Brainstorm | `claudehut:brainstorm` | — | — | optional: ≥2 workable mechanisms Discover left open; else the decision goes in spec §6 |
 | Spec | `claudehut:write-spec` | — | — | yes |
 | Plan | `claudehut:write-plan` | — | `task.md` (Approach + Tasks) | `plan.md` + plan review + approval |
 | Implement | `claudehut:implement` | edit + related tests | test-first | test-first, phase by phase |

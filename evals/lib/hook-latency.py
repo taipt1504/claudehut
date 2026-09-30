@@ -153,5 +153,22 @@ if not keys and os.path.exists(lr + "/.claude/claudehut/learnings.jsonl") and os
     BOUND["inject-phase(va-ms learnings)"] = 50
     out.update(measure({"inject-phase(va-ms learnings)": Probe("inject-phase", lr, u, fresh=True)}))
     out["inject-phase(va-ms learnings)"]["bound"] = 50
+# doclint-advise (M3): info probes, never gated and uncalibrated (no CPU ceiling) — a non-artifact .md (the
+# in-script fast exit that the hooks.json if:*.md filter still lets through) and a plan.md with one blocking
+# violation (the full engine). Only in a full run, like the va-ms probe, so --self-test / HOOK_LAT_KEYS skip it.
+if not keys:
+    ld = os.path.join(os.path.dirname(lp), "lat-doclint"); td = ld + "/.claude/claudehut/tasks/0001-x"
+    os.makedirs(td, exist_ok=True)
+    with open(ld + "/NOTES.md", "w") as f: f.write("# notes\n")
+    with open(td + "/plan.md", "w") as f:
+        f.write("# Plan: t\n> id: 0001-x · spec-rev: 1 · route: full · rev: 1 · status: draft\n\n## 1. Approach\nreuse.\n\n"
+                "## 2. Design\n```java\nclass A {}\n```\n\n## 4. Tasks\n| ID | Goal | Files | Test first | Verify | Depends | Req |\n"
+                "|---|---|---|---|---|---|---|\n| T1 | do it | a.java | FooTest#bar | gradle | - | AC-001 |\n")
+    dp = lambda f: json.dumps({"session_id": "L", "hook_event_name": "PostToolUse", "tool_name": "Write", "tool_input": {"file_path": f}})
+    info = {"doclint-advise(non-artifact .md)": Probe("doclint-advise", ld, dp(ld + "/NOTES.md")),
+            "doclint-advise(plan.md)": Probe("doclint-advise", ld, dp(td + "/plan.md"))}
+    for k in info: BOUND[k] = 150; CEIL[k] = 0
+    out.update(measure(info))
+    for k in info: out[k]["bound"] = BOUND[k]
 out["_meta"] = {"ncpu": NCPU, "os": OS, "ref_base_p95": REF_BASE_P95, "wait_ms": WAIT_MS, "wait_cap": WAIT_CAP, "rc_bad": sorted(Probe.rc_bad)}
 print(json.dumps(out))

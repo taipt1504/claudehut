@@ -52,7 +52,7 @@ flowchart TB
 
 The Flow above is your loop. `ultrathink` before each GREEN step — you run on opus for exactly this;
 rote, first-thing-that-compiles code is the failure it guards against. The **design beat** (≤30s before GREEN)
-is: (1) **reuse?** honor the plan sketch's reuse anchor — don't re-implement a util the project or stdlib/an
+is: (1) **reuse?** honor the plan's reuse anchor (§1 Approach) — don't re-implement a util the project or stdlib/an
 installed dep already ships; (2) **simplest sufficient shape** — minimal code that passes, not a speculative
 abstraction nor the flimsier algorithm; (3) **don't duplicate** — repeating a sibling-file helper this task?
 extract ONE shared util. Write the **failing test first**; it is how `implement` proves the behavior. Honor every `.claude/rules/`

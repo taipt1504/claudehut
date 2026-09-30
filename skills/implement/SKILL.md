@@ -88,7 +88,7 @@ The key rules it expands, summarised here so they still apply if the file is not
 ## The cycle
 
 The Flow diagram above is the cycle; the one beat that stops rote code is before GREEN — `ultrathink` the
-**design beat** (≤30s): (a) **reuse?** honor the plan sketch's reuse anchor, don't re-implement what the
+**design beat** (≤30s): (a) **reuse?** honor the plan's reuse anchor (§1 Approach), don't re-implement what the
 project or an installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
 abstraction nor the flimsier algorithm; (c) **don't duplicate** — repeating a sibling-file helper? extract ONE shared util. (For any NEW component, the design ladder is `references/minimalism.md`.)
 

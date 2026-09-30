@@ -5,8 +5,8 @@
 #
 #   state/<sid>.json        {"schema":2,"active_task":"<id>"|null}      — a pointer, nothing else
 #   tasks/<id>/task.json    {"schema":2,"id","route","profile","phase","plan_approved","review",
-#                            "plan_review_round","base":{repo:sha},"pre_dirty":{repo:[files]},"scope":[],
-#                            "enforcement_set":[],"status","created",…artifact paths}
+#                            "plan_review_round","doc_schema","base":{repo:sha},"pre_dirty":{repo:[files]},
+#                            "scope":[],"enforcement_set":[],"status","created",…artifact paths}
 # A state or task file without "schema":2 (every v0.11 file, including the bypass=true ones) is NO task.
 # A session that never runs `start` writes no state at all (the `direct` route).
 #
@@ -20,10 +20,17 @@
 #   set-route light|full              change the route
 #   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--spec P] [--plan P]
 #   set-reuse-scan --artifact P       (reuse-scan table must carry Fit/Impact + a decision)
-#   set-brainstorm P | set-spec P     (structural checks until doclint lands, M3)
-#   set-plan-review APPROVE|REVISE [--evidence P]
-#   set-plan P                        records the plan and sets plan_approved=true (full route: substantial or
-#                                     sensitive plans need a fresh plan-review APPROVE of the same bytes)
+#   set-brainstorm P | set-spec P     doclint gate (M3, 06 §4): a STRUCTURAL violation refuses (exit 1, nothing
+#                                     written, one violation per line); budgets are printed, never enforced. The
+#                                     same gate runs on set-plan, set-plan-review and set-phase --spec/--plan.
+#   set-plan-review APPROVE|REVISE [--evidence P] [--user-decision "<text>"]
+#                                     evidence defaults to tasks/<id>/plan-review.md; its one Verdict: line must match.
+#                                     plan_review_round counts reviews, cap 2: after two rounds with the last one
+#                                     REVISE, a third is refused until the user decides (AskUserQuestion) and it is
+#                                     re-run with --user-decision — the text is stored and the round resets to 0.
+#   set-plan P                        records the plan and sets plan_approved=true. Light route: P may be task.md.
+#                                     Full route: a plan with ≥5 T-rows, a sensitive path in a T-row's Files cell,
+#                                     or profile=migration needs a fresh plan-review APPROVE of the same bytes
 #   set-review pass|pending|capped [--evidence P]   pass requires review.md evidence
 #   set-enforcement --skills a,b --rules x.md,y.md | set-outstanding <json-array> | set-findings P
 #   end --status done|abandoned       close the task; active_task=null
@@ -305,9 +312,9 @@ if [ "$sub" = "status" ]; then
   jq -nc --arg s "$SESSION" --arg a "$ACTIVE" --argjson legacy "$LEGACY" --argjson t "${TASK:-null}" \
     --arg f "$FOREIGN" --arg o "$FOREIGN_OWNER" '
     {schema:2, session:$s, active_task:(if $a=="" then null else $a end),
-     task:(if $t==null then null else ($t | {id, route, profile, phase, plan_approved, review, plan_review_round, status, scope,
+     task:(if $t==null then null else ($t | {id, route, profile, phase, plan_approved, review, plan_review_round, doc_schema, status, scope,
                    enforcement_set: (.enforcement_set // []), outstanding, reuse_scan_artifact, brainstorm_path,
-                   spec_path, plan_path, plan_review_evidence, review_evidence, findings_path}) end)}
+                   spec_path, plan_path, plan_review_evidence, plan_review_user_decision, review_evidence, findings_path}) end)}
     + (if $legacy then {legacy_state_ignored:true} else {} end)
     + (if $f=="" then {} else {resumed_elsewhere:{task:$f, session:$o}} end)'
   exit 0
@@ -434,13 +441,61 @@ canon_path_state() {
   printf '%s' "${out:-/}"
 }
 canon() { case "$(canon_path_state "$1")" in */.claude/claudehut/*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
-# Structure checks (kept until doclint replaces them in M3). Only checkable when the file exists.
+# Structure checks of the artifacts doclint does not cover (reuse-scan, findings). Only checkable when the file exists.
 tmpl() { # $1 path  $2 grep -E pattern  $3 error
   local p="$1"; case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
   [ -f "$p" ] || return 0
   grep -qE "$2" "$p" || err "$3"
 }
 abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s' "$PROJECT_DIR/$1" ;; esac; }
+# ── doclint gate (M3; 06 §4, ADR-D1). The schema lives in the templates; this CLI only runs the engine and acts on
+#    its exit code: 0 pass (advisory budget lines are printed), 1 structural violation → refuse, nothing written.
+#    Any other exit (engine missing, template missing, usage error) is not a pass either. There is no legacy branch
+#    (06 §6: no L0): doc_schema:2 is stamped at start as a record of the artifact schema, not as a switch.
+DOCLINT="${CLAUDEHUT_DOCLINT:-$(cd "$(dirname "$0")/.." && pwd)/scripts/doclint.sh}"
+doclint_gate() { # $1 kind (spec|plan|task|brainstorm|plan-review)  $2 artifact path
+  local kind="$1" p out rc route profile sp
+  local -a a
+  p="$(abspath "$2")"
+  [ -f "$p" ] || err "$kind rejected: $2 does not exist — write it from the $kind template first, then re-run $sub."
+  route="$(jq -r '.route // empty' <<<"$TASK")"; profile="$(jq -r '.profile // empty' <<<"$TASK")"
+  # language (×1.4 word budgets for vi) is resolved by the engine itself: topology.json → hub.json → en (07 §4.1).
+  a=(--kind "$kind")
+  [ -z "$route" ] || a+=(--route "$route")
+  [ -z "$profile" ] || a+=(--profile "$profile")
+  # a plan is checked against the RECORDED spec (L10: coverage + spec-rev), not only a sibling spec.md
+  if [ "$kind" = plan ]; then sp="$(jq -r '.spec_path // empty' <<<"$TASK")"; [ -z "$sp" ] || a+=(--spec "$(abspath "$sp")"); fi
+  if [ -f "$DOCLINT" ]; then out="$(bash "$DOCLINT" "${a[@]}" "$p" 2>&1)" && rc=0 || rc=$?
+  else out=""; rc=127; fi
+  [ -z "$out" ] || printf '%s\n' "$out" >&2
+  case "$rc" in
+    0) return 0 ;;
+    1) err "$kind rejected: $2 has structural violation(s) — the 'blocking' lines above. Fix them in place and re-run $sub (budget lines are advisory and never block)." ;;
+    *) err "$kind: doclint could not check $2 (exit $rc$([ "$rc" = 127 ] && echo ", no engine at $DOCLINT")) — the structural gate must run before $sub records it." ;;
+  esac
+}
+# set-spec: a note (exit 0, no state flag) when the plan pins an older spec-rev (06 §7 SpecRevN → PlanStale);
+# set-plan refuses the stale pin itself (L10). The plan is the recorded plan_path, else the sibling plan.md.
+hdr_num() { # $1 file  $2 key → the number after "<key>:" on the first "> " header line (key not part of a longer key)
+  sed -n '/^>/{p;q;}' "$1" 2>/dev/null | grep -oE "(^|[^[:alnum:]-])$2:[[:space:]]*[0-9]+" | head -1 | grep -oE '[0-9]+$' || true
+}
+spec_rev_note() { # $1 spec path (as recorded)
+  local sf pl pf pr sr
+  sf="$(abspath "$1")"; pl="$(jq -r '.plan_path // empty' <<<"$TASK")"
+  if [ -n "$pl" ]; then pf="$(abspath "$pl")"; else pf="$(dirname "$sf")/plan.md"; pl="${1%/*}/plan.md"; fi
+  [ -f "$pf" ] || return 0
+  pr="$(hdr_num "$pf" spec-rev)"; sr="$(hdr_num "$sf" rev)"
+  [ -n "$pr" ] && [ -n "$sr" ] && [ "$pr" != "$sr" ] || return 0
+  echo "note: plan $pl pins spec-rev $pr, spec is now rev $sr — re-plan (set-plan will refuse via L10)." >&2
+}
+# set-plan / set-phase --plan: the light route's one artifact is task.md (06 §2, §10); the full route records plan.md.
+plan_kind() { # $1 path → task|plan
+  case "${1##*/}" in
+    task.md) [ "$(jq -r '.route' <<<"$TASK")" = light ] || err "$sub: task.md is the light-route artifact; the full route records plan.md (or: claudehut-state set-route light)."
+             echo task ;;
+    *) echo plan ;;
+  esac
+}
 # Content hash (portable; empty when no hasher) — plan-review freshness by bytes, not mtime.
 plan_hash() { shasum "$1" 2>/dev/null | awk '{print $1}' || cksum "$1" 2>/dev/null | awk '{print $1"-"$2}' || echo ""; }
 tset() { TASK="$(jq -c "$@" <<<"$TASK")"; }   # mutate the loaded task: tset --arg v x '.field=$v'
@@ -506,7 +561,7 @@ new_task() { # $1 id  $2 route  $3 profile ; repos[] set by the caller. Writes t
   write_atomic "$TASKS_DIR/$id/task.json" "$(jq -nc --arg id "$id" --arg r "$2" --arg p "$3" --arg ts "$TS" --arg s "$SESSION" \
     --argjson base "$base" --argjson dirty "$dirty" '{
       schema:2, id:$id, route:$r, profile:(if $p=="" then null else $p end), phase:"discover",
-      plan_approved:false, review:"pending", plan_review_round:0,
+      plan_approved:false, review:"pending", plan_review_round:0, doc_schema:2,
       base:$base, pre_dirty:$dirty, scope:["src/main/*","*/src/main/*"], enforcement_set:[],
       status:"active", session:$s, created:$ts }')"
   supersede_active "$id"
@@ -631,8 +686,9 @@ case "$sub" in
     t="$(flag --task)"; [ -z "$t" ] || [ "$t" = "$ACTIVE" ] || note "set-phase: --task $t ignored; the phase is recorded on the open task $ACTIVE (to switch tasks: claudehut-state resume $t)"
     # No backward-transition guard (v0.11 P2-2): v0.12 has no hard phase gate (ADR-R2); a phase is a record.
     tset --arg p "$phase" '.phase=$p'
-    sp="$(flag --spec)"; if [ -n "$sp" ]; then canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; tset --arg v "$sp" '.spec_path=$v'; fi
-    pl="$(flag --plan)"; if [ -n "$pl" ]; then canon "$pl"; tmpl "$pl" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows in $pl — use claudehut:write-plan (plan-template.md)."; tset --arg v "$pl" '.plan_path=$v'; fi
+    # The same doclint gate as set-spec / set-plan: set-phase is not a way around it (06 §4).
+    sp="$(flag --spec)"; if [ -n "$sp" ]; then canon "$sp"; doclint_gate spec "$sp"; tset --arg v "$sp" '.spec_path=$v'; fi
+    pl="$(flag --plan)"; if [ -n "$pl" ]; then canon "$pl"; pk="$(plan_kind "$pl")"; doclint_gate "$pk" "$pl"; tset --arg v "$pl" '.plan_path=$v'; fi
     ;;
   set-reuse-scan)
     a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/tasks/NNNN-slug/>"
@@ -644,13 +700,7 @@ case "$sub" in
   set-brainstorm)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-brainstorm needs <path>"
     canon "$p"
-    pp="$(abspath "$p")"
-    if [ -f "$pp" ]; then
-      nopt="$(grep -E '^[[:space:]]*\|' "$pp" 2>/dev/null | grep -vE '^[[:space:]]*\|[ :|-]+\|?[[:space:]]*$' | grep -cE '\|.*\|.*\|' || true)"
-      [ "${nopt:-0}" -ge 3 ] || err "brainstorm rejected: fewer than 2 scored options in the table in $p (need a header row + ≥2 distinct approaches incl. option 0 = adopt/extend). brainstorm-template.md."
-    fi
-    tmpl "$p" '^#+.*[Pp]remortem' "brainstorm rejected: no Premortem section in $p — premortem BOTH finalists under a '## Premortem' heading. brainstorm-template.md."
-    tmpl "$p" '^#+.*[Rr]ecommend' "brainstorm rejected: no Recommendation section in $p — a '## Recommendation' heading naming the chosen option. brainstorm-template.md."
+    doclint_gate brainstorm "$p"
     tset --arg v "$p" '.brainstorm_path=$v'
     ;;
   set-complexity)
@@ -671,32 +721,32 @@ case "$sub" in
   set-spec)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-spec needs <path>"
     canon "$p"
-    tmpl "$p" '^## ' "spec rejected: no '## ' template sections found in $p. Write it with claudehut:write-spec from skills/write-spec/references/spec-template.md and re-run set-spec."
-    tmpl "$p" 'Decision' "spec rejected: no Decision Record found in $p. Every spec carries the decision (template §9) — chosen option + why. Add it and re-run set-spec."
-    tmpl "$p" 'AC-[0-9]' "spec rejected: no acceptance criteria (AC-001 …) in $p. Add Given/When/Then acceptance criteria (template §5) and re-run set-spec."
+    doclint_gate spec "$p"
     tset --arg v "$p" '.spec_path=$v'
+    spec_rev_note "$p"
     ;;
   set-plan)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-plan needs <path>"
     canon "$p"
-    tmpl "$p" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows found in $p. Write the breakdown table with claudehut:write-plan (plan-template.md) and re-run set-plan."
+    pk="$(plan_kind "$p")"   # an assignment, so err inside the substitution stops the script (set -e)
+    doclint_gate "$pk" "$p"
     pp="$(abspath "$p")"
     if [ "$(jq -r '.route' <<<"$TASK")" = "full" ]; then
-      tmpl "$p" '^#+.*[Ii]mplementation [Ff]low' "plan rejected: no 'Implementation Flow' section in $p (full route). Trace the change end-to-end before the task table (plan-template §3) and re-run set-plan."
-      tmpl "$p" '[Ss]ketch' "plan rejected: no per-task Sketch in $p (full route). Each behavior task carries a Sketch (key signature / control flow / data shape). Add sketches and re-run."
-      # Smart gate: a substantial (≥5 tasks) or sensitive full-route plan needs a fresh plan-review APPROVE of
-      # these exact bytes. The way out of it is a route change (set-route light), not a bypass flag.
-      if [ -f "$pp" ]; then
-        nrows="$(grep -cE '^\| *T-[0-9]' "$pp" 2>/dev/null || true)"; nrows="${nrows:-0}"
-        sensitive=no; grep -qiE 'security|/auth|migration|flyway|liquibase|password|secret|owasp|permitall|deserial' "$pp" 2>/dev/null && sensitive=yes
-        if [ "$nrows" -ge 5 ] || [ "$sensitive" = yes ]; then
-          pr="$(jq -r '.plan_review // empty' <<<"$TASK")"
-          [ "$pr" = "APPROVE" ] || err "set-plan: this full-route plan ($nrows tasks$([ "$sensitive" = yes ] && echo ', sensitive surface')) needs a plan-reviewer APPROVE first: dispatch claudehut:claudehut-plan-reviewer (it writes tasks/NNNN-<slug>/plan-review.md), then claudehut-state set-plan-review APPROVE --evidence <that path>. If this task does not need the full route: claudehut-state set-route light."
-          sh="$(jq -r '.plan_review_plan_hash // empty' <<<"$TASK")"
-          if [ -n "$sh" ]; then
-            ch="$(plan_hash "$pp")"
-            [ -z "$ch" ] || [ "$ch" = "$sh" ] || err "set-plan: $p differs from the plan that was reviewed (content hash mismatch). Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE before set-plan."
-          fi
+      # Smart gate (06 §8, AC12): a substantial (≥5 T-rows), sensitive (a T-row's Files cell — the 3rd column — names
+      # a sensitive path) or migration-profile full-route plan needs a fresh plan-review APPROVE of these exact bytes.
+      # Prose is not scanned: "migration" in a section of text does not trigger it. The way out is set-route light.
+      nrows="$(grep -cE '^\| *T-[0-9]' "$pp" 2>/dev/null || true)"; nrows="${nrows:-0}"
+      sensitive=no
+      awk -F'|' '$2 ~ /^[[:space:]]*T-[0-9]/ {print $4}' "$pp" 2>/dev/null \
+        | grep -qiE 'security|/auth|auth/|migration|flyway|liquibase|changelog|password|secret|credential|owasp|permitall|deserial' && sensitive=yes
+      mig=no; [ "$(jq -r '.profile // empty' <<<"$TASK")" = migration ] && mig=yes
+      if [ "$nrows" -ge 5 ] || [ "$sensitive" = yes ] || [ "$mig" = yes ]; then
+        pr="$(jq -r '.plan_review // empty' <<<"$TASK")"
+        [ "$pr" = "APPROVE" ] || err "set-plan: this full-route plan ($nrows tasks$([ "$sensitive" = yes ] && echo ', sensitive path in Files')$([ "$mig" = yes ] && echo ', profile migration')) needs a plan-reviewer APPROVE first: dispatch claudehut:claudehut-plan-reviewer (it writes tasks/NNNN-<slug>/plan-review.md), then claudehut-state set-plan-review APPROVE --evidence <that path>. If this task does not need the full route: claudehut-state set-route light."
+        sh="$(jq -r '.plan_review_plan_hash // empty' <<<"$TASK")"
+        if [ -n "$sh" ]; then
+          ch="$(plan_hash "$pp")"
+          [ -z "$ch" ] || [ "$ch" = "$sh" ] || err "set-plan: $p differs from the plan that was reviewed (content hash mismatch). Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE before set-plan."
         fi
       fi
     fi
@@ -705,19 +755,38 @@ case "$sub" in
   set-plan-review)
     v="${shift_args[0]:-}"
     case "$v" in APPROVE|REVISE) ;; *) err "set-plan-review needs APPROVE|REVISE" ;; esac
+    ud="$(flag --user-decision)"
+    rnd="$(jq -r '.plan_review_round // 0 | tostring' <<<"$TASK")"; case "$rnd" in ''|*[!0-9]*) rnd=0 ;; esac
+    last="$(jq -r '.plan_review // empty' <<<"$TASK")"
+    capped=no; [ "$rnd" -ge 2 ] && [ "$last" = REVISE ] && capped=yes
+    # Cap 2 (06 §8, ADR-D5): checked first, so a capped task records nothing until the user has decided.
+    [ "$capped" = no ] || [ -n "$ud" ] || err "set-plan-review: capped — plan review has run $rnd rounds and the last verdict was REVISE (cap 2). Ask the user how to proceed (AskUserQuestion), then record their answer: claudehut-state set-plan-review APPROVE|REVISE --user-decision \"<the user's decision>\"."
+    [ -z "$ud" ] || [ "$capped" = yes ] || { note "set-plan-review: --user-decision ignored — the review is not capped (round $rnd)"; ud=""; }
+    # The reviewer's file is the evidence for BOTH verdicts; its one Verdict: line must match the argument (L11).
+    ev="$(flag --evidence)"; [ -n "$ev" ] || ev=".claude/claudehut/tasks/$ACTIVE/plan-review.md"
+    canon "$ev"
+    evp="$(abspath "$ev")"
+    [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — the plan-reviewer writes its verdict to plan-review.md before this is recorded."
+    doclint_gate plan-review "$ev"
+    # Same line shape as the engine's L11 (a bold **Verdict:** included).
+    fv="$(grep -m1 -E '^[[:space:]]*[*]*[[:space:]]*Verdict[[:space:]]*[*]*[[:space:]]*:' "$evp" \
+          | sed -E 's/^[[:space:]]*[*]*[[:space:]]*Verdict[[:space:]]*[*]*[[:space:]]*:[[:space:]]*//' | tr -d '*`' | awk '{print toupper($1)}' || true)"
+    if [ "$fv" != "$v" ]; then
+      [ -n "$ud" ] || err "set-plan-review: $ev says 'Verdict: ${fv:-<none>}' but $v was given — record the reviewer's verdict as written (only the plan-reviewer writes plan-review.md)."
+      note "set-plan-review: recording $v over the file's Verdict ${fv:-<none>} on the user's decision"
+    fi
+    tset --arg e "$ev" '.plan_review_evidence=$e'
     if [ "$v" = "APPROVE" ]; then
-      ev="$(flag --evidence)"
-      [ -n "$ev" ] || err "set-plan-review APPROVE requires --evidence <tasks/NNNN-slug/plan-review.md> (the reviewer's coverage table + verdict)."
-      canon "$ev"
-      evp="$(abspath "$ev")"
-      [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — write the reviewer's verdict to plan-review.md (coverage table + APPROVE) before recording."
-      grep -qiE '^[[:space:]]*\|.*(✓|✗|covered|uncovered|placeholder|satisfied)' "$evp" \
-        || err "set-plan-review: $ev has no coverage table — expected the plan-reviewer's rows like '| AC-001 covered | ✓ | T-002 |'."
-      tset --arg e "$ev" '.plan_review_evidence=$e'
       planf="$(dirname "$evp")/plan.md"
       if [ -f "$planf" ]; then tset --arg h "$(plan_hash "$planf")" '.plan_review_plan_hash=$h'; fi
     fi
-    tset --arg v "$v" '.plan_review=$v | .plan_review_round=((.plan_review_round // 0) + 1)'
+    if [ -n "$ud" ]; then
+      # The user's decision takes the place of a review round: the text is kept, the count starts over.
+      tset --arg v "$v" --arg d "$ud" --arg ts "$TS" '.plan_review=$v | .plan_review_user_decision=$d | .plan_review_user_decision_at=$ts | .plan_review_round=0'
+    else
+      tset --arg v "$v" '.plan_review=$v | .plan_review_round=((.plan_review_round // 0) + 1)'
+      [ "$v" = APPROVE ] || [ "$((rnd+1))" -lt 2 ] || note "set-plan-review: round $((rnd+1)) of 2 ended REVISE — the cap is reached. Ask the user how to proceed (AskUserQuestion); the next set-plan-review needs --user-decision \"<their decision>\"."
+    fi
     ;;
   set-review)
     r="${shift_args[0]:-}"

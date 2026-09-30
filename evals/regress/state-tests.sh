@@ -7,6 +7,10 @@
 #          `start --profile <new>` opens the new task; CLI and both skills say the same
 #   M2     legacy verbs (04 §3): the removed ones are no-op + notice (exit 0, nothing written, even with a task
 #          open), set-complexity is a deprecated route alias, and the CLI header records why each is kept
+#   M3     doclint gate (06 §4, §8): set-spec/set-brainstorm/set-plan/set-plan-review/set-phase --spec refuse on a
+#          blocking violation with task.json byte-identical, pass (and print) on advisory; plan-review Verdict must
+#          match; round cap 2 → --user-decision; light set-plan takes task.md; doc_schema:2 stamped at start.
+#          A stub engine (CLAUDEHUT_DOCLINT) keeps these independent of the rule set; one check uses the real one.
 # Self-contained temp planes, no network, < 60 s. Prints "STATE-TESTS: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 
@@ -119,6 +123,102 @@ check "M2: set-complexity is a deprecated alias — notice says deprecated, the 
   '[ "$r" = 0 ] && grep -q deprecated <<<"$e" && [ "$(tj "$P" "$id" | jq -r .route)" = full ]'
 check "M2 doc: the CLI header records the legacy-verb decision (set-profile live, the rest kept until M7)" \
   'grep -q "Legacy verbs — M2 decision" "$CS" && grep -q "set-profile     a LIVE verb" "$CS"'
+
+# ── M3: doclint gate — a stub engine: "BLOCKME" → a blocking line + exit 1, "ADVISE" → an advisory line + exit 0 ──
+STUB="$TMP/doclint-stub.sh"
+cat >"$STUB" <<'STUBEOF'
+#!/usr/bin/env bash
+f="${!#}"; printf '%s\n' "$*" >>"${STUB_LOG:-/dev/null}"
+if grep -q BLOCKME "$f"; then echo "L4 blocking Tasks: stub structural violation"; exit 1; fi
+grep -q ADVISE "$f" && echo "L9 advisory Decisions: cell Decision — 120w/80w (budget)"
+exit 0
+STUBEOF
+export STUB_LOG="$TMP/stub.log"
+dcs() { CLAUDEHUT_DOCLINT="$STUB" cs "$@"; }
+P="$(newplane dl)"
+id="$(dcs "$P" sD start --route full --profile feature --slug dl 2>/dev/null | head -1)"; D="$P/.claude/claudehut/tasks/$id"; R=".claude/claudehut/tasks/$id"
+check "M3: start stamps doc_schema:2 (and plan_review_round:0)" '[ "$(tj "$P" "$id" | jq -c "[.doc_schema,.plan_review_round]")" = "[2,0]" ]'
+printf '# Spec\nBLOCKME\n' >"$D/spec.md"; before="$(tj "$P" "$id")"
+e="$(dcs "$P" sD set-spec "$R/spec.md" 2>&1)"; r=$?
+check "M3: set-spec on a blocking violation exits 1, prints the violation line" '[ "$r" = 1 ] && grep -q "L4 blocking Tasks" <<<"$e" && grep -q "spec rejected" <<<"$e"'
+check "M3: a refused set-spec leaves task.json byte-identical" '[ "$(tj "$P" "$id")" = "$before" ]'
+check "M3: the gate passes kind, route and profile to the engine" 'grep -q -- "--kind spec --route full --profile feature" "$STUB_LOG"'
+e="$(dcs "$P" sD set-phase implement --spec "$R/spec.md" 2>&1)"; r=$?
+check "M3: set-phase --spec runs the same gate (no bypass): refused, task.json unchanged" '[ "$r" = 1 ] && [ "$(tj "$P" "$id")" = "$before" ]'
+printf '# Spec\nADVISE\n' >"$D/spec.md"
+e="$(dcs "$P" sD set-spec "$R/spec.md" 2>&1)"; r=$?
+check "M3: set-spec with only advisory results records and prints the budget line" '[ "$r" = 0 ] && grep -q "120w/80w" <<<"$e" && [ "$(tj "$P" "$id" | jq -r .spec_path)" = "$R/spec.md" ]'
+before="$(tj "$P" "$id")"
+e="$(dcs "$P" sD set-spec "$R/nope.md" 2>&1)"; r=$?
+check "M3: set-spec of a missing file is refused, nothing written" '[ "$r" = 1 ] && [ "$(tj "$P" "$id")" = "$before" ]'
+printf '# B\nBLOCKME\n' >"$D/brainstorm.md"
+check "M3: set-brainstorm refuses on a blocking violation" '! dcs "$P" sD set-brainstorm "$R/brainstorm.md" 2>/dev/null && [ -z "$(tj "$P" "$id" | jq -r ".brainstorm_path // empty")" ]'
+e="$(CLAUDEHUT_DOCLINT="$TMP/absent.sh" cs "$P" sD set-spec "$R/spec.md" 2>&1)"; r=$?
+check "M3: a missing engine is not a pass on a doc_schema-2 task (exit 1, names the engine path)" '[ "$r" = 1 ] && grep -q "absent.sh" <<<"$e"'
+
+# plan-review: verdict match, round cap 2, --user-decision
+printf '# Plan review\nVerdict: REVISE\n## Findings\n' >"$D/plan-review.md"
+e="$(dcs "$P" sD set-plan-review APPROVE 2>&1)"; r=$?
+check "M3: set-plan-review APPROVE against 'Verdict: REVISE' is refused (default evidence = the task's plan-review.md)" '[ "$r" = 1 ] && grep -q "Verdict: REVISE" <<<"$e" && [ "$(tj "$P" "$id" | jq -r .plan_review_round)" = 0 ]'
+dcs "$P" sD set-plan-review REVISE 2>/dev/null; e="$(dcs "$P" sD set-plan-review REVISE 2>&1)"; r=$?
+check "M3: two REVISE rounds record (round 2) and the second one announces the cap" '[ "$r" = 0 ] && [ "$(tj "$P" "$id" | jq -r .plan_review_round)" = 2 ] && grep -q "AskUserQuestion" <<<"$e"'
+before="$(tj "$P" "$id")"; printf '# Plan review\nVerdict: APPROVE\n## Findings\n' >"$D/plan-review.md"
+e="$(dcs "$P" sD set-plan-review APPROVE 2>&1)"; r=$?
+check "M3: a third round without --user-decision is refused as capped, task.json unchanged" '[ "$r" = 1 ] && grep -q capped <<<"$e" && grep -q -- "--user-decision" <<<"$e" && [ "$(tj "$P" "$id")" = "$before" ]'
+dcs "$P" sD set-plan-review APPROVE --user-decision "owner: ship with the MED finding open" 2>/dev/null
+check "M3: --user-decision stores the text, resets the round to 0 and records the verdict" \
+  '[ "$(tj "$P" "$id" | jq -c "[.plan_review,.plan_review_round,.plan_review_user_decision]")" = "[\"APPROVE\",0,\"owner: ship with the MED finding open\"]" ]'
+printf '# Plan review\nBLOCKME\nVerdict: APPROVE\n' >"$D/plan-review.md"; before="$(tj "$P" "$id")"
+check "M3: set-plan-review refuses a plan-review.md with a blocking violation" '! dcs "$P" sD set-plan-review APPROVE 2>/dev/null && [ "$(tj "$P" "$id")" = "$before" ]'
+
+# set-plan: blocking refuses; the smart gate reads the Files cell, not prose (06 AC12)
+printf '# Plan\nBLOCKME\n| T-001 | AC-001 | src/a.java | t |\n' >"$D/plan.md"
+check "M3: set-plan refuses on a blocking violation (plan_approved stays false)" '! dcs "$P" sD set-plan "$R/plan.md" 2>/dev/null && [ "$(tj "$P" "$id" | jq -r .plan_approved)" = false ]'
+P2="$(newplane dl2)"; id2="$(dcs "$P2" sE start --route full --profile feature --slug p 2>/dev/null | head -1)"; D2="$P2/.claude/claudehut/tasks/$id2"; R2=".claude/claudehut/tasks/$id2"
+{ printf '# Plan\n## 5. Notes\nthe migration and security wording lives in prose only\n'
+  for i in 1 2 3 4; do printf '| T-00%s | AC-001 | src/main/java/A%s.java | t |\n' "$i" "$i"; done; } >"$D2/plan.md"
+check "M3/AC12: 4 T-rows, 'migration' only in prose, profile feature → set-plan needs no plan-review" 'dcs "$P2" sE set-plan "$R2/plan.md" 2>/dev/null && [ "$(tj "$P2" "$id2" | jq -r .plan_approved)" = true ]'
+P3="$(newplane dl3)"; id3="$(dcs "$P3" sF start --route full --profile feature --slug q 2>/dev/null | head -1)"; R3=".claude/claudehut/tasks/$id3"
+printf '# Plan\n| T-001 | AC-001 | src/main/resources/db/migration/V2__x.sql | t |\n' >"$P3/$R3/plan.md"
+check "M3: a sensitive path in a T-row's Files cell needs a plan-review APPROVE" '! dcs "$P3" sF set-plan "$R3/plan.md" 2>/dev/null'
+P4="$(newplane dl4)"; id4="$(dcs "$P4" sG start --route full --profile migration --slug m 2>/dev/null | head -1)"; R4=".claude/claudehut/tasks/$id4"
+printf '# Plan\n| T-001 | AC-001 | src/main/java/A.java | t |\n' >"$P4/$R4/plan.md"
+check "M3: profile=migration needs a plan-review APPROVE" '! dcs "$P4" sG set-plan "$R4/plan.md" 2>/dev/null'
+
+# light route: set-plan takes task.md (kind task); the full route does not
+P5="$(newplane dl5)"; id5="$(dcs "$P5" sH start --route light --profile bugfix --slug l 2>/dev/null | head -1)"; R5=".claude/claudehut/tasks/$id5"
+printf '# Task: x\n## 1. Approach\na\n## 2. Tasks\n| T-001 | AC-001 | src/main/java/A.java | t |\n' >"$P5/$R5/task.md"; : >"$STUB_LOG"
+check "M3: light route set-plan task.md records plan_path + plan_approved, linted as kind task" \
+  'dcs "$P5" sH set-plan "$R5/task.md" 2>/dev/null && [ "$(tj "$P5" "$id5" | jq -c "[.plan_path,.plan_approved]")" = "[\"$R5/task.md\",true]" ] && grep -q -- "--kind task" "$STUB_LOG"'
+cp "$P5/$R5/task.md" "$D2/task.md"
+check "M3: full route set-plan task.md is refused (the full route records plan.md)" '! dcs "$P2" sE set-plan "$R2/task.md" 2>/dev/null'
+
+# set-plan checks the plan against the RECORDED spec (--spec spec_path); set-spec notes a plan pinned to an older
+# spec-rev (06 §7 SpecRevN → PlanStale: exit 0, no state flag)
+P6="$(newplane dl6)"; id6="$(dcs "$P6" sI start --route full --profile feature --slug r 2>/dev/null | head -1)"; R6=".claude/claudehut/tasks/$id6"
+printf '# Spec: r\n> id: %s · profile: feature · route: full · rev: 1\n## 1. Context\nx\n' "$id6" >"$P6/$R6/spec.md"
+printf '# Plan: r\n> id: %s · spec-rev: 1 · route: full · rev: 1\n| T-001 | AC-001 | src/main/java/A.java | t |\n' "$id6" >"$P6/$R6/plan.md"
+dcs "$P6" sI set-spec "$R6/spec.md" >/dev/null 2>&1; : >"$STUB_LOG"
+check "M3-V3: set-plan passes the recorded spec to the engine (--spec <spec_path>)" \
+  'dcs "$P6" sI set-plan "$R6/plan.md" 2>/dev/null && grep -q -- "--spec $P6/$R6/spec.md" "$STUB_LOG"'
+e="$(dcs "$P6" sI set-spec "$R6/spec.md" 2>&1)"
+check "M3-V1: set-spec with the plan on the same spec-rev prints no stale-plan note" '! grep -q "pins spec-rev" <<<"$e"'
+sed -i.bak 's/ rev: 1$/ rev: 2/' "$P6/$R6/spec.md"; before="$(tj "$P6" "$id6" | jq -c 'del(.spec_path)')"
+e="$(dcs "$P6" sI set-spec "$R6/spec.md" 2>&1)"; r=$?
+check "M3-V1: set-spec rev 2 over a plan pinned to spec-rev 1 → exit 0 + a re-plan note, no state flag" \
+  '[ "$r" = 0 ] && grep -q "pins spec-rev 1, spec is now rev 2" <<<"$e" && [ "$(tj "$P6" "$id6" | jq -c "del(.spec_path)")" = "$before" ] && [ "$(tj "$P6" "$id6" | jq -r .plan_approved)" = true ]'
+
+# the real engine against a minimal ch:schema template (DOCLINT_TEMPLATES), so it runs before the shipped templates do
+if [ -f "$ROOT/scripts/doclint.sh" ] && command -v python3 >/dev/null 2>&1; then
+  mkdir -p "$TMP/tpl"; printf '%s\n' '<!-- ch:schema kind=spec total=200' '1. Context | budget=100' '-->' '```markdown' '# Spec: <title>' '## 1. Context' '```' >"$TMP/tpl/spec-template.md"
+  P7="$(newplane dl7)"; id7="$(cs "$P7" sJ start --route full --profile feature --slug j 2>/dev/null | head -1)"; R7=".claude/claudehut/tasks/$id7"
+  printf '# Spec: x\n## 1. Context\nwhy\n```java\nclass A {}\n```\n' >"$P7/$R7/spec.md"
+  e="$(DOCLINT_TEMPLATES="$TMP/tpl" cs "$P7" sJ set-spec "$R7/spec.md" 2>&1)"; r=$?
+  check "M3 (real doclint): a spec with a java fence is refused by set-spec on L5, nothing recorded" \
+    '[ "$r" = 1 ] && grep -q "^L5 blocking" <<<"$e" && [ -z "$(tj "$P7" "$id7" | jq -r ".spec_path // empty")" ]'
+  printf '# Spec: x\n## 1. Context\nwhy now\n' >"$P7/$R7/spec.md"
+  check "M3 (real doclint): a clean spec records" 'DOCLINT_TEMPLATES="$TMP/tpl" cs "$P7" sJ set-spec "$R7/spec.md" 2>/dev/null && [ "$(tj "$P7" "$id7" | jq -r .spec_path)" = "$R7/spec.md" ]'
+fi
 
 echo "STATE-TESTS: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

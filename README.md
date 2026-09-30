@@ -444,17 +444,17 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 837 assertions, all green on the release commit
-evals/conformance.sh              # 289  structural + behavioural wiring checks
-evals/hook-tests.sh               # 254  advisory hook contract, fault injection, replays, state schema 2,
-                                  #       then evals/regress/{state,script}-tests.sh (--fast: the first part only)
+# deterministic (free, no Claude needed) — 942 assertions, all green on the release commit
+evals/conformance.sh              # 290  structural + behavioural wiring checks
+evals/hook-tests.sh               # 357  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script,doclint}-tests.sh (--fast: the first part only)
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    #  56  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
-evals/worktree-tests.sh           #  53  parallel-implementer worktree lifecycle
+evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)

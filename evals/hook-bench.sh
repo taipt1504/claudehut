@@ -22,7 +22,8 @@
 #   * CPU_CEIL (evals/lib/hook-latency.py) is calibrated on Darwin; the Linux column comes from a docker ubuntu and
 #     was never re-measured on a CI ubuntu-latest runner. Harmless while CI runs report-only; calibrate it there
 #     before anyone turns HOOK_BENCH_STRICT=1 on for Linux.
-#   * A probe with no ratio ceiling (the machine-local va-ms info probe) prints "vs ceiling n/a".
+#   * A probe with no ratio ceiling (the machine-local va-ms info probe, the two doclint-advise info probes) prints
+#     "vs ceiling n/a".
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PY="$ROOT/evals/lib/hook-latency.py"
@@ -134,6 +135,9 @@ done
 if jq -e 'has("inject-phase(va-ms learnings)")' <<<"$LAT" >/dev/null; then
   echo "  info - real va-ms learnings store: within bound and ceiling = $(jk "$LAT" "inject-phase(va-ms learnings)" ok) (machine-local, never gated; the 100-entry synthetic store is the gated probe)"
 fi
+for k in "doclint-advise(non-artifact .md)" "doclint-advise(plan.md)"; do
+  jq -e --arg k "$k" 'has($k)' <<<"$LAT" >/dev/null && echo "  info - $k: p95 $(jk "$LAT" "$k" h95) ms, p50 $(jk "$LAT" "$k" h50) ms, CPU ratio $(jk "$LAT" "$k" rc)x (never gated, no ceiling calibrated)"
+done
 if [ "$STRICT" = 1 ]; then
   # A strict verdict that stopped catching a regression would be a green light for nothing: prove it on
   # advise-write, sized from the measurement above (--self-test proves all four probes).

@@ -32,46 +32,72 @@ mkfx() { # fixture repo + approved phased plan + PRE-GATED state for $SID; echoe
   printf '# PROJECT\nBuild: grep/file verify for this demo (do NOT run Gradle). Base package com.x.\n' > "$w/.claude/claudehut/PROJECT.md"
   cat > "$d/spec.md" <<'S'
 # Spec: orders + payments
-## 1. Problem
-Two independent domain services then a controller.
-## 5. Acceptance Criteria
-- AC-001 GIVEN a valid order WHEN createOrder THEN an Order is persisted.
-- AC-002 GIVEN a valid payment WHEN charge THEN a Payment is recorded.
-## 9. Decision
-Build OrderService and PaymentService independently, then OrderController using both.
+> id: 0001-orders · profile: feature · route: full · rev: 1 · status: approved · date: 2026-06-08
+
+## 1. Context
+Two independent domain services, then a controller that uses both. The reuse scan decided `new`.
+
+## 3. Requirements
+| ID | Requirement (EARS) | Acceptance (GWT) |
+|---|---|---|
+| AC-001 | WHEN a valid order is created THE SYSTEM SHALL persist an Order | GIVEN a valid order WHEN createOrder THEN an Order is persisted |
+| AC-002 | WHEN a valid payment is charged THE SYSTEM SHALL record a Payment | GIVEN a valid payment WHEN charge THEN a Payment is recorded |
+| AC-003 | WHEN checkout is called THE SYSTEM SHALL create the order and charge it | GIVEN a valid order WHEN checkout THEN OrderService then PaymentService run |
+
+## 4. Flow
+```mermaid
+sequenceDiagram
+  Client->>OrderController: checkout
+  OrderController->>OrderService: createOrder
+  OrderController->>PaymentService: charge
+```
+
+## 5. Contracts
+none
+
+## 6. Decisions
+| ID | Decision (Y-statement) | Rejected options | Confirmation | Status |
+|---|---|---|---|---|
+| D-1 | In the context of orders and payments, facing two independent domains, we decided for two separate services wired by one controller to achieve parallel delivery, accepting one more service bean | One combined service | AC-001, AC-002, AC-003 tests | accepted |
 S
   printf '%s\n' '# Reuse scan' '| Dimension | Existing asset | Decision | Fit | Impact | Effort |' '|---|---|---|---|---|---|' '| order/payment service | none | new | 1 | low | M |' > "$d/reuse-scan.md"
   cat > "$d/plan.md" <<'PL'
 # Plan: orders + payments
+> id: 0001-orders · spec-rev: 1 · route: full · rev: 1 · status: approved
 
-> spec: tasks/0001-orders/spec.md · date: 2026-06-08 · status: approved
-> approval: approved via AskUserQuestion
-> REQUIRED SUB-SKILL: claudehut:implement
+## 1. Approach
+Implements D-1: build two INDEPENDENT services (Order, Payment) with real validation logic, then a controller
+using both. Build: grep/file verify for this demo (do NOT run Gradle).
 
-## 1. Decision & Approach
-Build two INDEPENDENT services (Order, Payment) with real validation logic, then a controller using both.
+## 2. Design
+```mermaid
+sequenceDiagram
+  OrderController->>OrderService: createOrder(OrderRequest)
+  OrderController->>PaymentService: charge(PaymentRequest)
+```
+The two services are independent; the controller is wired after both exist.
 
-## 2. Technical Context
-Java 17 / Spring Boot. Build: grep/file verify for this demo (do NOT run Gradle).
+## 3. Interfaces & Data
+| Element | Change | Contract | Req |
+|---|---|---|---|
+| `OrderService` | new | `OrderServiceImpl#createOrder(OrderRequest): Order`, cancelOrder, refund; real null/amount/status validation | AC-001 |
+| `PaymentService` | new | `PaymentServiceImpl#charge(PaymentRequest): Payment`, refund; real amount validation | AC-002 |
+| `OrderController` | new | `OrderController#checkout()` calls OrderService then PaymentService | AC-003 |
 
-## 3. Implementation Flow
-Request → OrderController → OrderService + PaymentService → repos. Build the two services first (independent), then wire the controller.
-**T-001 sketch**: OrderServiceImpl.createOrder(OrderRequest)→Order; validate amount>0 + status transitions.
-**T-002 sketch**: PaymentServiceImpl.charge(PaymentRequest)→Payment; validate amount.
-**T-003 sketch**: OrderController.checkout() calls OrderService then PaymentService.
-
-## 4. Task Breakdown
-
+## 4. Tasks
 ### Phase 1 — domain / service  (parallel — independent components)
-| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
-|----|------|-------|------------|----------------|--------|------------|-----|
-| T-001 [P] | OrderService: createOrder/cancelOrder/refund with validation | src/main/java/com/x/order/Order.java, src/main/java/com/x/order/OrderService.java, src/main/java/com/x/order/OrderServiceImpl.java, src/test/java/com/x/order/OrderServiceTest.java | OrderServiceTest covering create + cancel + invalid-amount | implement the 4 files with real null/amount/status validation | `grep -q createOrder src/main/java/com/x/order/OrderServiceImpl.java && grep -q cancelOrder src/main/java/com/x/order/OrderServiceImpl.java && grep -q refund src/main/java/com/x/order/OrderServiceImpl.java` | — | FR-1 |
-| T-002 [P] | PaymentService: charge/refund with validation | src/main/java/com/x/pay/Payment.java, src/main/java/com/x/pay/PaymentService.java, src/main/java/com/x/pay/PaymentServiceImpl.java, src/test/java/com/x/pay/PaymentServiceTest.java | PaymentServiceTest covering charge + refund + invalid-amount | implement the 4 files with real validation | `grep -q charge src/main/java/com/x/pay/PaymentServiceImpl.java && grep -q refund src/main/java/com/x/pay/PaymentServiceImpl.java` | — | FR-2 |
+| ID | Goal | Files | Test first | Verify | Depends | Req |
+|---|---|---|---|---|---|---|
+| T-001 [P] | OrderService: createOrder/cancelOrder/refund with validation | src/main/java/com/x/order/Order.java, src/main/java/com/x/order/OrderService.java, src/main/java/com/x/order/OrderServiceImpl.java, src/test/java/com/x/order/OrderServiceTest.java | OrderServiceTest#createCancelInvalidAmount | `grep -q createOrder src/main/java/com/x/order/OrderServiceImpl.java && grep -q cancelOrder src/main/java/com/x/order/OrderServiceImpl.java && grep -q refund src/main/java/com/x/order/OrderServiceImpl.java` | — | AC-001 |
+| T-002 [P] | PaymentService: charge/refund with validation | src/main/java/com/x/pay/Payment.java, src/main/java/com/x/pay/PaymentService.java, src/main/java/com/x/pay/PaymentServiceImpl.java, src/test/java/com/x/pay/PaymentServiceTest.java | PaymentServiceTest#chargeRefundInvalidAmount | `grep -q charge src/main/java/com/x/pay/PaymentServiceImpl.java && grep -q refund src/main/java/com/x/pay/PaymentServiceImpl.java` | — | AC-002 |
 
 ### Phase 2 — API / controller  (after phase 1)
-| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
-|----|------|-------|------------|----------------|--------|------------|-----|
-| T-003 | OrderController wiring both services | src/main/java/com/x/web/OrderController.java | OrderControllerTest place + checkout | controller calls OrderService + PaymentService | `grep -q OrderService src/main/java/com/x/web/OrderController.java && grep -q PaymentService src/main/java/com/x/web/OrderController.java` | T-001, T-002 | FR-3 |
+| ID | Goal | Files | Test first | Verify | Depends | Req |
+|---|---|---|---|---|---|---|
+| T-003 | OrderController wiring both services | src/main/java/com/x/web/OrderController.java | OrderControllerTest#placeAndCheckout | `grep -q OrderService src/main/java/com/x/web/OrderController.java && grep -q PaymentService src/main/java/com/x/web/OrderController.java` | T-001, T-002 | AC-003 |
+
+## 5. Risks & Rollback
+- Demo fixture only; rollback: revert the commit.
 PL
   ( cd "$w" && git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -qm base \
     && git remote add origin . && git fetch -q origin && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main ) >/dev/null 2>&1
@@ -84,6 +110,10 @@ PL
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-orders/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-orders/plan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
+  # v0.12 M3: set-spec/set-plan run doclint, so a fixture the gate refuses would leave plan_approved=false and the
+  # probe would measure a run that started in the wrong phase. Fail loudly instead of silently.
+  jq -e '.plan_approved==true and .phase=="implement"' "$w/.claude/claudehut/tasks/$id/task.json" >/dev/null 2>&1 \
+    || { echo "FATAL: the pre-state did not record the plan (doclint refused a fixture?) — aborting probe" >&2; exit 3; }
 }
 
 read -r -d '' PROMPT <<'PR'

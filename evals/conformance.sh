@@ -456,15 +456,18 @@ grep -v '^[[:space:]]*#' "$ROOT/scripts/bootstrap.sh" | grep -q 'claude plugin l
 
 # C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
 HJ="$ROOT/hooks/hooks.json"
-# ── v0.12 M1 hook surface (05-hooks.md §2 K5/K6, §4 matrix, AC14). M1 ships 11 handlers / 13 entries: the
-#    §4 matrix minus doclint-advise (M3) and hint-explore (M6, microservice only). Update these two numbers,
-#    not the assertions, when those land (13 handlers / 15 entries).
+# ── v0.12 M1 hook surface (05-hooks.md §2 K5/K6, §4 matrix, AC14). M3 adds doclint-advise as two entries
+#    (if:Write(*.md) / if:Edit(*.md), one rule per `if`): 12 handlers / 15 entries — the §4 matrix minus
+#    hint-explore (M6, microservice only). Update these two numbers, not the assertions, when it lands
+#    (13 handlers / 16 entries).
 HJ_PAIRS="$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "-") as $m | .hooks[]
   | "\($e);\($m);\(.command | capture("scripts/(?<s>[a-z-]+)\\.sh").s);\(if .async then "async" else "sync" end);\(.timeout // "-");\(.if // "-")"' "$HJ" 2>/dev/null)"
-[ "$(printf '%s\n' "$HJ_PAIRS" | grep -c .)" = 13 ] \
-  && ok "M1: hooks.json has 13 entries" || bad "M1: hooks.json entry count is $(printf '%s\n' "$HJ_PAIRS" | grep -c .), expected 13"
-[ "$(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-4 | sort -u | grep -c .)" = 11 ] \
-  && ok "M1: 11 distinct (event, matcher, script) handlers" || bad "M1: handler count drifted from 11"
+[ "$(printf '%s\n' "$HJ_PAIRS" | grep -c .)" = 15 ] \
+  && ok "M1: hooks.json has 15 entries" || bad "M1: hooks.json entry count is $(printf '%s\n' "$HJ_PAIRS" | grep -c .), expected 15"
+[ "$(printf '%s\n' "$HJ_PAIRS" | awk -F';' '$3=="doclint-advise" {print $6}' | sort | tr '\n' ' ')" = "Edit(*.md) Write(*.md) " ] \
+  && ok "M3: doclint-advise spawns only for Write(*.md) / Edit(*.md)" || bad "M3: doclint-advise if-filter drifted"
+[ "$(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-4 | sort -u | grep -c .)" = 12 ] \
+  && ok "M1: 12 distinct (event, matcher, script) handlers" || bad "M1: handler count drifted from 12"
 EXPECT_PAIRS='SessionStart;startup|resume|clear|compact|fork;bootstrap;sync;5
 SessionStart;startup;maintain;async;-
 UserPromptSubmit;-;inject-phase;sync;5
@@ -472,6 +475,7 @@ PreToolUse;Write|Edit|NotebookEdit;advise-write;sync;5
 PreToolUse;Agent;record-agent-dispatch;sync;5
 PostToolUse;Write|Edit;format-java;async;-
 PostToolUse;Write|Edit;lint-reuse;async;-
+PostToolUse;Write|Edit;doclint-advise;sync;5
 PostToolUseFailure;Bash;record-failure;async;-
 SubagentStart;-;record-dispatch;sync;5
 SubagentStop;-;verify-subagent;async;-
@@ -568,7 +572,7 @@ bpo="$(CLAUDE_PROJECT_DIR="$BPT" "$ROOT/bin/claudehut-state" --session b set-byp
   || bad "v0.12: set-bypass still mutates state or fails"
 rm -rf "$BPT"
 
-[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if)] | length' "$HJ")" = "4" ] \
+[ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if) | select(.if | endswith("(*.java)"))] | length' "$HJ")" = "4" ] \
   && ok "RES-H1: all four Java PostToolUse handlers are if-gated (no process on a non-Java write)" \
   || bad "RES-H1: a Java handler still spawns on every Write/Edit"
 [ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.statusMessage)] | length' "$HJ")" = "4" ] \
@@ -673,14 +677,15 @@ grep -q 'worktreeinclude' "$ROOT/bin/claudehut-init" \
   && ok "P0-1: plugin.json repository points to the real repo (not the 404 mirror)" \
   || bad "P0-1: plugin.json repository still the 404 mirror"
 
-# C12 — v0.7 Spine (Doc-as-Contract, Issue 4): plan carries HOW (Implementation Flow + per-task Sketch)
-# and an adversarial doc-reviewer gates it before the user approval gate.
-grep -q '## 3. Implementation Flow' "$PT" \
-  && ok "S1: plan template has §3 Implementation Flow (the HOW a reviewer reads)" \
-  || bad "S1: plan template missing §3 Implementation Flow — plan lists files but not HOW (Issue 4)"
-grep -qi 'per-task Sketch' "$PT" && grep -qi 'no.placeholder' "$PT" \
-  && ok "S2: plan template requires per-task Sketch with no-placeholder rule" \
-  || bad "S2: plan template missing per-task Sketch / no-placeholder rule"
+# C12 — v0.7 Spine (Doc-as-Contract, Issue 4): plan carries HOW, and an adversarial doc-reviewer gates it
+# before the user approval gate. v0.12 M3 (06 §5.5): the HOW is §2 Design (mermaid) + §3 Interfaces & Data
+# (a contract table), not §3 Implementation Flow + per-task Java sketches.
+{ grep -q '^## 2. Design' "$PT" && grep -q '^## 3. Interfaces & Data' "$PT"; } \
+  && ok "S1: plan template has §2 Design + §3 Interfaces & Data (the HOW a reviewer reads)" \
+  || bad "S1: plan template missing §2 Design / §3 Interfaces & Data — plan lists files but not HOW (Issue 4)"
+{ grep -qF '| Element | Change | Contract | Req |' "$PT" && ! grep -qiE '^[[:space:]]*```[[:space:]]*(java|kotlin)' "$PT"; } \
+  && ok "S2: plan template carries interfaces as a contract table, with no java/kotlin code block" \
+  || bad "S2: plan template lost the contract table or carries a java/kotlin block (doclint L5)"
 [ -f "$ROOT/agents/claudehut-plan-reviewer.md" ] \
   && fm "$ROOT/agents/claudehut-plan-reviewer.md" | grep -q '^name: claudehut-plan-reviewer' \
   && ok "S3: claudehut-plan-reviewer agent present" \
@@ -688,9 +693,11 @@ grep -qi 'per-task Sketch' "$PT" && grep -qi 'no.placeholder' "$PT" \
 grep -q 'claudehut-plan-reviewer' "$ROOT/skills/write-plan/SKILL.md" \
   && ok "S4: write-plan dispatches plan-reviewer before the approval gate" \
   || bad "S4: write-plan does not wire the plan-reviewer doc gate"
-grep -qi 'right-size' "$PT" \
-  && ok "S5: plan template right-sizes detail by tier (token discipline preserved)" \
-  || bad "S5: plan template missing right-size-by-tier rule (token regression risk)"
+# v0.12 M3 (06 §9): right-sizing is the schema, not prose — the plan's headings are req=full and its word
+# total is keyed by route.
+{ grep -qE '^<!-- ch:schema kind=plan .*total\.full=[0-9]+' "$PT" && grep -qE '^1\. Approach +\| req=full' "$PT"; } \
+  && ok "S5: plan template right-sizes by route in its ch:schema (req=full rows, total.full)" \
+  || bad "S5: plan template schema lost its route-keyed right-size (req=full / total.full)"
 
 # C13 — v0.7 Enforcement (Issue 6): Review's Standards axis catches semantic-convention defects a lenient
 # review drops (FQN-in-declaration, cross-file duplication) — NOT dismissed as "style nits".
@@ -886,64 +893,96 @@ printf '%s\n' '| Dimension | Existing | Decision | Fit | Impact | Effort |' '|--
 runp set-reuse-scan --artifact .claude/claudehut/tasks/0001-demo/reuse-scan.md \
   && ok "P0/WS-4: reuse-scan ACCEPTS v0.7 Fit/Impact format" || bad "P0/WS-4: reuse-scan rejected valid Fit/Impact"
 
-# WS-3 brainstorm content gate (fixes "brainstorm follows no format")
-printf '%s\n' '# B' '| Option | Score |' '|---|---|' '| A | 4 |' '## Premortem' 'x' '## Recommendation' 'A' > "$PD/brainstorm.md"
+# v0.12 M3: every set-* runs doclint (06 §4), so each fixture is a VALID v2 artifact — the filled-in example
+# of its template — with exactly one property broken for the negative case, and the refusal is matched on
+# its message, not just its exit code (a v1 fixture would be refused on L2 alone and prove nothing).
+exa() { sed -n "/^# $2/,\$p" "$ROOT/skills/$1"; }   # the template's example, from its "# Kind:" line down
+drop_sec() { awk -v h="$1" '/^## /{skip=(index($0, h)==4)} !skip'; }   # remove one "## h" section
+runo() { CLAUDE_PROJECT_DIR="$P0" "$ST" --session "$1" "${@:2}" 2>&1; }
+EXSPEC="$(exa write-spec/references/spec-template.md Spec:)"
+EXPLAN="$(exa write-plan/references/plan-template.md Plan:)"
+EXBS="$(exa brainstorm/references/brainstorm-template.md Brainstorm:)"
+EXPR="$(exa write-plan/references/plan-review-template.md 'Plan review')"
+{ [ -n "$EXSPEC" ] && [ -n "$EXPLAN" ] && [ -n "$EXBS" ] && [ -n "$EXPR" ]; } \
+  && ok "P0: every template example was extracted for the fixtures" || bad "P0: a template example came out empty (its '# Kind' heading moved)"
+# the sensitive variant: a T-row Files cell (3rd column) names a security path — the only trigger besides ≥5
+# rows and profile=migration (06 §8)
+EXPLAN_SENS="$(printf '%s\n' "$EXPLAN" | sed 's#src/main/java/app/order/OrderMetrics.java#src/main/java/app/security/OrderMetrics.java#')"
+for _d in 0001-demo 0002-simple 0003-adv 0004-fresh; do mkdir -p "$P0/.claude/claudehut/tasks/$_d"; printf '%s\n' "$EXSPEC" > "$P0/.claude/claudehut/tasks/$_d/spec.md"; done
+
+# WS-3 brainstorm gate: a brainstorm without its Premortem section is refused (L2), the full example passes
+printf '%s\n' "$EXBS" | drop_sec '3. Premortem' > "$PD/brainstorm.md"
+o="$(runo p set-brainstorm .claude/claudehut/tasks/0001-demo/brainstorm.md)" \
+  && bad "P0/WS-3: brainstorm ACCEPTED without a Premortem section" \
+  || case "$o" in *L2*Premortem*) ok "P0/WS-3: brainstorm REJECTS a missing Premortem section (L2 names it)" ;;
+       *) bad "P0/WS-3: brainstorm refused, but not for the missing Premortem: $(printf '%s' "$o" | head -1)" ;; esac
+printf '%s\n' "$EXBS" > "$PD/brainstorm.md"
 runp set-brainstorm .claude/claudehut/tasks/0001-demo/brainstorm.md \
-  && bad "P0/WS-3: brainstorm ACCEPTED <2 options" || ok "P0/WS-3: brainstorm REJECTS <2 scored options"
-printf '%s\n' '# B' '| Option | Score |' '|---|---|' '| A | 4 |' '| B | 3 |' '## Premortem' 'both' '## Recommendation' 'A' > "$PD/brainstorm.md"
-runp set-brainstorm .claude/claudehut/tasks/0001-demo/brainstorm.md \
-  && ok "P0/WS-3: brainstorm ACCEPTS ≥2 options + premortem + recommendation" || bad "P0/WS-3: brainstorm rejected valid deliberation"
+  && ok "P0/WS-3: brainstorm ACCEPTS the template's 2 options + premortem + recommendation" || bad "P0/WS-3: brainstorm rejected valid deliberation"
 
-# WS-4 spec acceptance-criteria gate
-printf '%s\n' '# S' '## 1. Problem' 'x' '## 9. Decision' 'A' > "$PD/spec.md"
+# WS-4 spec gate: a spec without its Requirements (AC) section is refused (L2), the full example passes
+printf '%s\n' "$EXSPEC" | drop_sec '3. Requirements' > "$PD/spec.md"
+o="$(runo p set-spec .claude/claudehut/tasks/0001-demo/spec.md)" \
+  && bad "P0/WS-4: spec ACCEPTED with no Requirements (AC) section" \
+  || case "$o" in *L2*Requirements*) ok "P0/WS-4: spec REJECTS a missing Requirements (AC) section (L2 names it)" ;;
+       *) bad "P0/WS-4: spec refused, but not for the missing Requirements: $(printf '%s' "$o" | head -1)" ;; esac
+printf '%s\n' "$EXSPEC" > "$PD/spec.md"
 runp set-spec .claude/claudehut/tasks/0001-demo/spec.md \
-  && bad "P0/WS-4: spec ACCEPTED with no AC-xxx" || ok "P0/WS-4: spec REJECTS missing acceptance criteria"
-printf '%s\n' '# S' '## 1. Problem' 'x' '## 5. AC' '- AC-001 GIVEN a WHEN b THEN c' '## 9. Decision' 'A' > "$PD/spec.md"
-runp set-spec .claude/claudehut/tasks/0001-demo/spec.md \
-  && ok "P0/WS-4: spec ACCEPTS sections + Decision + AC-xxx" || bad "P0/WS-4: spec rejected valid"
+  && ok "P0/WS-4: spec ACCEPTS the template's sections + Decisions + AC rows" || bad "P0/WS-4: spec rejected valid"
 
-# WS-4 plan structural gate (full tier: Implementation Flow + Sketch)
-printf '%s\n' '# P' '| T-001 | x | tf | v | - |' > "$PD/plan.md"
-runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
-  && bad "P0/WS-4: plan ACCEPTED with no Impl-Flow/Sketch (full)" || ok "P0/WS-4: plan REJECTS missing Impl-Flow/Sketch (full tier)"
+# WS-4 plan structural gate (full route): a plan without §2 Design is refused (L2)
+printf '%s\n' "$EXPLAN" | drop_sec '2. Design' > "$PD/plan.md"
+o="$(runo p set-plan .claude/claudehut/tasks/0001-demo/plan.md)" \
+  && bad "P0/WS-4: plan ACCEPTED with no §2 Design (full)" \
+  || case "$o" in *L2*Design*) ok "P0/WS-4: plan REJECTS a missing §2 Design on the full route (L2 names it)" ;;
+       *) bad "P0/WS-4: plan refused, but not for the missing Design: $(printf '%s' "$o" | head -1)" ;; esac
 
-# WS-2 plan-reviewer hard gate (smart-gated): sensitive plan REQUIRES a fresh APPROVE
-printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PD/plan.md"
-runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
-  && bad "P0/WS-2: sensitive plan ACCEPTED without plan-reviewer APPROVE (issue 2 regressed)" || ok "P0/WS-2: sensitive plan REQUIRES plan-reviewer APPROVE (the issue-2 wire)"
-printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PD/plan-review.md"
+# WS-2 plan-reviewer hard gate (smart-gated): a sensitive Files cell REQUIRES a fresh APPROVE
+printf '%s\n' "$EXPLAN_SENS" > "$PD/plan.md"
+o="$(runo p set-plan .claude/claudehut/tasks/0001-demo/plan.md)" \
+  && bad "P0/WS-2: sensitive plan ACCEPTED without plan-reviewer APPROVE (issue 2 regressed)" \
+  || case "$o" in *"needs a plan-reviewer APPROVE"*) ok "P0/WS-2: a sensitive Files cell REQUIRES plan-reviewer APPROVE (the issue-2 wire)" ;;
+       *) bad "P0/WS-2: sensitive plan refused, but not by the smart gate: $(printf '%s' "$o" | head -1)" ;; esac
+printf '%s\n' "$EXPR" > "$PD/plan-review.md"
 runp set-plan-review APPROVE --evidence .claude/claudehut/tasks/0001-demo/plan-review.md \
-  && ok "P0/WS-2: set-plan-review APPROVE recorded (coverage table)" || bad "P0/WS-2: set-plan-review rejected a valid verdict"
+  && ok "P0/WS-2: set-plan-review APPROVE recorded (Verdict line + Findings table)" || bad "P0/WS-2: set-plan-review rejected a valid verdict"
 runp set-plan .claude/claudehut/tasks/0001-demo/plan.md \
   && ok "P0/WS-2: sensitive plan ACCEPTED after fresh plan-review APPROVE" || bad "P0/WS-2: plan rejected despite APPROVE"
-# smart-gate: a simple full-tier plan (1 task, non-sensitive) needs NO auditor (no latency tax — issue 5)
-mkdir -p "$P0/.claude/claudehut/tasks/0002-simple"
-printf '%s\n' '# P' '## Implementation Flow' 'x' '**T-001 sketch**: foo()' '| T-001 | A.java | tf | v | - |' > "$P0/.claude/claudehut/tasks/0002-simple/plan.md"
+# smart-gate: a simple full-route plan (3 tasks, no sensitive Files cell) needs NO auditor (no latency tax — issue 5)
+printf '%s\n' "$EXPLAN" > "$P0/.claude/claudehut/tasks/0002-simple/plan.md"
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session q set-plan .claude/claudehut/tasks/0002-simple/plan.md >/dev/null 2>&1 \
-  && ok "P0/WS-2: simple full-tier plan ACCEPTED without auditor (smart-gate avoids the latency tax)" || bad "P0/WS-2: smart-gate over-fired on a simple plan"
+  && ok "P0/WS-2: simple full-route plan ACCEPTED without auditor (smart-gate avoids the latency tax)" || bad "P0/WS-2: smart-gate over-fired on a simple plan"
 
 # WS-8a set-review citation gate — a ✓ row must cite a locus
 printf '%s\n' '| item | status | evidence |' '| x | ✓ satisfied | |' './gradlew test — 5 passed' > "$PD/review.md"
 runp set-review pass --evidence .claude/claudehut/tasks/0001-demo/review.md \
   && bad "P0/WS-8a: review ACCEPTED an uncited ✓ row" || ok "P0/WS-8a: review REJECTS a ✓ row with no evidence locus"
 
-# Fail-open: content gates degrade on a missing file (never wedge — the gate philosophy)
-runp set-brainstorm .claude/claudehut/tasks/0001-demo/nonexistent.md \
-  && ok "P0: fail-open — content gate on a missing file passes (never wedge)" || bad "P0: fail-open broken (missing-file rejected)"
+# v0.12 M3: a missing artifact is refused — there is nothing for doclint to check, and the verb would record a
+# path to nothing. The gate runs inside a task the user opted into (03 §6), so this is not a hook wedge; the
+# task.json stays byte-identical.
+_tj="$(ls -t "$P0"/.claude/claudehut/tasks/*/task.json | head -1)"; _h0="$(shasum "$_tj" | cut -c1-40)"
+o="$(runo p set-brainstorm .claude/claudehut/tasks/0001-demo/nonexistent.md)" \
+  && bad "P0: a missing brainstorm file was recorded" \
+  || { case "$o" in *"does not exist"*) [ "$(shasum "$_tj" | cut -c1-40)" = "$_h0" ] \
+         && ok "P0: a missing artifact is refused with a hint, task.json unchanged" || bad "P0: missing-file refusal still wrote task.json" ;;
+       *) bad "P0: missing-file refusal gave no hint: $(printf '%s' "$o" | head -1)" ;; esac; }
 
 # --- advisor P0-hardening regressions (B1 dispatch-proof, B2 bypass, M1/M2 freshness, M3 forged citation) ---
 PA="$P0/.claude/claudehut/tasks/0003-adv"; mkdir -p "$PA"
-printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PA/plan.md"
+printf '%s\n' "$EXPLAN_SENS" > "$PA/plan.md"
 # M1/M2: content-hash freshness — an unchanged reviewed plan passes; any post-review edit is rejected
 PB="$P0/.claude/claudehut/tasks/0004-fresh"; mkdir -p "$PB"
-printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PB/plan.md"
-printf '%s\n' '| Check | Status | Evidence |' '| AC-001 covered | ✓ | T-001 |' > "$PB/plan-review.md"
+printf '%s\n' "$EXPLAN_SENS" > "$PB/plan.md"
+printf '%s\n' "$EXPR" > "$PB/plan-review.md"
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan-review APPROVE --evidence .claude/claudehut/tasks/0004-fresh/plan-review.md >/dev/null 2>&1
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan .claude/claudehut/tasks/0004-fresh/plan.md >/dev/null 2>&1 \
   && ok "P0/WS-2: reviewed plan (byte-identical) ACCEPTED" || bad "P0/WS-2: unchanged reviewed plan rejected"
-printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' '<!-- backdoor added AFTER review -->' > "$PB/plan.md"
-CLAUDE_PROJECT_DIR="$P0" "$ST" --session fr set-plan .claude/claudehut/tasks/0004-fresh/plan.md >/dev/null 2>&1 \
-  && bad "P0/M1+M2: post-review plan EDIT accepted (freshness leak)" || ok "P0/M1+M2: post-review plan edit REJECTED (content-hash freshness, mtime-immune)"
+printf '%s\n' "$EXPLAN_SENS" '<!-- backdoor added AFTER review -->' > "$PB/plan.md"
+o="$(runo fr set-plan .claude/claudehut/tasks/0004-fresh/plan.md)" \
+  && bad "P0/M1+M2: post-review plan EDIT accepted (freshness leak)" \
+  || case "$o" in *"content hash mismatch"*) ok "P0/M1+M2: post-review plan edit REJECTED (content-hash freshness, mtime-immune)" ;;
+       *) bad "P0/M1+M2: edited plan refused, but not by the freshness check: $(printf '%s' "$o" | head -1)" ;; esac
 # M3: a forged ':N' citation is rejected; a real source filename is accepted
 printf '%s\n' '| x | ✓ satisfied | see section 4:9 |' './gradlew test — 1 passed' > "$PA/review.md"
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session m3 set-review pass --evidence .claude/claudehut/tasks/0003-adv/review.md >/dev/null 2>&1 \
@@ -1031,8 +1070,8 @@ grep -q 'Re-examine loop' "$ROOT/agents/claudehut-brainstormer.md" \
   && grep -qE 'conv -- .*yes.*--> div' "$ROOT/agents/claudehut-brainstormer.md" \
   && ok "WS-8b: brainstormer has a re-examine BACK-EDGE (premortem HIGH-risk → re-diverge, not a linear sweep)" \
   || bad "WS-8b: brainstormer pipeline is still a single linear pass (no re-examine loop)"
-grep -q 'loops:' "$ROOT/skills/brainstorm/references/brainstorm-template.md" \
-  && ok "WS-8b: brainstorm template records the re-examine loop count (loops:)" || bad "WS-8b: brainstorm template has no loops: field"
+# v0.12 M3 (06 §5.3): the brainstorm header is "id · route · rev" — the loop count left the artifact; the
+# re-examine back-edge above is what carries the loop.
 grep -q 'needs a plan-reviewer APPROVE first' "$ROOT/bin/claudehut-state" \
   && ok "WS-8b: the plan-reviewer verdict is gated at set-plan (SubagentStop is ledger-only in v0.12)" || bad "WS-8b: plan-reviewer verdict not gated"
 
@@ -1083,16 +1122,16 @@ BRS="$ROOT/skills/brainstorm/SKILL.md"; WPS="$ROOT/skills/write-plan/SKILL.md"; 
 { grep -q 'check -- "yes" --> smart' "$WPS" && grep -q 'smart -- "yes" --> rev' "$WPS"; } \
   && ok "DT-11: write-plan gates the plan-reviewer dispatch on the smart predicate (gate upstream of dispatch)" \
   || bad "DT-11: plan-reviewer dispatched unconditionally while its verdict is recorded conditionally"
-# ...and the skill's sensitive keyword set must MIRROR the one set-plan greps. A narrower skill predicate
-# means the model skips the dispatch and set-plan then refuses the plan — the round-trip it was avoiding.
-kw_ok=true
-for k in liquibase permitall deserial owasp flyway; do
-  grep -qi "$k" "$WPS" || kw_ok=false
-  grep -qi "$k" "$ROOT/bin/claudehut-state" || kw_ok=false
-done
-$kw_ok \
-  && ok "DT-11: write-plan mirrors set-plan's sensitive keyword set (no plan skipped then refused)" \
-  || bad "DT-11: write-plan's sensitive predicate diverges from set-plan's grep — a skipped plan the gate refuses"
+# ...and the skill's predicate must MIRROR the one set-plan checks. A narrower skill predicate means the model
+# skips the dispatch and set-plan then refuses the plan — the round-trip it was avoiding. v0.12 M3 (06 §8):
+# the predicate is three terms — ≥5 T-rows, a sensitive path in a T-row's Files cell, profile=migration — and
+# the path list has ONE home (claudehut-state), which the skill names instead of copying.
+{ grep -qF '≥5' "$WPS" && grep -q 'Files cell' "$WPS" && grep -q 'profile=migration' "$WPS" && grep -q 'claudehut-state' "$WPS" \
+  && grep -qF "awk -F'|' '\$2 ~ /^[[:space:]]*T-[0-9]/ {print \$4}'" "$ROOT/bin/claudehut-state" \
+  && grep -q '\[ "\$nrows" -ge 5 \]' "$ROOT/bin/claudehut-state" \
+  && grep -q '= migration \]' "$ROOT/bin/claudehut-state"; } \
+  && ok "DT-11: write-plan names set-plan's three-term predicate (≥5 T-rows, Files cell, profile=migration)" \
+  || bad "DT-11: write-plan's sensitive predicate diverges from set-plan's check — a skipped plan the gate refuses"
 
 # FANOUT-01 — `git merge-base HEAD @{u}` has no upstream to resolve on a mid-task branch, and the old
 # fallback was `HEAD~1`: every auditor then saw only the last commit of a multi-commit task.

@@ -45,7 +45,7 @@ flowchart TB
     ph --> rt{"which route?<br/>(recorded as route light/full)"}
     rt -- "light" --> inl["INLINE scan — targeted Greps<br/>(no subagent dispatch floor)"]
     rt -- "full" --> fan["dispatch explorer + reuse-scanner<br/>in ONE message (concurrent, both run)"]
-    fan --> join["explorer map + reuse-scan.md returned"]
+    fan --> join["reuse-scan.md returned;<br/>write context.md from the explorer map"]
     inl --> wr["write reuse-scan.md (Summary table + DECISION)"]
     join --> grd{"artifact on disk AND<br/>every built dimension carries a DECISION?"}
     wr --> grd
@@ -73,7 +73,7 @@ flowchart TB
    2-subagent dispatch floor (measured). The main thread does the scan itself (≤3 targeted Grep
    calls — the class, its annotations/signature shape, the config prefix), writes
    `tasks/NNNN-<slug>/reuse-scan.md` following the Summary-table format of `references/reuse-scan-template.md`,
-   then writes `task.md` (Approach + Tasks) and continues with `claudehut:implement`.
+   then writes `task.md` from `${CLAUDE_PLUGIN_ROOT}/skills/write-plan/references/task-template.md`, records it (`claudehut-state --session ${CLAUDE_SESSION_ID} set-plan <task.md>`), then `claudehut:implement`.
    Inline replaces the *dispatch*, never the *scan* — Review still requires the file.
    When the change spans several files, widen the sweep to ~5 Greps and keep the same artifact. If the scan
    turns up a reusable asset that changes the shape of the work, or the task shows hidden complexity,
@@ -82,8 +82,7 @@ flowchart TB
 
    **`full` route → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
    calls in a single response — the native concurrency mechanism; their inputs are independent), without
-   `name`. On this route both run, even when the task "obviously" has nothing to reuse (measured miss: a rate-limiting task skipped the scanner and had no reuse-scan artifact for
-   Review to check):
+   `name`. Both run even when the task "obviously" has nothing to reuse (a skipped scanner leaves Review no artifact):
 
    | Rationalization | Reality |
    |---|---|
@@ -91,6 +90,8 @@ flowchart TB
    | "The explorer already looked around" | Exploration ≠ a reuse DECISION with an artifact. Both run. |
    - `claudehut:claudehut-explorer` — loads the index (`PROJECT.md`, `architecture.md`, `reuse-index.json`),
      maps the packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list. Read-only.
+     The main thread writes its map to `tasks/NNNN-<slug>/context.md` (`references/context-template.md`;
+     `## Index brief` is `n/a — index not built` until the project index exists).
      When SessionStart printed an understand-anything graph line, put that path
      (`${CLAUDE_PROJECT_DIR}/.understand-anything/knowledge-graph.json`) in the dispatch prompt.
    - `claudehut:claudehut-reuse-scanner` — writes

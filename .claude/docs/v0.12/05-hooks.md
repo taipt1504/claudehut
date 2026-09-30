@@ -94,7 +94,7 @@ Các hook khác dùng tập con của predicate:
 
 ## 4. Ma trận hook cuối
 
-Đơn vị đếm là cặp (event, matcher, script), nên có 13 handler. `hooks.json` có 15 entry, vì `format-java` và `lint-reuse` mỗi script cần hai entry: mỗi trường `if` chỉ chứa một rule ([common fields](https://code.claude.com/docs/en/hooks#common-fields)).
+Đơn vị đếm là cặp (event, matcher, script), nên có 13 handler. `hooks.json` có 16 entry, vì `format-java`, `lint-reuse` và `doclint-advise` mỗi script cần hai entry: mỗi trường `if` chỉ chứa một rule ([common fields](https://code.claude.com/docs/en/hooks#common-fields)).
 
 | # | Event | Matcher / `if` | Script | Chế độ | Timeout (s) | Output | Điều kiện kích hoạt | Sửa finding |
 |---|---|---|---|---|---|---|---|---|
@@ -105,7 +105,7 @@ Các hook khác dùng tập con của predicate:
 | 5 | PreToolUse | `Agent` | `record-agent-dispatch.sh` | sync ³ | 5 | không | P-plane; ghi `name`↔`subagent_type` | F-1, F-PA-1 |
 | 6 | PostToolUse | `Write\|Edit`; `Write(*.java)`, `Edit(*.java)` | `format-java.sh` | async | — | không | có formatter | — |
 | 7 | PostToolUse | như #6 | `lint-reuse.sh` | async | — | suspects vào `state/<task>.suspects.jsonl` | P-task | A8 |
-| 8 | PostToolUse | `Write\|Edit` | `doclint-advise.sh` | sync | 5 | ≤10 dòng doclint | P-path: `tasks/*/{spec,plan,brainstorm,plan-review,task}.md` | C1, C3–C8 |
+| 8 | PostToolUse | `Write\|Edit`; `Write(*.md)`, `Edit(*.md)` | `doclint-advise.sh` | sync | 5 (engine bị kill sau 3) | 1 dòng doclint | P-path: `tasks/*/{spec,plan,brainstorm,plan-review,task,context}.md` | C1, C3–C8 |
 | 9 | PostToolUse | `Read\|Grep\|Glob` | `hint-explore.sh` | sync | 2 | 1 fact mỗi (session, agent, svc) | P-path ∧ mode=microservice ∧ path thuộc service khác | D8, D3 |
 | 10 | PostToolUseFailure | `Bash` | `record-failure.sh` | async | — | không | P-plane | B10 |
 | 11 | SubagentStart | — | `record-dispatch.sh` | sync ² | 5 ² | 1 dòng chỉ khi implementer chạy dạng teammate | P-plane | F-1 |
@@ -228,5 +228,5 @@ Mọi tiêu chí chạy bằng `evals/hook-tests.sh` (M1), trừ khi ghi khác. 
 | AC11 | HEAD lệch `indexed_commit`; 2 prompt liên tiếp | Tối đa 1 update nền (lock); fact đúng 1 lần mỗi (repo, HEAD) |
 | AC12 | 100 lần chạy trên đường không task | p95 ≤50 ms cho `advise-write`, `inject-phase`; `bootstrap` p95 ≤300 ms. **Benchmark, không gate:** `evals/hook-bench.sh` báo p95 từng hook, p95 chuẩn hoá theo baseline và tỉ lệ hook/baseline, luôn exit 0 (CI chạy dạng này), vì thời gian wall phụ thuộc máy và tải. `HOOK_BENCH_STRICT=1` bật gate: phải đạt CẢ bound tuyệt đối đã chuẩn hoá theo baseline LẪN trần tỉ lệ CPU hook/baseline theo từng hook (V3-1: bound chuẩn hoá nới theo tải nên một hồi quy CPU trốn được ngay ở tải vừa); `--self-test` chứng minh bản chậm 3× CPU và bản `sleep 0.05` bị gate strict đánh FAIL |
 | AC13 | `lint-prompt-length.sh --payload` | digest ≤2.500 B; ClaudeHut ≤4.000 B; card ≤500 B; không "MUST"/"REQUIRED NEXT" |
-| AC14 | `hooks.json` | 13 handler theo §4 (15 entry); không có Stop, UserPromptExpansion, PreToolUse `Skill`, PreCompact, `MultiEdit`; mọi command có `"${CLAUDE_PLUGIN_ROOT}"` được quote; `claude plugin validate` sạch; mọi `scripts/*.sh` có bit executable |
+| AC14 | `hooks.json` | 13 handler theo §4 (16 entry); không có Stop, UserPromptExpansion, PreToolUse `Skill`, PreCompact, `MultiEdit`; mọi command có `"${CLAUDE_PLUGIN_ROOT}"` được quote; `claude plugin validate` sạch; mọi `scripts/*.sh` có bit executable |
 | AC15 | Replay payload core-ledger 2e70d1d8 (343 file) và report-service 652fab55 | stdout rỗng (A1, A9) |

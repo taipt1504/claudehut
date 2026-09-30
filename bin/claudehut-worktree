@@ -129,12 +129,16 @@ case "$sub" in
     # dependency is normal (the template's own Phase 1 depends on Phase 0), and a dependency on a
     # same-phase NON-[P] task is left alone. The cell is free text ("—", "T-001, T-003", "T-001 (partial)"),
     # so match permissively: scan it for T-xxx tokens and intersect with that phase's [P] id set.
+    # The Depends cell is located by its header ("Depends on" in v1 = $8; "Depends" in the v2 template = $7,
+    # where $8 is Req). A table without a recognisable header keeps the v1 position.
     depviol="$(awk -F'|' "$PHASE_RULE"'
+      BEGIN { dc = 8 }
+      $2 ~ /^[[:space:]]*ID[[:space:]]*$/ { for (i=3;i<=NF;i++) if ($i ~ /^[[:space:]]*Depends/) { dc = i; break } ; next }
       $2 ~ /T-[0-9]+/ && $2 ~ /\[P\]/ {
         match($2, /T-[0-9]+/); id = substr($2, RSTART, RLENGTH)
         pset[phase SUBSEP id] = 1
         if (!(phase in seen)) { seen[phase] = 1; order[++k] = phase }
-        ids[phase, ++cnt[phase]] = id; dep[phase SUBSEP id] = $8 }
+        ids[phase, ++cnt[phase]] = id; dep[phase SUBSEP id] = $dc }
       END { for (i=1;i<=k;i++) { p = order[i]
               for (j=1;j<=cnt[p];j++) { id = ids[p,j]; s = dep[p SUBSEP id]
                 while (match(s, /T-[0-9]+/)) { t = substr(s, RSTART, RLENGTH); s = substr(s, RSTART+RLENGTH)

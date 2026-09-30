@@ -74,23 +74,22 @@ check_reuse_scan_rigor() {
   [ "$fails" -eq 0 ]
 }
 
-# ── R4: plan must carry the HOW (§3 Implementation Flow) and NO placeholder sketches.
+# ── R4: plan must carry the HOW (plan v2, M3: §2 Design + §3 Interfaces & Data) and NO placeholders.
+# v2 replaced §3 Implementation Flow and per-task Java sketches with a mermaid design and a contract table;
+# a java/kotlin code block in a plan is the v1 habit doclint L5 refuses, so the oracle fails it too.
 check_plan_no_placeholder() {
   local f="$1" fails=0
   [ -f "$f" ] || { echo "FAIL plan: file not found: $f"; return 1; }
-  grep -qE '^##[[:space:]]+3\.[[:space:]]+Implementation Flow' "$f" \
-    || { echo "FAIL plan: missing '## 3. Implementation Flow' (the HOW a reviewer reads)"; fails=$((fails+1)); }
+  grep -qE '^##[[:space:]]+2\.[[:space:]]+Design' "$f" && grep -qE '^##[[:space:]]+3\.[[:space:]]+Interfaces & Data' "$f" \
+    || { echo "FAIL plan: missing '## 2. Design' / '## 3. Interfaces & Data' (the HOW a reviewer reads)"; fails=$((fails+1)); }
   # placeholder tokens that mean "not actually designed" (word-based; avoid '...' which collides with paths)
   local bad; bad="$(grep -niE 'TBD|implement (the )?logic|add error handling|add validation logic|handle edge cases|your code here|to be implemented|FIXME' "$f" || true)"
   if [ -n "$bad" ]; then
-    echo "FAIL plan: placeholder text in plan/sketch (not implementable):"; printf '   %s\n' "$bad"; fails=$((fails+1))
+    echo "FAIL plan: placeholder text in plan (not implementable):"; printf '   %s\n' "$bad"; fails=$((fails+1))
   fi
-  # full tier must carry >=1 per-task Sketch
-  if grep -qiE '^>.*tier:[[:space:]]*full' "$f"; then
-    grep -qE '\*\*T-[0-9]+ sketch:\*\*' "$f" \
-      || { echo "FAIL plan: full tier but no per-task **T-xxx sketch:** block"; fails=$((fails+1)); }
-  fi
-  [ "$fails" -eq 0 ] && echo "ok plan: §3 Implementation Flow present, no placeholders, tier-appropriate sketches"
+  grep -qiE '^[[:space:]]*(```|~~~)[[:space:]]*(java|kotlin|kt)([[:space:]]|$)' "$f" \
+    && { echo "FAIL plan: java/kotlin code block — interfaces go in the §3 table, flow in the §2 mermaid"; fails=$((fails+1)); }
+  [ "$fails" -eq 0 ] && echo "ok plan: §2 Design + §3 Interfaces & Data present, no placeholders, no java/kotlin block"
   [ "$fails" -eq 0 ]
 }
 
@@ -103,8 +102,9 @@ check_brainstorm_persisted() {
   grep -qiE 'premortem' "$bf" || { echo "FAIL brainstorm: no premortem"; fails=$((fails+1)); }
   grep -qiE 'recommend' "$bf" || { echo "FAIL brainstorm: no recommendation"; fails=$((fails+1)); }
   if [ -n "${spec:-}" ]; then
-    [ -f "$spec" ] && grep -qE '^>[[:space:]]*brainstorm:' "$spec" \
-      || { echo "FAIL brainstorm: spec missing '> brainstorm:' link to the deliberation"; fails=$((fails+1)); }
+    # v2 spec header (M3): "> options: tasks/NNNN-slug/brainstorm.md"; the v1 "> brainstorm:" line still counts.
+    [ -f "$spec" ] && grep -qE '^>[[:space:]]*(brainstorm:|options:.*brainstorm\.md)' "$spec" \
+      || { echo "FAIL brainstorm: spec missing '> options: …brainstorm.md' link to the deliberation"; fails=$((fails+1)); }
   fi
   [ "$fails" -eq 0 ] && echo "ok brainstorm: persisted with >=2 options + premortem + recommendation, linked from spec"
   [ "$fails" -eq 0 ]
