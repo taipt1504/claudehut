@@ -29,7 +29,7 @@ while [ $# -gt 0 ]; do
     --candidates) CAND="${2:-}"; shift 2 ;;
     --project)    PROJECT="${2:-}"; shift 2 ;;
     --ts)         TS="${2:-}"; shift 2 ;;
-    --session)    SID="${2:-}"; shift 2 ;;   # WS-6: write a per-session learn-receipt the Stop gate checks
+    --session)    SID="${2:-}"; shift 2 ;;   # WS-6: write a per-session learn-receipt (proof a Learn pass ran)
     --injected)   INJECTED="${2:-}"; shift 2 ;;  # WS-6: ids injected at SessionStart → stamp .applied on resurface
     *) shift ;;
   esac
@@ -55,12 +55,14 @@ mkdir -p "$DIR" 2>/dev/null || true
 #    after 30s), and a bounded spin so a wedged lock never HANGS the Learn phase (fail-open: proceed after the
 #    cap). Released via EXIT trap. The whole read→merge→write below is the critical section.
 LOCK="$LEARNINGS.lock"
-_lock_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# GNU stat first (on Linux `stat -f` is --file-system: a multi-line report + exit 1); non-numeric → 0 (never steal).
+_lock_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=0
+                case "$m" in ''|*[!0-9]*) m=0 ;; esac; printf '%s' "$m"; }
 _lock_held=""
 release_lock() {
   case "$_lock_held" in
     mkdir) rm -rf "$LOCK" 2>/dev/null ;;
-    flock) exec 9>&- 2>/dev/null ;;   # closing the fd releases the flock
+    flock) { exec 9>&-; } 2>/dev/null ;;   # closing the fd releases the flock
   esac
   _lock_held=""
 }
@@ -68,7 +70,9 @@ acquire_lock() {
   # Prefer flock — a REAL blocking wait (deterministic; present on Linux/CI). fd 9 held for the run;
   # released on close/exit. -w 10 caps the wait, then proceeds (fail-open, never wedges).
   if command -v flock >/dev/null 2>&1; then
-    if exec 9>"$LOCK.flock" 2>/dev/null && flock -w 10 9 2>/dev/null; then
+    # Brace-grouped (V3-5): a bare `exec 9>file 2>/dev/null` applies BOTH redirections to the shell for the rest
+    # of the run, so every later jq/mv error of the merge went to /dev/null (bin/claudehut-state has the same guard).
+    if { exec 9>"$LOCK.flock"; } 2>/dev/null && flock -w 10 9 2>/dev/null; then
       _lock_held="flock"; trap 'release_lock' EXIT INT TERM
     fi
     return 0
@@ -323,8 +327,8 @@ REPORT="$(jq -nc --argjson a "$ADDED" --argjson m "$MERGED" --argjson p "$PROMOT
   --argjson um "${UNMAPPED:-0}" \
   '{added:$a, merged:$m, promoted:$p, dropped:$d, rejected:$r, recurred:$rc, applied:$ap, unmapped:$um}')"
 
-# WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (the Stop gate checks the
-# receipt's freshness, replacing the fictional "learnings.jsonl is non-empty" check that any prior line passed).
+# WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (v0.11's Stop gate checked its
+# freshness; that gate is gone in v0.12, and capture-learnings still reads the receipt before set-phase learn).
 if [ -n "$SID" ]; then
   RC="$DIR/state/$SID.learn-receipt.json"
   mkdir -p "$DIR/state" 2>/dev/null || true

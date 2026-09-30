@@ -17,7 +17,10 @@ ST="$SAN/bin/claudehut-state"
 
 mkfx() {
   local w="$1" sid="$2"; mkdir -p "$w"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$w/" 2>/dev/null || mkdir -p "$w/src"
-  local d="$w/.claude/claudehut/tasks/0001-spine"; mkdir -p "$d"   # creates .claude/ too
+  mkdir -p "$w/.claude/claudehut"
+  # v0.12: a task dir is the one `start` prints (it never adopts a pre-created dir). The artifacts are staged
+  # outside the repo and moved into that dir once the task is open (after the git setup, so base = the fixture HEAD).
+  local d; d="$(mktemp -d)"
   printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$w/.claude/settings.json"
   # HARD GUARD: if baseRef=head isn't actually set, the run tests the WRONG (default) base — abort.
   [ "$(jq -r '.worktree.baseRef // empty' "$w/.claude/settings.json" 2>/dev/null)" = "head" ] \
@@ -73,12 +76,13 @@ public abstract class BaseProcessor {
 }
 J
     git add -A && git commit -qm "T-001 — BaseProcessor (spine, local only)" ) >/dev/null 2>&1
-  ( cd "$w" && CLAUDE_PROJECT_DIR="$w" \
-      "$ST" --session "$sid" set-complexity full >/dev/null 2>&1
+  local id; id="$( cd "$w" && CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" start --route full --profile feature --slug spine 2>/dev/null | sed -n 1p )"
+  [ "$id" = 0001-spine ] || { echo "FATAL: start opened '$id', not 0001-spine (the prompt names 0001-spine) — fixture setup failed, aborting probe" >&2; exit 3; }
+  mv "$d"/* "$w/.claude/claudehut/tasks/$id/" && rmdir "$d"
+  ( cd "$w"
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-reuse-scan --artifact .claude/claudehut/tasks/0001-spine/reuse-scan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-spine/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-spine/plan.md >/dev/null 2>&1
-    CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-profile feature >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
   ( cd "$w" && echo "ahead/behind origin/HEAD: $(git rev-list --left-right --count origin/HEAD...HEAD 2>/dev/null)" ) >&2
 }
@@ -86,7 +90,7 @@ J
 read -r -d '' PROMPT <<'PR'
 You are operating under ClaudeHut, RESUMING at the Implement phase. Phase A (T-001 — BaseProcessor) is
 ALREADY implemented and COMMITTED on the current feature branch. The reuse-scan, spec, and plan for task
-0001-spine are recorded and approved; the write gate is OPEN. Execute the remaining Phase B (T-002, T-003)
+0001-spine are recorded and approved (plan_approved=true). Execute the remaining Phase B (T-002, T-003)
 by following the claudehut:implement skill exactly. Each handler must `extends BaseProcessor` (the committed
 Phase-A class). Use each row's grep Verify command literally (do NOT run Gradle). Report what you did.
 PR

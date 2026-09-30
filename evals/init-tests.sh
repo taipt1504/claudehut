@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Deterministic eval for opt #3 — no Claude, free. Two layers:
 #  (1) the bin/claudehut-init SCRIPT writes the canonical plane + stack-gated rules + idempotent @import;
-#  (2) the SessionStart FALLBACK (bootstrap.sh auto-running the script when the plane is absent) — which IS
-#      the live INVOCATION path, but model-independent, so it is verifiable here (the model is not in that loop).
-# P7 separately measured the skill's !`…` invocation as flaky (2/3); the bootstrap fallback is the reliable close.
+#  (2) the SessionStart side: v0.12 REMOVED the bootstrap auto-init fallback (05 §5, §8: never create a plane
+#      unasked; init asks mono vs microservice), so this layer now asserts that a plane-less repo stays untouched.
 # Run: evals/init-tests.sh   (see evals/FOLLOWUP-init-script.md §12)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -160,14 +159,14 @@ D="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$ROOT/evals/tasks/_fixtures/servlet-jpa
 echo "$D" | jq -e '.web=="mvc" and .orm=="jpa" and .db=="postgresql" and .base_package=="com.acme.web"' >/dev/null 2>&1 \
   && ok "--detect correct (web=mvc orm=jpa db=postgresql base=com.acme.web)" || bad "--detect wrong: $D"
 
-echo "== fallback: bootstrap.sh (SessionStart) auto-generates the plane — opt #3 INVOCATION fix =="
-# Faithfully replicates SessionStart: the hook pipes its JSON payload to bootstrap.sh. The model is NOT
-# in the loop here, so this deterministically proves the fallback closes #3's invocation gap.
+echo "== SessionStart without a plane: v0.12 creates nothing (the v0.11 auto-init fallback is gone) =="
+# Faithfully replicates SessionStart: the hook pipes its JSON payload to bootstrap.sh. v0.12 hooks self-exit
+# without a plane (K7) and never arm state (A9, B2); the plane comes from /claudehut:claudehut-init.
 W="$(mktemp -d)/work"; mkdir -p "$W"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W/"
 echo '{"session_id":"p7fb","source":"startup"}' | CLAUDE_PROJECT_DIR="$W" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
 fp=0; for f in MEMORY.md PROJECT.md LANGUAGE.md architecture.md reuse-index.json; do [ -f "$W/.claude/claudehut/$f" ] && fp=$((fp+1)); done
-[ "$fp" = 5 ] && ok "SessionStart fallback wrote the plane (5/5, zero model reliance)" || bad "fallback plane=$fp/5"
-[ -f "$W/.claude/claudehut/state/p7fb.json" ] && ok "fallback also armed state (p7fb.json)" || bad "fallback did not arm state"
+[ "$fp" = 0 ] && [ ! -d "$W/.claude/claudehut" ] && ok "SessionStart without a plane wrote no plane (init is explicit in v0.12)" || bad "bootstrap auto-created a plane ($fp/5 files)"
+[ ! -e "$W/.claude/claudehut/state/p7fb.json" ] && ok "SessionStart armed no state (A9, B2)" || bad "bootstrap armed state"
 [ -d "$W/.claudehut" ] && bad "fallback created wrong-dir .claudehut/" || ok "fallback: no wrong-dir .claudehut/"
 rm -rf "$W"
 
@@ -378,11 +377,12 @@ printf '%s' "$aud" | grep -q 'note: no architecture style' \
   && bad "RULE-17: --audit output is polluted by the arch note" \
   || ok "RULE-17: --audit emits only the report"
 rm -rf "$WE"
-# bootstrap must carry the summary into systemMessage rather than discarding it
-grep -q 'claudehut-init" "$PROJECT_DIR" --audit' "$ROOT/scripts/bootstrap.sh" \
-  && ok "RULE-01: bootstrap re-derives the drift summary after a version-bump refresh" \
-  || bad "RULE-01: bootstrap still discards the refresh report with nothing in its place"
-grep -q 'rule drift after the plugin upgrade' "$ROOT/scripts/bootstrap.sh" \
+# the refresh must carry the summary into systemMessage rather than discarding it. v0.12: the refresh moved
+# from the sync bootstrap to the async maintain.sh (ADR-H8), so that is where the summary is re-derived.
+grep -q 'claudehut-init" "$PROJECT_DIR" --audit' "$ROOT/scripts/maintain.sh" \
+  && ok "RULE-01: maintain re-derives the drift summary after a version-bump refresh" \
+  || bad "RULE-01: maintain still discards the refresh report with nothing in its place"
+grep -q 'rule drift after the plugin upgrade' "$ROOT/scripts/maintain.sh" \
   && ok "RULE-01: drift reaches the user through systemMessage" \
   || bad "RULE-01: drift is computed but never surfaced"
 

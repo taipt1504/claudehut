@@ -18,8 +18,8 @@ forked subagent cannot write state or ask the user).
 NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN
 ```
 
-The `PreToolUse` write gate enforces this: until `reuse_scan=true` (recorded here), every production write is
-denied — in **every** complexity tier. Discover is the one phase the fast lane never skips.
+`set-reuse-scan` records it (`reuse_scan=true`) and Review checks it — in **every** tier. No hook denies a
+write (the hooks are advisory). Discover is the one phase the fast lane never skips.
 
 ## The decision ladder (what the scan decides)
 
@@ -43,8 +43,8 @@ observability are required no matter how lazy the build. Minimalism cuts complex
 
 ```mermaid
 flowchart TB
-    start([Discover phase]) --> ph["set-phase discover<br/>create tasks/NNNN-slug/"]
-    ph --> tier{"recorded complexity tier?"}
+    start([Discover phase]) --> ph["set-phase discover<br/>(task dir = the one start printed)"]
+    ph --> tier{"tier chosen in Phase 0?<br/>(recorded as route light/full)"}
     tier -- "trivial / small" --> inl["INLINE scan — targeted Greps<br/>(no subagent dispatch floor)"]
     tier -- "full" --> fan["dispatch explorer + reuse-scanner<br/>in ONE message (concurrent, both mandatory)"]
     fan --> join["explorer map + reuse-scan.md returned"]
@@ -53,24 +53,30 @@ flowchart TB
     wr --> grd
     grd -- "no (missing row / no file)" --> rescan["re-scan the gap<br/>(re-grep inline / re-dispatch scanner)"]
     rescan --> grd
-    grd -- "yes" --> rec["set-reuse-scan --artifact … (arms write gate)"]
+    grd -- "yes" --> rec["set-reuse-scan --artifact …"]
     rec --> done([REQUIRED NEXT: claudehut:brainstorm])
 ```
 
 ## Steps
 
-1. **Create the task dir** (every artifact of this task lives here): `NNNN` = zero-padded next integer over
-   `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/`, slug = kebab-case task name. Record:
+1. **Use the task dir `start` printed** (every artifact of this task lives there; `tasks/NNNN-<slug>/` below
+   means that dir). Never create or number a task dir yourself. No task for THIS request yet (`claudehut-state
+   --session ${CLAUDE_SESSION_ID} status` shows `active_task: null`, or its task already finished — review `pass`,
+   phase `learn`, or `findings_path` set: that is a previous request's)?
+   Open it first: `claudehut-state --session ${CLAUDE_SESSION_ID} start --route light|full --profile <p> --slug
+   <kebab-name>` (it supersedes the previous one). Continuing another session's or a fork's task → `claudehut-state
+   --session ${CLAUDE_SESSION_ID} resume <id>` instead. Record:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase discover`.
 
-2. **Tier branch — how the scan runs depends on the recorded complexity tier** (the diagram's `tier` diamond):
+2. **Tier branch — how the scan runs depends on the tier you chose in Phase 0** (recorded as route
+   `light` for trivial/small, `full` for full; the diagram's `tier` diamond):
 
    **`trivial` and `small` tiers → INLINE DISCOVER (no subagents).** Neither justifies the ~26s
    2-subagent dispatch floor (measured). The main thread does the scan itself (≤3 targeted Grep
    calls — the class, its annotations/signature shape, the config prefix), writes
    `tasks/NNNN-<slug>/reuse-scan.md` following the Summary-table format of `references/reuse-scan-template.md`,
-   then proceeds straight to Implement — **still invoking `claudehut:implement` first; the gate's skill rail
-   applies in every tier.** Inline replaces the *dispatch*, never the *scan* — the gate still requires the file.
+   then proceeds straight to Implement — **still invoking `claudehut:implement` first, in every tier.**
+   Inline replaces the *dispatch*, never the *scan* — Review still requires the file.
    On `small`, widen the sweep to ~5 Greps (the change is bounded at 2 files, not at 1 concept) and keep the
    same artifact. If the scan turns up a reusable asset that changes the shape of the work, or the change
    grows past the fast-lane bound, escalate to `full` and dispatch properly — inline is a cost decision, not
@@ -79,22 +85,22 @@ flowchart TB
    **`full` tier → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
    calls in a single response — the native concurrency mechanism; their inputs are independent). **In this
    tier BOTH are mandatory — the scanner is not optional**, even when the task "obviously" has nothing to
-   reuse (measured miss: a rate-limiting task skipped the scanner; the write gate then denies every
-   production write for lack of the artifact):
+   reuse (measured miss: a rate-limiting task skipped the scanner and had no reuse-scan artifact for
+   Review to check):
 
    | Rationalization | Reality |
    |---|---|
-   | "New infra/feature — nothing to reuse here" | Filters, configs, interceptors, utils often exist. The scan proves it either way and the gate requires the artifact. |
+   | "New infra/feature — nothing to reuse here" | Filters, configs, interceptors, utils often exist. The scan proves it either way and Review requires the artifact. |
    | "The explorer already looked around" | Exploration ≠ a reuse DECISION with an artifact. Both run. |
    - `claudehut:claudehut-explorer` — loads the index (`PROJECT.md`, `architecture.md`, `reuse-index.json`),
      maps the packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list. Read-only.
    - `claudehut:claudehut-reuse-scanner` — writes
-     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (canonical path — the gate
-     requires it under `.claude/claudehut/`) **in the summary-first format of
+     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (canonical path — claudehut-state
+     accepts it only under `.claude/claudehut/`) **in the summary-first format of
      `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/reuse-scan-template.md` — name this template path in
      the dispatch prompt**. It **returns the path — it does not write state** (no Bash).
 
-3. **Main thread records the artifact** (this flips `reuse_scan=true` and arms the gate's first precondition):
+3. **Main thread records the artifact** (this flips `reuse_scan=true`, Implement's first precondition):
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md

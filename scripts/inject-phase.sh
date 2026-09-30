@@ -1,81 +1,45 @@
 #!/usr/bin/env bash
-# UserPromptSubmit hook. Re-anchors the current workflow phase and injects a small set of
-# prompt-relevant learnings as additionalContext. Advisory only — never blocks. See 06 §3.
+# UserPromptSubmit hook — prompt-relevant learnings for turns a person typed (05 §4 #3, 04 §4, ADR-R4).
 #
-# DELTA-ONLY: the full re-anchor + Phase-0 triage block + off-path scan used to be emitted on EVERY prompt,
-# re-paying ~1.8 KB of identical text for the whole session. They now fire on a phase CHANGE (tracked in a
-# plain sidecar file, never the state JSON — only the main thread writes that); repeat prompts in the same
-# phase get a one-line anchor, plus a short nudge while the task is still untriaged.
-set -euo pipefail
+# v0.12 removed the phase line, the Phase-0 triage block, "Untriaged" and the discover default (A10): with no
+# task there is no phase to anchor, and a question is not an untriaged task. What is left is a small learnings
+# block (top 3, ≤500 chars).
+#
+# Machine-generated turns get nothing: task-notifications, teammate / agent messages and cross-session
+# messages open a turn of their own and used to receive the same injection (51% of all UPS bytes, F-6). The
+# filter is a superset of the two prefixes measured on ewallet transcripts plus <agent-message; if the format
+# changes the cost is an extra injection, never a missing one on a human turn.
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-input="$(cat || true)"
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+. "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
+hc_init
+hc_plane_or_exit
 
-command -v jq >/dev/null 2>&1 || { echo '{}'; exit 0; }
+prompt="$(jq -r '.prompt // empty' <<<"$HC_IN")"
+[ -n "$prompt" ] || exit 0
+MACHINE_RE='^[[:space:]]*(<\\?(teammate-message|task-notification|agent-message)|Another Claude session sent a message)'
+[[ $prompt =~ $MACHINE_RE ]] && exit 0
 
-sid="$(jq -r '.session_id // empty' <<<"$input" 2>/dev/null || true)"
-prompt="$(jq -r '.prompt // empty' <<<"$input" 2>/dev/null || true)"
-STATE_DIR="$PROJECT_DIR/.claude/claudehut/state"
-STATE="$STATE_DIR/$sid.json"
-SIDE="$STATE_DIR/$sid.injected-phase"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$_d/.." 2>/dev/null && pwd)}"
+[ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -f "$PLANE/learnings.jsonl" ] || exit 0
+[ -n "$HC_SID" ] || exit 0
 
-phase="$(jq -r '.phase // "discover"' "$STATE" 2>/dev/null || echo "discover")"
-profile="$(jq -r '.profile // empty' "$STATE" 2>/dev/null || true)"
+# The exclude set accumulates per session (LRN-9), so consecutive prompts do not re-pay for the same entries;
+# it is also the file merge-learnings reads to stamp `.applied`. A sidecar, not the state JSON (K8).
+INJ="$PLANE/state/$HC_SID.injected.json"
+learn="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/scripts/inject-learnings.sh" --filter "$prompt" --top 3 --max-len 90 --compact \
+         --accumulate "$INJ" 2>/dev/null)" || learn=""
 
-last=""; [ -n "$sid" ] && last="$(cat "$SIDE" 2>/dev/null || true)"
-changed=false; [ "$phase" != "$last" ] && changed=true
-
-if $changed; then
-  ctx="ClaudeHut — current phase: ${phase}. Follow the phase→skill map (claudehut:claudehut-workflow); do not skip the gated phases."
-else
-  ctx="ClaudeHut phase: ${phase}."
+# ≤500 chars (K9): drop body lines from the end rather than truncating, so the untrusted-data closing marker
+# written by inject-learnings.sh always survives.
+if [ -n "$learn" ]; then
+  while [ "${#learn}" -gt 480 ]; do
+    head_="${learn%%$'\n'*}"; tail_="${learn##*$'\n'}"
+    body="${learn#*$'\n'}"; body="${body%$'\n'*}"
+    [ "$body" != "${body%$'\n'*}" ] || { learn=""; break; }   # one line left and still too long: send nothing
+    body="${body%$'\n'*}"
+    learn="$head_"$'\n'"$body"$'\n'"$tail_"
+  done
 fi
-
-# Engaged-gap / cost: the workflow defaults complexity=full = all 7 phases. While still in the entry phase,
-# reinforce Phase-0 triage so trivial/small tasks take the cheaper gate-verified fast lane instead of silently
-# running full deliberation. Advisory only (never blocks); the write gate still verifies the chosen tier's
-# bound deterministically. The full block goes out once per entry into discover; an untriaged task (no
-# profile recorded) keeps a one-line nudge after that, so the reminder survives without the repeat cost.
-if [ "$phase" = "discover" ] && $changed; then
-  ctx="$ctx"$'\nPhase 0 — triage NOW if you have not: (a) SIZE — claudehut-state set-complexity <trivial|small|full> (trivial/small skip Brainstorm/Spec/Plan; the gate verifies the bound). (b) SHAPE — claudehut-state set-profile <feature|bugfix|audit|migration|investigation>: the shape decides the deliverable (audit/investigation → a findings.md, not code) and the mandatory auditors. set-phase implement BLOCKS until the profile is set.'
-  # WS-1 off-path detector (advisory): task-shaped artifacts written OUTSIDE the canonical tasks/ store are
-  # invisible to every gate. Warn at the entry phase only (low noise); never blocks. Excludes the user's
-  # research area and the canonical store itself.
-  offp="$(find "$PROJECT_DIR/.claude" \( -name reuse-scan.md -o -name brainstorm.md -o -name spec.md -o -name plan.md \) 2>/dev/null \
-    | grep -vE '/\.claude/claudehut/tasks/|/\.claude/prompt/research/' | head -3 | sed "s#^${PROJECT_DIR}/##" | tr '\n' ' ' || true)"
-  [ -n "$offp" ] && ctx="$ctx"$'\n⚠ Off-path task artifacts found (invisible to the gates/memory): '"$offp"$'— write workflow artifacts to .claude/claudehut/tasks/NNNN-<slug>/, not a bare path.'
-elif [ "$phase" = "discover" ] && [ -z "$profile" ]; then
-  ctx="$ctx"$' Untriaged — run claudehut-state set-complexity <tier> + set-profile <shape> before implementing.'
-fi
-
-# Prompt-targeted learnings (P7 helper — optional; no-op until present). Excludes what the SessionStart block
-# already injected: the same records were previously paid for at session start AND on every prompt.
-if [ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -n "$prompt" ]; then
-  # LRN-9: the exclude set was only what SessionStart injected, so it never grew — two consecutive prompts
-  # re-paid for the SAME filtered entries (measured: identical id set on repeat runs against a real store).
-  # Accumulate into the one per-session file instead. It is also what merge-learnings reads to stamp
-  # `.applied`, and a prompt-injected entry that later resurfaces genuinely WAS applied, so one file is
-  # correct for both uses.
-  INJ="$STATE_DIR/$sid.injected.json"
-  exc=""; [ -n "$sid" ] && [ -f "$INJ" ] && exc="$INJ"
-  snap=""; [ -n "$sid" ] && snap="$(mktemp "$STATE_DIR/.inj.XXXXXX" 2>/dev/null || true)"
-  rel="$("$PLUGIN_ROOT/scripts/inject-learnings.sh" --filter "$prompt" --top 5 --max-len 200 \
-         ${exc:+--exclude "$exc"} ${snap:+--snapshot "$snap"} 2>/dev/null || true)"
-  [ -n "$rel" ] && ctx="$ctx"$'\n\nRelevant learnings:\n'"$rel"
-  # Bounded union. Unbounded, a long session eventually excludes the whole store and injection goes silent;
-  # the newest 200 ids keep the exclusion honest without starving it.
-  if [ -n "$snap" ] && [ -s "$snap" ]; then
-    merged="$(jq -cs 'add // [] | unique | .[-200:]' "$INJ" "$snap" 2>/dev/null || true)"
-    [ -n "$merged" ] && printf '%s\n' "$merged" > "$INJ" 2>/dev/null || true
-  fi
-  [ -n "$snap" ] && rm -f "$snap" 2>/dev/null || true
-fi
-
-# Record the phase we just anchored, so the next prompt in this phase takes the cheap path.
-if [ -n "$sid" ]; then
-  mkdir -p "$STATE_DIR" 2>/dev/null || true
-  printf '%s' "$phase" > "$SIDE" 2>/dev/null || true
-fi
-
-jq -n --arg ctx "$ctx" '{hookSpecificOutput:{hookEventName:"UserPromptSubmit", additionalContext:$ctx}}'
+[ -n "$learn" ] && hc_ctx UserPromptSubmit "Relevant learnings:"$'\n'"$learn"
+exit 0

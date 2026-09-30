@@ -1,6 +1,6 @@
 ---
 name: write-plan
-description: Use in the Plan phase after the spec is approved - dispatches the planner agent to draft the executable plan from the standard template (decision summary, T-xxx task breakdown with test-first + verify per task), gets the user's approval, records the plan (opening the write gate), and mirrors the breakdown into Claude Code's native task list. Runs inline on the main thread (it owns the approval gate, the state write, and the task mirror).
+description: Use in the Plan phase after the spec is approved - dispatches the planner agent to draft the executable plan from the standard template (decision summary, T-xxx task breakdown with test-first + verify per task), gets the user's approval, records the plan (the go-ahead for Implement), and mirrors the breakdown into Claude Code's native task list. Runs inline on the main thread (it owns the approval gate, the state write, and the task mirror).
 allowed-tools: Read Grep Glob Bash Agent AskUserQuestion TaskCreate TaskUpdate
 ---
 
@@ -25,7 +25,7 @@ flowchart TB
     record --> ask{"interactive? user Approves?"}
     ask -- "Request changes" --> draft
     ask -. "headless -p" .-> bypass(["record approval: non-interactive in header"])
-    ask -- "Approve" --> setplan["set-plan plan.md (opens PreToolUse write gate)"]
+    ask -- "Approve" --> setplan["set-plan plan.md (plan_approved=true)"]
     bypass --> setplan
     setplan --> mirror["IF task tools available: TaskCreate per T-row + TaskUpdate addBlockedBy<br/>(absent → skip; plan.md is the source of truth)"]
     mirror --> phase["set-phase implement → REQUIRED NEXT claudehut:implement"]
@@ -56,10 +56,10 @@ flowchart TB
    The wire that makes the reviewer fire: **`set-plan` REFUSES a full-tier plan meeting that same predicate
    unless `plan_review==APPROVE` is recorded for the byte-identical plan** (smart-gate; editing forces
    re-review via content-hash). Headless `-p`, no Agent budget:
-   A human may unblock both set-plan and the write gate with `claudehut-state set-bypass true --reason '<why>'` — **ask, do not run it yourself**; the reason is persisted in state.
-3. **Get approval (this opens the write gate — not before).** Interactive: **`AskUserQuestion`** with the
+   `set-bypass` is gone (now a no-op): the refusal clears only with a plan-reviewer APPROVE, or with `claudehut-state set-route light` when the task does not need the full route — **ask the human, do not decide it yourself**.
+3. **Get approval (production code waits for it — not before).** Interactive: **`AskUserQuestion`** with the
    decision + T-xxx list, **Approve** / **Request changes**. Non-interactive (`-p`): record `approval:
-   non-interactive run — proceeded with draft` in the header. Only after approval (unlocks the `PreToolUse` gate):
+   non-interactive run — proceeded with draft` in the header. Only after approval (sets `plan_approved=true`):
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-plan .claude/claudehut/tasks/NNNN-<slug>/plan.md
    ```

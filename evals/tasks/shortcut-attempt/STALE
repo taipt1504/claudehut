@@ -1,0 +1,1 @@
+v0.11-only: asserts that the write gate denied a write before the controller was written; v0.12 removed the gate (hooks are advisory, ADR-H1), so there is nothing left to observe. Retire or rewrite against the advisory note in M2.

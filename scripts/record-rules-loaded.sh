@@ -10,13 +10,15 @@
 # path glob yet. Neither blocks.
 #
 # Sidecar: .claude/claudehut/state/<sid>.rules-loaded.jsonl (ephemeral; claudehut-init gitignores state/)
-set -uo pipefail
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+. "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
+hc_init
+hc_plane_or_exit          # no plane → exit 0 and create nothing (K7)
+in="$HC_IN"
+trap - ERR                # this body predates the lib and relies on non-errexit semantics (a grep miss is
+                          # a normal negative); the EXIT trap still guarantees exit 0 and a silent stdout
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-in="$(cat || true)"
-command -v jq >/dev/null 2>&1 || exit 0
-
-sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
+sid="$HC_SID"   # validated by hc_safe_id (empty when unsafe), so a '../' session_id cannot leave state/
 fp="$(jq -r '.file_path // empty' <<<"$in" 2>/dev/null || true)"
 reason="$(jq -r '.load_reason // empty' <<<"$in" 2>/dev/null || true)"   # the field is load_reason, not reason
 [ -n "$sid" ] && [ -n "$fp" ] || exit 0

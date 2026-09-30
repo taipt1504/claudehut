@@ -15,8 +15,7 @@ NO COMPLETION CLAIM WHILE ANY APPLICABLE SKILL, RULE, OR MEMORY ITEM IS UNSATISF
 ```
 
 If you have not re-run the auditors **this turn**, you cannot say it passes — paraphrases included ("should
-pass", "looks compliant"). The `Stop` gate blocks turn-end until `review=pass`, and `set-review pass` **requires
-the `review.md` evidence file**.
+pass", "looks compliant"). `set-review pass` **requires the `review.md` evidence file**.
 
 ## The rigor contract
 
@@ -43,8 +42,8 @@ flowchart TB
     conv -- "no" --> fix["fix → claudehut:implement → re-spawn SELECTED → re-validate"]
     fix --> fan
     conv -- "yes" --> rec["write review.md (coverage table + cited ✓ rows + test summary)"]
-    rec --> pass(["set-review pass --evidence review.md<br/>REQUIRED NEXT: claudehut:capture-learnings"])
-    conv -. "stop_hook_active cap" .-> capped(["set-review capped + surface remaining items"])
+    rec --> pass(["set-review pass --evidence review.md<br/>REQUIRED NEXT: claudehut:capture-learnings (or Exit)"])
+    conv -. "round cap" .-> capped(["set-review capped + surface remaining items"])
 ```
 
 ## The loop
@@ -80,7 +79,7 @@ flowchart TB
      starts cold: without the hunks they all re-Read the same files, once per auditor.
    - **`references/review-rigor.md`** verbatim + the auditor's defect-class floor. (test-runner: only "run the
      suite fresh this turn; report the exact command + real pass/fail counts".)
-   - **Enforcement set, verbatim** — `jq -c '{profile, enforcement_set}' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
+   - **Enforcement set, verbatim** — `{ claudehut-state --session ${CLAUDE_SESSION_ID} status 2>/dev/null || echo '{}'; } | jq -c '.task // {} | {profile, enforcement_set}'`.
      Paste the `enforcement_set` value only (the `profile` selects the branch in step 1, it is not pasted); one coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
    - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8 --max-len 200`,
      pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each. Keep `--max-len`:
@@ -88,7 +87,7 @@ flowchart TB
      uncapped entry is multiplied — the session-start and per-prompt callers already cap at 200.
    - **Vocabulary** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, paste it under
      `## Project Vocabulary`. If absent, omit.
-   - **Known reuse suspects** — if `.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl` exists, paste
+   - **Known reuse suspects** — if `.claude/claudehut/state/<task-id>.suspects.jsonl` exists (task id: `claudehut-state --session ${CLAUDE_SESSION_ID} status | jq -r .active_task`), paste
      its rows (`jq -c .`) under `## Known reuse suspects (confirm or clear each)`. The reviewer adds a row per
      suspect — **confirm** (a real `✗`) or **clear** (`n-a: <reason>`). **`set-review pass` REFUSES until each
      suspect's row carries a resolution token** — so this is gated, not advisory.
@@ -138,8 +137,9 @@ Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last re
 
 ## Exit
 
-`outstanding == []` + evidence green → `set-review pass`. **OR** the consecutive-`Stop` cap
-(`stop_hook_active`) reached → `set-review capped` + surface the remaining items, rather than loop forever.
+`outstanding == []` + evidence green → `set-review pass`. **OR** the round cap below reached → `set-review
+capped` + surface the remaining items, rather than loop forever. **A task that skips Learn** (trivial tier, or an
+audit/investigation stopping at `set-findings`) **ends here:** `claudehut-state --session ${CLAUDE_SESSION_ID} end --status done`.
 
 **Round cap — 2 fix→re-spawn rounds.** Each round re-pays every dispatch from a cold context, so an uncapped
 loop is the workflow's most expensive failure mode. On round 3: `set-review capped` + surface the surviving
@@ -157,4 +157,4 @@ those items.
 - `set-review pass` without a `review.md` carrying the coverage table + test evidence
 - Downgrading a plausible correctness/perf defect to LOW to avoid blocking (confidence ≠ severity)
 
-**REQUIRED NEXT:** `claudehut:capture-learnings`.
+**REQUIRED NEXT:** `claudehut:capture-learnings` — unless the task ended at *Exit*.

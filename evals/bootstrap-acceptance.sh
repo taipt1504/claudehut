@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # IDEA-R16 — the single-message acceptance test: does the bootstrap actually fire?
 #
-# The write gate, the skill rail and the profile gate are all dead if the SessionStart hook silently stops
-# firing, and nothing else detects that. Every other eval drives the scripts directly, which is exactly the
-# blind spot: a script can be perfect and never be invoked. This drives a REAL session with one ordinary
-# Java request and asserts the plane engaged before any production write happened.
+# Every other eval drives the scripts directly, which is exactly the blind spot: a script can be perfect and
+# never be invoked. This drives a REAL session with one ordinary Java request.
+#
+# v0.12 (M1) contract, which inverts two v0.11 assertions on purpose:
+#   - SessionStart context reaches the session (the transcript carries it, with the "Session id:" line)
+#   - nothing is armed: no state/<sid>.json unless the model itself ran `claudehut-state start` (then schema 2)
+#   - no hook denies or blocks anything, and no hook error is recorded
+# The plane is created with claudehut-init first: v0.12 hooks stay silent in a repo without one.
 #
 # NOT part of the deterministic suite. It starts a real session, so it costs tokens and needs auth — the
 # same constraint scripts/load-probe.sh carries. Run it as a release-checklist step.
@@ -32,6 +36,7 @@ public class PaymentClient {
 JAVA
 printf 'dependencies { implementation("org.springframework.boot:spring-boot-starter-web") }\n' > "$W/build.gradle.kts"
 ( cd "$W" && git init -q 2>/dev/null )
+CLAUDE_PROJECT_DIR="$W" "$ROOT/bin/claudehut-init" "$W" >/dev/null 2>&1 || true
 
 echo "== IDEA-R16: one ordinary Java request, real session =="
 R="$W/.stream.jsonl"
@@ -50,31 +55,34 @@ if [ ! -s "$R" ]; then
   echo "  SKIP - no stream produced (auth? network?) — this probe cannot self-certify"; rm -rf "$W"; exit 0
 fi
 
-# Ordinal of the first claudehut skill invocation, and of the first production write. The assertion is the
-# ORDER, not the presence: a discover that happens after the edit is the same failure as no discover.
-ord_skill="$(jq -rc 'select(.type=="assistant")|.message.content[]?|select(.type=="tool_use")
-                     |((.name//"") + " " + ((.input.skill//"")|tostring))' "$R" 2>/dev/null \
-             | grep -n 'claudehut' | head -1 | cut -d: -f1)"
-ord_write="$(jq -rc 'select(.type=="assistant")|.message.content[]?|select(.type=="tool_use")
-                     |((.name//"") + " " + ((.input.file_path//"")|tostring))' "$R" 2>/dev/null \
-             | grep -nE '^(Write|Edit|MultiEdit) .*src/main/' | head -1 | cut -d: -f1)"
-
-[ -n "$ord_skill" ] \
-  && ok "a claudehut skill was invoked in an ordinary session (SessionStart fired)" \
-  || bad "NO claudehut skill was invoked — the bootstrap did not engage; the gates are inert"
-
-if [ -z "$ord_write" ]; then
-  ok "no production write happened without the workflow (nothing to order against)"
-elif [ -n "$ord_skill" ] && [ "$ord_skill" -lt "$ord_write" ]; then
-  ok "the skill invocation precedes the first src/main write"
+SID="$(jq -r 'select(.type=="system" and .subtype=="init") | .session_id' "$R" 2>/dev/null | head -1)"
+TR="$(ls "$HOME"/.claude/projects/*/"$SID".jsonl 2>/dev/null | head -1)"
+if [ -n "$SID" ] && [ -n "$TR" ] \
+   && jq -e --arg s "Session id: $SID" 'select(.attachment.type=="hook_additional_context" and .attachment.hookEvent=="SessionStart")
+        | .attachment.content | (if type=="array" then join("\n") else tostring end) | contains($s)' "$TR" >/dev/null 2>&1; then
+  ok "SessionStart context reached the session (transcript carries 'Session id: $SID')"
 else
-  bad "a src/main write happened before any claudehut skill — the write gate did not hold"
+  bad "no ClaudeHut SessionStart context in the transcript (sid=${SID:-none}) — the bootstrap did not fire"
 fi
 
-# The plane itself must exist afterwards; a session that engaged but wrote no state is half-armed.
-[ -d "$W/.claude/claudehut/state" ] && [ -n "$(ls -A "$W/.claude/claudehut/state" 2>/dev/null)" ] \
-  && ok "the session left state behind (the plane was armed, not just mentioned)" \
-  || bad "no state was written — bootstrap ran no generator and armed no gate"
+if grep -qE 'ClaudeHut gate|permissionDecision\\?":\\?"deny|hook error' "$R" 2>/dev/null; then
+  bad "a hook denied, blocked or errored during the session"
+else
+  ok "no hook denied, blocked or errored"
+fi
+
+SF="$W/.claude/claudehut/state/$SID.json"
+if [ ! -e "$SF" ]; then
+  ok "nothing was armed: no state/<sid>.json (the model did not open a task)"
+elif jq -e '.schema==2' "$SF" >/dev/null 2>&1; then
+  ok "the only state is a schema-2 pointer the model created with claudehut-state start"
+else
+  bad "a non-schema-2 state file appeared — something armed v0.11 state"
+fi
+
+[ -s "$W/.claude/claudehut/state/hook-errors.log" ] \
+  && bad "hook-errors.log is not empty: $(head -c 200 "$W/.claude/claudehut/state/hook-errors.log")" \
+  || ok "hook-errors.log is empty"
 
 rm -rf "$W"
 echo; echo "BOOTSTRAP-ACCEPTANCE: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

@@ -95,19 +95,7 @@ if grep -rn '/claudehut:workflow\b\|/claudehut:init\b' "$ROOT/skills" "$ROOT/scr
 else
   ok "RES-K5: slash commands are plugin-scoped (/claudehut:claudehut-<skill>)"
 fi
-# SKILL-F5 — digest.md is what SessionStart injects, so when it and SKILL.md disagree the model is told the
-# WRONG rule and the fuller SKILL.md is never read. Law 4 diverged exactly that way: the digest said entering
-# Discover closes the skill rail, omitting Brainstorm. bin/claudehut-state:400 resets implement_skill_ok on
-# `discover|brainstorm`, so the digest was the one that was wrong. Pin the digest to the CLI, then pin the two
-# documents to each other so the next divergence is caught rather than shipped.
 DG="$ROOT/skills/claudehut-workflow/references/digest.md"; WF="$ROOT/skills/claudehut-workflow/SKILL.md"
-if grep -qE 'discover\|brainstorm\) STATE=.*implement_skill_ok=false' "$ROOT/bin/claudehut-state"; then
-  grep -q 'Discover/Brainstorm' "$DG" \
-    && ok "SKILL-F5: digest law 4 matches claudehut-state (both Discover and Brainstorm close the rail)" \
-    || bad "SKILL-F5: digest law 4 omits a phase that claudehut-state:400 actually resets on"
-else
-  bad "SKILL-F5: claudehut-state no longer resets implement_skill_ok on discover|brainstorm — digest prose is now unpinned"
-fi
 # law HEADINGS must be the same set in both documents (normalised: number + bold title, punctuation stripped)
 # Normalise hard: SKILL.md writes "**Canonical store — one dir per task.**" where the digest writes
 # "**Canonical store**". Same law, more room. So compare the number plus the title's leading clause only,
@@ -463,16 +451,57 @@ else ok "kafka tool names are hyphenated (match mcp-confluent v1.5.0)"; fi
 if grep -rqE 'mcp__kafka__describe-topic|mcp__kafka__get-partition-offsets|mcp__postgres__query([^_-]|$)' "$ROOT"/agents/*.md 2>/dev/null; then
   bad "agent declares an MCP tool the recommended server does not expose"
 else ok "no agent declares a nonexistent MCP tool"; fi
-# bootstrap.sh must use .id field (not .name) for understand-anything detection
-grep -q 'startswith("understand-anything@")' "$ROOT/scripts/bootstrap.sh" \
-  && ok "bootstrap.sh: understand-anything detection uses .id field (correct)" \
-  || bad "bootstrap.sh: understand-anything detection uses .name field which does not exist in plugin list JSON"
+# v0.12 B10: bootstrap is sync on the first answer, and `claude plugin list` cost 1-5 s per session. The
+# understand-anything fact is now the graph file itself. Matched on code lines only, not comments.
+grep -v '^[[:space:]]*#' "$ROOT/scripts/bootstrap.sh" | grep -q 'claude plugin list' \
+  && bad "B10: bootstrap.sh still spawns claude plugin list" \
+  || ok "B10: bootstrap.sh does not spawn claude plugin list (graph stated from the file)"
 
 # C11 — v0.6.0 upgrade wiring (slash skill-rail, failure capture, minimalism layer, distribution)
 HJ="$ROOT/hooks/hooks.json"
+# ── v0.12 M1 hook surface (05-hooks.md §2 K5/K6, §4 matrix, AC14). M1 ships 11 handlers / 13 entries: the
+#    §4 matrix minus doclint-advise (M3) and hint-explore (M6, microservice only). Update these two numbers,
+#    not the assertions, when those land (13 handlers / 15 entries).
+HJ_PAIRS="$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "-") as $m | .hooks[]
+  | "\($e);\($m);\(.command | capture("scripts/(?<s>[a-z-]+)\\.sh").s);\(if .async then "async" else "sync" end);\(.timeout // "-");\(.if // "-")"' "$HJ" 2>/dev/null)"
+[ "$(printf '%s\n' "$HJ_PAIRS" | grep -c .)" = 13 ] \
+  && ok "M1: hooks.json has 13 entries" || bad "M1: hooks.json entry count is $(printf '%s\n' "$HJ_PAIRS" | grep -c .), expected 13"
+[ "$(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-4 | sort -u | grep -c .)" = 11 ] \
+  && ok "M1: 11 distinct (event, matcher, script) handlers" || bad "M1: handler count drifted from 11"
+EXPECT_PAIRS='SessionStart;startup|resume|clear|compact|fork;bootstrap;sync;5
+SessionStart;startup;maintain;async;-
+UserPromptSubmit;-;inject-phase;sync;5
+PreToolUse;Write|Edit|NotebookEdit;advise-write;sync;5
+PreToolUse;Agent;record-agent-dispatch;sync;5
+PostToolUse;Write|Edit;format-java;async;-
+PostToolUse;Write|Edit;lint-reuse;async;-
+PostToolUseFailure;Bash;record-failure;async;-
+SubagentStart;-;record-dispatch;sync;5
+SubagentStop;-;verify-subagent;async;-
+InstructionsLoaded;-;record-rules-loaded;async;-'
+while IFS= read -r want; do
+  printf '%s\n' "$HJ_PAIRS" | cut -d';' -f1-5 | grep -qxF "$want" \
+    || bad "M1 matrix: missing or changed handler: $want"
+done <<<"$EXPECT_PAIRS"
+ok "M1 matrix: every §4 handler present with its matcher, script, sync/async mode and 5 s sync timeout"
+jq -e '[.. | .command? // empty] | all(startswith("\"${CLAUDE_PLUGIN_ROOT}/scripts/") and endswith(".sh\""))' "$HJ" >/dev/null 2>&1 \
+  && ok "K5: every command quotes \"\${CLAUDE_PLUGIN_ROOT}\"" || bad "K5: an unquoted \${CLAUDE_PLUGIN_ROOT} command"
+grep -q 'MultiEdit' "$HJ" && bad "K6: MultiEdit is not a documented tool — matcher must not name it" || ok "K6: no MultiEdit in any matcher"
+jq -e '[.hooks.UserPromptSubmit[]?, .hooks.SubagentStop[]? | has("matcher")] | any | not' "$HJ" >/dev/null 2>&1 \
+  && ok "K6: no matcher on UserPromptSubmit (ignored) or SubagentStop (skipped for internal agents, #87065)" \
+  || bad "K6: UserPromptSubmit or SubagentStop carries a matcher"
+hj_missing=""
+for sc in $(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f3 | sort -u); do
+  [ -x "$ROOT/scripts/$sc.sh" ] || hj_missing="$hj_missing $sc"
+done
+[ -z "$hj_missing" ] && ok "every wired script exists and is executable (#94362: a missing one is a silent exit 127)" \
+  || bad "wired but missing/non-exec:$hj_missing"
+for sc in $(printf '%s\n' "$HJ_PAIRS" | cut -d';' -f3 | sort -u | grep -v format-java); do
+  grep -q 'lib/hook-common.sh' "$ROOT/scripts/$sc.sh" || bad "contract: $sc.sh does not use lib/hook-common.sh"
+done
+ok "contract: every plane-bound hook sources lib/hook-common.sh (exit 0, ≤1 JSON, silent errors, K1-K3/K7)"
 # RES-H3 — `fork` is a documented SessionStart source and was missing from the matcher, so a forked session
-# ran no bootstrap: no state, and gate-write.sh fails open on missing state, making the whole workflow
-# optional in that session. Verified against a real `claude --resume --fork-session`.
+# ran no bootstrap: no session id, no injected context, so the workflow went unannounced in that session. Verified against a real `claude --resume --fork-session`.
 # RES-H1/H11 — `if` is a documented per-handler key ("Permission rule syntax to filter when this hook runs
 # … only runs if the tool call matches"), evaluated on tool events. Without it, both Java handlers spawned a
 # process on EVERY Write/Edit — every markdown edit, every JSON edit — and each exited immediately after
@@ -480,7 +509,7 @@ HJ="$ROOT/hooks/hooks.json"
 # RES-M14/IDEA-F2 — `small` paid the ~26s two-subagent dispatch floor for a change bounded at two files.
 # The carve-out is INLINE WITH ARTIFACT: it replaces the dispatch, never the scan. Both halves are asserted,
 # because "small skips the scan" is the failure this must not become — the reuse-scan rail is unconditional
-# in every tier and the write gate still requires the file.
+# in every tier and set-reuse-scan still records the file.
 DSC="$ROOT/skills/discover/SKILL.md"
 grep -q '`trivial` and `small` tiers → INLINE DISCOVER' "$DSC" \
   && ok "RES-M14: small runs discover inline (no dispatch floor)" \
@@ -506,7 +535,7 @@ jq -e '[.hooks.PreToolUse[]?.matcher] | any(. == "Agent")' "$HJ" >/dev/null 2>&1
   || bad "PLUMB-F-02: dispatch identity is unrecorded — SubagentStart alone cannot name the agent"
 # PreToolUse is the one event that can DENY. This recorder sits in front of every fan-out, so it must never
 # emit a decision — asserted behaviourally, because a hook that CAN block is a new way to break fan-out.
-ADT="$(mktemp -d)"
+ADT="$(mktemp -d)"; mkdir -p "$ADT/.claude/claudehut"   # K7: recorders only run inside a plane
 adout="$(printf '{"session_id":"S1","tool_name":"Agent","tool_use_id":"toolu_9","tool_input":{"subagent_type":"claudehut:claudehut-implementer"}}' \
         | CLAUDE_PROJECT_DIR="$ADT" bash "$ROOT/scripts/record-agent-dispatch.sh" 2>/dev/null)"; adrc=$?
 { [ "$adrc" = "0" ] && [ -z "$adout" ]; } \
@@ -523,21 +552,21 @@ printf '{"session_id":"S1","tool_name":"Bash","tool_input":{"command":"ls"}}' \
   || bad "PLUMB-F-02: the recorder wrote a row for a payload with no subagent_type"
 rm -rf "$ADT"
 
-# PLUMB-F-04 — the docs say the UserPromptExpansion matcher filters on "command name" but do not say whether
-# a plugin skill arrives bare or plugin-scoped. v0.10 lost four SubagentStop contracts to exactly that
-# question (agent_type arrives as claudehut:<name>). The matcher accepts BOTH forms rather than guessing.
-jq -e '[.hooks.UserPromptExpansion[]?.matcher] | any(test("claudehut:"))' "$HJ" >/dev/null 2>&1 \
-  && ok "PLUMB-F-04: the expansion matcher accepts the plugin-scoped form too" \
-  || bad "PLUMB-F-04: the matcher only accepts bare skill names — a slash invocation may bypass the rail"
-# PLUMB-F-07 — bypass switches BOTH gates off; enabling it must leave a record of why.
-# Match the EXECUTABLE guard, not a comment mentioning it: `grep -q 'requires --reason'` alone stayed green
-# with the guard deleted, because the comment above it says the same words.
-grep -qE '^[[:space:]]+err "set-bypass true requires --reason' "$ROOT/bin/claudehut-state" \
-  && ok "PLUMB-F-07: enabling bypass requires --reason and persists it" \
-  || bad "PLUMB-F-07: bypass can still be enabled with no recorded reason"
-grep -rn 'set-bypass true' "$ROOT/skills" | grep -qv -- '--reason' \
-  && bad "PLUMB-F-07: a skill still tells the model to run a bare set-bypass true --reason "eval fixture"" \
-  || ok "PLUMB-F-07: no skill hands the model an unexplained bypass"
+# v0.12 (05 §6, ADR-H5, ADR-R3): the skill rail, the completion gate and PreCompact are gone. Their events
+# must not be wired at all — an entry left behind for a deleted script is exit 127 on every firing (#94362).
+for ev in Stop UserPromptExpansion PreCompact; do
+  jq -e --arg e "$ev" '.hooks | has($e) | not' "$HJ" >/dev/null 2>&1 \
+    && ok "v0.12: no $ev hook" || bad "v0.12: $ev is still wired"
+done
+jq -e '[.hooks.PreToolUse[]?.matcher] | index("Skill") == null' "$HJ" >/dev/null 2>&1 \
+  && ok "v0.12: no PreToolUse(Skill) recorder (skill rail removed)" || bad "v0.12: PreToolUse(Skill) is still wired"
+# set-bypass switched two gates off in v0.11. With no gate left it must be an inert, announced no-op.
+BPT="$(mktemp -d)"; mkdir -p "$BPT/.claude/claudehut"
+bpo="$(CLAUDE_PROJECT_DIR="$BPT" "$ROOT/bin/claudehut-state" --session b set-bypass true 2>&1)"; bprc=$?
+{ [ "$bprc" = 0 ] && case "$bpo" in *"removed in v0.12"*) true ;; *) false ;; esac && [ ! -e "$BPT/.claude/claudehut/state/b.json" ]; } \
+  && ok "v0.12: set-bypass is a no-op shim (exit 0, notice, no state written)" \
+  || bad "v0.12: set-bypass still mutates state or fails"
+rm -rf "$BPT"
 
 [ "$(jq '[.hooks.PostToolUse[]?.hooks[]? | select(.if)] | length' "$HJ")" = "4" ] \
   && ok "RES-H1: all four Java PostToolUse handlers are if-gated (no process on a non-Java write)" \
@@ -551,19 +580,17 @@ grep -q '\*Test.java|\*IT.java|\*/test/\*|\*/.claude/\*' "$ROOT/scripts/lint-reu
   || bad "RES-H1: lint-reuse's filter was removed — it would now fire on tests and plugin state"
 
 jq -e '[.hooks.SessionStart[]?.matcher] | any(test("fork"))' "$HJ" >/dev/null 2>&1 \
-  && ok "RES-H3: SessionStart matches fork (a forked session still arms the gate)" \
-  || bad "RES-H3: fork is not matched — a forked session arms nothing and the write gate fails open"
-FKT="$(mktemp -d)"
+  && ok "RES-H3: SessionStart matches fork (a forked session still gets its context)" \
+  || bad "RES-H3: fork is not matched — a forked session starts without the digest"
+FKT="$(mktemp -d)"; mkdir -p "$FKT/.claude/claudehut"
 printf '{"session_id":"P1","source":"startup"}' | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
-printf '{"session_id":"F2","source":"fork"}'    | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
-[ -f "$FKT/.claude/claudehut/state/F2.json" ] \
-  && ok "RES-H3: a fork with a new session id gets its own armed state file" \
-  || bad "RES-H3: the fork produced no state — the gate is open in that session"
+fko="$(printf '{"session_id":"F2","source":"fork"}' | CLAUDE_PROJECT_DIR="$FKT" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" 2>/dev/null)"
+{ printf '%s' "$fko" | jq -e '.hookSpecificOutput.additionalContext | test("Session id: F2")' >/dev/null 2>&1 \
+  && [ ! -e "$FKT/.claude/claudehut/state/F2.json" ]; } \
+  && ok "RES-H3/A9: a fork gets its context and its own sid, and no state is armed" \
+  || bad "RES-H3/A9: the fork got no context, or bootstrap armed state again"
 rm -rf "$FKT"
 
-jq -e '[.hooks.UserPromptExpansion[]?.hooks[]?.command] | any(test("record-skill-expansion"))' "$HJ" >/dev/null 2>&1 \
-  && ok "P1-3: UserPromptExpansion → record-skill-expansion.sh wired (slash skill-rail bypass closed)" \
-  || bad "P1-3: no UserPromptExpansion recorder — /claudehut:implement bypasses the skill rail"
 jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failure"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3: PostToolUseFailure → record-failure.sh wired (failure signal capture)" \
   || bad "C3: PostToolUseFailure not wired to record-failure.sh"
@@ -575,7 +602,7 @@ jq -e '[.hooks.PostToolUseFailure[]?.hooks[]?.command] | any(test("record-failur
 # empty the recorder now names the payload's actual top-level keys, so the next real failure identifies
 # the correct fields itself. C3e pins the other half: a healthy payload must stay byte-identical, or
 # every existing consumer of the sidecar sees a new field.
-CFT="$(mktemp -d)"
+CFT="$(mktemp -d)"; mkdir -p "$CFT/.claude/claudehut"
 printf '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":"mvn test"},"unexpected_error_shape":{"code":2}}' \
   | CLAUDE_PROJECT_DIR="$CFT" bash "$ROOT/scripts/record-failure.sh" >/dev/null 2>&1
 jq -e '.schema_keys | test("unexpected_error_shape")' "$CFT/.claude/claudehut/state/s1.failures.jsonl" >/dev/null 2>&1 \
@@ -605,13 +632,13 @@ jq -e '[.hooks.SubagentStart[]?.hooks[]?.command] | any(test("record-dispatch"))
 jq -e '[.hooks.InstructionsLoaded[]?.hooks[]?.command] | any(test("record-rules-loaded"))' "$HJ" >/dev/null 2>&1 \
   && ok "C3c: InstructionsLoaded → record-rules-loaded.sh wired (rule-load ledger)" \
   || bad "C3c: InstructionsLoaded not wired to record-rules-loaded.sh"
-for s in record-skill-expansion.sh record-failure.sh load-probe.sh record-dispatch.sh record-rules-loaded.sh; do
+for s in advise-write.sh maintain.sh record-failure.sh load-probe.sh record-dispatch.sh record-rules-loaded.sh; do
   [ -x "$ROOT/scripts/$s" ] && ok "script present+exec: $s" || bad "missing or non-exec: scripts/$s"
 done
 # ...and the two recorders must actually RECORD. Asserting only on wiring + [ -x ] left them unfalsifiable:
 # replacing either body with `exit 0` kept every assertion green, while the sidecar they exist to produce
 # stayed empty. These drive the real scripts and check the line lands.
-HKT="$(mktemp -d)"
+HKT="$(mktemp -d)"; mkdir -p "$HKT/.claude/claudehut"
 # F5 moved the dispatch ledger out of state/<sid>.dispatches.jsonl — that path was both gitignored and
 # age-swept, so the artifact every cost claim depends on was designed to evaporate — to one shared
 # .claude/claudehut/ledger/dispatches.jsonl with session_id as a field. What this pins is unchanged and is
@@ -797,11 +824,12 @@ grep -q 'artifact-checks.sh' "$ROOT/evals/tasks/review-standards-axis/oracle.sh"
 # lint-reuse-staged suspect is unaddressed in review.md, and ALLOW once addressed. Advisory→real gate.
 grep -q 'reuse-suspect loop gate' "$ROOT/bin/claudehut-state" \
   && ok "R1: set-review carries the reuse-suspect loop gate" || bad "R1: suspect loop gate missing from set-review"
-RT="$(mktemp -d)"; RSD="$RT/.claude/claudehut"; mkdir -p "$RSD/state" "$RSD/tasks/0001-x"
+RT="$(mktemp -d)"; RSD="$RT/.claude/claudehut"; mkdir -p "$RSD/state"
+# v0.12: start creates tasks/0001-x/ (it never adopts a pre-made dir), so the artifacts are written after it.
+CLAUDE_PROJECT_DIR="$RT" "$ROOT/bin/claudehut-state" --session ses-x start --route full --slug x >/dev/null 2>&1
 RV="$RSD/tasks/0001-x/review.md"
 printf '%s\n' '| item | status | evidence |' '| N+1 | ✓ satisfied | A.java:1 |' './gradlew test — 5 passed' > "$RV"
-printf '%s\n' '{"file":"src/main/java/com/x/Dup.java","kind":"duplicate","detail":"d"}' > "$RSD/state/ses-x.suspects.jsonl"
-printf '%s' '{"session":"ses-x","review":"pending"}' > "$RSD/state/ses-x.json"
+printf '%s\n' '{"file":"src/main/java/com/x/Dup.java","kind":"duplicate","detail":"d"}' > "$RSD/state/0001-x.suspects.jsonl"
 if CLAUDE_PROJECT_DIR="$RT" "$ROOT/bin/claudehut-state" --session ses-x set-review pass --evidence .claude/claudehut/tasks/0001-x/review.md >/dev/null 2>&1; then
   bad "R2: set-review pass ALLOWED with an unaddressed suspect (gate not firing)"
 else ok "R2: set-review pass REFUSED while a staged suspect is unaddressed"; fi
@@ -847,6 +875,8 @@ echo "== v0.8 P0 gates =="
 P0="$(mktemp -d)"; PD="$P0/.claude/claudehut/tasks/0001-demo"; mkdir -p "$PD" "$P0/.claude/claudehut/state"
 ST="$ROOT/bin/claudehut-state"
 runp() { CLAUDE_PROJECT_DIR="$P0" "$ST" --session p "$@" >/dev/null 2>&1; }
+# v0.12: set-* write into the session's schema-2 task, so each session this block drives opens one first.
+for _s in p q fr m3; do CLAUDE_PROJECT_DIR="$P0" "$ST" --session "$_s" start --route full --slug "t-$_s" >/dev/null 2>&1; done
 
 # WS-4 reuse-scan Fit/Impact content gate (the 0011 legacy 4-col scan would now be rejected)
 printf '%s\n' '| Dimension | Existing | Decision | Effort |' '| slug | none | new | M |' > "$PD/reuse-scan.md"
@@ -901,22 +931,9 @@ runp set-review pass --evidence .claude/claudehut/tasks/0001-demo/review.md \
 runp set-brainstorm .claude/claudehut/tasks/0001-demo/nonexistent.md \
   && ok "P0: fail-open — content gate on a missing file passes (never wedge)" || bad "P0: fail-open broken (missing-file rejected)"
 
-# WS-1 off-path detector (inject-phase advisory): valid JSON, warns off-path, excludes research/
-mkdir -p "$P0/.claude/prompt/0011-x" "$P0/.claude/prompt/research"
-printf 'x\n' > "$P0/.claude/prompt/0011-x/spec.md"; printf 'x\n' > "$P0/.claude/prompt/research/plan.md"
-printf '{"phase":"discover"}' > "$P0/.claude/claudehut/state/off.json"
-echo '{"session_id":"off","prompt":"hi"}' | CLAUDE_PROJECT_DIR="$P0" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" 2>/dev/null > "$P0/ip.json"
-jq -e . < "$P0/ip.json" >/dev/null 2>&1 && ok "P0/WS-1: inject-phase emits VALID JSON with off-path artifacts present" || bad "P0/WS-1: inject-phase invalid JSON (set-e pipefail regression)"
-jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -q "0011-x/spec.md" && ok "P0/WS-1: off-path detector warns on .claude/prompt/0011-x/spec.md" || bad "P0/WS-1: off-path not detected"
-jq -r .hookSpecificOutput.additionalContext < "$P0/ip.json" 2>/dev/null | grep -q "research/plan.md" && bad "P0/WS-1: off-path falsely flagged research/" || ok "P0/WS-1: off-path detector excludes research/ (no false positive)"
-
 # --- advisor P0-hardening regressions (B1 dispatch-proof, B2 bypass, M1/M2 freshness, M3 forged citation) ---
 PA="$P0/.claude/claudehut/tasks/0003-adv"; mkdir -p "$PA"
-# B2: the documented bypass escape hatch must unblock the set-plan smart-gate
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PA/plan.md"
-CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-bypass true --reason "eval fixture" >/dev/null 2>&1
-CLAUDE_PROJECT_DIR="$P0" "$ST" --session adv set-plan .claude/claudehut/tasks/0003-adv/plan.md >/dev/null 2>&1 \
-  && ok "P0/B2: set-bypass unblocks the set-plan smart-gate (escape hatch honored)" || bad "P0/B2: bypass NOT honored in set-plan (broken escape hatch)"
 # M1/M2: content-hash freshness — an unchanged reviewed plan passes; any post-review edit is rejected
 PB="$P0/.claude/claudehut/tasks/0004-fresh"; mkdir -p "$PB"
 printf '%s\n' '# P' '## Implementation Flow' 'auth' '**T-001 sketch**: SecurityFilterChain' '| T-001 | security/auth | tf | v | - |' > "$PB/plan.md"
@@ -934,15 +951,11 @@ CLAUDE_PROJECT_DIR="$P0" "$ST" --session m3 set-review pass --evidence .claude/c
 printf '%s\n' '| x | ✓ satisfied | AuthService.java:9 |' './gradlew test — 1 passed' > "$PA/review.md"
 CLAUDE_PROJECT_DIR="$P0" "$ST" --session m3 set-review pass --evidence .claude/claudehut/tasks/0003-adv/review.md >/dev/null 2>&1 \
   && ok "P0/M3: real filename:line locus ACCEPTED" || bad "P0/M3: real filename locus rejected"
-# B1: a dispatched plan-reviewer that returns WITHOUT a verdict is blocked; with a fresh verdict, allowed
-PV="$P0/.claude/claudehut/tasks/0005-pr"; mkdir -p "$PV"; printf '{"phase":"plan"}' > "$P0/.claude/claudehut/state/pr.json"; sleep 1
-echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
-  && ok "P0/B1: plan-reviewer SubagentStop BLOCKS when it returns no fresh verdict (dispatch-proof)" || bad "P0/B1: plan-reviewer empty return not blocked"
-touch "$PV/plan-review.md"
-[ -z "$(echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh")" ] \
-  && ok "P0/B1: plan-reviewer SubagentStop ALLOWS with a fresh verdict file" || bad "P0/B1: fresh verdict still blocked"
-echo '{"session_id":"pr","agent_type":"claudehut-plan-reviewer","stop_hook_active":true}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh" | jq -e '.decision=="block"' >/dev/null 2>&1 \
-  && bad "P0/B1: plan-reviewer ignores stop_hook_active cap (hang risk)" || ok "P0/B1: plan-reviewer respects stop_hook_active cap (fail-open)"
+# B1 retired (ADR-H5): SubagentStop is ledger-only. A plan-reviewer returning without a verdict is caught by
+# set-plan (no APPROVE recorded → refused), which runs on the main thread and does not depend on a hook firing.
+PVO="$(echo '{"session_id":"pr","agent_type":"claudehut:claudehut-plan-reviewer","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P0" bash "$ROOT/scripts/verify-subagent.sh" 2>/dev/null)"
+[ -z "$PVO" ] && ok "ADR-H5: SubagentStop never blocks (ledger only); the verdict gate lives in set-plan" \
+  || bad "ADR-H5: verify-subagent still emits output on SubagentStop"
 rm -rf "$P0"
 
 # ============================================================================
@@ -970,7 +983,7 @@ hn="$(CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/harvest-candidates.sh" --sess
 { [ "${hn:-0}" -ge 2 ] && jq -se . < "$CH/tasks/0001-x/learn-candidates.jsonl" >/dev/null 2>&1; } \
   && ok "WS-6: harvest-candidates extracts ≥2 candidates (recurring failure + review ✗) as valid JSONL — no agent" \
   || bad "WS-6: harvest-candidates did not produce valid candidates"
-# merge writes the per-session learn-receipt (the Stop-gate proof)
+# merge writes the per-session learn-receipt (the proof a Learn pass ran)
 CLAUDE_PROJECT_DIR="$P1" bash "$ROOT/scripts/merge-learnings.sh" --candidates "$CH/tasks/0001-x/learn-candidates.jsonl" --session s >/dev/null 2>&1
 [ -f "$CH/state/s.learn-receipt.json" ] && jq -e .ts < "$CH/state/s.learn-receipt.json" >/dev/null 2>&1 \
   && ok "WS-6: merge-learnings writes a per-session learn-receipt" || bad "WS-6: no learn-receipt written by merge"
@@ -992,36 +1005,22 @@ rm -rf "$P1"
 # v0.8 P1 — WS-7 task-profile router. BEHAVIORAL.
 # ============================================================================
 echo "== v0.8 P1 WS-7 (task-profile router) =="
-P7="$(mktemp -d)"; mkdir -p "$P7/.claude/claudehut/state"; ST="$ROOT/bin/claudehut-state"
+P7="$(mktemp -d)"; CHD="$P7/.claude/claudehut"; mkdir -p "$CHD/state"; ST="$ROOT/bin/claudehut-state"
 r7() { CLAUDE_PROJECT_DIR="$P7" "$ST" --session w "$@" >/dev/null 2>&1; }
-# set-profile validates the taxonomy
-r7 set-profile bogus && bad "WS-7: set-profile accepted an invalid shape" || ok "WS-7: set-profile rejects an invalid shape"
-r7 set-profile audit && ok "WS-7: set-profile accepts a valid shape (audit)" || bad "WS-7: set-profile rejected a valid shape"
-# set-phase implement is BLOCKED until a profile is set (auto-classify + hard gate, Issue 6)
-rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
-r7 set-phase implement && bad "WS-7: set-phase implement allowed with NO profile (classification not forced)" || ok "WS-7: set-phase implement BLOCKED until a profile is set (hard gate)"
-r7 set-profile feature; r7 set-phase implement && ok "WS-7: set-phase implement ALLOWED once a profile is set" || bad "WS-7: set-phase implement rejected despite a profile"
-# bypass escape hatch honored
-rm -rf "$P7"; mkdir -p "$P7/.claude/claudehut/state"
-r7 set-bypass true --reason "eval fixture"; r7 set-phase implement && ok "WS-7: set-bypass unblocks the implement classification gate (escape hatch)" || bad "WS-7: bypass not honored on the implement gate"
-# gate-done: an AUDIT completes on a findings deliverable, not a code review (genuine adaptivity)
-rm -rf "$P7"; CHD="$P7/.claude/claudehut"; mkdir -p "$CHD/state" "$CHD/tasks/0001-a" "$CHD/tasks/0009-old"
-gdone() { echo '{"session_id":"w","stop_hook_active":false}' | CLAUDE_PROJECT_DIR="$P7" bash "$ROOT/scripts/gate-done.sh"; }
-# M2: a PURE audit (no reuse-scan, never reaches implement) must STILL arm the findings gate — declaring
-# the shape IS engagement. (phase=discover, reuse_scan=false → would be "not engaged" without the M2 fix.)
-printf '{"session":"w","phase":"discover","profile":"audit","reuse_scan":false,"review":"pending","complexity":"full"}' > "$CHD/state/w.json"
-gdone | jq -e '.decision=="block"' >/dev/null 2>&1 \
-  && ok "WS-7/M2: profile=audit alone arms the findings gate (pure audit blocks done with no findings)" || bad "WS-7/M2: audit not armed without reuse-scan (rail never fires)"
-# M1: a PRIOR task's findings.md must NOT satisfy this audit — the gate checks the RECORDED path, not a glob
-printf '# old findings\n- x (A.java:1)\n' > "$CHD/tasks/0009-old/findings.md"
-gdone | jq -e '.decision=="block"' >/dev/null 2>&1 \
-  && ok "WS-7/M1: a prior task's findings.md does NOT satisfy this audit (recorded path, not a glob)" || bad "WS-7/M1: stale findings.md from another task passed the gate"
-# record THIS task's findings via set-findings + a fresh receipt → ALLOW (empty output; block() also exits 0)
+# v0.12: the shape rides on `start --profile` (set-profile is a v0.11 verb that updates the open task); the implement gate is gone.
+r7 start --route full --slug a --profile audit \
+  && jq -e '.profile=="audit"' "$CHD/tasks/0001-a/task.json" >/dev/null 2>&1 \
+  && ok "WS-7: the task shape is recorded by start --profile" || bad "WS-7: start --profile did not record the shape"
+r7 start --route full --slug b --profile "Not A Word" && bad "WS-7: start accepted a malformed profile" || ok "WS-7: start rejects a malformed profile"
+r7 start --route full --slug b --profile audits && bad "WS-7: start accepted a profile outside the enum" || ok "WS-7: start rejects a profile outside feature|bugfix|audit|migration|investigation"
+r7 set-profile audits && bad "WS-7: set-profile accepted an invalid shape" || ok "WS-7: set-profile rejects an invalid shape"
+jq -e '.profile=="audit"' "$CHD/tasks/0001-a/task.json" >/dev/null 2>&1 && ok "WS-7: a rejected set-profile leaves the recorded shape" || bad "WS-7: a rejected set-profile changed the shape"
+r7 set-phase implement && ok "WS-7: set-phase implement no longer hard-gates on a profile (v0.12)" || bad "WS-7: set-phase implement still gated"
+# findings are recorded per TASK — a prior task's findings.md is not this task's deliverable
 printf '# Findings\n- finding 1: X (Foo.java:9)\n' > "$CHD/tasks/0001-a/findings.md"
-CLAUDE_PROJECT_DIR="$P7" "$ST" --session w set-findings .claude/claudehut/tasks/0001-a/findings.md >/dev/null 2>&1
-printf '{"ts":"2026-06-01T00:00:00Z","added":1}' > "$CHD/state/w.learn-receipt.json"
-[ -z "$(gdone)" ] \
-  && ok "WS-7: audit ALLOWS done with a RECORDED findings.md (set-findings) + learn-receipt (no code review)" || bad "WS-7: audit blocked despite recorded findings + receipt"
+r7 resume 0001-a; r7 set-findings .claude/claudehut/tasks/0001-a/findings.md
+jq -e '.findings_path==".claude/claudehut/tasks/0001-a/findings.md"' "$CHD/tasks/0001-a/task.json" >/dev/null 2>&1 \
+  && ok "WS-7: set-findings records the deliverable in this task's task.json" || bad "WS-7: set-findings did not reach task.json"
 rm -rf "$P7"
 
 # ============================================================================
@@ -1034,8 +1033,8 @@ grep -q 'Re-examine loop' "$ROOT/agents/claudehut-brainstormer.md" \
   || bad "WS-8b: brainstormer pipeline is still a single linear pass (no re-examine loop)"
 grep -q 'loops:' "$ROOT/skills/brainstorm/references/brainstorm-template.md" \
   && ok "WS-8b: brainstorm template records the re-examine loop count (loops:)" || bad "WS-8b: brainstorm template has no loops: field"
-grep -q 'plan-review.md' "$ROOT/scripts/verify-subagent.sh" \
-  && ok "WS-8b: plan-reviewer (reasoning/conformance auditor) is gated at SubagentStop" || bad "WS-8b: plan-reviewer not gated"
+grep -q 'needs a plan-reviewer APPROVE first' "$ROOT/bin/claudehut-state" \
+  && ok "WS-8b: the plan-reviewer verdict is gated at set-plan (SubagentStop is ledger-only in v0.12)" || bad "WS-8b: plan-reviewer verdict not gated"
 
 # ============================================================================
 # v0.8 P2 — WS-9 concision. The rigor contract is extracted ONCE; the dedup cannot drop enforcement
@@ -1116,7 +1115,7 @@ grep -q 'no new dispatch' "$RVW" \
 # empty diff while gate-done.sh already knew the deliverable was findings.md. The profile is read from the
 # SAME jq call as the enforcement set (not a second shell-out), and the test-runner skip is bounded on the
 # diff — an audit that incidentally changed code must still be tested.
-{ grep -q "jq -c '{profile, enforcement_set}'" "$RVW" && grep -q 'findings.md' "$RVW" \
+{ grep -q "status 2>/dev/null || echo '{}'; } | jq -c '.task // {} | {profile, enforcement_set}'" "$RVW" && grep -q 'findings.md' "$RVW" \
   && grep -q 'src/main' "$RVW"; } \
   && ok "DT-10: review is profile-aware from one jq call and bounds the test-runner skip on the diff" \
   || bad "DT-10: review is profile-blind — an audit pays a code-review fan-out over an empty diff"

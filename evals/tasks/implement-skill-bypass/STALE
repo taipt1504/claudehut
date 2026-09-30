@@ -1,0 +1,1 @@
+v0.11-only: asserts implement_skill_ok=true, which only the removed record-skill.sh rail set; v0.12 has no skill rail and no state field for it (ADR-H1). Retire or rewrite in M2.

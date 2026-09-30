@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-off diagnostic: init-then-task on clean-first-run, with workdir + transcript captured,
 # to determine whether the ClaudeHut workflow actually drives (produces reuse-scan/spec/plan/
-# learnings + state) and whether the write gate fires. Not part of the suite.
+# learnings + state) and whether the advisory hooks speak. Not part of the suite.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 SAN="$(mktemp -d)/plugin"; cp -R "$ROOT" "$SAN"; rm -rf "$SAN/evals" "$SAN/docs" "$SAN/.git"

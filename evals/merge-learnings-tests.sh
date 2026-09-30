@@ -68,7 +68,9 @@ cat > "$T/cand.jsonl" <<'EOF'
 {"category":"note","trigger":"jpa","learning":"be careful with jpa","evidence":"no evidence"}
 {"category":"pitfall","trigger":"orderrepository, n+1, jpa","learning":"OrderRepository.findAll N+1 recurs — use @EntityGraph","evidence":"OrderRepository.java:42","confidence":0.7}
 EOF
-R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
+# --ts = now: the recurrence bump stamps .ts, and the MEM-4 sweep resets recurrence on a promoted entry untouched
+# >60 days by the wall clock, so a fixed date turned this assertion red once it was 60 days old.
+R="$("$SH" --candidates "$T/cand.jsonl" --ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
 [ "$(jq -r '.rejected' <<<"$R")" = 1 ] && ok "quality gate: vague no-evidence candidate rejected" || bad "quality gate ($R)"
 [ "$(jq -r '.recurred' <<<"$R")" = 1 ] && ok "recurrence: promoted pitfall resurfaced counted" || bad "recurrence report ($R)"
 [ "$(jq -sc 'map(select(.id=="L-0001"))|.[0].recurrence' "$(store)")" = 1 ] \
@@ -329,7 +331,8 @@ for _ in 1 2 3; do
     | CLAUDE_PROJECT_DIR="$TD" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" >/dev/null 2>&1
 done
 ex="$(jq 'length' "$TD/.claude/claudehut/state/s9.injected.json" 2>/dev/null || echo 0)"
-[ "${ex:-0}" -ge 15 ] \
+# v0.12: the per-prompt block is top 3 (≤500 chars, 05 §4 #3), so three prompts accumulate 3×3 ids.
+[ "${ex:-0}" -ge 9 ] \
   && ok "LRN-9: the exclude set accumulates across prompts ($ex ids after 3), so entries are not re-paid" \
   || bad "LRN-9: exclude set stuck at $ex — consecutive prompts still re-pay for the same entries"
 rm -rf "$TD"
@@ -339,8 +342,9 @@ TE="$(mktemp -d)"; mkdir -p "$TE/.claude/claudehut/state"
   && touch -t 202607010000 old.failures.jsonl old.ua-flag CUR.failures.jsonl && touch fresh.failures.jsonl )
 printf '%s\n' '{"id":"keep"}' > "$TE/.claude/claudehut/learnings.jsonl"
 touch -t 202607010000 "$TE/.claude/claudehut/learnings.jsonl"
+# v0.12: the sweep moved from the sync bootstrap to the async maintain.sh (ADR-H8).
 printf '{"session_id":"CUR","source":"startup"}' \
-  | CLAUDE_PROJECT_DIR="$TE" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/bootstrap.sh" >/dev/null 2>&1
+  | CLAUDE_PROJECT_DIR="$TE" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/maintain.sh" >/dev/null 2>&1
 { [ ! -f "$TE/.claude/claudehut/state/old.failures.jsonl" ] && [ ! -f "$TE/.claude/claudehut/state/old.ua-flag" ]; } \
   && ok "ST-1: sidecars older than 7 days are removed" || bad "ST-1: stale sidecars survived"
 [ -f "$TE/.claude/claudehut/state/CUR.failures.jsonl" ] \
@@ -408,17 +412,23 @@ echo "== merge-learnings: the advisory lock cannot be disabled by a stray file =
 # wall-clock cap and then wrote UNLOCKED — on every invocation, permanently, for that project. And the
 # loop had no yield, so those ten seconds were a hot spin rather than a wait.
 # Measured before the fix: 0.13s normally vs 10.03s at 62% CPU with a file planted, file still present
-# afterwards. bin/claudehut-state carried the same hole plus a second one; see gate-tests.sh.
+# afterwards. bin/claudehut-state carried the same hole plus a second one; see hook-tests.sh (lock block).
+# No wall clock in the verdict (V3-3): a PATH shim counts the lock loop's own steps instead — every pass of the
+# wait loop reads `date` and yields with `sleep`, so a stall shows up as a count whatever the machine load is.
+CNT="$(mktemp -d)"; export CNT_LOG="$CNT/calls"
+for b in sleep date; do printf '#!/bin/sh\necho %s >> "$CNT_LOG"\nexec %s "$@"\n' "$b" "$(command -v "$b")" > "$CNT/$b"; chmod +x "$CNT/$b"; done
+cnt() { grep -c "^$1\$" "$CNT_LOG" 2>/dev/null || true; }
 new_proj
 printf '{"category":"pitfall","trigger":"lock, fixture","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
-: > "$(store).lock"
-mlk_t0="$(date -u +%s)"
-"$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
-mlk_t1="$(date -u +%s)"
-mlk_el=$(( mlk_t1 - mlk_t0 ))
-[ "$mlk_el" -lt 5 ] \
-  && ok "lock: a plain file at the lock path does not stall the merge (${mlk_el}s, was a 10s hot spin)" \
-  || bad "lock: a plain file at the lock path still spins to the wall-clock cap (${mlk_el}s)"
+: > "$CNT_LOG"; PATH="$CNT:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
+mlk_d0="$(cnt date)"; new_proj   # control: the clock reads of an uncontended merge
+printf '{"category":"pitfall","trigger":"lock, fixture","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+: > "$(store).lock"; : > "$CNT_LOG"
+PATH="$CNT:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
+mlk_s="$(cnt sleep)"; mlk_d="$(cnt date)"
+[ "$mlk_s" = 0 ] && [ "$mlk_d" = "$mlk_d0" ] && grep -q '"trigger":"fixture|lock"' "$(store)" \
+  && ok "lock: a plain file at the lock path does not stall the merge (0 waits, ${mlk_d} clock reads = uncontended; was a 10s hot spin)" \
+  || bad "lock: a plain file at the lock path still spins (${mlk_s} sleep(s), ${mlk_d} clock reads vs ${mlk_d0} uncontended)"
 [ ! -e "$(store).lock" ] \
   && ok "lock: the stray non-directory lock is cleared, so it does not disable locking for good" \
   || bad "lock: the stray file survives — every later run is unlocked too"
@@ -433,6 +443,51 @@ mkdir "$(store).lock"
   && ok "lock: control — a live holder's lock directory is left alone (not swept as debris)" \
   || bad "lock: control — a held lock DIRECTORY was removed; the stray-file cleanup is too broad"
 rm -rf "$(store).lock"
+# HC2-1 — a STALE lock directory (a killed Learn pass) must be stolen on GNU/Linux too. There `stat -f` means
+# --file-system: `stat -f %m` prints a multi-line report and fails, and the old BSD-first probe handed that report
+# to `[ -gt ]`, so the lock was never stolen and every merge rode the 10 s cap, then wrote unlocked. A GNU-like
+# `stat` on PATH reproduces that on macOS; on Linux it delegates to the real GNU stat. With flock (Linux) the
+# mkdir lock is not used at all, so there only the "no stall" half applies.
+new_proj
+RSTAT="$(command -v stat)"; GS="$T/gnustat"; mkdir -p "$GS"
+if "$RSTAT" -c %Y / >/dev/null 2>&1; then mt='exec '"$RSTAT"' -c %Y "$3"'; else mt='exec '"$RSTAT"' -f %m "$3"'; fi
+printf '#!/bin/sh\ncase "$1" in\n  -f) printf "  File: \\"%%s\\"\\n    Type: overlayfs\\n" "$3"; exit 1 ;;\n  -c) [ "$2" = %%Y ] && %s ;;\nesac\nexec %s "$@"\n' "$mt" "$RSTAT" > "$GS/stat"; chmod +x "$GS/stat"
+printf '{"category":"pitfall","trigger":"lock, stale","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+mkdir "$(store).lock"; touch -t 202001010000 "$(store).lock"; : > "$CNT_LOG"
+PATH="$CNT:$GS:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
+mlk_s="$(cnt sleep)"
+if command -v flock >/dev/null 2>&1; then mlk_gone=yes; else [ ! -e "$(store).lock" ] && mlk_gone=yes || mlk_gone=no; fi
+[ "$mlk_s" = 0 ] && [ "$mlk_gone" = yes ] && grep -q '"trigger":"lock|stale"' "$(store)" \
+  && ok "lock: a stale lock dir (mtime 2020) under GNU stat is stolen at once (0 waits; merge landed, HC2-1)" \
+  || bad "lock: a stale lock dir under GNU stat stalls or survives (${mlk_s} sleep(s), gone=$mlk_gone) — the mtime probe is not portable"
+rm -rf "$(store).lock"
+
+# V3-5 — the FLOCK path must not swallow the script's stderr for the rest of the run. A bare
+# `exec 9>file 2>/dev/null` redirects the shell itself, so every later jq/mv error of the merge vanished (on Linux,
+# which ships flock). A python fcntl `flock` on PATH forces that path on macOS too; a scratch copy prints a probe on
+# stderr right after acquire_lock, and the probe must reach the caller.
+new_proj
+FS="$T/flockshim"; mkdir -p "$FS"
+cat > "$FS/flock" <<'FLEOF'
+#!/usr/bin/env python3
+import fcntl, sys, time
+a = sys.argv[1:]; w = None
+if a and a[0] == "-w": w = float(a[1]); a = a[2:]
+fd = int(a[0]); end = time.time() + (w if w is not None else 1e9)
+while True:
+    try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB); sys.exit(0)
+    except OSError:
+        if time.time() > end: sys.exit(1)
+        time.sleep(0.005)
+FLEOF
+chmod +x "$FS/flock"
+sed 's/^acquire_lock$/acquire_lock; echo PROBE-AFTER-LOCK >\&2/' "$SH" > "$T/ml-probe.sh"
+printf '{"category":"pitfall","trigger":"lock, flock","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+mlk_err="$(PATH="$FS:$PATH" bash "$T/ml-probe.sh" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z 2>&1 >/dev/null)"
+grep -q '^acquire_lock; echo PROBE' "$T/ml-probe.sh" && [ -e "$(store).lock.flock" ] && printf '%s' "$mlk_err" | grep -q PROBE-AFTER-LOCK \
+  && grep -q '"trigger":"flock|lock"' "$(store)" \
+  && ok "lock: the flock path keeps stderr — a diagnostic after acquire_lock still reaches the caller (V3-5)" \
+  || bad "lock: the flock path swallowed stderr after acquire_lock, or did not take the flock (V3-5): '${mlk_err:0:120}'"
 
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"

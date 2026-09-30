@@ -9,6 +9,23 @@
 # oracle DISCRIMINATES (proving the oracle itself works), and (b) live task oracle.sh files that run the
 # checks on artifacts a real agent produced.
 
+# ── v0.12 schema 2: state/<sid>.json is only a pointer {schema:2, active_task}; the workflow fields (phase,
+# review, review_evidence, spec_path, …) live in tasks/<id>/task.json. Prints that task.json for the newest
+# schema-2 pointer — sidecars like <sid>.injected.json are skipped by their inner dot — and falls back to the
+# newest tasks/*/task.json, because `end` clears the pointer of a finished task. Returns 1 when there is none.
+resolve_task_json() {
+  local chd="$1" f b id
+  while IFS= read -r f; do
+    b="${f##*/}"; b="${b%.json}"
+    case "$b" in *.*|'') continue ;; esac
+    id="$(jq -r 'if type=="object" and .schema==2 then (.active_task // empty) else empty end' "$f" 2>/dev/null)"
+    [ -n "$id" ] && [ -f "$chd/tasks/$id/task.json" ] && { printf '%s\n' "$chd/tasks/$id/task.json"; return 0; }
+  done < <(ls -t "$chd"/state/*.json 2>/dev/null)
+  f="$(ls -t "$chd"/tasks/*/task.json 2>/dev/null | head -1)"
+  [ -n "$f" ] && { printf '%s\n' "$f"; return 0; }
+  return 1
+}
+
 # ── trim helper
 _trim() { printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//'; }
 

@@ -38,6 +38,7 @@ if ! $LIVE; then
 fi
 command -v claude >/dev/null || { echo "claude not on PATH" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq not on PATH" >&2; exit 2; }
+. "$ROOT/evals/lib/artifact-checks.sh"   # resolve_task_json
 num() { case "$1" in ''|*[!0-9.]*) echo 0 ;; *) echo "$1" ;; esac; }
 
 SAN=""
@@ -45,6 +46,8 @@ if [ "$MODE" = claudehut ]; then SAN="$(mktemp -d)/plugin"; cp -R "$ROOT" "$SAN"
 
 for t in "${sel[@]}"; do
   d="$TASKS_DIR/$t"; [ -d "$d/repo" ] || { echo "skip: no fixture $t"; continue; }
+  # A task whose oracle asserts removed v0.11 behavior is skipped with its reason, not scored as a silent FAIL.
+  [ -f "$d/STALE" ] && { echo "skip: $t is stale — $(head -1 "$d/STALE")"; continue; }
   prompt="$(cat "$d/task.md")"
   for ((i=1;i<=TRIALS;i++)); do
     work="$(mktemp -d)/work"; mkdir -p "$work"; cp -R "$d/repo/." "$work/"
@@ -68,9 +71,9 @@ for t in "${sel[@]}"; do
       fi
       full="$prompt
 
-This project uses the ClaudeHut plugin; its 7-phase workflow is injected at session start. Drive the ClaudeHut workflow to completion: triage the complexity tier FIRST (Phase 0 — set-complexity trivial/small/full) AND the task profile (set-profile), then run exactly that tier's phases, writing all workflow artifacts under .claude/claudehut/. Complete the task.
+This project uses the ClaudeHut plugin; its 7-phase workflow is injected at session start. Drive the ClaudeHut workflow to completion: triage the complexity tier FIRST (Phase 0) AND the task profile (Phase 0b), open the task with claudehut-state start --route light|full --profile <p> --slug <s>, then run exactly that tier's phases, writing all workflow artifacts under .claude/claudehut/. Complete the task.
 
-NON-INTERACTIVE (-p) RUN: there is no human to answer questions. At every approval gate (Spec, Plan), DO NOT end your turn waiting for approval — take the documented non-interactive path: proceed with your draft, record the 'approval: non-interactive run — proceeded with draft' marker, and continue. Drive all the way through Implement → Review → Learn until the Stop gate is satisfied (review=pass and the Learn pass has run). Never stop at a question."
+NON-INTERACTIVE (-p) RUN: there is no human to answer questions. At every approval gate (Spec, Plan), DO NOT end your turn waiting for approval — take the documented non-interactive path: proceed with your draft, record the 'approval: non-interactive run — proceeded with draft' marker, and continue. Drive all the way through Implement → Review → Learn until review=pass, the Learn pass has run, and the task is closed with claudehut-state end --status done. Never stop at a question."
       ( cd "$work" && CLAUDE_PROJECT_DIR="$work" CLAUDE_PLUGIN_ROOT="$SAN" \
           claude --print --plugin-dir "$SAN" --output-format json --model "$MODEL" --max-budget-usd "$BUDGET" \
           --dangerously-skip-permissions "$full" < /dev/null ) > "$j" 2>"$work/.err" || true
@@ -82,7 +85,8 @@ NON-INTERACTIVE (-p) RUN: there is no human to answer questions. At every approv
     sub=$(jq -r '.subtype // "unknown"' "$j" 2>/dev/null); [ -n "$sub" ] || sub=unknown
     # ---- workflow progress from the AUTHORITATIVE state file (most-progressed session) ----
     chd="$work/.claude/claudehut"
-    st=$(ls -t "$chd"/state/*.json 2>/dev/null | head -1)
+    # schema 2: state/<sid>.json is a pointer; the workflow fields live in tasks/<id>/task.json
+    st=$(resolve_task_json "$chd")
     if [ -n "$st" ]; then
       wf=$(jq -c '{started:true, phase:(.phase//"?"), reuse_scan:(.reuse_scan//false), spec:((.spec_path//"")!=""), plan:((.plan_path//"")!=""), review:(.review//"pending"), completed:((.phase=="learn") and (.review=="pass"))}' "$st" 2>/dev/null)
     else

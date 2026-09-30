@@ -29,7 +29,7 @@ never wait or retry-loop** (a waiting subagent presents as a hang).
 
 ```mermaid
 flowchart TB
-    a(["dispatched: T-xxx rows + AC + enforcement set + file-ownership list"]) --> pre{"precondition present?<br/>(rows + AC given; write gate not denying)"}
+    a(["dispatched: T-xxx rows + AC + enforcement set + file-ownership list"]) --> pre{"precondition present?<br/>(rows + AC given; phases recorded)"}
     pre -- "no" --> blk(["return BLOCKED: reason immediately — never wait/retry"])
     pre -- "yes" --> step["next assigned plan step (build on committed prior phases)"]
     step --> red["RED — smallest failing test"]
@@ -82,7 +82,7 @@ End with one status line, then details:
 - **DONE (branch: <name>, commit: <sha>)** — all assigned plan steps implemented, tests green, work
   committed in the worktree branch. List files changed + which enforcement-set items you satisfied.
 - **DONE_WITH_CONCERNS** — implemented but with caveats (flaky test, a TODO you couldn't resolve). List them.
-- **BLOCKED** — a write was denied (missing phase), a test can't be made to pass, or the plan is wrong. Explain.
+- **BLOCKED** — a phase is missing (no reuse-scan / plan), a test can't be made to pass, or the plan is wrong. Explain.
 
 Then a **per-task status block** — one line per plan task, so the main thread can mirror progress to the
 native Claude Code task list (you don't update that list yourself — you have no task tools):

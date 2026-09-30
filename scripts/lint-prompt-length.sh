@@ -141,7 +141,9 @@ DEFAULT_PAYLOAD_SOURCE="$HOME/Documents/Projects/ewallet-workspace/va-ms"
 PAYLOAD_PROMPT='cần thêm filter support cho display name ở api dynamic va view'
 PAYLOAD_SID='payload-fixture-0001'
 
-ctx_bytes() { jq -r '.hookSpecificOutput.additionalContext // "" | utf8bytelength' 2>/dev/null || echo -1; }
+# v0.12 hooks print NOTHING on most paths (machine turns, no learnings), which is 0 bytes, not a parse error.
+ctx_bytes() { local o; o="$(cat)"; [ -n "$o" ] || { echo 0; return; }
+  printf '%s' "$o" | jq -r '.hookSpecificOutput.additionalContext // "" | utf8bytelength' 2>/dev/null || echo -1; }
 
 # $1 = fixture project dir, $2 = optional source service dir. Prepares the plane so bootstrap takes no
 # init/refresh branch; copies (never links) the source's learnings + KB meta.
@@ -263,7 +265,9 @@ Output too large. Full output saved to: $t/saved.txt
   touch "$t/marker"; sleep 1
   j="$(CLAUDEHUT_PAYLOAD_SOURCE="$t/no-such-source" run_payload --json)"
   chk "payload: SessionStart context >= digest.md (digest is its first block)" 'jq -e ".fixtures[0].session_start_bytes >= .digest_bytes and .digest_bytes > 0" <<<"$j" >/dev/null'
-  chk "payload: first UserPromptSubmit carries the full block, repeat takes the delta path" 'jq -e ".fixtures[0] | .user_prompt_submit_first_bytes > .user_prompt_submit_repeat_bytes and .user_prompt_submit_repeat_bytes > 0" <<<"$j" >/dev/null'
+  # v0.12 (05 §4 #3, F-6): no phase line any more — a machine-generated turn gets 0 B, and a repeat prompt
+  # never costs more than the first (its learnings are excluded once injected).
+  chk "payload: machine-generated turn gets 0 B; a repeat prompt costs no more than the first" 'jq -e ".fixtures[0] | .user_prompt_submit_machine_turn_bytes == 0 and .user_prompt_submit_repeat_bytes <= .user_prompt_submit_first_bytes" <<<"$j" >/dev/null'
   chk "payload: absent source -> only the empty fixture" '[ "$(jq ".fixtures|length" <<<"$j")" = 1 ]'
   chk "payload: no file under the repo was modified" '[ -z "$(find "$ROOT" -path "$ROOT/.git" -prune -o -type f -newer "$t/marker" -print | head -1)" ]'
   rm -rf "$t"

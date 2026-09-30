@@ -4,42 +4,34 @@
       {
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh", "timeout": 15 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/bootstrap.sh\"", "timeout": 5 }
+        ]
+      },
+      {
+        "matcher": "startup",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/maintain.sh\"", "async": true }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/inject-phase.sh", "timeout": 10 }
-        ]
-      }
-    ],
-    "UserPromptExpansion": [
-      {
-        "matcher": "(claudehut:)?(implement|discover|brainstorm)",
-        "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill-expansion.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/inject-phase.sh\"", "timeout": 5 }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-write.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/advise-write.sh\"", "timeout": 5 }
         ]
       },
       {
         "matcher": "Agent",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-agent-dispatch.sh" }
-        ]
-      },
-      {
-        "matcher": "Skill",
-        "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-skill.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/record-agent-dispatch.sh\"", "timeout": 5 }
         ]
       }
     ],
@@ -47,10 +39,10 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "if": "Write(*.java)", "statusMessage": "formatting Java", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
-          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "formatting Java", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh", "async": true },
-          { "type": "command", "if": "Write(*.java)", "statusMessage": "checking reuse",  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh",  "async": true },
-          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "checking reuse",  "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh",  "async": true }
+          { "type": "command", "if": "Write(*.java)", "statusMessage": "formatting Java", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh\"", "async": true },
+          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "formatting Java", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/format-java.sh\"", "async": true },
+          { "type": "command", "if": "Write(*.java)", "statusMessage": "checking reuse",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh\"",  "async": true },
+          { "type": "command", "if": "Edit(*.java)",  "statusMessage": "checking reuse",  "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/lint-reuse.sh\"",  "async": true }
         ]
       }
     ],
@@ -58,42 +50,28 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-failure.sh", "async": true }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/gate-done.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/record-failure.sh\"", "async": true }
         ]
       }
     ],
     "SubagentStart": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-dispatch.sh", "async": true }
-        ]
-      }
-    ],
-    "InstructionsLoaded": [
-      {
-        "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/record-rules-loaded.sh", "async": true }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/record-dispatch.sh\"", "timeout": 5 }
         ]
       }
     ],
     "SubagentStop": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/verify-subagent.sh" }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/verify-subagent.sh\"", "async": true }
         ]
       }
     ],
-    "PreCompact": [
+    "InstructionsLoaded": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/persist-state.sh", "timeout": 10 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/record-rules-loaded.sh\"", "async": true }
         ]
       }
     ]

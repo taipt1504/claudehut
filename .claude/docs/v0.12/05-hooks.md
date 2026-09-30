@@ -102,7 +102,7 @@ Các hook khác dùng tập con của predicate:
 | 2 | SessionStart | `startup` | `maintain.sh` | async | — | systemMessage (rule drift), lượt sau | P-plane | B10, D1 |
 | 3 | UserPromptSubmit | — | `inject-phase.sh` | sync | 5 ¹ | learnings top 3 ≤500 ký tự; 1 fact mỗi (repo, HEAD) lệch | P-prompt | A10, F-6, B10, D2 |
 | 4 | PreToolUse | `Write\|Edit\|NotebookEdit` | `advise-write.sh` (từ `gate-write.sh`) | sync | 5 | additionalContext 1 lần mỗi task | P-full | A1, A2, A9, B2, B4, B5, B8 |
-| 5 | PreToolUse | `Agent` | `record-agent-dispatch.sh` | async | — | không | P-plane; ghi `name`↔`subagent_type` | F-1, F-PA-1 |
+| 5 | PreToolUse | `Agent` | `record-agent-dispatch.sh` | sync ³ | 5 | không | P-plane; ghi `name`↔`subagent_type` | F-1, F-PA-1 |
 | 6 | PostToolUse | `Write\|Edit`; `Write(*.java)`, `Edit(*.java)` | `format-java.sh` | async | — | không | có formatter | — |
 | 7 | PostToolUse | như #6 | `lint-reuse.sh` | async | — | suspects vào `state/<task>.suspects.jsonl` | P-task | A8 |
 | 8 | PostToolUse | `Write\|Edit` | `doclint-advise.sh` | sync | 5 | ≤10 dòng doclint | P-path: `tasks/*/{spec,plan,brainstorm,plan-review,task}.md` | C1, C3–C8 |
@@ -114,6 +114,8 @@ Các hook khác dùng tập con của predicate:
 
 ¹ Chọn 5 s; Đã chốt (2026-09-29), xem [§10](#10-mục-mở).
 ² Handler phải sync, vì output của hook async đến ở lượt kế tiếp và lỡ thời điểm subagent bắt đầu ([async](https://code.claude.com/docs/en/hooks#run-hooks-in-the-background)). Mặc định 600 s của command hook là quá lớn; timeout Đã chốt (2026-09-29): 5 s, xem [§10](#10-mục-mở).
+
+³ Lệch so với bản thiết kế đầu (async), sửa ở M1 (HC2-3): PreToolUse async không giữ tool Agent lại, nên SubagentStart (#11, sync) có thể đọc ledger `name`↔`subagent_type` trước khi dòng được ghi, và teammate rơi về tên tự đặt (đúng ca F-1). Hook không in gì và tốn ~16 ms mỗi lần gọi Agent, nên chạy sync với timeout 5 s.
 
 `record-dispatch` và `verify-subagent` dùng `lib/resolve-agent.sh` để nối tên teammate về `subagent_type` qua ledger của #5, vì 61% dispatch có `name` và khi đó `agent_type` là tên tự đặt (F-1).
 
@@ -209,7 +211,7 @@ Trong bash, viết `[[:space:]]` thay cho `\s`, vì `\s` không thuộc POSIX ER
 
 ## 11. Tiêu chí chấp nhận
 
-Mọi tiêu chí chạy bằng `evals/hook-tests.sh` (M1), trừ khi ghi khác.
+Mọi tiêu chí chạy bằng `evals/hook-tests.sh` (M1), trừ khi ghi khác. Ngoại lệ: AC11 chạy từ M5 (cần `indexed_commit`), AC13 từ M2 (xem hàng M1 của [10](10-rollout-eval.md#1-milestone)); AC12 là benchmark `evals/hook-bench.sh`, không gate (xem hàng AC12).
 
 | # | Given / When | Then |
 |---|---|---|
@@ -224,7 +226,7 @@ Mọi tiêu chí chạy bằng `evals/hook-tests.sh` (M1), trừ khi ghi khác.
 | AC9 | Có plane, không có task, prompt do người gõ | Output không có "Untriaged" hay "Phase 0" (A10) |
 | AC10 | SubagentStop với `agent_type` rỗng hoặc tên teammate | stdout rỗng; ledger ghi `resolved_type` cho teammate |
 | AC11 | HEAD lệch `indexed_commit`; 2 prompt liên tiếp | Tối đa 1 update nền (lock); fact đúng 1 lần mỗi (repo, HEAD) |
-| AC12 | 100 lần chạy trên đường không task | p95 ≤50 ms cho `advise-write`, `inject-phase`; `bootstrap` p95 ≤300 ms |
+| AC12 | 100 lần chạy trên đường không task | p95 ≤50 ms cho `advise-write`, `inject-phase`; `bootstrap` p95 ≤300 ms. **Benchmark, không gate:** `evals/hook-bench.sh` báo p95 từng hook, p95 chuẩn hoá theo baseline và tỉ lệ hook/baseline, luôn exit 0 (CI chạy dạng này), vì thời gian wall phụ thuộc máy và tải. `HOOK_BENCH_STRICT=1` bật gate: phải đạt CẢ bound tuyệt đối đã chuẩn hoá theo baseline LẪN trần tỉ lệ CPU hook/baseline theo từng hook (V3-1: bound chuẩn hoá nới theo tải nên một hồi quy CPU trốn được ngay ở tải vừa); `--self-test` chứng minh bản chậm 3× CPU và bản `sleep 0.05` bị gate strict đánh FAIL |
 | AC13 | `lint-prompt-length.sh --payload` | digest ≤2.500 B; ClaudeHut ≤4.000 B; card ≤500 B; không "MUST"/"REQUIRED NEXT" |
 | AC14 | `hooks.json` | 13 handler theo §4 (15 entry); không có Stop, UserPromptExpansion, PreToolUse `Skill`, PreCompact, `MultiEdit`; mọi command có `"${CLAUDE_PLUGIN_ROOT}"` được quote; `claude plugin validate` sạch; mọi `scripts/*.sh` có bit executable |
 | AC15 | Replay payload core-ledger 2e70d1d8 (343 file) và report-service 652fab55 | stdout rỗng (A1, A9) |

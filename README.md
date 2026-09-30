@@ -37,7 +37,8 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
   every new endpoint, listener, job, and outbound client (rule: `observability/instrumentation.md`).
 - **`claudehut-contract-reviewer`** — a Review-phase auditor for Kafka/Avro/Protobuf schema compatibility,
   consumer-driven contract tests, and REST/gRPC backward-compat (rule: `framework/contract-compat.md`).
-- **Deterministic completion gate** — `gate-done.sh` is the single authority. (v0.9.1 also ran an advisory
+- **Completion check** — *(v0.12: the `Stop` gate `gate-done.sh` was removed; the earned-evidence check in
+  `claudehut-state set-review pass` remains.)* v0.11: `gate-done.sh` was the single authority. (v0.9.1 also ran an advisory
   `agent` hook on every `Stop`; v0.9.2 removed it — its two checks were already enforced by
   `claudehut-state set-review pass`, so it paid for a model call per turn to re-derive a settled decision.)
 - **Eval self-checks** — a mermaid ultra-flow coverage guard in `conformance.sh`, per-task reference solutions
@@ -127,15 +128,18 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 
 ## How enforcement works
 
+> **v0.12 (M1):** hooks are advisory — the write gate and the completion gate below are v0.11 behavior and were
+> removed. `advise-write.sh` gives a once-per-task note on the full route before `set-plan`; nothing is denied.
+
 - **Write gate** (`PreToolUse`, tier-aware): no new production code until a reuse-scan artifact exists
   (**every tier**) plus a spec **and** plan (**full tier**). Fast lanes (`trivial`/`small`) skip spec/plan but
   only within a **deterministically checked bound** (≤2 changed files, no security/auth/migration paths) —
   exceed it and the gate denies and forces escalation to full. Test paths (`*Test.java`, `*IT.java`,
   `*/test/*`) are always allowed so the RED test can come first. The gate also verifies the named artifacts
   actually exist at canonical paths — a flag alone won't unlock it.
-- **Completion gate** (`Stop`, tier-aware): you can't claim "done" until Review reports zero outstanding
-  items and — in full/small tiers — the Learn pass has run (trivial legitimately ends at review-pass; honors
-  the native consecutive-Stop cap). Sessions that never engaged the workflow aren't blocked.
+- **Completion** *(v0.12: the `Stop` completion gate was removed)*: "done" is `set-review pass` with its
+  earned `review.md` evidence (or `set-findings` for audit/investigation), then `claudehut-state end --status
+  done`. No hook blocks a turn from ending.
 - **Iron-Law skills** order actions within a turn — reuse-first **+ the minimalism decision ladder**
   (Discover: _need-to-exist? → stdlib → Spring/dep → reuse → minimal new_), test-first (`implement`'s
   "no production code without a failing test"), evidence-first (Review). The safety floor (validation,
@@ -159,8 +163,8 @@ The tech-stack standards live on two surfaces, split by **measured** Claude Code
 
 ```bash
 # the state CLI is the SOLE writer of session state (hooks only read it):
-"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-bypass true   # disable gates this session
-"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-complexity trivial  # fast-lane a trivial task (gate still verifies the bound)
+"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-route light   # v0.12: the route replaces the tier (set-complexity maps onto it)
+# set-bypass was removed in v0.12 (no gate left to bypass); it is accepted as a no-op
 ```
 
 The gates also fail **open** (allow) on a missing/stale state file, and you can disable all hooks via Claude
@@ -186,9 +190,10 @@ Code's `disableAllHooks` setting.
   organized by domain (architecture / coding / framework / performance / security / testing) plus
   `project-structure.md` and `vocabulary.md`. Stack-gated at init — only the rules matching your detected
   stack (web / reactive / orm / messaging / cache / mapper) are emitted.
-- **Hooks** (`hooks/hooks.json` + `scripts/`) — `SessionStart` bootstrap + phase/learnings injection,
-  `UserPromptExpansion` slash skill-rail recorder, `PreToolUse`/`Stop` gates, `PostToolUse` Java formatting,
-  `PostToolUseFailure` failure capture, `SubagentStop` verification, `PreCompact` state persistence.
+- **Hooks** (`hooks/hooks.json` + `scripts/`, all advisory, always exit 0) — `SessionStart` bootstrap + async
+  maintenance, `UserPromptSubmit` learnings injection, `PreToolUse` write advisory + Agent-dispatch recorder,
+  `PostToolUse` Java formatting + reuse lint, `PostToolUseFailure` failure capture, `SubagentStart`/`SubagentStop`
+  dispatch ledger, `InstructionsLoaded` rule-load recorder.
 - **CLI tools** (`bin/`) — `claudehut-init` (deterministic stack-detect + project-plane generator),
   `claudehut-state` (the sole writer of per-session phase state), `claudehut-worktree` (parallel-implementer worktree lifecycle: check-disjoint / reconcile / sweep), and `kafka-mcp` (an optional, documented
   **stub**).
@@ -439,11 +444,13 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 754 assertions, all green on the release commit
-evals/conformance.sh              # 287  structural + behavioural wiring checks
-evals/gate-tests.sh               # 174  write/done enforcement gates
+# deterministic (free, no Claude needed) — 824 assertions, all green on the release commit
+evals/conformance.sh              # 289  structural + behavioural wiring checks
+evals/hook-tests.sh               # 240  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script}-tests.sh (--fast: the first part only)
+evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    #  54  learnings merge, prune, injection, federation
+evals/merge-learnings-tests.sh    #  56  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  24  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures

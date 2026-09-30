@@ -29,7 +29,7 @@ flowchart TB
   mode -- "yes" --> ask["AskUserQuestion — summarize 3-5 lines<br/>(decision, key ACs, scope): Approve / Request changes"]
   ask --> verdict{"Approved?"}
   verdict -- "no — revise and re-ask" --> fix
-  verdict -- "yes" --> record["set-spec .claude/claudehut/tasks/NNNN-slug/spec.md<br/>(arms write gate's spec requirement)"]
+  verdict -- "yes" --> record["set-spec .claude/claudehut/tasks/NNNN-slug/spec.md"]
   record --> done(["REQUIRED NEXT: claudehut:write-plan"])
 ```
 
@@ -53,4 +53,4 @@ citation is incomplete; a fact the KB cannot verify is written `[unverified]`, n
 claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/NNNN-<slug>/spec.md
 ```
 
-Do NOT write production code yet — the write gate stays closed until a plan exists. **REQUIRED NEXT:** `claudehut:write-plan`.
+Do NOT write production code yet — not until a plan is approved and recorded. **REQUIRED NEXT:** `claudehut:write-plan`.

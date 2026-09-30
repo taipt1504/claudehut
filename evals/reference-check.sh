@@ -267,7 +267,7 @@ while IFS= read -r script; do
   fi
 done <<'PAIRS'
 conformance.sh
-gate-tests.sh
+hook-tests.sh
 init-tests.sh
 merge-learnings-tests.sh
 worktree-tests.sh
@@ -322,6 +322,7 @@ w18_all=""; w18_n=0
 while IFS= read -r rel; do
   case "$rel" in evals/*/*) continue ;; esac      # top-level only; lib/ and tasks/ are libraries, not suites
   case "$rel" in *.sh) ;; *) continue ;; esac
+  [ -f "$ROOT/$rel" ] || continue                 # tracked but deleted in the working tree (retired suite)
   w18_n=$((w18_n+1)); w18_all="$w18_all $(basename "$rel")"
 done < <(cd "$ROOT" && git ls-files evals/ 2>/dev/null)
 

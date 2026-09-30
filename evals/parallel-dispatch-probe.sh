@@ -25,7 +25,10 @@ ST="$SAN/bin/claudehut-state"
 
 mkfx() { # fixture repo + approved phased plan + PRE-GATED state for $SID; echoes nothing
   local w="$1" sid="$2"; mkdir -p "$w"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$w/" 2>/dev/null || mkdir -p "$w/src"
-  local d="$w/.claude/claudehut/tasks/0001-orders"; mkdir -p "$d"
+  mkdir -p "$w/.claude/claudehut"
+  # v0.12: a task dir is the one `start` prints (it never adopts a pre-created dir). The artifacts are staged
+  # outside the repo and moved into that dir once the task is open (after the git setup, so base = the fixture HEAD).
+  local d; d="$(mktemp -d)"
   printf '# PROJECT\nBuild: grep/file verify for this demo (do NOT run Gradle). Base package com.x.\n' > "$w/.claude/claudehut/PROJECT.md"
   cat > "$d/spec.md" <<'S'
 # Spec: orders + payments
@@ -72,19 +75,20 @@ Request → OrderController → OrderService + PaymentService → repos. Build t
 PL
   ( cd "$w" && git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -qm base \
     && git remote add origin . && git fetch -q origin && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main ) >/dev/null 2>&1
-  # PRE-GATE: full tier + reuse-scan + spec + plan recorded, phase=implement → write gate OPEN, start at Implement
-  ( cd "$w" && CLAUDE_PROJECT_DIR="$w" \
-      "$ST" --session "$sid" set-complexity full >/dev/null 2>&1
+  # PRE-STATE: full route + reuse-scan + spec + plan recorded (plan_approved=true), phase=implement → start at Implement
+  local id; id="$( cd "$w" && CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" start --route full --profile feature --slug orders 2>/dev/null | sed -n 1p )"
+  [ "$id" = 0001-orders ] || { echo "FATAL: start opened '$id', not 0001-orders (the prompt names 0001-orders) — fixture setup failed, aborting probe" >&2; exit 3; }
+  mv "$d"/* "$w/.claude/claudehut/tasks/$id/" && rmdir "$d"
+  ( cd "$w"
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-reuse-scan --artifact .claude/claudehut/tasks/0001-orders/reuse-scan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-orders/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-orders/plan.md >/dev/null 2>&1
-    CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-profile feature >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
 }
 
 read -r -d '' PROMPT <<'PR'
 You are operating under ClaudeHut and RESUMING at the Implement phase (phase 5 of 7). The reuse-scan, spec,
-and plan for task 0001-orders are already complete, recorded, and APPROVED — the write gate is OPEN. DO NOT
+and plan for task 0001-orders are already complete, recorded, and APPROVED (plan_approved=true). DO NOT
 re-run Discover, Brainstorm, Spec, or Plan. Invoke the claudehut:implement skill and execute the approved
 plan at .claude/claudehut/tasks/0001-orders/plan.md to completion, following the skill exactly. Use each
 plan row's Verify command literally (grep/test — do NOT run Gradle). Report what you did.

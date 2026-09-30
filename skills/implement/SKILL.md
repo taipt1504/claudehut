@@ -21,24 +21,21 @@ Wrote production code before the test? Delete it. Start over. **No exceptions** 
 reference," don't "adapt" it while writing the test, don't even look at it. Delete means delete.
 **Violating the letter of this law is violating the spirit of it.**
 
-## Preconditions (the write gate — tier-aware)
+## Preconditions (tier-aware; no hook denies a write — the advise-write hook only notes)
 
-Production writes are denied by the `PreToolUse` gate until: `reuse_scan=true` (**every tier** — Discover
-produces it), plus — **in the `full` tier only** — `spec_path` and `plan_path` set, plus — **every tier,
-the skill rail** — *this skill was invoked for this task*. Invoking `claudehut:implement` opens that rail (a
-`PreToolUse(Skill)` recorder hook proves the call; entering Discover/Brainstorm closes it for the next task)
-— so if the gate sent you here, the rail is now open. In the
-`trivial`/`small` fast lanes, reuse-scan + the skill rail open the gate **provided** the change stays
-within the bound (≤2 files, no security/auth/migration path); exceed it and the gate denies, telling you
-to escalate (`set-complexity full` → Spec + Plan). The RED test may be written first — the gate always
-allows test paths (`*Test.java`, `*IT.java`, `*/test/*`). A denied write diagnoses itself (the Flow gate's `no` branches) — complete the missing phase/skill or escalate the fast lane; never route around it.
+Before production writes: `reuse_scan=true` (**every tier** — Discover produces it), plus — **in the `full`
+tier only** — `spec_path` and `plan_path` set (a full-route write before the plan is approved gets one
+advisory note). In the `trivial`/`small` fast lanes the change must stay within the bound (≤2 files, no
+security/auth/migration path); exceed it and escalate (`set-route full` → Spec + Plan). The RED test may be
+written first (`*Test.java`, `*IT.java`, `*/test/*`). A missing precondition (the Flow's `no` branches) means:
+complete the missing phase or escalate the fast lane; never route around it.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-    start(["Implement phase — skill rail OPEN"]) --> gate{"write gate clears?<br/>reuse_scan + (full: spec+plan) + skill-rail<br/>+ within fast-lane bound?"}
-    gate -- "no: out-grew fast lane" --> esc(["escalate: set-complexity full → Spec + Plan"])
+    start(["Implement phase"]) --> gate{"preconditions met?<br/>reuse_scan + (full: spec+plan)<br/>+ within fast-lane bound?"}
+    gate -- "no: out-grew fast lane" --> esc(["escalate: set-route full → Spec + Plan"])
     gate -- "no: phase/skill missing" --> esc2(["BLOCKED — complete missing phase, do not route around"])
     gate -- "yes" --> step["take next plan step (T-xxx), dependency order"]
     step --> red["RED — smallest failing test for ONE behavior"]
@@ -68,7 +65,7 @@ kill: you get one opaque agent, no visible fan-out, and a frozen task list. Don'
 Fast-lane tiers (`trivial`/`small`) have no `plan.md` — implement **inline** from the task description and
 skip to *The cycle*. **`small` tier first does a one-line mini-brainstorm:** name ≥2 approaches +
 the one you chose and why, in a single line, before the first test. If you can only find one approach and it
-needs defending, the task was really `full` — escalate (`set-complexity full`). `trivial` (comment/rename)
+needs defending, the task was really `full` — escalate (`set-route full`). `trivial` (comment/rename)
 needs none.
 
 **Main thread only — if you have no Agent tool, skip this section; it is not yours to run.**
@@ -165,6 +162,6 @@ Diagnostics are **off** in this config — the build and tests stay the only sig
 
 - Production code before a failing test
 - "It's about spirit, not ritual" / "this case is different because…"
-- A denied write you tried to route around instead of completing the missing phase
+- A missing precondition you tried to route around instead of completing the missing phase
 
 **REQUIRED NEXT:** `claudehut:review`.
