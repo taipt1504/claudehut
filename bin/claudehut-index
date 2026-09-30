@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# claudehut-index — deterministic codebase index for ClaudeHut (07-index-memory.md §5, ADR-IDX-1/2).
+# Thin wrapper: python3 stdlib only, no pip. Always exits 0; without python3 it prints `index: unavailable`.
+#
+#   read (agents):   status [--fast] [--json] · brief [text…] [--budget BYTES] [--task ID] · find <term|glob> [--kind K]
+#                    · svc [service] · links
+#   write (hooks):   update [--full] [--detach] · memory · install-git-hooks · uninstall-git-hooks
+#   every command:   [--json] [--plane DIR]   (default plane: <git toplevel of $CLAUDE_PROJECT_DIR or $PWD>/.claude/claudehut)
+#
+# Call it by absolute path: bin/ is not on PATH.
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+_root="$(cd "$_d/.." 2>/dev/null && pwd)" || _root=""
+_py="${CLAUDEHUT_PYTHON:-python3}"
+if [ -z "$_root" ] || ! command -v "$_py" >/dev/null 2>&1; then
+  echo "index: unavailable"
+  exit 0
+fi
+CLAUDEHUT_INDEX_BIN="$_root/bin/claudehut-index" PYTHONDONTWRITEBYTECODE=1 \
+  "$_py" -B "$_root/scripts/index/claudehut_index.py" "$@" || echo "index: error — exit $?"
+exit 0

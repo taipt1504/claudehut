@@ -97,7 +97,8 @@ new request: `start --profile <new>`. Close a completed task with `end --status 
 Dispatch ClaudeHut agents by qualified `subagent_type` (`claudehut:claudehut-<name>`) and leave out `name`
 unless the user wants a teammate; a named dispatch runs as a teammate and loses the agent's tools and
 skills. Dispatches with no data dependency go in one message so they run concurrently. Subagents return data;
-they never write state and never ask the user.
+they never write state and never ask the user. Copy the SessionStart language line (`Language: vi|en — …`)
+verbatim into every dispatch prompt; subagents do not see the session context.
 
 Skills, agents and MCP tools from any plugin are fair to use when their description fits the job. Look up
 code in this order: project index or hub, then `.understand-anything/knowledge-graph.json` (Read or `jq`),

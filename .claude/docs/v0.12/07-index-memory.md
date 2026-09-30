@@ -80,7 +80,8 @@ Câu hỏi dùng AskUserQuestion ở luồng chính. Init không tự chạy `/u
 ├── index/               sinh ra, gitignored
 │   ├── components.jsonl
 │   ├── contracts.json
-│   └── meta.json        ghi SAU dữ liệu
+│   ├── files.json       {path:sha1} + dirty[] cho update tăng dần
+│   └── meta.json        ghi SAU dữ liệu, nhỏ (hook đọc 1 KB đầu)
 ├── MEMORY.md            phần máy sinh ≤2 KB
 ├── PROJECT.md
 ├── LANGUAGE.md
@@ -95,7 +96,8 @@ Thiếu `topology.json` thì mặc định mono.
 | `components.jsonl` | `{id:"<svc>:<fqn>", svc, fqn, name, kind, path, line, annotations[], methods[≤12], tags[], purpose, sha1}`; `path` luôn là một file tồn tại; `purpose` là câu đầu Javadoc |
 | `kind` | controller, service, repository, listener, producer, client, config, entity, router; suy từ annotation hoặc kiểu (ví dụ `@KafkaListener` → listener) |
 | `contracts.json` | `{http_exposed[{method,path,handler_id,at}], http_clients[{env,default_url,at}], kafka_consume[{topic,env,at}], kafka_produce[{topic\|null,prefix\|null,at}], db[{name,at}], libs[{coord}]}` |
-| `meta.json` | `{schema:1, extractor, indexed_commit, generated_at, files:{path:sha1}}` |
+| `meta.json` | `{schema:1, indexed_commit, indexed_at, tool_version, counts, svc, extractor, …}`; `indexed_commit` đứng thứ hai vì hook chỉ đọc 1 KB đầu (05 AC12) |
+| `files.json` | `{schema:1, files:{path:sha1}, dirty:[path]}`: chỉ `update`/`status` đọc; tách khỏi meta.json để fast path của hook không đọc map 100+ KB |
 
 reuse-index.json cũ giữ nguyên checksum; `find` và `brief` chỉ đọc `purpose`/`tags` của entry có path hợp lệ (party-ms 24/43, D7).
 
@@ -199,7 +201,7 @@ Wrapper bash gọi python3 stdlib, không pip. Output giới hạn byte; lỗi t
 | Lệnh | Loại | Output / hành vi |
 |------|------|------------------|
 | `status [--fast] [--json]` | đọc | `{indexed_commit, head, behind, dirty, updating, ua:{dir,behind}, hub:{path,services,stale[]}}`; dò cả `.ua/` lẫn `.understand-anything/`; `--fast` <300 ms |
-| `brief "<text>" [--budget 3000]` | đọc | Markdown ≤ budget: banner, top 12 `kind fqn path:line — purpose` (ưu tiên controller/handler/service), contract liên quan, service lân cận. Ở hub/root thì tìm trên mọi service |
+| `brief "<text>" [--budget 3000] [--json]` | đọc | `--json` → `{budget, bytes, sections:[{name, lines, rows?}], markdown}` (shared contract; `sections` là đúng các dòng `markdown` giữ lại). Không `--json` → Markdown ≤ budget: banner, top 12 `kind fqn path:line — purpose` (ưu tiên controller/handler/service), contract liên quan (listener/producer chỉ nằm ở Contracts), service lân cận. `--task <id>` không tồn tại → một dòng `task <id> not found — generic brief`. Ở hub/root thì tìm trên mọi service |
 | `find <term\|glob> [--svc S]` | đọc | Danh sách component |
 | `svc <service>` | đọc | ≤2,5 KB: vai trò, endpoint, topic pub/sub, client, DB, top component. Repo lệch thì gắn `[lệch N commit — đang cập nhật nền]` và tách update, không chờ |
 | `links [--service S] [--type http\|kafka\|lib\|db]` | đọc | Cạnh từ `service-links.json`; Review dùng để ước blast radius ([08-review.md](08-review.md)) |
@@ -283,7 +285,7 @@ sequenceDiagram
 | Mục | Thiết kế |
 |-----|----------|
 | Phần máy sinh | Giữa `<!-- claudehut:generated:start/end -->`, ≤2.048 B: đường dẫn tuyệt đối tới plane (D9), topology, CLI, top 8 `category(trigger) → learnings.jsonl (n)`, `chia sẻ: <shared>` thay "committed index" (D10) |
-| Phần người viết | Ngoài marker, giữ nguyên, vẫn tính vào ngân sách |
+| Phần người viết | Ngoài marker, giữ nguyên, vẫn tính vào ngân sách. Ngoại lệ: block per-task của learner v0.11 (`## Reuse additions (`, `## Topics (`) nằm ngoài marker được chuyển sang MEMORY-history.md (trừ khi `--no-migrate`). `claudehut-init --migrate-memory` gọi đúng lệnh này (một đường migrate) |
 | Ai ghi | Chỉ `claudehut-index memory` (gọi từ `maintain.sh` và merge-learnings). Learner thôi ghi MEMORY.md và reuse-index |
 | Vượt 8.192 B | `maintain.sh` chuyển khối máy sinh sang MEMORY-history.md rồi sinh lại; hiệu lực từ phiên sau (D1) |
 
@@ -303,7 +305,7 @@ Candidate do learner ghi (tools giữ `Read, Write`):
 |-------------------------------|---------|
 | Chuẩn hoá | `.learning = (.learning // .text // .lesson // "") \| trim` (D5) |
 | Cổng | learning ≥20 ký tự, khác evidence; vi phạm → `state/<sid>.rejected.jsonl` |
-| Trigger | bỏ stopword, tên service, `ms`; tối đa 5 token |
+| Trigger | bỏ stopword, tên service, `ms`; tối đa 5 token. Nếu có token tên service bị bỏ thì entry mới giữ `trigger_src` = trigger đã lưu + token bị bỏ, chỉ dùng cho promote map sang rule file (auth-ms: `auth` vẫn map `security/spring-security.md`) |
 | Dedup | cùng category và Jaccard(trigger ∪ top-8 token learning) ≥0,5 → merge (hits++, evidence ≤3). Giữ token số để không gộp nhầm SQLSTATE; khoá chính xác cũ là nhánh nhanh (D6) |
 | Cap | Giữ 400 |
 | Repair | Chạy một lần, idempotent: entry `learning==""` → `learnings.rejected.jsonl` (D5) |
@@ -329,7 +331,7 @@ Init chạy `git check-ignore -v` rồi hỏi; plugin không tự sửa `.gitign
 | `topology.json`, `MEMORY.md`, `PROJECT.md`, `LANGUAGE.md`, `learnings.jsonl`; ở hub: `hub.json`, `services.json`, `aliases.json`, `HUB.md`, `fleet-learnings.jsonl` | `index/`, `state/`, `ledger/`; ở hub: `links/`, `service-links.json`, `.understand-anything/` |
 | | `tasks/` (task.json + artifact): không commit (câu hỏi 6, đã chốt 2026-09-29) |
 
-Chọn giữ local thì init ghi `shared:false`.
+Chọn giữ local thì init ghi `shared:false`. `state/`, `ledger/` và `index/` mỗi thư mục có `.gitignore` chứa `*` do plugin ghi, nên không lọt vào `git status` dù `.gitignore` của project chưa có dòng nào; init in kết quả `git check-ignore -v` và patch trên, không ghi vào `.gitignore`.
 
 ## 9. Ranh giới với understand-anything
 
@@ -342,6 +344,8 @@ Bootstrap bỏ dò `claude plugin list` (B10) và dòng "MUST use" (F-2). Graph 
 ## 10. Tiêu chí chấp nhận
 
 Milestone và lệnh kiểm tra: [10-rollout-eval.md](10-rollout-eval.md) (M5 mono + memory, M6 hub).
+
+Trạng thái (2026-10-01): M5 đạt AC-1..AC-7 và AC-15 phần mono; AC-13 đạt cả vế `core.hooksPath`/husky/lefthook, headless và gitignore (init không sửa `.gitignore`, in `check-ignore -v` + patch; test F5 viết lại theo §8.3). AC-8..AC-12 thuộc M6, AC-14 đo ở M7. `components.jsonl` dùng khoá `file` (không phải `path` như §4.2) và thêm kind `endpoint`, `migration`, `component`.
 
 | # | Tiêu chí | Audit |
 |---|----------|-------|

@@ -21,8 +21,11 @@ Explorer map | req=full
      instead of retelling. Discover writes it to tasks/NNNN-slug/context.md; doclint does not gate it. -->
 # Context: order-rate-limit
 
-## Index brief <!-- claudehut-index brief output, capped at 3000 B; until the index is built, the single line below -->
-n/a — index not built
+## Index brief <!-- paste the output of `claudehut-index brief "<task words>" --budget 3000 --task <id>` as is (≤3000 B); with no index the CLI prints the single line `n/a — index not built …`, paste that -->
+Index order-svc@4f2a9c1 (fresh) · 212 components
+Top components:
+- controller app.order.OrderController POST /orders src/main/java/app/order/OrderController.java:42 — Accepts new orders.
+- config app.config.RateLimiterConfig src/main/java/app/config/RateLimiterConfig.java:18
 
 ## Explorer map <!-- explorer output: entry points, key types and config as file:line; a fact the index lacked starts with index_miss: -->
 - Entry: `OrderController#create` src/main/java/app/order/OrderController.java:42

@@ -7,7 +7,12 @@
 #   2. Summer KB: zero-touch install for a Summer consumer, self-heal when the bundle's summerCommit moved
 #   3. sweep: session sidecars and v0.11 state files older than 7 days (never the current session's)
 #   4. hook-errors.log: keep the newest 32 KB once it passes 64 KB
-# Not here yet: MEMORY.md migration and `claudehut-index update` (M5).
+#   5. memory + index (07 §7, §8.1; initialized plane only): `claudehut-index memory` migrates a v0.11
+#      MEMORY.md once (learner/template blocks → MEMORY-history.md) and regenerates the ≤2 KB generated part;
+#      `claudehut-index update --detach` catches the index up with HEAD (no-op when fresh). Detached, because
+#      an async hook is killed under -p.
+# Rules refresh on a bare plane (no PROJECT.md) touches only .claude/rules: claudehut-init enforces that. A bare
+# plane gets no .plugin-version and no Summer KB either (steps 1-2), so the refresh re-runs each startup until init.
 
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
 . "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
@@ -19,7 +24,9 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$_d/.." 2>/dev/null && pwd)}"
 PV="$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)" || PV=""
 if [ -n "$PV" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ] \
    && [ "$(cat "$PLANE/.plugin-version" 2>/dev/null)" != "$PV" ]; then
-  if CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --refresh-rules >/dev/null 2>&1; then
+  # The marker only on an initialized plane: a bare plane (no PROJECT.md) gets no plugin-owned files.
+  if CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --refresh-rules >/dev/null 2>&1 \
+     && hc_plane_initialized; then
     printf '%s' "$PV" > "$PLANE/.plugin-version" || true
   fi
   drift="$(CLAUDE_PROJECT_DIR="$PROJECT_DIR" "$PLUGIN_ROOT/bin/claudehut-init" "$PROJECT_DIR" --audit 2>/dev/null \
@@ -30,11 +37,11 @@ if [ -n "$PV" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ] \
   esac
 fi
 
-# 2. Summer KB install / self-heal
+# 2. Summer KB install / self-heal (initialized plane only)
 KB_META="$PROJECT_DIR/.claude/summer-kb/.summer-kb-meta.json"
 KB_INSTALL="$PLUGIN_ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
 KB_BUNDLE_META="$PLUGIN_ROOT/skills/summer-kb-setup/references/summer-kb/.bundle-meta.json"
-if command -v python3 >/dev/null 2>&1 && [ -f "$KB_INSTALL" ]; then
+if hc_plane_initialized && command -v python3 >/dev/null 2>&1 && [ -f "$KB_INSTALL" ]; then
   # -exec, not `| xargs`: a project path with a space must not split. Captured, not tested in a pipeline: with
   # pipefail an early-exiting `head` would make a real match read as a miss.
   kb_hit=""
@@ -66,7 +73,7 @@ while IFS= read -r -d '' f; do
   case "$b" in
     "${HC_SID:-__none__}".*) continue ;;
     *.suspects.jsonl) task_active "${b%.suspects.jsonl}" && continue ;;
-    *.*.json|*.jsonl|*.injected-phase|*.ua-flag|*.nudged|*.nudged.*) : ;;
+    *.*.json|*.jsonl|*.injected-phase|*.ua-flag|*.nudged|*.nudged.*|index-head.*) : ;;
     *.json)   # a pointer
       t="$(jq -r 'if type=="object" and .schema==2 then (.active_task // empty) else empty end' "$f" 2>/dev/null)" || t=""
       [ -n "$t" ] && task_active "$t" && continue ;;
@@ -79,5 +86,14 @@ done < <(find "$PLANE/state" -maxdepth 1 -type f -mtime +7 -print0 2>/dev/null)
 LOG="$PLANE/state/hook-errors.log"
 if [ -f "$LOG" ] && [ "$(wc -c < "$LOG" | tr -d ' ')" -gt 65536 ]; then
   tail -c 32768 "$LOG" > "$LOG.tmp" && mv -f "$LOG.tmp" "$LOG" || true
+fi
+
+# 5. memory + index
+IDX_CLI="$PLUGIN_ROOT/bin/claudehut-index"
+if hc_plane_initialized && [ -x "$IDX_CLI" ]; then
+  ( cd "$PROJECT_DIR" && "$IDX_CLI" memory --plane "$PLANE" ) </dev/null >/dev/null 2>&1 || hc_log "claudehut-index memory failed"
+  if [ -d "$PROJECT_DIR/.git" ]; then   # the index is stamped with a commit; a secondary worktree is skipped
+    ( cd "$PROJECT_DIR" && exec "$IDX_CLI" update --detach --plane "$PLANE" ) </dev/null >/dev/null 2>&1 || hc_log "claudehut-index update failed"
+  fi
 fi
 exit 0

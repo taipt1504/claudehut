@@ -200,30 +200,34 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W3" >/dev/null 2>&1
 grep -q 'custom-secret.json' "$W3/.worktreeinclude" 2>/dev/null && ok ".worktreeinclude not clobbered on re-run (user edits preserved)" || bad ".worktreeinclude clobbered on re-run"
 rm -rf "$W3"
 
-echo "== F5 (v0.12): the dispatch ledger must be gitignored, on FRESH and EXISTING projects =="
-# Every grep here is anchored (^…/?$) on purpose: an unanchored `grep -q ledger` also matches the
-# "# ClaudeHut dispatch ledger …" comment the init writes one line above the rule, which would pass
-# whether or not the rule itself landed.
-W6="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
-grep -qE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null \
-  && ok "F5: fresh init gitignores .claude/claudehut/ledger/" || bad "F5: ledger/ not gitignored on a fresh init"
-grep -qE '^\.claude/claudehut/state/?$' "$W6/.gitignore" 2>/dev/null \
-  && ok "F5: fresh init still gitignores .claude/claudehut/state/ (the older rule is intact)" || bad "F5: state/ rule lost"
+echo "== F5 (v0.12) + 07 §8.3: state/ and ledger/ stay out of git; the project .gitignore is never edited =="
+# 07 §8.3 / ADR-IDX-8: init runs `git check-ignore -v`, prints the `.claude/*` patch and edits no .gitignore.
+# state/ and ledger/ carry their own `*` .gitignore (like index/), so FRESH and EXISTING installs both keep
+# them out of `git status` — the upgrade case the old shared-guard bug broke is the W7 half below.
+f5_repo() { local w; w="$(mktemp -d)/work"; mkdir -p "$w"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$w/" 2>/dev/null
+  git -C "$w" init -q 2>/dev/null; printf '%s' "$1" > "$w/.gitignore"; echo "$w"; }
+f5_clean() { # $1 repo: a file in state/ and ledger/ never shows in git status
+  : > "$1/.claude/claudehut/state/x.json"; : > "$1/.claude/claudehut/ledger/x.jsonl"
+  ! git -C "$1" status --porcelain --untracked-files=all 2>/dev/null | grep -qE '\.claude/claudehut/(state|ledger)/'; }
+W6="$(f5_repo $'build/\n')"; cp "$W6/.gitignore" "$W6.gi"
+F5OUT="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" 2>&1)"
+cmp -s "$W6/.gitignore" "$W6.gi" && ok "F5: fresh init leaves the project .gitignore byte-identical" || bad "F5: init edited the project .gitignore"
+f5_clean "$W6" && ok "F5: fresh init keeps state/ and ledger/ out of git status (own .gitignore)" || bad "F5: state/ or ledger/ shows in git status"
+case "$F5OUT" in *"gitignore: .claude/claudehut/ is not ignored"*'.claude/*'*'!.claude/claudehut/'*) ok "F5: init reports check-ignore and prints the .claude/* patch" ;;
+  *) bad "F5: no check-ignore report or no .claude/* patch in init output" ;; esac
+case "$F5OUT" in *"Commit .claude/"*) bad "F5: final message still says to commit .claude/ under shared:false" ;;
+  *"shared:false — the plane is local only."*) ok "F5: final message follows shared:false (local only)" ;;
+  *) bad "F5: final message does not state shared:false" ;; esac
 CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
-[ "$(grep -cE '^\.claude/claudehut/ledger/?$' "$W6/.gitignore" 2>/dev/null)" = "1" ] \
-  && ok "F5: re-running init does not duplicate the ledger/ rule (idempotent)" || bad "F5: ledger/ rule duplicated on re-run"
-rm -rf "$W6"
-# THE UPGRADE CASE, and the reason the ledger rule has its OWN guard rather than sharing the state/ one.
-# Every existing install already ignores state/. Under a shared guard those projects skip the whole branch
-# and never receive the ledger rule — the ledger then surfaces in real users' `git status` while a
-# fresh-init assertion stays green. This is that regression, made deterministic.
-W7="$(mktemp -d)/work"; mkdir -p "$W7"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W7/" 2>/dev/null
-printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' > "$W7/.gitignore"
+cmp -s "$W6/.gitignore" "$W6.gi" && [ "$(cat "$W6/.claude/claudehut/ledger/.gitignore")" = "*" ] \
+  && ok "F5: re-running init is idempotent (no .gitignore edit, ledger/.gitignore intact)" || bad "F5: re-run changed .gitignore or ledger/.gitignore"
+rm -rf "${W6%/work}" "$W6.gi"
+W7="$(f5_repo $'# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n')"; cp "$W7/.gitignore" "$W7.gi"
 CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" >/dev/null 2>&1
-grep -qE '^\.claude/claudehut/ledger/?$' "$W7/.gitignore" 2>/dev/null \
-  && ok "F5: an EXISTING project already ignoring state/ still gets the ledger/ rule (independent guard)" \
-  || bad "F5: ledger/ rule skipped because state/ was already ignored — every existing install would leak the ledger"
-rm -rf "$W7"
+cmp -s "$W7/.gitignore" "$W7.gi" && f5_clean "$W7" \
+  && ok "F5: an EXISTING project already ignoring state/ still keeps ledger/ out of git status, .gitignore untouched" \
+  || bad "F5: upgrade case — ledger/ leaks into git status or .gitignore was edited"
+rm -rf "${W7%/work}" "$W7.gi"
 
 echo; echo "== RES-M12: per-repo OTel service.name, and no secrets in a committed file =="
 # Fifteen sibling services report as one undifferentiated telemetry stream otherwise, and "which repo burned
@@ -547,9 +551,11 @@ grep -q '^## Our team conventions' "$M4" \
 grep -q '^## Reuse additions (' "$M4" \
   && bad "MEM-1: per-task blocks still in the always-loaded index" \
   || ok "MEM-1: per-task blocks are out of the always-loaded index"
-grep -q '^## Topics$' "$M4" \
-  && ok "MEM-1: the template's own bare '## Topics' section stays (no (task-…) suffix)" \
-  || bad "MEM-1: the bare '## Topics' index section was moved out"
+# One migration path (M5): the template's bare '## Topics' now sits inside the generated block, which
+# `claudehut-index memory` regenerates from learnings.jsonl — so it never moves to history, and the block stays.
+{ ! grep -q '^## Topics$' "$H4" && grep -q '^<!-- claudehut:generated:start -->$' "$M4" && grep -q '^<!-- claudehut:generated:end -->$' "$M4"; } \
+  && ok "MEM-1: the bare '## Topics' never moves to history; the generated block stays in the index" \
+  || bad "MEM-1: the bare '## Topics' moved out or the generated block was lost"
 grep -q 'MerchantIdentityMapper' "$H4" && grep -q 'NotificationClient.sendEmail' "$H4" \
   && ok "MEM-1: moved content is present in history, not discarded" \
   || bad "MEM-1: moved content missing from MEMORY-history.md"
@@ -557,6 +563,17 @@ after_bytes="$(( $(wc -c <"$M4" | tr -d ' ') + $(wc -c <"$H4" | tr -d ' ') ))"
 [ "$after_bytes" -ge "$before_bytes" ] \
   && ok "MEM-1: index+history ≥ original bytes (nothing dropped on the floor)" \
   || bad "MEM-1: $((before_bytes - after_bytes)) bytes vanished in the migration"
+# One path: a legacy v0.11 file (no markers) migrated by init matches `claudehut-index memory` on a copy.
+W8="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"; W9="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+for w in "$W8" "$W9"; do printf '# ClaudeHut memory index — x\n\n## Topics\n- idempotency → learnings.jsonl\n\n## Our notes\n- keep me\n' > "$w/.claude/claudehut/MEMORY.md"; done
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" --migrate-memory >/dev/null 2>&1
+"$ROOT/bin/claudehut-index" memory --plane "$W9/.claude/claudehut" >/dev/null 2>&1
+{ grep -q 'claudehut:generated:start' "$W8/.claude/claudehut/MEMORY.md" && grep -q '^- keep me$' "$W8/.claude/claudehut/MEMORY.md" \
+  && diff <(sed "s|$W8|W|g" "$W8/.claude/claudehut/MEMORY.md") <(sed "s|$W9|W|g" "$W9/.claude/claudehut/MEMORY.md") >/dev/null \
+  && diff <(grep -v '^<!-- moved from' "$W8/.claude/claudehut/MEMORY-history.md") <(grep -v '^<!-- moved from' "$W9/.claude/claudehut/MEMORY-history.md") >/dev/null; } \
+  && ok "MEM-1: init --migrate-memory on a legacy file = claudehut-index memory (one migration path)" \
+  || bad "MEM-1: init --migrate-memory and claudehut-index memory disagree on a legacy file"
+rm -rf "$W8" "$W9"
 # idempotency — a second run must find nothing and must not duplicate history
 h_before="$(wc -c <"$H4" | tr -d ' ')"
 CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W4" --migrate-memory >/dev/null 2>&1
@@ -580,6 +597,37 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W5" --refresh-rules >/dev/null 2>&1
   && bad "MEM-1: --refresh-rules performed a migration it was never asked for" \
   || ok "MEM-1: --refresh-rules does not migrate (opt-in only)"
 rm -rf "$W4" "$W5"
+
+echo "== M5: topology.json (language / mode) and bare-plane --refresh-rules =="
+W6="$(mktemp -d)/work"; mkdir -p "$W6"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W6/"
+T6="$W6/.claude/claudehut/topology.json"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" --language vi >/dev/null 2>&1
+jq -e '.schema==1 and .mode=="mono" and .hub==null and .language=="vi" and .shared==false and .git_hooks==false' "$T6" >/dev/null 2>&1 \
+  && ok "topology: --language vi writes {schema:1, mode:mono, hub:null, language:vi, shared:false, git_hooks:false}" || bad "topology: --language vi wrong: $(cat "$T6" 2>/dev/null)"
+[ ! -e "$W6/vi" ] && [ ! -d "$W6/vi/.claude" ] && ok "topology: 'vi' is a flag value, never PROJECT_DIR" || bad "topology: 'vi' taken as PROJECT_DIR"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" >/dev/null 2>&1
+jq -e '.language=="vi"' "$T6" >/dev/null 2>&1 && ok "topology: a re-run without --language keeps vi" || bad "topology: re-run lost the language choice"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" --language=en >/dev/null 2>&1
+jq -e '.language=="en"' "$T6" >/dev/null 2>&1 && ok "topology: --language=en overrides" || bad "topology: --language=en ignored"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" --language xx >/dev/null 2>&1; rc=$?
+[ "$rc" = 2 ] && jq -e '.language=="en"' "$T6" >/dev/null 2>&1 && ok "topology: --language xx exits 2 and changes nothing" || bad "topology: --language xx rc=$rc"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W6" --mode microservice >/dev/null 2>&1
+jq -e '.mode=="mono" and .hub==null and .requested_mode=="microservice"' "$T6" >/dev/null 2>&1 \
+  && ok "topology: --mode microservice records requested_mode, keeps mode mono and hub null (M6-pending)" || bad "topology: --mode microservice wrong: $(cat "$T6")"
+[ "$(wc -c < "$W6/.claude/claudehut/MEMORY.md" | tr -d ' ')" -le 2048 ] && grep -q '<!-- claudehut:generated:start -->' "$W6/.claude/claudehut/MEMORY.md" \
+  && ok "memory: a fresh plane's MEMORY.md carries the generated block and is ≤2048 B (07 AC-1)" || bad "memory: fresh MEMORY.md has no generated block or is over budget"
+rm -rf "$W6"
+D="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$ROOT/evals/tasks/_fixtures/servlet-jpa" --detect 2>/dev/null)"
+echo "$D" | jq -e '(.siblings|type)=="number" and (.parent_is_git|type)=="boolean"' >/dev/null 2>&1 \
+  && ok "--detect reports siblings (number) and parent_is_git (bool)" || bad "--detect lacks siblings/parent_is_git: $D"
+# 10-rollout M5 deferral: --refresh-rules on a plane init never generated (no PROJECT.md) touches only .claude/rules.
+W7="$(mktemp -d)/work"; mkdir -p "$W7"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$W7/"; mkdir -p "$W7/.claude/claudehut"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" --refresh-rules >/dev/null 2>&1
+[ -d "$W7/.claude/rules" ] && [ -z "$(ls -A "$W7/.claude/claudehut")" ] \
+  && [ ! -e "$W7/CLAUDE.md" ] && [ ! -e "$W7/.gitignore" ] && [ ! -e "$W7/.claude/settings.json" ] && [ ! -e "$W7/.worktreeinclude" ] \
+  && ok "--refresh-rules on a bare plane writes only .claude/rules (no CLAUDE.md, .gitignore, settings, .worktreeinclude, topology, MEMORY.md)" \
+  || bad "--refresh-rules on a bare plane wrote outside .claude/rules: $(ls -A "$W7" "$W7/.claude" "$W7/.claude/claudehut" | tr '\n' ' ')"
+rm -rf "$W7"
 
 echo; echo "INIT: $PASS passed, $FAIL failed"
 # W19: publish the count so reference-check.sh can pin the README number without re-running this suite.

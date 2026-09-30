@@ -15,11 +15,11 @@ by `claudehut:discover`, alongside the reuse-scanner (same message).
 
 ```mermaid
 flowchart TB
-    a([dispatched by claudehut:discover]) --> idx["1 index: PROJECT.md, architecture.md, reuse-index.json"]
+    a([dispatched by claudehut:discover]) --> idx["1 index: brief in the prompt; claudehut-index find / svc"]
     idx --> kg{"2 knowledge-graph.json present?"}
     kg -- "yes" --> q["query it with jq / Read → candidate files + edges"]
     kg -- "no" --> g
-    q --> g["3 targeted Grep/Glob to confirm + fill gaps<br/>(LSP for Java symbols when available)"]
+    q --> g["3 targeted Grep/Glob only for index gaps → index_miss:<br/>(LSP for Java symbols when available)"]
     g --> map["MAP — packages/classes the task touches;<br/>cite file:line per claim; rank by relevance"]
     map --> crit["REFUTE — open each cited locus to confirm it's real;<br/>for each candidate name WHY relevant to THIS task"]
     crit --> conv{"every claim has a live file:line<br/>AND the task's touched surface is covered?"}
@@ -32,8 +32,12 @@ flowchart TB
 
 ## Procedure — sources in this order
 
-1. **Project index.** Read `.claude/claudehut/PROJECT.md`, `architecture.md`, `reuse-index.json`. Missing or
-   stale → say so (the project may need `/claudehut:claudehut-init`), map from source, flag low confidence.
+1. **Project index first.** Start from the `claudehut-index brief` the dispatch prompt carries (components
+   ranked for this task, each `kind fqn path:line — purpose`). Fill gaps with the CLI at the absolute path the
+   prompt names, via `Bash` (read-only commands only): `<cli> find <term|glob> [--kind K]` for a component,
+   `<cli> svc` for the service summary, `<cli> status` for freshness. A `stale`/`lệch` banner means the
+   index lags HEAD: open each cited path before you rely on it. No brief and no CLI path → say so, map from
+   source and flag low confidence; `PROJECT.md`/`architecture.md` still give the layer map.
 2. **understand-anything graph.** Use the path the dispatch prompt names; otherwise test
    `"${CLAUDE_PROJECT_DIR:-$PWD}/.understand-anything/knowledge-graph.json"` with `[ -f … ]`. When present, query it
    with `jq` (nodes carry `id`, `type`, `name`, `summary`, `tags`, and often `filePath`; edges carry `source`,
@@ -46,11 +50,13 @@ flowchart TB
    jq -r --arg id "<node id>" '.edges[] | select(.source==$id or .target==$id) | [.source, .type, .target] | @tsv' "$G"
    ```
 
-   The graph can lag the code (check the file's mtime) — treat its hits as leads, not findings. Never write
-   into `.understand-anything/`.
-3. **Targeted Grep/Glob** to confirm each lead and cover what the graph lacks. For Java symbols, the `LSP`
+   The graph can lag the code (`<cli> status` reports how far) — treat its hits as leads, not findings.
+   Never write into `.understand-anything/`.
+3. **Targeted Grep/Glob** only for what the index and graph lack; start each such fact in the map with
+   `index_miss:` so the gap is visible. For Java symbols, the `LSP`
    tool (`findReferences`, `goToDefinition`) finds implementations behind an interface; if it is unavailable
-   or errors, fall back to Grep. Use `Bash` only for read-only inspection (`jq`, `git log`, `find`).
+   or errors, fall back to Grep. Use `Bash` only for read-only inspection (`claudehut-index`, `jq`, `git log`,
+   `find`); never `claudehut-index update`/`memory`, which write.
 4. Map the packages/classes the task touches; note the layer each lives in (controller/handler, service,
    repository/entity, listener/producer, config, security).
 5. Return a structured map: **entry points**, **key types**, **existing related code**, and an explicit
@@ -62,5 +68,6 @@ flowchart TB
 
 - Read-only: no edits, and no fix or approach proposals — that is the brainstormer's job.
 - Every claim cites `file:line`. "I think it's somewhere in service/" is not a finding — locate it.
+- Reply in the language the dispatch prompt's `Language:`/`Ngôn ngữ:` line names; identifiers stay as is.
 
 End your report with `Reuse candidates: …` (or `Reuse candidates: none found`).

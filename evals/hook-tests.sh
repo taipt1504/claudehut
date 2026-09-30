@@ -309,10 +309,10 @@ chk "bootstrap: no MUST / MANDATORY / REQUIRED NEXT in lines bootstrap itself ad
 chk "bootstrap: the digest is the first block" '[ "$(ctx | head -1)" = "$(head -1 "$ROOT/skills/claudehut-workflow/references/digest.md")" ]'
 mk_task "$P" sid-abc 0042-fix-ilike light false '.phase="implement"'
 run_hook bootstrap "$P" '{"session_id":"sid-abc","source":"resume"}'
-chk "bootstrap: an open task adds 'Task đang mở: <id> (<route>, phase <p>)'" 'ctx | grep -qx "Task đang mở: 0042-fix-ilike (light, phase implement)"'
+chk "bootstrap: an open task adds 'Open task: <id> (<route>, phase <p>)' (default language en)" 'ctx | grep -qx "Open task: 0042-fix-ilike (light, phase implement)"'
 cp "$FX/report-service-652fab55.state.json" "$P/.claude/claudehut/state/legacy.json"
 run_hook bootstrap "$P" '{"session_id":"legacy","source":"startup"}'
-chk "bootstrap: a v0.11 state file is no task (no task line)" '! ctx | grep -q "Task đang mở"'
+chk "bootstrap: a v0.11 state file is no task (no task line)" '! ctx | grep -qE "Task đang mở|Open task"'
 mkdir -p "$P/.understand-anything" "$P/.claude/summer-kb"; echo '{}' > "$P/.understand-anything/knowledge-graph.json"
 echo '{"summerCommit":"abcdef1234","includedModules":["summer-core","summer-kafka"]}' > "$P/.claude/summer-kb/.summer-kb-meta.json"
 run_hook bootstrap "$P" '{"session_id":"x","source":"startup"}'
@@ -348,10 +348,128 @@ FR="$W/fake root"; mkdir -p "$FR/skills/summer-kb-setup/scripts"
 printf 'import sys, pathlib\npathlib.Path(sys.argv[1], "KB_INSTALLED").touch()\n' > "$FR/skills/summer-kb-setup/scripts/install_summer_kb.py"
 P="$W/with space/proj"; mkdir -p "$P/.claude/claudehut" "$P/svc"; printf "dependencies { implementation 'io.f8a.summer:summer-core:1.0' }\n" > "$P/svc/build.gradle"
 run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$FR"
+chk "maintain: a bare plane (no PROJECT.md) gets no Summer KB and no .plugin-version" '[ ! -e "$P/KB_INSTALLED" ] && [ ! -e "$P/.claude/claudehut/.plugin-version" ]'
+run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}'
+chk "maintain: a bare plane stays bare after the real rule refresh (no .plugin-version)" '[ ! -e "$P/.claude/claudehut/.plugin-version" ] && [ ! -e "$P/.claude/claudehut/PROJECT.md" ]'
+touch "$P/.claude/claudehut/PROJECT.md"
+run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$FR"
 chk "maintain: Summer KB detection works under a project path with a space (R2-3)" '[ -e "$P/KB_INSTALLED" ] && errlog_empty "$P"'
-P="$(new_plane mt2)"
+P="$(new_plane mt2)"; touch "$P/.claude/claudehut/PROJECT.md"
 run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}'
 chk "maintain: stamps .plugin-version after refreshing rules (idempotent marker last)" '[ "$(cat "$P/.claude/claudehut/.plugin-version")" = "$(jq -r .version "$ROOT/.claude-plugin/plugin.json")" ]'
+
+echo "== M5: language line, index card, HEAD check (ADR-R7, 07 §7, 05 AC11) =="
+# A fake plugin root whose claudehut-index is a stub that logs its argv; `status --json` answers behind=2.
+IR="$W/idx-root"; mkdir -p "$IR/bin"; IL="$W/idx-calls.log"; : > "$IL"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\ncase "$1 $2" in "status --json") echo "{\\"behind\\":2}";; esac\nexit 0\n' "$IL" > "$IR/bin/claudehut-index"
+chmod +x "$IR/bin/claudehut-index"
+lang_lines() { ctx | grep -cE '^(Ngôn ngữ|Language): (vi|en) — '; }
+P="$(new_plane lang)"
+run_hook bootstrap "$P" '{"session_id":"L","source":"startup"}'
+chk "bootstrap: no topology.json → exactly one 'Language: en — ' line (ADR-R7 fallback)" '[ "$(lang_lines)" = 1 ] && ctx | grep -q "^Language: en — "'
+printf '{"schema":1,"mode":"mono","hub":null,"language":"vi","shared":false,"git_hooks":false}\n' > "$P/.claude/claudehut/topology.json"
+run_hook bootstrap "$P" '{"session_id":"L","source":"startup"}'
+chk "bootstrap: topology.json language=vi → exactly one 'Ngôn ngữ: vi — ' line, ≤120 B" \
+  '[ "$(lang_lines)" = 1 ] && l="$(ctx | grep "^Ngôn ngữ: vi — ")" && [ "$(printf "%s" "$l" | wc -c | tr -d " ")" -le 120 ]'
+mk_task "$P" L 0042-fix-ilike light false '.phase="implement"'
+run_hook bootstrap "$P" '{"session_id":"L","source":"resume"}'
+chk "bootstrap: language=vi labels the open task 'Task đang mở'" 'ctx | grep -qx "Task đang mở: 0042-fix-ilike (light, phase implement)"'
+printf '{"schema":1,"language":"en"}\n' > "$P/.claude/claudehut/topology.json"
+run_hook bootstrap "$P" '{"session_id":"L","source":"resume"}'
+chk "bootstrap: language=en → 'Language: en' and 'Open task:' label" '[ "$(lang_lines)" = 1 ] && ctx | grep -q "^Language: en — " && ctx | grep -qx "Open task: 0042-fix-ilike (light, phase implement)"'
+printf '{ corrupt\n' > "$P/.claude/claudehut/topology.json"
+run_hook bootstrap "$P" '{"session_id":"L","source":"startup"}'
+chk "bootstrap: a corrupt topology.json falls back to one en line, no hook error" '[ "$(lang_lines)" = 1 ] && ctx | grep -q "^Language: en — " && errlog_empty "$P"'
+mkdir -p "$W/hubrepo"; printf '{"language":"vi"}\n' > "$W/hubrepo/hub.json"
+jq -nc --arg h "$W/hubrepo" '{schema:1,mode:"microservice",hub:$h,shared:false,git_hooks:false}' > "$P/.claude/claudehut/topology.json"
+run_hook bootstrap "$P" '{"session_id":"L","source":"startup"}'
+chk "bootstrap: no language field + hub hub.json language=vi → 'Ngôn ngữ: vi' (04 AC14, same order as memory.py)" \
+  '[ "$(lang_lines)" = 1 ] && ctx | grep -q "^Ngôn ngữ: vi — "'
+chk "status --json resolves the same language (vi) on that plane" \
+  '[ "$(cd "$P" && "$ROOT/bin/claudehut-index" status --json --plane "$P/.claude/claudehut" | jq -r .language)" = vi ]'
+rm -f "$P/.claude/claudehut/topology.json"
+
+# hc_head: pure-bash HEAD resolution (loose ref, packed ref, detached, linked worktree), checked against git.
+GR="$W/gr"; git init -q -b main "$GR" 2>/dev/null || { git init -q "$GR" && git -C "$GR" checkout -q -b main; }
+git -C "$GR" -c user.email=t@t -c user.name=t commit -q --allow-empty -m one
+hh() { ( . "$ROOT/scripts/lib/hook-common.sh"; hc_head "$1" && printf '%s' "$HC_HEAD" ); }
+chk "hc_head: loose ref equals git rev-parse HEAD" '[ "$(hh "$GR")" = "$(git -C "$GR" rev-parse HEAD)" ]'
+git -C "$GR" pack-refs --all
+chk "hc_head: packed ref (no loose file) equals git rev-parse HEAD" '[ ! -f "$GR/.git/refs/heads/main" ] && [ "$(hh "$GR")" = "$(git -C "$GR" rev-parse HEAD)" ]'
+git -C "$GR" -c user.email=t@t -c user.name=t commit -q --allow-empty -m two; git -C "$GR" checkout -q --detach HEAD~1
+chk "hc_head: detached HEAD equals git rev-parse HEAD" '[ "$(hh "$GR")" = "$(git -C "$GR" rev-parse HEAD)" ]'
+git -C "$GR" checkout -q main; git -C "$GR" worktree add -q "$W/gr-wt" -b wt HEAD~1 2>/dev/null
+chk "hc_head: a linked worktree (.git file → gitdir/commondir) equals git rev-parse HEAD" \
+  '[ -f "$W/gr-wt/.git" ] && [ "$(hh "$W/gr-wt")" = "$(git -C "$W/gr-wt" rev-parse HEAD)" ]'
+chk "hc_head: a directory that is no repo returns 1" '! hh "$W/lang" >/dev/null'
+
+# Index card (≤500 B): absent without meta.json, 'current with HEAD' when fresh, 'N commit(s) behind' when stale.
+P="$W/gr"; mkdir -p "$P/.claude/claudehut/state"
+run_hook bootstrap "$P" '{"session_id":"I","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "bootstrap: no index/meta.json → no index card (AC-6)" '! ctx | grep -q "^Index: "'
+mkdir -p "$P/.claude/claudehut/index"; H="$(git -C "$P" rev-parse HEAD)"
+printf '{"schema":1,"indexed_commit":"%s","counts":{"total":149,"endpoint":38}}\n' "$H" > "$P/.claude/claudehut/index/meta.json"
+: > "$IL"; run_hook bootstrap "$P" '{"session_id":"I","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "bootstrap: fresh index → card 'current with HEAD', 149 components, ≤500 B, no CLI call" \
+  'c="$(ctx | grep "^Index: ")" && case "$c" in *"149 components"*"current with HEAD."*) :;; *) false;; esac && [ "$(printf "%s" "$c" | wc -c | tr -d " ")" -le 500 ] && [ ! -s "$IL" ]'
+# 05 AC12 fast path: hc_indexed_commit reads only the head of meta.json, so a ~120 KB tail costs nothing.
+cp "$P/.claude/claudehut/index/meta.json" "$W/meta.small"
+jq -n --arg c "$H" '{schema:1, indexed_commit:$c, counts:{total:149}, pad:[range(0;1000) | "src/main/java/com/acme/pkg/deep/Component\(.)Implementation.java-0123456789abcdef0123456789abcdef01234567"]}' \
+  > "$P/.claude/claudehut/index/meta.json"
+hic() { ( . "$ROOT/scripts/lib/hook-common.sh"; PLANE="$P/.claude/claudehut"; hc_indexed_commit && printf '%s' "$HC_INDEXED" ); }
+chk "hc_indexed_commit: indexed_commit first + ~$(( $(wc -c < "$P/.claude/claudehut/index/meta.json") / 1024 )) KB tail → the SHA (head-only read)" '[ "$(hic)" = "$H" ]'
+cp "$W/meta.small" "$P/.claude/claudehut/index/meta.json"
+git -C "$P" -c user.email=t@t -c user.name=t commit -q --allow-empty -m three
+run_hook bootstrap "$P" '{"session_id":"I","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "bootstrap: stale index → card '2 commit(s) behind HEAD <sha7>', ≤500 B" \
+  'c="$(ctx | grep "^Index: ")" && case "$c" in *"2 commit(s) behind HEAD $(git -C "$P" rev-parse --short=7 HEAD)"*) :;; *) false;; esac && [ "$(printf "%s" "$c" | wc -c | tr -d " ")" -le 500 ]'
+
+# D5/D6: the card names the service from meta.json .svc and stays ≤500 B with a very long hub path.
+cp "$P/.claude/claudehut/index/meta.json" "$W/meta.keep"
+jq -c '. + {svc:"shop-ms"}' "$W/meta.keep" > "$P/.claude/claudehut/index/meta.json"
+LONGHUB="/$(printf 'very-long-hub-directory-name/%.0s' 1 2 3 4 5 6 7 8 9 10)hub"
+jq -nc --arg h "$LONGHUB" '{schema:1,mode:"microservice",hub:$h,language:"en",shared:false,git_hooks:false}' > "$P/.claude/claudehut/topology.json"
+run_hook bootstrap "$P" '{"session_id":"I","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "bootstrap: card names meta.json .svc (not the dir) and stays ≤500 B with a ${#LONGHUB}-char hub path, stale" \
+  'c="$(ctx | grep "^Index: ")" && case "$c" in "Index: shop-ms@"*"behind HEAD"*) :;; *) false;; esac && [ "$(printf "%s" "$c" | wc -c | tr -d " ")" -le 500 ]'
+rm -f "$P/.claude/claudehut/topology.json"; cp "$W/meta.keep" "$P/.claude/claudehut/index/meta.json"
+
+# 05 AC11: HEAD != indexed_commit → one fact + one detached update on the first human prompt, silent after.
+: > "$IL"; HN="$(git -C "$P" rev-parse HEAD)"
+run_hook inject-phase "$P" '{"session_id":"I","prompt":"fix the refund flow"}' CLAUDE_PLUGIN_ROOT="$IR"
+f1="$(ctx)"; for i in 1 2 3 4 5 6 7 8 9 10; do [ -s "$IL" ] && break; sleep 0.2; done
+run_hook inject-phase "$P" '{"session_id":"I","prompt":"and the settlement flow"}' CLAUDE_PLUGIN_ROOT="$IR"
+sleep 0.3
+chk "AC11: first prompt after HEAD moved → one 'Index: HEAD moved to <sha7>' fact" 'case "$f1" in "Index: HEAD moved to ${HN:0:7} "*) :;; *) false;; esac'
+chk "AC11: exactly one 'update --detach --plane' spawn; state/index-head.<sha> claimed" \
+  '[ "$(grep -c "^update --detach --plane " "$IL")" = 1 ] && [ -e "$P/.claude/claudehut/state/index-head.$HN" ]'
+chk "AC11: the second prompt on the same HEAD is silent" 'silent'
+printf '{"schema":1,"indexed_commit":"%s","counts":{"total":149}}\n' "$HN" > "$P/.claude/claudehut/index/meta.json"; : > "$IL"
+run_hook inject-phase "$P" '{"session_id":"J","prompt":"fix the refund flow"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "AC11: HEAD == indexed_commit → silent, no CLI call" 'silent && sleep 0.2 && [ ! -s "$IL" ]'
+# fact + learnings stays ≤500 chars and keeps the untrusted-data closing marker
+printf '{"schema":1,"indexed_commit":"%s"}\n' "$(git -C "$P" rev-parse HEAD~1)" > "$P/.claude/claudehut/index/meta.json"
+mkdir -p "$IR/scripts"; cp "$ROOT/scripts/inject-learnings.sh" "$IR/scripts/"; [ -d "$ROOT/scripts/lib" ] && cp -R "$ROOT/scripts/lib" "$IR/scripts/"
+for n in 1 2 3 4 5 6; do jq -nc --arg n "$n" '{id:("L-00"+$n),ts:"2026-09-01T00:00:00Z",category:"pitfall",trigger:"refund|flow|settlement",
+  learning:("refund flow pitfall number "+$n+": always recompute the settlement fee before issuing the refund to the payer"),evidence:"R.java:1",confidence:0.8,hits:3}'; done > "$P/.claude/claudehut/learnings.jsonl"
+rm -f "$P/.claude/claudehut/state/index-head."*
+run_hook inject-phase "$P" '{"session_id":"K","prompt":"fix the refund flow settlement"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "AC11: fact + learnings ≤500 chars, fact first, closing untrusted marker kept" \
+  'c="$(ctx)" && [ "${#c}" -le 500 ] && case "$c" in "Index: HEAD moved"*"Relevant learnings:"*) :;; *) false;; esac && printf "%s" "$c" | tail -1 | grep -q "CLAUDEHUT_UNTRUSTED"'
+rm -rf "$IR/scripts"
+
+# maintain: memory + index only on an initialized plane; update only when .git is a directory.
+P="$(new_plane mt-bare)"; : > "$IL"
+run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "maintain: a bare plane (no PROJECT.md) makes no claudehut-index call" 'sleep 0.2; [ ! -s "$IL" ]'
+touch "$P/.claude/claudehut/PROJECT.md"; : > "$IL"
+run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "maintain: an initialized plane without .git runs 'memory' but no update" 'sleep 0.2; grep -q "^memory --plane " "$IL" && ! grep -q "^update" "$IL"'
+P="$W/gr"; touch "$P/.claude/claudehut/PROJECT.md"; : > "$IL"
+( cd "$P/.claude/claudehut/state" && touch index-head.fresh && touch -t 202607010000 index-head.old )
+run_hook maintain "$P" '{"session_id":"CUR","source":"startup"}' CLAUDE_PLUGIN_ROOT="$IR"
+chk "maintain: initialized plane in a git repo → memory then 'update --detach'; old index-head.* swept" \
+  'sleep 0.2; grep -q "^memory --plane " "$IL" && grep -q "^update --detach --plane " "$IL" && [ ! -e "$P/.claude/claudehut/state/index-head.old" ] && [ -e "$P/.claude/claudehut/state/index-head.fresh" ]'
 
 echo "== AC10 / 04-AC9: teammate identity (record-agent-dispatch → resolve-agent → SubagentStart/Stop) =="
 P="$(new_plane ta)"; L="$P/.claude/claudehut/ledger/dispatches.jsonl"
@@ -996,10 +1114,10 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests review-pack-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
-    ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
+    ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
     # Echoed with "N passed" reworded, so this suite's own HOOK-TESTS line stays the only "N passed" on stdout
     # (reference-check.sh's standalone fallback reads the first one).
     printf '%s\n' "$ro" | sed -E 's/([0-9]+) passed/\1 ok/g'

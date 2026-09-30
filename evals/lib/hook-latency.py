@@ -170,5 +170,26 @@ if not keys:
     for k in info: BOUND[k] = 150; CEIL[k] = 0
     out.update(measure(info))
     for k in info: out[k]["bound"] = BOUND[k]
+# Realistic index (M5 backlog): info probes, never gated — inject-phase and bootstrap on a plane whose
+# index/files.json lists ~1000 files and whose meta.json names the commit .git/HEAD points at, so both hooks
+# take the fresh path (a mismatch would spawn a real `claudehut-index update --detach`). Full run only.
+if not keys:
+    li = os.path.join(os.path.dirname(lp), "lat-index"); ix = li + "/.claude/claudehut/index"
+    os.makedirs(ix, exist_ok=True); os.makedirs(li + "/.git/refs/heads", exist_ok=True)
+    sha = "%040x" % random.Random(7).getrandbits(160)
+    with open(li + "/.git/HEAD", "w") as f: f.write("ref: refs/heads/main\n")
+    with open(li + "/.git/refs/heads/main", "w") as f: f.write(sha + "\n")
+    open(li + "/.claude/claudehut/PROJECT.md", "w").close()
+    with open(ix + "/files.json", "w") as f:
+        json.dump({"schema": 1, "files": {"src/main/java/com/acme/m%02d/C%04d.java" % (i % 40, i): "%040x" % i for i in range(1000)},
+                   "dirty": []}, f, indent=1)
+    with open(ix + "/meta.json", "w") as f:
+        json.dump({"schema": 1, "indexed_commit": sha, "indexed_at": "2026-10-01T00:00:00Z", "tool_version": "1",
+                   "counts": {"total": 1480, "endpoint": 300, "service": 180}, "svc": "lat-index", "mode": "full"}, f, indent=1)
+    info = {"inject-phase(1000-file index)": Probe("inject-phase", li, u, fresh=True),
+            "bootstrap(1000-file index)": Probe("bootstrap", li, s, batches=1)}
+    for k in info: BOUND[k] = BOUND["bootstrap" if k.startswith("bootstrap") else "inject-phase"]; CEIL[k] = 0
+    out.update(measure(info))
+    for k in info: out[k]["bound"] = BOUND[k]
 out["_meta"] = {"ncpu": NCPU, "os": OS, "ref_base_p95": REF_BASE_P95, "wait_ms": WAIT_MS, "wait_cap": WAIT_CAP, "rc_bad": sorted(Probe.rc_bad)}
 print(json.dumps(out))

@@ -14,38 +14,59 @@ plane + stack-gated rules + the `@import` slice with zero guesswork. Then option
 
 ```mermaid
 flowchart TB
-  start(["/claudehut:claudehut-init"]) --> gen["run claudehut-init generator + ls plane<br/>(deterministic script — never hand-write)"]
-  gen --> verify{"all 5 present? MEMORY · PROJECT ·<br/>LANGUAGE · architecture · reuse-index"}
+  start(["/claudehut:claudehut-init"]) --> det["claudehut-init --detect<br/>(siblings, parent_is_git)"]
+  det --> ask{"interactive (AskUserQuestion available)?"}
+  ask -- "yes" --> q["one AskUserQuestion: mode · language · git hooks"]
+  ask -- "no (-p)" --> dflt["no questions: mono · en · no hooks"]
+  q --> gen["run claudehut-init with the answers as flags + ls plane<br/>(deterministic script — never hand-write)"]
+  dflt --> gen
+  gen --> verify{"all 5 present? MEMORY · PROJECT ·<br/>LANGUAGE · architecture · topology.json"}
   verify -- "no (and attempts ≤ 1)" --> fix["fix the reported error → re-run with --refresh"]
   fix --> gen
   verify -- "no / cap hit" --> halt(["BLOCKED: init incomplete —<br/>surface the missing file + error"])
   verify -- "yes" --> enrich["enrich stubs below provenance line<br/>(optional — raises quality)"]
-  enrich --> mcp{"interactive (AskUserQuestion available)?"}
-  mcp -- "yes" --> ask["AskUserQuestion multi-select →<br/>emit claude mcp add per pick (suggest, never run)"]
+  enrich --> mcp{"interactive?"}
+  mcp -- "yes" --> askm["AskUserQuestion multi-select →<br/>emit claude mcp add per pick (suggest, never run)"]
   mcp -- "no (-p)" --> block["print recommended lines as copy-paste block"]
-  ask --> fin(["Bootstrapped — commit .claude/ except state/"])
+  askm --> fin(["Bootstrapped — print the index status line"])
   block --> fin
 ```
 
-## 1. Generate the project plane + verify (REQUIRED)
+## 1. Ask, generate the project plane, verify (REQUIRED)
 
-**Call the `Bash` tool** to run the generator and list the result in one command (a tracked tool call, not
-shell auto-exec at skill-load):
+**Detect first** (read-only JSON): `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" --detect`.
+
+**Ask once, interactive sessions only** — one AskUserQuestion carrying three questions (headless `-p`: skip it;
+the script defaults to mono, `en`, no git hooks, and a re-run keeps what was recorded before):
+
+| Question | Options (recommended first) | Flag |
+|---|---|---|
+| Mono or microservice? | mono; microservice — recommend it when `siblings` ≥ 2. Microservice needs the hub (M6-pending): the script records `requested_mode` and keeps `mode: mono` | `--mode mono\|microservice` |
+| Reply and artifact language? | Tiếng Việt; English | `--language vi\|en` |
+| Refresh the index from git hooks after pull/rebase/checkout? | No (the next prompt catches up anyway); Yes | `--git-hooks yes\|no` |
+
+Git hooks are opt-in. With `core.hooksPath`, husky or lefthook the CLI writes nothing and prints the block to
+add by hand; show that block to the user.
+
+**Then call the `Bash` tool** to run the generator with the answers and list the result:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" && ls "${CLAUDE_PROJECT_DIR}/.claude/claudehut/"
+"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" --language vi --mode mono --git-hooks no \
+  && ls "${CLAUDE_PROJECT_DIR}/.claude/claudehut/"
 ```
 
-The `SessionStart` hook already auto-runs the generator when the plane is absent, so this skill is the explicit / `--refresh` path — run it here so the listing confirms the plane.
+No hook creates a plane: without one ClaudeHut stays silent, so this skill is the only way in (and the
+`--refresh` path).
 
 It detects the stack from the build files and writes, under `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`:
-`MEMORY.md`, `PROJECT.md`, `LANGUAGE.md`, `architecture.md`, `reuse-index.json`, `learnings.jsonl`, `state/` —
+`MEMORY.md` (its generated block ≤2 KB comes from `claudehut-index memory`), `PROJECT.md`, `LANGUAGE.md`,
+`architecture.md`, `topology.json` (`mode`, `language`, `git_hooks`, `shared`), `learnings.jsonl`, `state/` —
 plus the **stack-gated** rule tree under `.claude/rules/`, and appends the always-load `@import` slice to
-`CLAUDE.md`. Idempotent: it skips existing plugin-owned files (pass `--refresh` to regenerate) and **never**
-clobbers `learnings.jsonl`.
+`CLAUDE.md`. In a git repo it then builds the codebase index (`claudehut-index update`, deterministic) and
+prints its status. Idempotent: it skips existing plugin-owned files (pass `--refresh` to regenerate) and
+**never** clobbers `learnings.jsonl`.
 
-Verify-and-retry per the Flow. **Init is not complete until all five judgment files exist** (P3: the binding
-prerequisite for project-adaptive memory and cross-session learning).
+Verify-and-retry per the Flow. **Init is not complete until all five files exist.**
 
 ## 2. Enrich the seeded stubs (best-effort — raises quality, not required for correctness)
 
@@ -53,8 +74,8 @@ The script seeds judgment fields as `TBD — refine`. Improve them by reading th
 provenance line — re-`init` treats them as authoritative and won't overwrite them):
 
 - `architecture.md` / `PROJECT.md`: fill dependency direction, transaction strategy, error mapping, messaging topology.
-- `reuse-index.json` `components[]`: catalog existing `@Service`/`@RestController`/`@Repository`/`@Component`
-  classes (id, kind, `path`, purpose, tags) so the Brainstorm reuse-scan can find them.
+- Never write the index: `claudehut-index` extracts components from source, and a legacy `reuse-index.json`
+  stays read-only.
 - `LANGUAGE.md`: refine the canonical term meanings to this project's real usage.
 
 ## 3. Suggest MCP servers (optional, opt-in — never auto-install)

@@ -44,7 +44,7 @@ flowchart TB
     need -- "no" --> dec0["DECISION: drop (YAGNI) — name the simpler thing"]
     need -- "yes" --> fw{"stdlib / Spring / declared dep does it? (rungs 1-3)"}
     fw -- "yes" --> decF["DECISION: framework (cite dep in build.gradle/pom)"]
-    fw -- "no" --> div["DIVERGE — search BROAD (rung 4): reuse-index by tag,<br/>signatures + annotations, synonyms, adjacent layers, learnings"]
+    fw -- "no" --> div["DIVERGE — search BROAD (rung 4): pasted index brief first,<br/>signatures + annotations, synonyms, adjacent layers, learnings"]
     div --> found{"candidate impl found?"}
     found -- "no" --> dec2["DECISION: new (justify each rung above failed)"]
     found -- "yes" --> score["ultrathink — score Fit 1-5 (contract serves THIS task)<br/>+ name Impact (callers / coupling / regression)"]
@@ -68,8 +68,8 @@ flowchart TB
      (e.g. Resilience4j → don't hand-roll retry/rate-limit; Spring Cache → don't build a map cache; Bean
      Validation → don't write manual checks; `@Scheduled` → don't spawn timers; Spring Data `Pageable`/derived
      queries → don't string-build SQL). If yes → `framework` and name the feature + the dep.
-   - **Rung 4 — project reuse** (the diagram's DIVERGE → score → crit loop). Query
-     `.claude/claudehut/reuse-index.json` by tag; grep for similar **signatures and annotations** (e.g. an
+   - **Rung 4 — project reuse** (the diagram's DIVERGE → score → crit loop). Start from the `claudehut-index brief` (and any `find` output) pasted in the dispatch prompt: components ranked for this task with `path:line`, extracted from source.
+     You have no Bash, so never try to run the CLI; a `stale` banner means confirm each path in source. Then grep for what the brief lacks: similar **signatures and annotations** (e.g. an
      `@Service` doing the same work, a `@ConfigurationProperties` binding the same prefix); read learnings
      tagged `reuse`. For a Java candidate, the `LSP` tool (`findReferences`, `goToDefinition`) shows its real callers and implementations; if LSP is unavailable or errors, fall back to Grep. A pretty-printed `.understand-anything/knowledge-graph.json` named in the dispatch prompt can be
      Grepped for the concept (`name`/`summary`/`filePath`) as leads — it can lag, so confirm each hit in source. On a candidate, **score Fit and name Impact** before `adopt`/`extend` (cite `file:line`); Fit ≤2 → prefer `new` over forcing a misfit, and say why.

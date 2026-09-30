@@ -22,8 +22,8 @@ cat > "$(store)" <<'EOF'
 {"id":"L-0008","ts":"2020-01-01T00:00:00Z","project":"pg-ms","phase":"learn","category":"note","trigger":"old|stale","learning":"noise","evidence":"none","confidence":0.1,"hits":1}
 EOF
 cat > "$T/cand.jsonl" <<'EOF'
-{"category":"pitfall","trigger":"Reactive, R2DBC, blocking","learning":"dup merges","evidence":"Y:9","confidence":0.6}
-{"category":"convention","trigger":"naming|service","learning":"new entry","evidence":"Z:3"}
+{"category":"pitfall","trigger":"Reactive, R2DBC, blocking","learning":"dup merges into the existing entry","evidence":"Y:9","confidence":0.6}
+{"category":"convention","trigger":"naming|service","learning":"a new convention entry about naming","evidence":"Z:3"}
 EOF
 R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z)"
 [ "$(jq -r '.merged' <<<"$R")" = 1 ] && ok "report: 1 merged" || bad "report merged ($R)"
@@ -85,7 +85,7 @@ new_proj
 cat > "$(store)" <<'EOF'
 {"id":"L-0001","ts":"2026-06-01T00:00:00Z","project":"x","phase":"learn","category":"pitfall","trigger":"telemetry|widget|gizmo","learning":"do the widget thing","evidence":"W.java:1","confidence":0.86,"hits":5}
 EOF
-echo '{"category":"pitfall","trigger":"widget, gizmo, telemetry","learning":"do the widget thing","evidence":"W.java:1","confidence":0.86}' > "$T/cand.jsonl"
+echo '{"category":"pitfall","trigger":"widget, gizmo, telemetry","learning":"do the widget thing properly","evidence":"W.java:1","confidence":0.86}' > "$T/cand.jsonl"
 R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-06-29T00:00:00Z)"
 [ "$(jq -r '.promoted' <<<"$R")" = 0 ] && ok "unknown trigger: promoted=0 (no rule-file guess)" || bad "unknown trigger promoted ($R)"
 [ "$(jq -sc 'map(select(.id=="L-0001"))|.[0].promoted // false' "$(store)")" = "false" ] \
@@ -129,20 +129,20 @@ INJ="$ROOT/scripts/inject-learnings.sh"
 # MEM-1 — two CONCURRENT writers must both land (advisory lock; no lost update)
 new_proj
 : > "$(store)"
-echo '{"category":"pitfall","trigger":"alpha, one, aaa","learning":"alpha learning","evidence":"A.java:1","confidence":0.7}' > "$T/ca.jsonl"
-echo '{"category":"pitfall","trigger":"beta, two, bbb","learning":"beta learning","evidence":"B.java:2","confidence":0.7}' > "$T/cb.jsonl"
+echo '{"category":"pitfall","trigger":"alpha, one, aaa","learning":"alpha learning written by writer A","evidence":"A.java:1","confidence":0.7}' > "$T/ca.jsonl"
+echo '{"category":"pitfall","trigger":"beta, two, bbb","learning":"beta learning written by writer B","evidence":"B.java:2","confidence":0.7}' > "$T/cb.jsonl"
 "$SH" --candidates "$T/ca.jsonl" --ts 2026-06-29T00:00:00Z >/dev/null 2>&1 &
 "$SH" --candidates "$T/cb.jsonl" --ts 2026-06-29T00:00:01Z >/dev/null 2>&1 &
 wait
-na="$(jq -sc 'map(select(.learning=="alpha learning"))|length' "$(store)" 2>/dev/null)"
-nb="$(jq -sc 'map(select(.learning=="beta learning"))|length' "$(store)" 2>/dev/null)"
+na="$(jq -sc 'map(select(.learning=="alpha learning written by writer A"))|length' "$(store)" 2>/dev/null)"
+nb="$(jq -sc 'map(select(.learning=="beta learning written by writer B"))|length' "$(store)" 2>/dev/null)"
 [ "$na" = 1 ] && [ "$nb" = 1 ] && ok "MEM-1: two concurrent writers both persisted (lock — no lost update)" || bad "MEM-1: lost update (alpha=$na beta=$nb)"
 rm -rf "$T"
 
 # MEM-3 — supersedes marks the OLD entry superseded; inject excludes it, keeps the refining entry
 new_proj
 printf '%s\n' '{"id":"L-0001","ts":"2026-06-20T00:00:00Z","category":"pitfall","trigger":"jpa|n+1","learning":"old advice","evidence":"A.java:1","confidence":0.7,"hits":3}' > "$(store)"
-echo '{"category":"pitfall","trigger":"entitygraph, fetchplan","learning":"better advice","evidence":"A.java:2","confidence":0.7,"supersedes":"L-0001"}' > "$T/c.jsonl"
+echo '{"category":"pitfall","trigger":"entitygraph, fetchplan","learning":"better advice: use an entity graph","evidence":"A.java:2","confidence":0.7,"supersedes":"L-0001"}' > "$T/c.jsonl"
 "$SH" --candidates "$T/c.jsonl" --ts 2026-06-29T00:00:00Z >/dev/null 2>&1
 [ "$(jq -sc 'map(select(.id=="L-0001"))|.[0].status' "$(store)")" = '"superseded"' ] && ok "MEM-3: supersedes marks old entry status=superseded (deterministic)" || bad "MEM-3: old entry not superseded"
 out="$(CLAUDE_PROJECT_DIR="$T" bash "$INJ" 2>/dev/null)"
@@ -155,7 +155,7 @@ new_proj
 hdr="## Learned pitfalls (auto-promoted from learnings.jsonl — edit via the learner, not by hand)"
 { echo "# JPA rules"; printf '\n%s\n' "$hdr"; echo "- stale promoted pitfall <!-- trigger: jpa|n+1|entity · promoted: x · evidence: A.java:1 -->"; } > "$T/.claude/rules/framework/jpa.md"
 printf '%s\n' '{"id":"L-0001","ts":"2026-06-25T00:00:00Z","category":"pitfall","trigger":"jpa|n+1|entity","learning":"stale promoted pitfall","evidence":"A.java:1","confidence":0.9,"hits":6,"promoted":true}' > "$(store)"
-echo '{"category":"pitfall","trigger":"entitygraph, batchsize","learning":"fresh advice","evidence":"A.java:2","confidence":0.9,"supersedes":"L-0001"}' > "$T/c.jsonl"
+echo '{"category":"pitfall","trigger":"entitygraph, batchsize","learning":"fresh advice: batch-size the fetch","evidence":"A.java:2","confidence":0.9,"supersedes":"L-0001"}' > "$T/c.jsonl"
 "$SH" --candidates "$T/c.jsonl" --ts 2026-06-29T00:00:00Z >/dev/null 2>&1
 grep -qF "stale promoted pitfall" "$T/.claude/rules/framework/jpa.md" \
   && bad "MEM-3: superseded promoted line still in rule file (append-only staleness)" \
@@ -419,10 +419,10 @@ CNT="$(mktemp -d)"; export CNT_LOG="$CNT/calls"
 for b in sleep date; do printf '#!/bin/sh\necho %s >> "$CNT_LOG"\nexec %s "$@"\n' "$b" "$(command -v "$b")" > "$CNT/$b"; chmod +x "$CNT/$b"; done
 cnt() { grep -c "^$1\$" "$CNT_LOG" 2>/dev/null || true; }
 new_proj
-printf '{"category":"pitfall","trigger":"lock, fixture","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+printf '{"category":"pitfall","trigger":"lock, fixture","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 : > "$CNT_LOG"; PATH="$CNT:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
 mlk_d0="$(cnt date)"; new_proj   # control: the clock reads of an uncontended merge
-printf '{"category":"pitfall","trigger":"lock, fixture","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+printf '{"category":"pitfall","trigger":"lock, fixture","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 : > "$(store).lock"; : > "$CNT_LOG"
 PATH="$CNT:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
 mlk_s="$(cnt sleep)"; mlk_d="$(cnt date)"
@@ -436,7 +436,7 @@ mlk_s="$(cnt sleep)"; mlk_d="$(cnt date)"
 # have turned into "delete whatever is in the way". The holder is younger than the 30s steal threshold,
 # so a correct waiter rides the wall-clock cap; what it must never do is remove a live holder's directory.
 new_proj
-printf '{"category":"pitfall","trigger":"lock, held","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+printf '{"category":"pitfall","trigger":"lock, held","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 mkdir "$(store).lock"
 "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
 [ -d "$(store).lock" ] \
@@ -452,7 +452,7 @@ new_proj
 RSTAT="$(command -v stat)"; GS="$T/gnustat"; mkdir -p "$GS"
 if "$RSTAT" -c %Y / >/dev/null 2>&1; then mt='exec '"$RSTAT"' -c %Y "$3"'; else mt='exec '"$RSTAT"' -f %m "$3"'; fi
 printf '#!/bin/sh\ncase "$1" in\n  -f) printf "  File: \\"%%s\\"\\n    Type: overlayfs\\n" "$3"; exit 1 ;;\n  -c) [ "$2" = %%Y ] && %s ;;\nesac\nexec %s "$@"\n' "$mt" "$RSTAT" > "$GS/stat"; chmod +x "$GS/stat"
-printf '{"category":"pitfall","trigger":"lock, stale","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+printf '{"category":"pitfall","trigger":"lock, stale","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 mkdir "$(store).lock"; touch -t 202001010000 "$(store).lock"; : > "$CNT_LOG"
 PATH="$CNT:$GS:$PATH" "$SH" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z >/dev/null 2>&1
 mlk_s="$(cnt sleep)"
@@ -482,12 +482,251 @@ while True:
 FLEOF
 chmod +x "$FS/flock"
 sed 's/^acquire_lock$/acquire_lock; echo PROBE-AFTER-LOCK >\&2/' "$SH" > "$T/ml-probe.sh"
-printf '{"category":"pitfall","trigger":"lock, flock","learning":"L","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
+printf '{"category":"pitfall","trigger":"lock, flock","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 mlk_err="$(PATH="$FS:$PATH" bash "$T/ml-probe.sh" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z 2>&1 >/dev/null)"
 grep -q '^acquire_lock; echo PROBE' "$T/ml-probe.sh" && [ -e "$(store).lock.flock" ] && printf '%s' "$mlk_err" | grep -q PROBE-AFTER-LOCK \
   && grep -q '"trigger":"flock|lock"' "$(store)" \
   && ok "lock: the flock path keeps stderr — a diagnostic after acquire_lock still reaches the caller (V3-5)" \
   || bad "lock: the flock path swallowed stderr after acquire_lock, or did not take the flock (V3-5): '${mlk_err:0:120}'"
+
+echo "== v0.12 M5: learnings schema — key normalization, gate, repair (07 §8.2, D5 / AC-2) =="
+MEMPY="$ROOT/scripts/index/memory.py"
+new_proj; mkdir -p "$T/.claude/claudehut/state"
+printf '%s\n' '{"id":"L-0003","ts":"2026-09-01T00:00:00Z","category":"pitfall","trigger":"auditor|meterregistry","learning":"","evidence":"NoCreditPathMetricsTest.java","confidence":0.6,"hits":1}' \
+  '{"id":"L-0004","ts":"2026-09-01T00:00:00Z","category":"convention","trigger":"outbox|claim","text":"Outbox rows are claimed with SKIP LOCKED before publishing","evidence":"Outbox.java:42","confidence":0.7,"hits":2}' > "$(store)"
+cat > "$T/cand.jsonl" <<'EOF'
+{"category":"pitfall","trigger":"kafka, retry, dlt","text":"A @KafkaListener poison record must go to the DLT topic, never retry forever","evidence":"Consumer.java:12"}
+{"category":"pitfall","trigger":"kafka, short","learning":"too short to be one","evidence":"Consumer.java:13"}
+{"category":"pitfall","trigger":"kafka, copy","learning":"src/main/java/Consumer.java:14","evidence":"src/main/java/Consumer.java:14"}
+{"category":"pitfall","trigger":"kafka, blank","learning":"   ","text":"The first non-empty body wins over a blank learning key","evidence":"Consumer.java:15"}
+EOF
+R="$("$SH" --candidates "$T/cand.jsonl" --session s1 --ts 2026-09-30T00:00:00Z)"
+jq -e 'select(.trigger=="dlt|kafka|retry") | (.learning | startswith("A @KafkaListener poison")) and (has("text") | not)' "$(store)" >/dev/null 2>&1 \
+  && ok "AC-2: a candidate keyed \`text\` is stored with a non-empty \`learning\` (and no stray text key)" \
+  || bad "AC-2: text-keyed candidate not normalized ($R)"
+jq -e 'select(.trigger=="blank|kafka") | .learning | startswith("The first non-empty")' "$(store)" >/dev/null 2>&1 \
+  && ok "AC-2: a blank \`learning\` falls through to \`text\` (jq // does not, the rule does)" \
+  || bad "AC-2: blank learning key shadowed the text body"
+[ "$(jq -r '.rejected' <<<"$R")" = 2 ] \
+  && jq -se 'map(.rejected_reason) | sort == ["learning-equals-evidence","learning-under-20-chars"]' "$T/.claude/claudehut/state/s1.rejected.jsonl" >/dev/null 2>&1 \
+  && ok "AC-2: <20 chars and learning==evidence are rejected into state/<sid>.rejected.jsonl with a reason" \
+  || bad "AC-2: gate rejects wrong ($R)"
+jq -e 'select(.id=="L-0004") | .learning | startswith("Outbox rows")' "$(store)" >/dev/null 2>&1 \
+  && ok "D5 repair: a stored entry keyed \`text\` is normalized in place" || bad "D5 repair: stored text key not normalized"
+{ [ "$(jq -r '.repaired' <<<"$R")" = 1 ] && [ "$(jq -s '[.[] | select((.learning // "") == "")] | length' "$(store)")" = 0 ] \
+  && jq -e 'select(.id=="L-0003") | .rejected_reason == "empty-learning"' "$T/.claude/claudehut/learnings.rejected.jsonl" >/dev/null 2>&1; } \
+  && ok "D5 repair: the empty entry moved to learnings.rejected.jsonl (kept, not deleted); 0 empty entries remain" \
+  || bad "D5 repair: empty entry handling wrong ($R)"
+[ -z "$(jq -r 'select(.id=="L-0003") | .id' "$(store)")" ] && [ "$(jq -s 'map(.id) | index("L-0005")' "$(store)")" != "null" ] \
+  && ok "ids are not reused: the next new id skips the repaired L-0003/L-0004 range (max+1 incl. rejected file)" \
+  || bad "id allocation reused a repaired id: $(jq -c '.id' "$(store)" | tr '\n' ' ')"
+rj="$(wc -c < "$T/.claude/claudehut/learnings.rejected.jsonl" | tr -d ' ')"
+R2="$("$SH" --repair --ts 2026-09-30T01:00:00Z)"
+{ [ "$(jq -r '.repaired' <<<"$R2")" = 0 ] && [ "$(wc -c < "$T/.claude/claudehut/learnings.rejected.jsonl" | tr -d ' ')" = "$rj" ]; } \
+  && ok "D5 repair: --repair without candidates is idempotent (second run moves nothing)" \
+  || bad "D5 repair: second --repair run changed state ($R2)"
+rm -rf "$T"
+
+echo "== v0.12 M5: trigger normalization + fuzzy dedup (07 §8.2, D6 / AC-3) =="
+new_proj
+cat > "$T/cand.jsonl" <<'EOF'
+{"category":"convention","trigger":"Party, ms, the, kafka, retry, dlt, offset, commit, lag","learning":"Commit the Kafka offset only after the DLT publish succeeded","evidence":"Consumer.java:20"}
+EOF
+"$SH" --candidates "$T/cand.jsonl" --project party-ms --ts 2026-09-30T00:00:00Z >/dev/null
+[ "$(jq -r '.trigger' "$(store)")" = "commit|dlt|kafka|offset|retry" ] \
+  && ok "trigger: stopwords, \`ms\` and the service name dropped; first 5 tokens kept, sorted" \
+  || bad "trigger normalization wrong: $(jq -r '.trigger' "$(store)")"
+rm -rf "$T"
+# The promote mapping reads the trigger before the service-name drop: auth-ms drops "auth" from the stored
+# trigger, yet an auth pitfall still promotes into security/spring-security.md.
+new_proj; mkdir -p "$T/.claude/rules/security"; echo "# Security rules" > "$T/.claude/rules/security/spring-security.md"
+echo '{"category":"pitfall","trigger":"auth, filter, token, header","learning":"Register `TokenFilter` before `UsernamePasswordAuthenticationFilter`","evidence":"SecurityConfig.java:31","confidence":0.9}' > "$T/cand.jsonl"
+for i in 1 2 3 4 5; do "$SH" --candidates "$T/cand.jsonl" --project auth-ms --ts 2026-09-30T0$i:00:00Z >/dev/null; done
+{ [ "$(jq -r '.trigger' "$(store)")" = "filter|header|token" ] && [ "$(jq -r '.promoted' "$(store)")" = true ] \
+  && grep -qF 'Register `TokenFilter`' "$T/.claude/rules/security/spring-security.md"; } \
+  && ok "promote: auth-ms drops 'auth' from the stored trigger, the pre-drop trigger still maps to security/spring-security.md" \
+  || bad "promote on the pre-drop trigger failed: $(jq -c '[.trigger,.trigger_src,.hits,.confidence,.promoted]' "$(store)")"
+rm -rf "$T"
+# ...and only the dropped service token is added back: a 7-token trigger routes on its stored 5 tokens + "party",
+# never on token 6+ ("jpa" would win the first case arm and send a security pitfall to framework/jpa.md).
+new_proj; mkdir -p "$T/.claude/rules/security"; echo "# Security rules" > "$T/.claude/rules/security/spring-security.md"
+echo "# JPA rules" > "$T/.claude/rules/framework/jpa.md"
+echo '{"category":"pitfall","trigger":"party, security, filter, header, token, chain, jpa","learning":"Order the `SecurityFilterChain` beans with `@Order`","evidence":"SecurityConfig.java:12","confidence":0.9}' > "$T/cand.jsonl"
+for i in 1 2 3 4 5; do "$SH" --candidates "$T/cand.jsonl" --project party-ms --ts 2026-09-30T0$i:00:00Z >/dev/null; done
+{ [ "$(jq -r '.trigger_src' "$(store)")" = "chain|filter|header|security|token|party" ] \
+  && grep -qF 'SecurityFilterChain' "$T/.claude/rules/security/spring-security.md" && ! grep -qF 'SecurityFilterChain' "$T/.claude/rules/framework/jpa.md"; } \
+  && ok "promote: trigger_src = stored 5 tokens + the dropped service token only (token 6+ never routes)" \
+  || bad "trigger_src routes beyond the stored trigger: $(jq -c '[.trigger,.trigger_src]' "$(store)")"
+rm -rf "$T"
+# AC-3: the two triggers from 07 §10, same category → one entry, hits=2.
+new_proj
+AL='Before proofs became optional the guard in SettlementItemService.completeItem was unreachable dead code'
+printf '%s\n' "{\"id\":\"L-0001\",\"ts\":\"2026-09-01T00:00:00Z\",\"category\":\"finding\",\"trigger\":\"code|completeitem|dead|multipart|proof\",\"learning\":\"$AL\",\"evidence\":\"SettlementItemService.java:88\",\"confidence\":0.6,\"hits\":1}" > "$(store)"
+printf '%s\n' "{\"category\":\"finding\",\"trigger\":\"multipart|proof|settlement|dead\",\"learning\":\"$AL because @RequestPart defaulted to required\",\"evidence\":\"BoSettlementController.java:40\"}" > "$T/cand.jsonl"
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T00:00:00Z)"
+{ [ "$(grep -c '' "$(store)")" = 1 ] && [ "$(jq -r '.hits' "$(store)")" = 2 ] && [ "$(jq -r '.fuzzy' <<<"$R")" = 1 ]; } \
+  && ok "AC-3: code|completeitem|dead|multipart|proof + multipart|proof|settlement|dead → 1 entry, hits=2 (fuzzy)" \
+  || bad "AC-3: fuzzy merge failed ($R; $(grep -c '' "$(store)") entries)"
+[ "$(jq -r '.evidence' "$(store)")" = "SettlementItemService.java:88; BoSettlementController.java:40" ] \
+  && ok "merge folds the new evidence in (\"; \"-joined)" || bad "evidence not merged: $(jq -r '.evidence' "$(store)")"
+for i in 1 2 3; do
+  printf '%s\n' "{\"category\":\"finding\",\"trigger\":\"multipart|proof|settlement|dead\",\"learning\":\"$AL because @RequestPart defaulted to required\",\"evidence\":\"Extra$i.java:$i\"}" > "$T/cand.jsonl"
+  "$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T0$i:00:00Z >/dev/null
+done
+{ [ "$(jq -r '.hits' "$(store)")" = 5 ] && [ "$(jq -r '.evidence | split("; ") | length' "$(store)")" = 3 ]; } \
+  && ok "evidence is capped at 3 citations while hits keep counting (hits=5)" \
+  || bad "evidence cap wrong: $(jq -c '[.hits,.evidence]' "$(store)")"
+# guard 1: same tokens, different category → no merge
+printf '%s\n' "{\"category\":\"pitfall\",\"trigger\":\"multipart|proof|settlement|dead\",\"learning\":\"$AL because @RequestPart defaulted to required\",\"evidence\":\"P.java:1\"}" > "$T/cand.jsonl"
+"$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T05:00:00Z >/dev/null
+[ "$(grep -c '' "$(store)")" = 2 ] && ok "fuzzy guard: a different category never merges" || bad "fuzzy merged across categories"
+# guard 2: a refinement (supersedes) never fuzzy-merges into the entry it refines (MEM-3)
+printf '%s\n' "{\"category\":\"finding\",\"trigger\":\"multipart|proof|settlement|dead\",\"learning\":\"$AL until proofs became optional\",\"evidence\":\"S.java:2\",\"supersedes\":\"L-0001\"}" > "$T/cand.jsonl"
+"$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T06:00:00Z >/dev/null
+{ [ "$(grep -c '' "$(store)")" = 3 ] && [ "$(jq -r 'select(.id=="L-0001") | .status' "$(store)")" = superseded ]; } \
+  && ok "fuzzy guard: a supersedes candidate is stored as a refinement, not merged as hits++" \
+  || bad "fuzzy guard: supersedes candidate was merged into its target"
+rm -rf "$T"
+# guard 3: identical wording except the SQLSTATE code → two entries (numeric tokens are kept and must agree)
+new_proj
+printf '%s\n' '{"id":"L-0001","ts":"2026-09-01T00:00:00Z","category":"pitfall","trigger":"sqlstate|replica|write","learning":"A write routed to the replica fails with SQLSTATE 25006 and must be pinned to primary","evidence":"a.java:1","confidence":0.7,"hits":1}' > "$(store)"
+# the trigger differs (no exact fast path) and the sentences share 7 of 10 tokens — only the numeric guard stops it
+printf '%s\n' '{"category":"pitfall","trigger":"sqlstate|primary|routing","learning":"A write routed to the replica fails with SQLSTATE 40001 and must be pinned to primary","evidence":"c.java:1"}' > "$T/cand.jsonl"
+R="$("$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T01:00:00Z)"
+{ [ "$(jq -r '.fuzzy' <<<"$R")" = 0 ] && [ "$(grep -c '' "$(store)")" = 2 ]; } \
+  && ok "fuzzy guard: SQLSTATE 25006 vs 40001 never fuzzy-merge, however similar the sentence" \
+  || bad "fuzzy guard: distinct error codes merged ($R)"
+rm -rf "$T"
+
+echo "== v0.12 M5: MEMORY.md is machine-generated ≤2 KB (07 §8.1, D1 / AC-1) =="
+if ! command -v python3 >/dev/null 2>&1; then
+  ok "memory: python3 absent — generator checks skipped (the CLI prints 'index: unavailable')"
+else
+  # fresh plane: the rendered template alone, with the provenance line, is ≤2048 B
+  new_proj
+  sed 's/{{PROJECT_NAME}}/a-rather-long-service-name-ms/' "$ROOT/templates/MEMORY.md.tmpl" > "$T/.claude/claudehut/MEMORY.md"
+  tb="$(wc -c < "$T/.claude/claudehut/MEMORY.md" | tr -d ' ')"
+  { [ "$tb" -le 2048 ] && head -1 "$T/.claude/claudehut/MEMORY.md" | grep -q 'generated by claudehut-init' \
+    && grep -q '8192 bytes' "$T/.claude/claudehut/MEMORY.md" && grep -q '^## Topics$' "$T/.claude/claudehut/MEMORY.md"; } \
+    && ok "AC-1: a freshly rendered MEMORY.md is $tb B (≤2048), keeps the provenance line, the byte budget and a bare ## Topics" \
+    || bad "AC-1: rendered template is $tb B or lost provenance/budget/Topics"
+  # regenerate with a long plugin path, a vi topology and a real-shaped store
+  printf '%s\n' '{"schema":1,"mode":"mono","hub":null,"language":"vi","shared":false,"git_hooks":false}' > "$T/.claude/claudehut/topology.json"
+  for i in $(seq 1 30); do
+    printf '{"id":"L-%04d","category":"pitfall","trigger":"r2dbc|reactive|topic%02d","learning":"SECRET-BODY-%02d a reactive pitfall long enough to be kept","evidence":"A%d.java:1","confidence":0.7,"hits":1,"ts":"2026-09-01T00:00:00Z"}\n' "$i" "$i" "$i" "$i" >> "$(store)"
+  done
+  LONGP="$T/plugin/$(printf 'x%.0s' $(seq 1 150))"; mkdir -p "$LONGP"
+  printf '\n## Our team notes\n- ask the lead before adding a dependency\n' >> "$T/.claude/claudehut/MEMORY.md"
+  python3 "$MEMPY" --plane "$T/.claude/claudehut" --plugin-root "$LONGP" >/dev/null
+  M="$T/.claude/claudehut/MEMORY.md"
+  blk="$(sed -n '/claudehut:generated:start/,/claudehut:generated:end/p' "$M")"
+  bb="$(printf '%s\n' "$blk" | wc -c | tr -d ' ')"
+  [ "$bb" -le 2048 ] && ok "memory: generated block is $bb B (≤2048) with a 150-char plugin path" || bad "memory: block is $bb B"
+  printf '%s' "$blk" | grep -q "$LONGP/bin/claudehut-index" && printf '%s' "$blk" | grep -q "\`$T/.claude/claudehut\`" \
+    && ok "memory: block carries the absolute plane path and the absolute CLI path (D9)" || bad "memory: absolute paths missing"
+  printf '%s' "$blk" | grep -q 'language vi' && printf '%s' "$blk" | grep -q 'local only (shared:false)' \
+    && ok "memory: topology line reports language and sharing from topology.json (D10: no 'committed index' claim)" \
+    || bad "memory: topology/sharing line wrong"
+  printf '%s' "$blk" | grep -q '^- pitfall(r2dbc) → learnings.jsonl (30)$' \
+    && ok "memory: topics are pointers — category(trigger) → learnings.jsonl (n)" || bad "memory: topic pointer missing"
+  ! grep -q 'SECRET-BODY' "$M" && ok "memory: no learning body is copied into MEMORY.md" || bad "memory: a learning body leaked into MEMORY.md"
+  ! grep -qE '^(Language|Ngôn ngữ):' "$M" && ok "memory: no line starts with Language:/Ngôn ngữ: (bootstrap owns that one line, ADR-R7)" \
+    || bad "memory: MEMORY.md would add a second language line"
+  grep -q 'ask the lead before adding a dependency' "$M" && [ "$(grep -c 'claudehut:generated:start' "$M")" = 1 ] \
+    && ok "memory: hand-written notes outside the markers are kept; one block only" || bad "memory: hand-written part lost or block duplicated"
+  mt() { python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime_ns)' "$1"; }
+  m1="$(mt "$M")"
+  python3 "$MEMPY" --plane "$T/.claude/claudehut" --plugin-root "$LONGP" >/dev/null
+  [ "$(mt "$M")" = "$m1" ] && ok "memory: regeneration with nothing changed does not touch the file (mtime kept)" \
+    || bad "memory: no-op regeneration rewrote the file"
+  # merge-learnings refreshes the block (topic counts follow the store)
+  printf '%s\n' '{"category":"pitfall","trigger":"r2dbc, reactive, topic99","learning":"another reactive pitfall with a `Mono` in it","evidence":"B.java:2"}' > "$T/cand.jsonl"
+  CLAUDE_PLUGIN_ROOT="$LONGP" "$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T00:00:00Z >/dev/null
+  grep -q '^- pitfall(r2dbc) → learnings.jsonl (31)$' "$M" && ok "merge-learnings refreshes the generated block after the write" \
+    || bad "merge-learnings did not refresh MEMORY.md: $(grep 'r2dbc' "$M")"
+  rm -rf "$T"
+
+  # legacy migration: template + learner blocks move to history, a hand-written section stays verbatim
+  new_proj
+  M="$T/.claude/claudehut/MEMORY.md"; H="$T/.claude/claudehut/MEMORY-history.md"
+  cat > "$M" <<'EOF'
+# ClaudeHut memory index — legacy-ms
+
+This is the **committed, always-loaded index**.
+
+## Always loaded (via @import in CLAUDE.md)
+- `PROJECT.md` — stack
+
+## Rules (apply every session, no exception)
+- **SRS schema sections are reference-only.**
+  ```
+  ## not a heading inside a fence
+  ```
+
+## Topics
+- partial-update → learnings.jsonl (L001)
+
+## Reuse additions (task-0001, 2026-06-04)
+- `MerchantIdentityMapper` — read-side mapper
+
+## Topics (task-0001)
+- merchant identity → learnings.jsonl
+EOF
+  cp "$M" "$T/orig.md"
+  python3 "$MEMPY" --plane "$T/.claude/claudehut" --no-migrate >/dev/null
+  cmp -s "$M" "$T/orig.md" && [ ! -f "$H" ] && ok "memory --no-migrate leaves a legacy file byte-identical (the Learn path never migrates)" \
+    || bad "memory --no-migrate touched a legacy file"
+  printf '%s\n' '{"category":"pitfall","trigger":"a, b, c","learning":"a pitfall long enough for the gate here","evidence":"X.java:1"}' > "$T/cand.jsonl"
+  "$SH" --candidates "$T/cand.jsonl" --ts 2026-09-30T00:00:00Z >/dev/null
+  cmp -s "$M" "$T/orig.md" && ok "merge-learnings does not migrate a legacy MEMORY.md" || bad "merge-learnings migrated a legacy file"
+  python3 "$MEMPY" --plane "$T/.claude/claudehut" --check >/dev/null
+  cmp -s "$M" "$T/orig.md" && [ ! -f "$H" ] && ok "memory --check writes nothing" || bad "memory --check wrote"
+  python3 "$MEMPY" --plane "$T/.claude/claudehut" >/dev/null
+  body="$(sed -n '/## Rules (apply/,/## not a heading/p' "$M")"
+  { printf '%s' "$body" | grep -q 'reference-only' && grep -q '^  ## not a heading inside a fence' "$M" \
+    && ! grep -q 'MerchantIdentityMapper' "$M" && ! grep -q '^## Always loaded' "$M"; } \
+    && ok "legacy: hand-written section kept verbatim (fence respected); template + learner blocks left the index" \
+    || bad "legacy: migration misclassified sections"
+  { grep -q 'MerchantIdentityMapper' "$H" && grep -q '^## Always loaded' "$H" && grep -q 'partial-update → learnings.jsonl (L001)' "$H"; } \
+    && ok "legacy: every moved block is in MEMORY-history.md (moved, not deleted)" || bad "legacy: moved content missing from history"
+  miss="$(python3 -c 'import sys; o=open(sys.argv[1]).read().splitlines(); n=open(sys.argv[2]).read()+open(sys.argv[3]).read(); print(sum(1 for l in o if l.strip() and l not in n))' "$T/orig.md" "$M" "$H")"
+  [ "$miss" = 0 ] && ok "legacy: no original line is lost (index ∪ history ⊇ original)" || bad "legacy: $miss original line(s) lost"
+  hb="$(wc -c < "$H" | tr -d ' ')"; python3 "$MEMPY" --plane "$T/.claude/claudehut" >/dev/null
+  [ "$(wc -c < "$H" | tr -d ' ')" = "$hb" ] && [ "$(grep -c 'claudehut:generated:start' "$M")" = 1 ] \
+    && ok "legacy: a second run is a no-op (history not duplicated, one block)" || bad "legacy: second run duplicated history or block"
+  rm -rf "$T"
+fi
+
+# Real stores (read-only source, COPIES only): the before/after the milestone is judged on. Skipped when the
+# workspace is not on this machine (CI).
+EW="${EWALLET_WORKSPACE:-/Users/taiphan/Documents/Projects/ewallet-workspace}"
+if [ -f "$EW/party-ms/.claude/claudehut/MEMORY.md" ] && [ -f "$EW/payment-gateway-ms/.claude/claudehut/learnings.jsonl" ] && command -v python3 >/dev/null 2>&1; then
+  echo "== v0.12 M5: real-data demo on copies (party-ms MEMORY.md, payment-gateway-ms learnings.jsonl) =="
+  TR="$(mktemp -d)"; mkdir -p "$TR/party-ms/.claude/claudehut" "$TR/payment-gateway-ms/.claude/claudehut" "$TR/replay/payment-gateway-ms/.claude/claudehut"
+  cp "$EW/party-ms/.claude/claudehut/MEMORY.md" "$EW/party-ms/.claude/claudehut/learnings.jsonl" "$TR/party-ms/.claude/claudehut/"
+  cp "$EW/payment-gateway-ms/.claude/claudehut/learnings.jsonl" "$TR/payment-gateway-ms/.claude/claudehut/"
+  rep="$(python3 "$MEMPY" --plane "$TR/party-ms/.claude/claudehut" --json)"
+  echo "  party-ms MEMORY.md: $(jq -r '"\(.bytes_before) B → \(.bytes_after) B; \(.sections_moved) sections / \(.bytes_moved) B moved to MEMORY-history.md"' <<<"$rep")"
+  { [ "$(jq -r '.bytes_after' <<<"$rep")" -le 8192 ] && [ "$(jq -r '.block_bytes' <<<"$rep")" -le 2048 ] \
+    && [ "$(( $(wc -c < "$TR/party-ms/.claude/claudehut/MEMORY-history.md") >= $(jq -r '.bytes_moved' <<<"$rep") ))" = 1 ]; } \
+    && ok "AC-1 (real): party-ms MEMORY.md ≤8192 B with a ≤2048 B block; the moved bytes are all in history" \
+    || bad "AC-1 (real): party-ms migration out of budget ($rep)"
+  P="$TR/payment-gateway-ms"
+  e0="$(jq -s '[.[] | select((.learning // "") == "")] | length' "$P/.claude/claudehut/learnings.jsonl")"
+  RR="$(cd "$TR" && CLAUDE_PROJECT_DIR="$P" "$SH" --repair --ts 2026-10-01T00:00:00Z)"
+  e1="$(jq -s '[.[] | select((.learning // "") == "")] | length' "$P/.claude/claudehut/learnings.jsonl")"
+  echo "  payment-gateway-ms repair: empty $e0 → $e1; $(jq -r '.repaired' <<<"$RR") moved to learnings.rejected.jsonl; store $(grep -c '' "$EW/payment-gateway-ms/.claude/claudehut/learnings.jsonl") → $(grep -c '' "$P/.claude/claudehut/learnings.jsonl") entries"
+  [ "$e1" = 0 ] && [ "$(jq -r '.repaired' <<<"$RR")" = "$e0" ] && ok "AC-2 (real): 0 empty entries after repair" || bad "AC-2 (real): repair left $e1 empty ($RR)"
+  # replay the store in ts order into an empty one: how many would the merge have folded?
+  jq -sc 'sort_by(.ts)[] | {category, trigger, learning, evidence, confidence}' "$EW/payment-gateway-ms/.claude/claudehut/learnings.jsonl" > "$TR/replay.jsonl"
+  : > "$TR/replay/payment-gateway-ms/.claude/claudehut/learnings.jsonl"
+  RP="$(cd "$TR" && CLAUDE_PROJECT_DIR="$TR/replay/payment-gateway-ms" "$SH" --candidates "$TR/replay.jsonl" --project pg-ms --ts 2026-10-01T00:00:00Z)"
+  echo "  payment-gateway-ms replay of $(grep -c '' "$TR/replay.jsonl") candidates: $(jq -r '"added \(.added), merged \(.merged) (exact \(.merged - .fuzzy), fuzzy \(.fuzzy)), rejected \(.rejected)"' <<<"$RP")"
+  [ "$(grep -c '' "$TR/replay/payment-gateway-ms/.claude/claudehut/learnings.jsonl")" -le 400 ] && [ "$(jq -r '.added + .merged + .rejected' <<<"$RP")" = "$(grep -c '' "$TR/replay.jsonl")" ] \
+    && ok "real replay: every candidate is accounted for (added + merged + rejected) and the store stays ≤400" \
+    || bad "real replay: accounting off ($RP)"
+  rm -rf "$TR"
+fi
 
 echo
 echo "MERGE-LEARNINGS: $PASS passed, $FAIL failed"

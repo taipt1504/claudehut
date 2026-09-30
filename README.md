@@ -444,13 +444,14 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1239 assertions, all green on the release commit
-evals/conformance.sh              # 293  structural + behavioural wiring checks
-evals/hook-tests.sh               # 651  advisory hook contract, fault injection, replays, state schema 2,
-                                  #       then evals/regress/{state,script,doclint,review-pack}-tests.sh (--fast: the first part only)
+# deterministic (free, no Claude needed) — 1408 assertions, all green on the release commit
+evals/conformance.sh              # 294  structural + behavioural wiring checks
+evals/hook-tests.sh               # 771  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script,doclint,review-pack,index}-tests.sh (--fast: the first part only);
+                                  #       index-tests counts 93 there (mutants + ewallet off), 117 alone with mutants, 122 with the va-ms part
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
-evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    #  56  learnings merge, prune, injection, federation
+evals/init-tests.sh               # 127  claudehut-init: detection, plane generation, migrations
+evals/merge-learnings-tests.sh    #  92  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures

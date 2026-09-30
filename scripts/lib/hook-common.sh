@@ -17,7 +17,7 @@
 # statement a non-zero return would fire the ERR trap and be logged as a failure.
 
 HC_IN=""; HC_EVENT=""; HC_CTX=""; HC_SYS=""; HC_FAILED=""; HC_BUDGET="${HC_BUDGET:-500}"
-HC_SID=""; HC_TASK=""; HC_TASK_ID=""; HC_REL=""; PLANE=""; HUB=""
+HC_SID=""; HC_TASK=""; HC_TASK_ID=""; HC_REL=""; PLANE=""; HUB=""; HC_LANG="en"; HC_HEAD=""; HC_INDEXED=""
 HC_NAME="${0##*/}"
 
 hc_init() {
@@ -49,11 +49,26 @@ hc_plane_or_exit() {
   else
     exec 2>/dev/null   # K3 on a read-only plane (mounted / checked-out hub): no log to reach, so stay silent (HC2-2)
   fi
-  HUB="${CLAUDEHUT_HUB:-}"
-  if [ -z "$HUB" ] && [ -f "$PLANE/topology.json" ]; then
-    HUB="$(jq -r '.hub // empty' "$PLANE/topology.json" 2>/dev/null)" || HUB=""
+  # One jq read of topology.json serves both the hub and the language (ADR-R7: plane → hub.json (M6) → en).
+  HUB=""; HC_LANG=""
+  if [ -f "$PLANE/topology.json" ]; then
+    # \x1f, not a tab: IFS whitespace collapses, so an empty hub would shift the language into HUB.
+    IFS=$'\x1f' read -r HUB HC_LANG <<<"$(jq -r '[(.hub // "" | tostring), (.language // "" | tostring)] | join("\u001f")' \
+      "$PLANE/topology.json" 2>/dev/null)" || :
   fi
+  [ -z "${CLAUDEHUT_HUB:-}" ] || HUB="$CLAUDEHUT_HUB"
   [ -n "$HUB" ] || HUB="$PLANE"
+  if [ "$HC_LANG" != vi ] && [ "$HC_LANG" != en ] && [ "$HUB" != "$PLANE" ]; then
+    # Same order and hub.json locations as scripts/index/memory.py resolve_language (04 AC14).
+    local hb="$HUB" hf
+    case "$hb" in /*) : ;; *) hb="$PROJECT_DIR/$hb" ;; esac
+    for hf in "$hb/.claude/claudehut/hub/hub.json" "$hb/hub.json"; do
+      [ -f "$hf" ] || continue
+      HC_LANG="$(jq -r '.language // empty | strings' "$hf" 2>/dev/null)" || HC_LANG=""
+      case "$HC_LANG" in vi|en) break ;; esac
+    done
+  fi
+  case "$HC_LANG" in vi|en) : ;; *) HC_LANG=en ;; esac
   HC_SID="$(jq -r '.session_id // empty' <<<"$HC_IN" 2>/dev/null)" || HC_SID=""
   hc_safe_id "$HC_SID" || HC_SID=""
   return 0
@@ -82,6 +97,60 @@ hc_active_task() {
   [ -n "$HC_TASK" ] || return 1
   HC_TASK_ID="$id"
   return 0
+}
+
+# A plane claudehut-init actually generated (not a bare .claude/claudehut/ some tool created). v0.11 planes
+# have no topology.json, so PROJECT.md is the marker.
+hc_plane_initialized() { [ -f "$PLANE/PROJECT.md" ]; }
+
+# HC_HEAD = the commit HEAD of repo $1 (default $PROJECT_DIR) names, in pure bash (05 §2: .git/HEAD → ref →
+# packed-refs, `gitdir:` followed for a worktree; no git spawn — the UserPromptSubmit fast path, 07 §7). The
+# argument is for M6, which checks each hub repo. Return 1 for no repo or an unborn branch.
+hc_head() {
+  HC_HEAD=""
+  local r="${1:-$PROJECT_DIR}" g h="" ref line cd_=""
+  g="$r/.git"
+  if [ -f "$g" ]; then   # worktree / submodule: ".git" is a file holding "gitdir: <path>"
+    IFS= read -r line < "$g" || [ -n "$line" ] || return 1
+    case "$line" in "gitdir: "*) g="${line#gitdir: }" ;; *) return 1 ;; esac
+    case "$g" in /*) : ;; *) g="$r/$g" ;; esac
+  fi
+  [ -f "$g/HEAD" ] || return 1
+  if [ -f "$g/commondir" ]; then   # refs and packed-refs live in the main repo's git dir
+    IFS= read -r cd_ < "$g/commondir" || [ -n "$cd_" ] || cd_=""
+    case "$cd_" in ''|/*) : ;; *) cd_="$g/$cd_" ;; esac
+  fi
+  IFS= read -r h < "$g/HEAD" || [ -n "$h" ] || return 1
+  case "$h" in
+    "ref: "*)
+      ref="${h#ref: }"; h=""
+      local d
+      for d in "$g" ${cd_:+"$cd_"}; do
+        if [ -f "$d/$ref" ]; then
+          IFS= read -r h < "$d/$ref" || [ -n "$h" ] || h=""
+        elif [ -f "$d/packed-refs" ]; then
+          while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in *" $ref") h="${line%% *}"; break ;; esac
+          done < "$d/packed-refs"
+        fi
+        [ -z "$h" ] || break
+      done ;;
+  esac
+  case "$h" in ''|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#h}" -eq 40 ] || [ "${#h}" -eq 64 ] || return 1
+  HC_HEAD="$h"
+}
+
+# HC_INDEXED = index/meta.json .indexed_commit, read with a bash regex (no jq, no python). meta.json is
+# written after the data, so a missing or partial one means "no index yet", never a fresh one. Only the first
+# 1 KB is read: claudehut-index writes indexed_commit second and keeps the per-file map in index/files.json.
+hc_indexed_commit() {
+  HC_INDEXED=""
+  local m="$PLANE/index/meta.json" s=""
+  [ -f "$m" ] || return 1
+  IFS= read -r -d '' -n 1024 s < "$m" || :
+  [[ $s =~ \"indexed_commit\"[[:space:]]*:[[:space:]]*\"([0-9a-f]{7,64})\" ]] || return 1
+  HC_INDEXED="${BASH_REMATCH[1]}"
 }
 
 hc_canon() { # resolve . / .. / // without requiring the path to exist (targets are often new files)

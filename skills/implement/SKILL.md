@@ -73,7 +73,8 @@ The key rules it expands, summarised here so they still apply if the file is not
 
 - **Walk phases in ORDER; fan out within a phase.** One implementer per `[P]` task, all Agent calls in ONE
   message, max 3 concurrent. Never hand a whole plan to one implementer. Within a phase: ≤2 files and no
-  migration → inline; otherwise dispatch `claudehut:claudehut-implementer`.
+  migration → inline; otherwise dispatch `claudehut:claudehut-implementer`. Every implementer prompt carries the
+  session's language line (`Language: vi|en — …`) verbatim.
 - **Run `claudehut-worktree check-disjoint <plan.md>` first** and follow the per-phase batch schedule it
   prints — it is authoritative; do not re-derive batches by eye.
 - **`worktree.baseRef=head`** — worktrees fork from the current HEAD, so committed prior-phase code IS

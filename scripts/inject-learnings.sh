@@ -103,7 +103,10 @@ OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
     # promoted entries live in their rule file now (always-on at edit-time) — injecting them too would
     # double-pay the tokens. EXCEPTION (WS-6): a promoted rule with recurrence>0 keeps being violated, so the
     # always-on rule is NOT working — re-inject it (boosted in the score below) so the agent sees it again.
-    | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))))
+    # D5: an entry with an empty body (v0.11 `text`-keyed candidates) is noise in the block — skip it until
+    # merge-learnings repairs the store.
+    | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))
+                 and (((.learning // "") | tostring | length) > 0)))
     | map(select((.id // "") as $i | ($exids | index($i)) == null))
     # score only what survived the filters (the per-entry date parse + exp is the costly part of the pass)
     | map(

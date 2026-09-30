@@ -1,0 +1,8 @@
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/shop
+shop:
+  inventory:
+    base-url: ${INVENTORY_SERVICE_URL:http://inventory:8080}
+  kafka:
+    created-topic: orders.created.v1

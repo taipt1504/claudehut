@@ -71,8 +71,8 @@ include production code (`src/main/**`).
   reviewer + security). Also ask for a CRITICAL `pre-existing` finding (fix in this task or record
   separately) and for an `uncovered` file that an external plugin could review at real cost.
 - Dispatch every selected lane in ONE message by qualified type (`claudehut:<agent>`), no `model` parameter.
-  The prompt is the pack path and `depth: standard|deep` (the lane's `depth` in `lanes.json`: deep when it carries
-  an enforcement item or security touches auth). Do not paste the diff; the pack holds it.
+  The prompt is the pack path, `depth: standard|deep` (deep when the lane carries an enforcement item or
+  security touches auth) and the session's language line verbatim. Do not paste the diff; the pack holds it.
 - **One test source per route:** full → the test lane (`claudehut-test-runner`), and the reviewer prompt adds
   "Do not run build/test". Light → no test-runner; the reviewer runs the pack's `## Test command`.
 - **External lane (opt-in):** only for `uncovered` files or on user request, dispatch another plugin's

@@ -6,18 +6,16 @@ allowed-tools: Read Grep Glob Bash Agent
 
 # Discover (phase 1 of 7)
 
-Ground the task in **this codebase** and settle the reuse question before any ideation. This phase was split
-out of Brainstorm: exploration + reuse-scan are *discovery*, not *ideation* —
-folding them into Brainstorm over-fit it and killed creative breadth. Discover does the grounding; Brainstorm
-(phase 2) then ideates freely on top of it. Runs **inline on the main thread** (it owns the state write; a
-forked subagent cannot write state or ask the user).
+Ground the task in **this codebase** and settle the reuse question before any ideation; Brainstorm (phase 2)
+then ideates on top of it. Runs **inline on the main thread** (it owns the state write; a forked subagent
+cannot write state or ask the user).
 
 ## Why the scan comes first
 
 On the `light` and `full` routes, the reuse question is settled before a new class, service, utility,
 config or endpoint is built. `set-reuse-scan` records it (`reuse_scan=true`) and Review checks it. No hook
 denies a write (the hooks are advisory). A `direct`-route request runs no Discover: it looks things up
-(project index or hub, the understand-anything graph, targeted Grep) and moves on.
+(`claudehut-index brief`/`find`, the understand-anything graph, then targeted Grep) and writes no file.
 
 ## The decision ladder (what the scan decides)
 
@@ -42,10 +40,11 @@ observability are required no matter how lazy the build. Minimalism cuts complex
 ```mermaid
 flowchart TB
     start([Discover phase]) --> ph["set-phase discover<br/>(task dir = the one start printed)"]
-    ph --> rt{"which route?<br/>(recorded as route light/full)"}
-    rt -- "light" --> inl["INLINE scan — targeted Greps<br/>(no subagent dispatch floor)"]
-    rt -- "full" --> fan["dispatch explorer + reuse-scanner<br/>in ONE message (concurrent, both run)"]
-    fan --> join["reuse-scan.md returned;<br/>write context.md from the explorer map"]
+    ph --> br["claudehut-index brief once<br/>(index-first: before any Grep)"]
+    br --> rt{"which route?<br/>(recorded as route light/full)"}
+    rt -- "light" --> inl["INLINE scan — brief, then Grep<br/>only what it lacks"]
+    rt -- "full" --> fan["context.md Index brief; dispatch explorer +<br/>reuse-scanner in ONE message, brief pasted"]
+    fan --> join["reuse-scan.md returned;<br/>append the explorer map to context.md"]
     inl --> wr["write reuse-scan.md (Summary table + DECISION)"]
     join --> grd{"artifact on disk AND<br/>every built dimension carries a DECISION?"}
     wr --> grd
@@ -66,39 +65,37 @@ flowchart TB
    --session ${CLAUDE_SESSION_ID} resume <id>` instead. Record:
    `claudehut-state --session ${CLAUDE_SESSION_ID} set-phase discover`.
 
+   **Index first.** Run the brief once, by the absolute CLI path on the SessionStart `Index:` line (no such
+   line → no index; skip to Grep): `<cli> brief "<task words>" --budget 3000 --task <id>`. It ranks the
+   components, contracts and file:line the task touches; `<cli> find <term> [--kind K]` fills a gap. Grep
+   only for what the index lacks. A `stale` banner means: confirm each cited path before relying on it.
+
 2. **Route branch — how the scan runs depends on the route you chose** (recorded as route `light` or
    `full`; the diagram's `rt` diamond):
 
-   **`light` route → INLINE DISCOVER (no subagents).** A light task does not justify the ~26s
-   2-subagent dispatch floor (measured). The main thread does the scan itself (≤3 targeted Grep
-   calls — the class, its annotations/signature shape, the config prefix), writes
+   **`light` route → INLINE DISCOVER (no subagents)** — a light task does not justify the 2-subagent
+   dispatch floor. The main thread scans from the brief plus ≤3 targeted Grep calls for what it lacks, writes
    `tasks/NNNN-<slug>/reuse-scan.md` following the Summary-table format of `references/reuse-scan-template.md`,
    then writes `task.md` from `${CLAUDE_PLUGIN_ROOT}/skills/write-plan/references/task-template.md`, records it (`claudehut-state --session ${CLAUDE_SESSION_ID} set-plan <task.md>`), then `claudehut:implement`.
    Inline replaces the *dispatch*, never the *scan* — Review still requires the file.
-   When the change spans several files, widen the sweep to ~5 Greps and keep the same artifact. If the scan
-   turns up a reusable asset that changes the shape of the work, or the task shows hidden complexity,
-   escalate: `set-route full`, tell the user in one line, and dispatch properly — inline is a cost decision,
-   not a licence to scan less.
+   Several files: widen to ~5 Greps, same artifact. If the scan turns up a reusable asset that changes the shape of the work, or the task shows hidden complexity,
+   escalate: `set-route full`, tell the user in one line, and dispatch properly — inline is a cost decision.
 
-   **`full` route → dispatch explorer + reuse-scanner together in ONE message** (two Agent tool
-   calls in a single response — the native concurrency mechanism; their inputs are independent), without
-   `name`. Both run even when the task "obviously" has nothing to reuse (a skipped scanner leaves Review no artifact):
-
-   | Rationalization | Reality |
-   |---|---|
-   | "New infra/feature — nothing to reuse here" | Filters, configs, interceptors, utils often exist. The scan proves it either way and Review requires the artifact. |
-   | "The explorer already looked around" | Exploration ≠ a reuse DECISION with an artifact. Both run. |
-   - `claudehut:claudehut-explorer` — loads the index (`PROJECT.md`, `architecture.md`, `reuse-index.json`),
-     maps the packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list. Read-only.
-     The main thread writes its map to `tasks/NNNN-<slug>/context.md` (`references/context-template.md`;
-     `## Index brief` is `n/a — index not built` until the project index exists).
-     When SessionStart printed an understand-anything graph line, put that path
-     (`${CLAUDE_PROJECT_DIR}/.understand-anything/knowledge-graph.json`) in the dispatch prompt.
+   **`full` route → dispatch explorer + reuse-scanner together in ONE message** (two Agent calls in one
+   response run concurrently), without `name`. Both run even when the task "obviously" has nothing to reuse: filters, configs and utils often
+   exist, and exploration is not a reuse DECISION with an artifact. First write `tasks/NNNN-<slug>/context.md`
+   (`references/context-template.md`) with the brief output as `## Index brief`. Every dispatch prompt carries
+   the brief, the absolute CLI path, the SessionStart language line verbatim, and, when SessionStart printed an
+   understand-anything graph line, `${CLAUDE_PROJECT_DIR}/.understand-anything/knowledge-graph.json`.
+   - `claudehut:claudehut-explorer` — starts from the pasted brief, runs `find`/`svc` before Grep, maps the
+     packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list and `index_miss:`
+     lines. Read-only. The main thread appends its map to `context.md` as `## Explorer map`.
    - `claudehut:claudehut-reuse-scanner` — writes
-     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (canonical path — claudehut-state
-     accepts it only under `.claude/claudehut/`) **in the summary-first format of
+     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (claudehut-state accepts it
+     only under `.claude/claudehut/`) **in the summary-first format of
      `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/reuse-scan-template.md` — name this template path in
-     the dispatch prompt**. It **returns the path — it does not write state** (no Bash).
+     the dispatch prompt**. It has no Bash: paste the brief and any `find` output it needs. It **returns the
+     path — it does not write state**.
 
 3. **Main thread records the artifact** (this flips `reuse_scan=true`, Implement's first precondition):
 

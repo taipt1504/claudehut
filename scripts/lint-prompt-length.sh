@@ -20,8 +20,10 @@
 #       and .plugin-version stamp are pre-created (no claudehut-init / --refresh-rules), federation/debug env
 #       unset. `claude` is a PATH stub that leaves a marker: any spawn of it from a hook fails the run.
 #       Always-gated fixtures: "empty" (bare plane) and "worst" (built here: synthetic learnings.jsonl,
-#       .summer-kb-meta.json, .understand-anything/knowledge-graph.json and an open full task — every optional
-#       SessionStart line). Each must carry the "Session id:" line; "worst" must carry all its branch lines.
+#       .summer-kb-meta.json, .understand-anything/knowledge-graph.json, an open full task, topology.json
+#       language vi and a stale index — every optional SessionStart line). Each must carry the "Session id:"
+#       line and exactly one language line (<=120 B); "worst" must carry all its branch lines and an index
+#       card <=500 B; "empty" (no index) must carry no card.
 #       Optional extra "realistic": read-only COPY of learnings.jsonl + .summer-kb-meta.json from
 #       CLAUDEHUT_PAYLOAD_SOURCE (default ewallet-workspace/va-ms; skipped if absent).
 #   lint-prompt-length.sh --payload-transcripts [--json]
@@ -184,12 +186,25 @@ payload_worst_fixture() {
   printf '{"nodes":[],"edges":[]}\n' > "$p/.understand-anything/knowledge-graph.json"
   CLAUDE_PROJECT_DIR="$p" "$ROOT/bin/claudehut-state" --session "$PAYLOAD_SID" \
     start --route full --profile feature --slug dynamic-va-view-display-name-filter >/dev/null 2>&1
+  # The longest language line (vi) and the longest index card (stale: HEAD one commit past indexed_commit).
+  # The index-head claim is pre-made so inject-phase states nothing new and spawns no background update
+  # into a fixture that is deleted right after.
+  jq -n '{schema:1, mode:"mono", service:"fixture", hub:null, language:"vi", shared:false, git_hooks:false}' \
+    > "$p/.claude/claudehut/topology.json"
+  local g=(git -C "$p" -c user.name=fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false)
+  "${g[@]}" init -q 2>/dev/null && "${g[@]}" commit -q --allow-empty -m one 2>/dev/null || return 0
+  local c1; c1="$("${g[@]}" rev-parse HEAD 2>/dev/null)"
+  "${g[@]}" commit -q --allow-empty -m two 2>/dev/null
+  mkdir -p "$p/.claude/claudehut/index"
+  jq -n --arg c "$c1" '{schema:1, indexed_commit:$c, indexed_at:"2026-10-01T00:00:00Z", tool_version:"fixture",
+    counts:{total:1234, controller:40, service:120}}' > "$p/.claude/claudehut/index/meta.json"
+  : > "$p/.claude/claudehut/state/index-head.$("${g[@]}" rev-parse HEAD 2>/dev/null)"
 }
 
 # $1 = fixture project dir, $2 = stub bin dir, $3 = script, stdin = hook payload. Prints the hook's stdout.
 payload_run() {
   env -u CLAUDEHUT_FEDERATION_ROOT -u CLAUDEHUT_DEBUG_PAYLOAD \
-    PATH="$2:$PATH" CLAUDE_PROJECT_DIR="$1" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/$3" 2>/dev/null
+    PATH="$2:$PATH" CLAUDE_PROJECT_DIR="$1" CLAUDE_PLUGIN_ROOT="${PAYLOAD_PLUGIN_ROOT:-$ROOT}" bash "$ROOT/scripts/$3" 2>/dev/null
 }
 
 # $1 = fixture project dir, $2 = stub bin dir, $3 = label. Prints one JSON object.
@@ -199,9 +214,16 @@ payload_measure() {
         | payload_run "$p" "$b" bootstrap.sh)"
   ss="$(printf '%s' "$sso" | ctx_bytes)"
   # Which optional SessionStart lines the context carries (the worst fixture must carry all of them).
+  # language: exactly one line of the ADR-R7 form. index: the card (07 §7); card and language line bytes are
+  # reported separately against their own caps (04 §7: card <=500 B, language line <=120 B).
   lines="$(printf '%s' "$sso" | jq -c --arg sid "$PAYLOAD_SID" '(.hookSpecificOutput.additionalContext // "") as $c
+    | ($c | split("\n")) as $ls
     | {session_id:($c|contains("Session id: "+$sid)), task:($c|contains("Task đang mở")), learnings:($c|contains("Learnings: ")),
-       graph:($c|contains("understand-anything graph")), summer_kb:($c|contains("Summer Framework KB"))}' 2>/dev/null)"
+       graph:($c|contains("understand-anything graph")), summer_kb:($c|contains("Summer Framework KB")),
+       language:([$ls[] | select(test("^(Ngôn ngữ|Language): (vi|en) — "))] | length == 1),
+       index:([$ls[] | select(startswith("Index: "))] | length == 1),
+       language_bytes:([$ls[] | select(test("^(Ngôn ngữ|Language): (vi|en) — ")) | utf8bytelength] | max // 0),
+       index_card_bytes:([$ls[] | select(startswith("Index: ")) | utf8bytelength] | add // 0)}' 2>/dev/null)"
   [ -n "$lines" ] || lines='{}'
   local up; up="$(jq -nc --arg s "$PAYLOAD_SID" --arg q "$PAYLOAD_PROMPT" '{session_id:$s,prompt:$q,hook_event_name:"UserPromptSubmit"}')"
   u1="$(printf '%s' "$up" | payload_run "$p" "$b" inject-phase.sh | ctx_bytes)"   # first prompt: full phase block
@@ -223,7 +245,10 @@ run_payload() { # [$1 = --json]
   local PAYLOAD_SOURCE="${CLAUDEHUT_PAYLOAD_SOURCE:-$DEFAULT_PAYLOAD_SOURCE}"
   dbytes="$(wc -c <"$digest" 2>/dev/null | tr -d ' ')"
   payload_fixture "$t/empty"; rows="$(payload_measure "$t/empty" "$t/bin" empty)"
-  payload_worst_fixture "$t/worst"; rows="$rows"$'\n'"$(payload_measure "$t/worst" "$t/bin" worst)"
+  # Worst case also takes a long plugin root (a ~120-char symlink, like a deep plugin cache path): the card and
+  # the State CLI line must not grow past their caps with the install path.
+  local lr="$t/plugin-cache-$(printf 'x%.0s' $(seq 1 60))/claudehut/0.12.0"; mkdir -p "${lr%/*}"; ln -s "$ROOT" "$lr"
+  payload_worst_fixture "$t/worst"; rows="$rows"$'\n'"$(PAYLOAD_PLUGIN_ROOT="$lr" payload_measure "$t/worst" "$t/bin" worst)"
   if [ -d "$PAYLOAD_SOURCE/.claude/claudehut" ]; then
     payload_fixture "$t/realistic" "$PAYLOAD_SOURCE"
     rows="$rows"$'\n'"$(payload_measure "$t/realistic" "$t/bin" "realistic:$(basename "$PAYLOAD_SOURCE")")"
@@ -239,15 +264,21 @@ run_payload() { # [$1 = --json]
        | "\(.fixture): SessionStart \(.session_start_bytes) B > \($sm) B"),
       (if .claude_spawned then "a hook spawned `claude` (the plugin-list probe must stay out of SessionStart)" else empty end),
       (.fixtures[] | select(.session_start_lines.session_id != true) | "\(.fixture): SessionStart lacks the Session id line"),
-      (.fixtures[] | select(.fixture == "worst") | .session_start_lines | to_entries[] | select(.value != true)
+      (.fixtures[] | select(.session_start_lines.language != true) | "\(.fixture): SessionStart lacks exactly one language line"),
+      (.fixtures[] | select((.session_start_lines.index_card_bytes // 0) > 500)
+       | "\(.fixture): index card \(.session_start_lines.index_card_bytes) B > 500 B"),
+      (.fixtures[] | select((.session_start_lines.language_bytes // 0) > 120)
+       | "\(.fixture): language line \(.session_start_lines.language_bytes) B > 120 B"),
+      (.fixtures[] | select(.fixture == "empty" and .session_start_lines.index == true) | "empty: an index card without an index"),
+      (.fixtures[] | select(.fixture == "worst") | .session_start_lines | to_entries[] | select(.value == false)
        | "worst: SessionStart lacks its \(.key) line (fixture degraded)")] | .[]' <<<"$out")" \
     || over="budget check could not parse the measurement"
   if [ "${1:-}" = "--json" ]; then printf '%s\n' "$out"; [ -z "$over" ]; return; fi
   echo "== hook payload (UTF-8 bytes of additionalContext, plugin $(jq -r .plugin_version <<<"$out")) =="
   echo "  digest.md: $(jq -r .digest_bytes <<<"$out") B (budget $DIGEST_MAX B)"
-  jq -r '.fixtures[] | "  \(.fixture): SessionStart \(.session_start_bytes) B · UserPromptSubmit first \(.user_prompt_submit_first_bytes) B / repeat \(.user_prompt_submit_repeat_bytes) B / machine turn \(.user_prompt_submit_machine_turn_bytes) B (learnings=\(.learnings_entries), summer_kb=\(.summer_kb))"' <<<"$out"
+  jq -r '.fixtures[] | "  \(.fixture): SessionStart \(.session_start_bytes) B (index card \(.session_start_lines.index_card_bytes // 0) B, language line \(.session_start_lines.language_bytes // 0) B) · UserPromptSubmit first \(.user_prompt_submit_first_bytes) B / repeat \(.user_prompt_submit_repeat_bytes) B / machine turn \(.user_prompt_submit_machine_turn_bytes) B (learnings=\(.learnings_entries), summer_kb=\(.summer_kb))"' <<<"$out"
   if [ -n "$over" ]; then while IFS= read -r l; do echo "  FAIL - $l"; done <<<"$over"; return 1; fi
-  echo "  ok - digest <= $DIGEST_MAX B and SessionStart <= $SESSION_START_MAX B on every fixture (worst carries every optional line; Session id present; no claude spawn)"
+  echo "  ok - digest <= $DIGEST_MAX B and SessionStart <= $SESSION_START_MAX B on every fixture (worst carries every optional line; Session id and one language line present; index card <= 500 B; no claude spawn)"
 }
 
 run_payload_transcripts() { # [$1 = --json]
