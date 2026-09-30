@@ -174,13 +174,13 @@ Code's `disableAllHooks` setting.
 
 ## Components
 
-- **Agents** (`agents/`) — 14 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
+- **Agents** (`agents/`) — 12 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
   `claudehut-reuse-scanner`, `claudehut-planner`, `claudehut-plan-reviewer`, `claudehut-implementer`,
-  `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`,
-  `claudehut-db-reviewer`, `claudehut-observability-reviewer`, `claudehut-contract-reviewer`,
-  `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
+  `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-db-reviewer`
+  (incl. perf), `claudehut-contract-reviewer` (incl. observability), `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
   via `worktree.baseRef=head`, which `claudehut-init` sets — so a later phase's implementer sees the
-  committed work of earlier phases); the reviewers are dispatched by `review`.
+  committed work of earlier phases); the reviewers are dispatched by `review`, one lane per
+  SHA-pinned pack that `scripts/review-pack.sh` builds from the diff (v0.12).
 - **Skills** (`skills/`) — 9 total: orchestrator (`claudehut-workflow`, with the Phase-0 complexity triage) +
   indexer (`claudehut-init`) + one per phase (`discover`, `brainstorm`, `write-spec`, `write-plan`,
   `implement`, `review`, `capture-learnings`). The `implement` skill carries the TDD Iron Law and the
@@ -444,10 +444,10 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 942 assertions, all green on the release commit
-evals/conformance.sh              # 290  structural + behavioural wiring checks
-evals/hook-tests.sh               # 357  advisory hook contract, fault injection, replays, state schema 2,
-                                  #       then evals/regress/{state,script,doclint}-tests.sh (--fast: the first part only)
+# deterministic (free, no Claude needed) — 1239 assertions, all green on the release commit
+evals/conformance.sh              # 293  structural + behavioural wiring checks
+evals/hook-tests.sh               # 651  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script,doclint,review-pack}-tests.sh (--fast: the first part only)
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    #  56  learnings merge, prune, injection, federation

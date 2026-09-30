@@ -30,7 +30,7 @@ flowchart TB
   big -- không --> sel["main chấp nhận/override lane<br/>1 dòng lý do mỗi thay đổi"]
   ask --> sel
   sel --> fan["1 message: dispatch song song các lane<br/>prompt = đường dẫn pack + depth"]
-  fan --> esc{"reviewer trả escalate<br/>cho lane chưa chạy?"}
+  fan --> esc{"reviewer trả escalate<br/>cho lane chưa chạy / chạy một phần?"}
   esc -- có --> add["dispatch đúng lane đó, 1 lần"] --> ded
   esc -- không --> ded["dedup: file, ±3 dòng, lớp lỗi"]
   ded --> ver["main mở file:line mỗi CRITICAL/HIGH<br/>chạy truy vấn đọc cho Suspected nếu có MCP"]
@@ -60,14 +60,20 @@ Mọi route: lane chuyên biệt chỉ bật khi có tín hiệu; không lane n�
 
 Grep trên đường dẫn và dòng `+`/`-` của hunk, không grep toàn file; `Mono`/`Flux` đơn thuần không còn là tín hiệu (E1). Mỗi lane mang `reasons[]`, ví dụ `hunk:@KafkaListener OrderConsumer.java`.
 
-| Lane → agent | Path | Hunk (+/-) | Prefix enforcement |
+| Lane → agent | Path | Hunk (+/-) | Prefix enforcement (gợi ý + định tuyến, không bật lane) |
 |---|---|---|---|
 | security → `security-auditor` | `security/**`, `auth/**`, `*SecurityConfig*`, `*Filter.java` | `@PreAuthorize`, `@Secured`, `SecurityFilterChain`, `permitAll`, `JwtDecoder`, `PasswordEncoder`, `activateDefaultTyping`, secret trong `application*.yml` | `security/*` |
 | db → `db-reviewer` | `db/migration/**`, `*.sql`, `*Repository` | `@Entity`, `@Table`, `@Query`, `DatabaseClient`, `JdbcTemplate`, `@Transactional`, `TransactionalOperator`, `@Cacheable`, `.block(`, `Thread.sleep` | `performance/*`, `framework/{jpa,r2dbc,flyway,migration,lombok-jpa}` |
-| contract → `contract-reviewer` | `*.avsc`, `*.proto`, `openapi*`, `asyncapi*` | `@KafkaListener`, `KafkaTemplate`, `@RabbitListener`, `@*Mapping`, `WebClient`, `RestClient`, `@FeignClient`, `@Scheduled`, `MeterRegistry`, `@Timed`, `@Observed` | `framework/contract*`, `framework/kafka*`, `observability/*`, `coding/logging-mdc` |
+| contract → `contract-reviewer` | `*.avsc`, `*.proto`, `openapi*`, `asyncapi*`; dưới `src/main`: `*/kafka/*Config*.java`, `*ConsumerConfig*.java`, `*ProducerConfig*.java`, `*KafkaConfig*.java` | `@KafkaListener`, `KafkaTemplate`, `@RabbitListener`, `@*Mapping`, `WebClient`, `RestClient`, `@FeignClient`, `@Scheduled`, `MeterRegistry`, `@Timed`, `@Observed` | `framework/contract*`, `framework/kafka*`, `observability/*`, `coding/logging-mdc` |
 | `uncovered` | ngoài Java/Kotlin/SQL/YAML/properties/schema/build | — | — |
 
 `uncovered` không tự bật lane; main cân nhắc lane ngoài (mục 8).
+
+Đã chốt (2026-10-01, user quyết định, phương án (a)): prefix enforcement chỉ định tuyến item vào pack của lane và hiện trong `hints` của `lanes.json`; không tự bật lane. Lane chuyên biệt chỉ bật theo path/hunk. Item của lane không chạy vào `## Enforcement` của reviewer kèm nhãn `escalate: <lane>`. Lý do: replay M4 đầu tiên cho thấy enforcement set (11–31 item cả task) đẩy core-ledger 0007 (9 file/158 dòng) từ 3 lên 5 lane; bộ rule của task không nói gì về diff này. Kèm theo: đo lại trên mẫu phân tầng ~20 task (nhỏ/vừa/lớn), mục tiêu fan-out tính trên mọi đợt (§9). Số đo ở [10-rollout-eval.md](10-rollout-eval.md) hàng M4.
+
+Tín hiệu `kafka-config` — Đã chốt (2026-10-01, main session): cấu hình consumer/producer Kafka bật lane contract theo path. Lý do: PO 0004 CON-9 (CRITICAL) đổi topic/group chỉ qua `kafka/config/*ConsumerConfig.java`, không có `@KafkaListener`/`KafkaTemplate` trong hunk, nên bị bỏ lỡ.
+
+Lane chạy một phần — Đã chốt (2026-10-01, main session): hướng (a). Lane bật theo tín hiệu chỉ nhận file có tín hiệu; file nguồn còn lại của diff nằm trong `partial:[{lane, uncovered:[files]}]` của `lanes.json`, và `## Escalate` của pack reviewer có dòng "Lanes run on a subset" in vế ngắn hơn: ≤20 file không phủ → `- <lane> not covered: …`; nếu không, ≤20 file đã phủ → `- <lane> covered only: …; every other file in this diff is uncovered for <lane>`; cả hai >20 → 20 file không phủ (`src/main` trước) + `(+N more — see lanes.json partial)`. Reviewer escalate lớp của lane đó trên các file này; main dispatch lane một lần như với lane không chạy. Lý do: giữ chi phí, khôi phục đường escalate, không phình pack. Lane mang sang round 2 hoặc bật qua `--only` mà không có tín hiệu nhận mọi file, nên không partial.
 
 Câu hỏi 4 — Đã chốt (2026-09-29): chỉ bật security lane khi hunk chạm auth/filter/secret/deserialization, không bật chỉ vì có `@*Mapping` ([10-rollout-eval.md](10-rollout-eval.md#7-câu-hỏi-mở)). `@*Mapping` vẫn bật lane contract.
 
@@ -90,27 +96,29 @@ review-pack.sh [--session SID] [--base TREE-ISH] [--round N] [--carry-lanes a,b]
 | BASE | `--base`; nếu không: có active_task thì `task.base[repo]` và loại `pre_dirty[repo]`, ngoài workflow thì chuỗi merge-base `@{u}` → `origin/HEAD` → `origin/main` → `HEAD~1` ([03-architecture.md](03-architecture.md)) |
 | FILES | `git diff --name-only BASE` ∪ untracked chỉ khi khớp `**/src/**`, `*.gradle*`, `pom.xml`, `*.avsc`, `*.proto`, `openapi*`; loại `.claude/**`, `docs/**`, `**/build/**`, `**/target/**`, lockfile, generated. Thay `git status --porcelain` ở `skills/review/SKILL.md:58`, cùng lớp lỗi E2 |
 | Snapshot | index tạm: `read-tree HEAD` → `add -A -- FILES` → `write-tree` = `reviewed_tree`; lỗi submodule/LFS → `reviewed_tree=HEAD`, `degraded:true` |
-| Tín hiệu | bảng 3.2; enforcement = `jq '.enforcement_set[]?'` trên `task.json` |
+| Tín hiệu | bảng 3.2 (path/hunk); enforcement = `jq '.enforcement_set[]?'` trên `task.json`, chỉ định tuyến item + `hints` |
 | `--only` | chỉ thu hẹp; alias `perf`→db, `observability`→contract |
-| Pack | `state/<SID>.review-pack.r<N>.<lane>.md` (gitignored, tự dọn sau 7 ngày) |
+| Pack | `state/<SID>.review-pack.r<N>.<lane>.md` (gitignored, tự dọn sau 7 ngày). **Trạng thái M4 (2026-09-30):** bản cài đặt theo shared contract: `<plane>/tasks/<id>/review/r<N>.<lane>.md` + `lanes.r<N>.json`/`lanes.json` (thư mục tự ghi `.gitignore` `*`; không có task → thư mục tạm), không có sweep 7 ngày; CLI là superset (thêm `--json`, `--prev`, `--route`, `--task`, `--head`) |
 | Stdout | một dòng JSON, luôn exit 0; thiếu `jq`/state → `lanes=[reviewer]`, `degraded:true` |
 
 ```json
 {"round":1,"lanes":[{"name":"db","reasons":["path:db/migration/V21__x.sql"],"pack":"state/<SID>.review-pack.r1.db.md"}],
- "skipped":[{"name":"security","why":"không có tín hiệu"}],"uncovered":[],"large":false,"degraded":false}
+ "skipped":[{"name":"security","why":"không có tín hiệu"}],"partial":[{"lane":"db","uncovered":["src/main/java/x/OrderService.java"]}],
+ "uncovered":[],"large":false,"degraded":false}
 ```
 
 | Mục trong pack | Lane |
 |---|---|
 | Header YAML: `base_sha`, `head_sha`, `reviewed_tree`, `round`, `route`, `lane`, `reasons`, `files` | mọi lane |
 | `## Rigor`, `## Known pitfalls` (`inject-learnings.sh --filter <files lane> --top 8 --max-len 200`, [07-index-memory.md](07-index-memory.md)) | mọi lane |
-| `## Enforcement` | item có prefix thuộc lane; item không khớp prefix nào vào reviewer |
+| `## Enforcement` | item có prefix thuộc lane; item không khớp prefix nào, hoặc thuộc lane không chạy (kèm `escalate: <lane>`), vào reviewer |
 | `## Vocabulary`, `## Reuse suspects` | reviewer |
+| `## Escalate`: "Lanes not run this round" + "Lanes run on a subset" (vế ngắn hơn: `not covered: …` hoặc `covered only: …`, §3.2) | reviewer |
 | `## Summer KB` | khi diff chạm `io.f8a.summer`/`summer.*` |
-| `## Test command` | test-runner; reviewer ở route light |
+| `## Test command` | test-runner; reviewer ở route light (route full: reviewer nhận `## Tests (not yours)`) |
 | `## Diff` | chỉ file của lane; bỏ nhị phân/generated, hunk chỉ-xóa rút thành tên ([pr-agent](https://github.com/The-PR-Agent/pr-agent/blob/main/docs/docs/core-abilities/compression_strategy.md)) |
 
-Trần 1500 dòng mỗi pack vì Read mặc định trả 2000 dòng và tool response bị cap khoảng 25k token ([writing-tools-for-agents](https://www.anthropic.com/engineering/writing-tools-for-agents)); phần vượt chỉ liệt kê tên file, auditor tự `git diff <base> -- <file>`. Prompt dispatch chỉ gồm đường dẫn pack và `depth: standard|deep` (deep khi lane có lý do `enf:` hoặc security chạm auth). Không paste diff, không inject qua SubagentStart (ADR-V2).
+Trần 1500 dòng mỗi pack vì Read mặc định trả 2000 dòng và tool response bị cap khoảng 25k token ([writing-tools-for-agents](https://www.anthropic.com/engineering/writing-tools-for-agents)); phần vượt chỉ liệt kê tên file, auditor tự `git diff <base_sha> <reviewed_tree> -- <file>` (ghim SHA; file untracked chỉ có trong `reviewed_tree`). Prompt dispatch chỉ gồm đường dẫn pack và `depth: standard|deep` (deep khi lane được chọn mang ≥1 item enforcement hoặc security chạm auth). Không paste diff, không inject qua SubagentStart (ADR-V2).
 
 ## 5. Roster 7→5
 
@@ -141,7 +149,7 @@ Thứ tự: `Findings` → `Suspected` → `Coverage` → `escalate` → `Verdic
 | Findings | chỉ ✗: severity, `file:line`, trích, lý do. "If you are not certain an issue is real, do not flag it" ([code-review plugin](https://github.com/anthropics/claude-code/blob/main/plugins/code-review/commands/code-review.md)). Tối đa 5 LOW, còn lại chỉ đếm ([code-review](https://code.claude.com/docs/en/code-review)) |
 | Suspected | ≤3 mục, mỗi mục một bước kiểm cụ thể (câu SQL đọc, lệnh đọc) |
 | Coverage | một hàng cho mỗi item enforcement trong pack, không n-a cho item ngoài lane (E3); mỗi ✓ có locus. Reviewer luôn thêm 5 hàng floor (Correctness, Conventions, Duplication, Dead code, Minimalism) và là người duy nhất viết Standards |
-| escalate | chỉ reviewer: `escalate: db — File.java:NN` thay vì review lấn lane |
+| escalate | chỉ reviewer: `escalate: db — File.java:NN` thay vì review lấn lane; cho lane không chạy, hoặc lane `partial` trên file nó không phủ |
 | Verdict | thiếu (ví dụ chạm maxTurns) → main ghi lane `incomplete`, không tự re-dispatch |
 
 Bỏ ngôn ngữ cưỡng chế MUST/ALWAYS ([claude-prompting-best-practices](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)). Chỉ bounce khi thiếu hàng cho item thuộc lane.
@@ -158,6 +166,7 @@ Mục: `Lanes` (đã chạy/đã bỏ, mỗi lane một lý do) · `Findings` (s
 | Verify | main mở `file:line` mỗi CRITICAL/HIGH ([code-review](https://code.claude.com/docs/en/code-review)) |
 | `pre-existing` | verdict, không phải bộ lọc: chỉ gắn khi lỗi cũng có ở base (`git show <base>:<path>`). Guard bị diff xóa hoặc nới (`@PreAuthorize`, filter chain) vẫn là finding. Không chặn; CRITICAL thì hỏi |
 | Dữ liệu sống | main chạy truy vấn chỉ đọc cho `Suspected` nếu session có MCP phù hợp; nếu không, ghi là suy luận (F-4) |
+| Escalate | dòng `escalate: <lane> — File:NN` cho lane không chạy, hoặc lane `partial` trên file trong `uncovered` → main dispatch lane đó một lần, trọng tâm là dòng escalate |
 | Tie-break | chỉ khi main không phân xử được: một `claudehut-reviewer` `mode: verify` cho mọi candidate một lần; TRUE/FALSE/PRE-EXISTING kèm `file:line`; tính vào cap round |
 | Round 2 (ADR-V8) | `--round 2 --base <reviewed_tree r1> --carry-lanes <lane còn ✗>`: lane = carry ∪ lane bật trên fix-diff (gồm untracked mới đã lọc); test-runner chạy lại nếu fix chạm source. Header pack là bản ghi bền, không thêm state (E8) |
 | Cap | round 3 → `set-review capped`; Stop hook đã bỏ ([05-hooks.md](05-hooks.md)) nên đây là giới hạn duy nhất |
@@ -180,7 +189,9 @@ Verify ở main, subagent chỉ để tie-break, vì hai tài liệu chính th�
 | M | S + 1–2 lane | ≤9M | ≤35k | ≤10 phút |
 | L | 4 lane | ≤15M | ≤60k | ≤14 phút |
 
-Lớp S suy từ reviewer đơn 0,3–3M (E2) và test-runner 518k / 1,7 phút (E9). Thêm: đợt ≥4 agent 54% → ≤25% (E1); output mỗi auditor 19–31k → ≤8k (E7); `git diff` toàn phạm vi do auditor chạy 119 → 0 (E4).
+Lớp S suy từ reviewer đơn 0,3–3M (E2) và test-runner 518k / 1,7 phút (E9). Thêm: đợt ≥4 agent 54% → ≤25% trên mọi đợt; diff lớn tuyến full được dùng ≥4 lane nhưng vẫn nằm trong mẫu số (E1; chốt 2026-10-01); output mỗi auditor 19–31k → ≤8k (E7); `git diff` toàn phạm vi do auditor chạy 119 → 0 (E4).
+
+Đo lại (2026-10-01, `evals/review-replay.sh`, 22 task phân tầng, chỉ round 1, chạy lại sau khi thêm tín hiệu `kafka-config`; lần đo đầu là 5 task khi enforcement còn bật lane, xem [10](10-rollout-eval.md) hàng M4): đợt ≥4 lane 10/22 (45,5%) ở v0.11 → 5/22 (22,7%) với selector. Con số 22,7% chính là tỉ lệ task lớn trong mẫu (tầng gán sau từ file/dòng của pack), vì mọi task lớn có ≥4 lane và mọi task nhỏ/vừa có <4; nó không chứng minh ≤25%. Chiếu lên khung 52 đợt (`review-replay.sh --frame`, mỗi đợt ghép với commit kế tiếp; proxy khớp 12/13 đợt đã biết task): đợt round 1 trên diff lớn 11/52 (21,2%; 12/52 = 23,1% khi sửa tay PO 0001) là cận dưới, mọi đợt trên diff lớn 17/52 (32,7%; 18/52 = 34,6%) là cận trên. Cận dưới cũng gần đúng (commit gộp nhiều task có thể giấu đợt round 1 của task khác), biên tới 25% chỉ một đợt, và round 2 trên diff lớn chưa đo. Chấp nhận có điều kiện (main session, 2026-10-01): ≤25% chưa chứng minh; dải chiếu 21–33% trên khung 52 đợt; đo lại trên đợt thật sau khi phát hành (M7 eval). Theo tầng: nhỏ 1/2 → 0/2 (n=2, 0 MED+: recall diff nhỏ chưa đo); vừa 5/15 → 0/15; lớn 4/5 → 5/5 (được phép). Tổng dispatch 81 → 67 (PO 0004 thêm lane contract), nhưng tuyến light tăng 2 → 5 vì reviewer luôn được dispatch, còn review main-thread của v0.11 không dispatch gì. Recall (sau hướng (a), replay gán nhóm theo file): 53/72 MED+ (73,6%; thông tin) nằm ở lane được chọn mà pack chứa file của finding (15) hoặc sàn reviewer (38); 19 cái chỉ có đường escalate: 4 ở lane không chạy, 15 ở lane chạy một phần (file ngoài pack). Con số giảm so với 86,1% (lần đo trước) và 94,4% (sau `kafka-config`) vì đổi cách đo từ theo lane sang theo file, không phải selector kém đi. File của finding lấy từ `file` (điền tay từ review.md, 13 finding, gồm CON-9 → `VaLedgerCommandConsumerConfig.java` thay vì `spec.md`), nếu không thì `locus`; 1 finding lane không có file (PACT, pre-existing toàn repo). Ở 0013, ba file bị escalate nằm sau vị trí 20 trong 143 file không phủ; dòng pack nay in `contract covered only: <5 file>`, nên reviewer vẫn biết chúng không được phủ (fixture `esc-rs0013-wide-diff`). "100% tính cả escalate" đúng theo cách dựng (mọi finding rơi vào một nhóm; sàn đúng theo định nghĩa), không phải phép đo; phần kiểm được là mỗi ca chỉ-escalate có fixture ghim lane bị bỏ qua hoặc chạy một phần và mục `## Escalate` của reviewer — 19/19 (trường `covers`, xem [10](10-rollout-eval.md) hàng M4).
 
 ## 10. Tiêu chí chấp nhận
 
@@ -190,12 +201,12 @@ Lớp S suy từ reviewer đơn 0,3–3M (E2) và test-runner 518k / 1,7 phút (
 | 2 | hunk chỉ thêm `Mono.just(...)` | db không bật |
 | 3 | `docs/*.md`, `sql/tmp.sql` untracked ngoài `src` | không vào FILES |
 | 4 | route full, security ✗ round 1; fix chỉ chạm service (commit / chưa commit / untracked mới trong `src`) | round 2 `lanes=[security,reviewer,test-runner]` |
-| 5 | ngay sau snapshot; diff 4000 dòng | `git diff <reviewed_tree>` rỗng; mọi pack ≤1500 dòng |
+| 5 | ngay sau snapshot; diff 4000 dòng | `git diff <reviewed_tree>` rỗng với path tracked không thuộc `pre_dirty`; file untracked trong FILES bằng nội dung trong cây (so qua index tạm có `add -N`); mọi pack ≤1500 dòng |
 | 6 | review.md route light, enforcement rỗng | `set-review pass` chấp nhận |
 | 7 | thiếu `jq`/state; `--only perf` | exit 0, `degraded:true`; lane db |
 | 8 | `conformance.sh` | 12 agent; 0 `ultrathink`, 0 "default ON"/"when in doubt", 0 `mcp__` trong agent review; mọi agent review có Bash, `effort`, `maxTurns` |
 | 9 | `ewallet-query-audit` | dispatch được db-reviewer, test-runner, không sửa |
-| 10 | replay ≥5 task (core-ledger 0007, va-ms 08-20, payment-orchestrator VA-payment) | đạt mục 9; 100% finding MED+ đã xác nhận xuất hiện lại; mỗi lần bỏ sót thành fixture |
+| 10 | replay mẫu phân tầng ~20 task (nhỏ/vừa/lớn, light và full, có và không có MED+; cách chọn ở header `evals/review-replay.sh`) | ≤25% mọi đợt ≥4 lane (diff lớn tuyến full được ≥4; chốt 2026-10-01); 100% finding MED+ đã xác nhận xuất hiện lại (lane, sàn reviewer hoặc escalate, báo riêng từng nhóm); mỗi ca chỉ-escalate thành fixture |
 | 11 | review.md mới; review ngoài workflow | có mục `Lanes`; ngoài workflow exit 0, không gọi `set-review` |
 | 12 | hunk chỉ thêm một method `@GetMapping`, không chạm auth/filter/secret/deserialization | contract bật; security nằm trong `skipped` |
 
@@ -204,3 +215,5 @@ Câu hỏi mở của vùng, đã chốt (2026-09-29) theo [10-rollout-eval.md](
 - Security cho mọi `@*Mapping` — Đã chốt (2026-09-29): không; chỉ bật khi hunk chạm auth/filter/secret/deserialization (§3.2).
 - Effort của reviewer — Đã chốt (2026-09-29): medium.
 - CRITICAL pre-existing có chặn không — Đã chốt (2026-09-29): không chặn; hỏi user (§3.3).
+- Tín hiệu contract cho `kafka/config/*ConsumerConfig.java` — Đã chốt (2026-10-01, main session): thêm path `kafka-config` (§3.2).
+- Lane chạy một phần — Đã chốt (2026-10-01, main session): hướng (a), `partial` + dòng "Lanes run on a subset" (§3.2).

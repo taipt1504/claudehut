@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: x
+partner:
+  client-secret: ${PARTNER_SECRET}
+  password: ${DB_PASSWORD:}
+  token-uri: ${TOKEN_URI:http://localhost}

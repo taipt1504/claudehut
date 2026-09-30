@@ -1,0 +1,3 @@
+{"desc":"new @KafkaListener consumer → contract","route":"full","mode":"commit",
+ "lanes":["reviewer","test","contract"],"skipped":["security","db"],
+ "reasons":{"contract":["hunk:@KafkaListener OrderConsumer.java"]}}

@@ -1,0 +1,2 @@
+{"desc":"AC12: one new @GetMapping method, no auth/filter/secret/deserialization → contract on, security skipped","route":"full","mode":"commit",
+ "lanes":["reviewer","test","contract"],"skipped":["security","db"],"reasons":{"contract":["hunk:@*Mapping OrderController.java"]}}

@@ -10,7 +10,8 @@
 #
 # Run: evals/hook-tests.sh --fast     contract + behavior only (deterministic, no Claude, no timing)
 #      evals/hook-tests.sh            --fast, then the regression suites evals/regress/state-tests.sh,
-#                                     script-tests.sh and doclint-tests.sh (their counts are added; a missing one fails)
+#                                     script-tests.sh, doclint-tests.sh and review-pack-tests.sh (mutants off; their
+#                                     counts are added; a missing one fails)
 # Latency (AC12) is NOT gated here: wall-clock time depends on the machine and its load. It is the benchmark
 # evals/hook-bench.sh (a report; HOOK_BENCH_STRICT=1 gates it).
 set -uo pipefail
@@ -995,10 +996,10 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
-    ro="$(EVAL_COUNT_DIR= bash "$f" 2>&1)"; rr=$?
+    ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
     # Echoed with "N passed" reworded, so this suite's own HOOK-TESTS line stays the only "N passed" on stdout
     # (reference-check.sh's standalone fallback reads the first one).
     printf '%s\n' "$ro" | sed -E 's/([0-9]+) passed/\1 ok/g'

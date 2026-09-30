@@ -1,0 +1,2 @@
+{"desc":"docs/ is dropped from FILES; a root README is uncovered; no source → no test-runner even on full","route":"full","mode":"commit",
+ "lanes":["reviewer"],"skipped":["test","security","db","contract"],"files":1,"uncovered":["README.md"]}

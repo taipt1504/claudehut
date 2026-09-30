@@ -38,7 +38,7 @@ flowchart TB
     step --> red["RED — smallest failing test for ONE behavior"]
     red --> rr{"fails for the RIGHT reason?<br/>(ran it; not a compile/typo error)"}
     rr -- "no" --> red
-    rr -- "yes" --> beat["DESIGN-BEAT (≤30s, ultrathink) — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
+    rr -- "yes" --> beat["DESIGN-BEAT (≤30s) — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
     beat --> green["GREEN — minimal code to pass<br/>(.claude/rules/ auto-load on edit; READ playbook on CREATE)"]
     green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
     ev -- "no" --> first{"production code written before its test?"}
@@ -87,7 +87,7 @@ The key rules it expands, summarised here so they still apply if the file is not
 
 ## The cycle
 
-The Flow diagram above is the cycle; the one beat that stops rote code is before GREEN — `ultrathink` the
+The Flow diagram above is the cycle; the one beat that stops rote code is before GREEN — think through the
 **design beat** (≤30s): (a) **reuse?** honor the plan's reuse anchor (§1 Approach), don't re-implement what the
 project or an installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
 abstraction nor the flimsier algorithm; (c) **don't duplicate** — repeating a sibling-file helper? extract ONE shared util. (For any NEW component, the design ladder is `references/minimalism.md`.)

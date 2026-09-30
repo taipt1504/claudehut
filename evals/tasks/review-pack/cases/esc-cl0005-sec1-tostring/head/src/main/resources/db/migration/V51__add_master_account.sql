@@ -1,0 +1,1 @@
+ALTER TABLE va_view ADD COLUMN extra_col VARCHAR(64);

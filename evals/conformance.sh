@@ -54,10 +54,10 @@ chain write-plan implement
 chain implement review
 chain review capture-learnings
 
-# C4 — exactly 14 agents, each with name + description
-# (v0.9 Rec 3 adds claudehut-observability-reviewer; Rec 2 adds claudehut-contract-reviewer)
+# C4 — exactly 12 agents, each with name + description
+# (v0.12 M4, 08 §5: review roster 7→5 — perf folded into db-reviewer, observability into contract-reviewer)
 AG=$(ls -1 "$ROOT"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AG" = "14" ] && ok "14 agents present" || bad "expected 14 agents, found $AG"
+[ "$AG" = "12" ] && ok "12 agents present" || bad "expected 12 agents, found $AG"
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q '^name:' && fm "$f" | grep -q -E '^description:'; then ok "agent frontmatter: $n"; else bad "agent frontmatter: $n"; fi
 done
@@ -65,13 +65,13 @@ done
 # C5 — implementer preloads [implement]; brainstorm+review dispatch existing agents
 fm "$ROOT/agents/claudehut-implementer.md" | grep -A2 '^skills:' | grep -q 'implement' \
   && ok "implementer preloads implement skill" || bad "implementer skills: [implement] missing"
-# REACH-02a — the loop named 10 of the 14 agents, so C4's `[ "$AG" = "14" ]` count was the ONLY cover for
-# the other four: rename claudehut-contract-reviewer.md and the count stays 14 and the suite stays green
+# REACH-02a — the loop named 10 of the agents, so C4's agent count was the ONLY cover for
+# the others: rename claudehut-contract-reviewer.md and the count stays the same and the suite stays green
 # while every dispatch site that names it breaks. Every agent is named here now, by hand, so a rename fails.
 for a in claudehut-explorer claudehut-reuse-scanner claudehut-brainstormer \
          claudehut-test-runner claudehut-reviewer claudehut-security-auditor \
-         claudehut-perf-reviewer claudehut-db-reviewer claudehut-planner claudehut-learner \
-         claudehut-contract-reviewer claudehut-observability-reviewer \
+         claudehut-db-reviewer claudehut-planner claudehut-learner \
+         claudehut-contract-reviewer \
          claudehut-implementer claudehut-plan-reviewer; do
   [ -f "$ROOT/agents/$a.md" ] && ok "agent exists: $a" || bad "agent missing: $a"
 done
@@ -426,28 +426,21 @@ for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
     bad "agent $n: mcp__mysql__list_tables/describe_table are MCP Resources not Tools — use mcp__mysql__mysql_query with SQL"
   else ok "agent $n: no bogus mysql resource-as-tool names"; fi
 done
-# TOOLS-02 narrowed this from one shared expectation to a per-agent one. Both agents must still be able to
-# reach Kafka at runtime, but not through the same tool: perf-reviewer's body genuinely does consumer-lag
-# work, while security-auditor's only Kafka procedure is topic ACLs and partition assignments — consumer
-# groups, lag and consume-messages appear nowhere in it. Pinning get-consumer-group-lag on the auditor forced
-# a grant no procedure called, alongside live message-payload read on an opus/xhigh agent. Same intent
-# ("Kafka review is not zero when connected"), asserted against the tool each agent actually names.
-for pair in "claudehut-perf-reviewer:mcp__kafka__get-consumer-group-lag" \
-            "claudehut-security-auditor:mcp__kafka__list-topics"; do
-  a="${pair%%:*}"; t="${pair#*:}"
-  fm "$ROOT/agents/$a.md" | grep -q "$t" \
-    && ok "$a: kafka tool allowlist present ($t)" \
-    || bad "$a: missing $t — Kafka review is zero at runtime when connected"
+# v0.12 M4 AC8 (08 §5, ADR-V4/V5, 03 §6): the review auditors carry no MCP tools (the main thread runs live
+# DB/broker checks from their Suspected rows), no ultrathink / "default ON" / "when in doubt", and each has
+# Bash, an effort and a maxTurns in its frontmatter. The retired TOOLS-02 kafka pair required the opposite.
+for a in claudehut-reviewer claudehut-test-runner claudehut-security-auditor claudehut-db-reviewer claudehut-contract-reviewer; do
+  f="$ROOT/agents/$a.md"
+  grep -q 'mcp__' "$f" && bad "AC8: $a names an mcp__ tool" || ok "AC8: $a names no mcp__ tool"
+  grep -qiE 'ultrathink|default ON|when in doubt' "$f" && bad "AC8: $a still says ultrathink/default ON/when in doubt" \
+    || ok "AC8: $a has no ultrathink/default ON/when in doubt"
+  { fm "$f" | grep -qE '^tools:.*Bash' && fm "$f" | grep -qE '^effort:' && fm "$f" | grep -qE '^maxTurns:'; } \
+    && ok "AC8: $a has Bash, effort and maxTurns" || bad "AC8: $a missing Bash/effort/maxTurns in frontmatter"
 done
-# No agent may declare a kafka tool the recommended server does not expose: describe-topic has no
-# self-managed equivalent (get-topic-config is Confluent Cloud only and returns config, not partition
-# layout), and get-partition-offsets appears in neither availability table.
-if grep -rq 'mcp__kafka__[a-z]*_' "$ROOT"/agents/*.md 2>/dev/null; then
-  bad "agent declares an underscored mcp__kafka__ tool — mcp-confluent tool names are hyphenated"
-else ok "kafka tool names are hyphenated (match mcp-confluent v1.5.0)"; fi
-if grep -rqE 'mcp__kafka__describe-topic|mcp__kafka__get-partition-offsets|mcp__postgres__query([^_-]|$)' "$ROOT"/agents/*.md 2>/dev/null; then
-  bad "agent declares an MCP tool the recommended server does not expose"
-else ok "no agent declares a nonexistent MCP tool"; fi
+for f in "$ROOT/skills/review/SKILL.md" "$ROOT/skills/review/references/review-rigor.md"; do
+  grep -qiE 'ultrathink|default ON|when in doubt' "$f" && bad "AC8: ${f#"$ROOT"/} still says ultrathink/default ON/when in doubt" \
+    || ok "AC8: ${f#"$ROOT"/} has no ultrathink/default ON/when in doubt"
+done
 # v0.12 B10: bootstrap is sync on the first answer, and `claude plugin list` cost 1-5 s per session. The
 # understand-anything fact is now the graph file itself. Matched on code lines only, not comments.
 grep -v '^[[:space:]]*#' "$ROOT/scripts/bootstrap.sh" | grep -q 'claude plugin list' \
@@ -727,14 +720,15 @@ fm "$RSC" | grep -q 'effort: high' \
   && ok "G3: reuse-scanner runs at effort:high (reuse is judgment, not grep)" \
   || bad "G3: reuse-scanner still at low/medium effort — too shallow for fit/impact judgment"
 
-# C15 — v0.7 Cognition (Issue 1): Implement reasons before coding (ultrathink + design beat: reuse?
-# simplest shape? don't duplicate?) instead of writing rote first-thing-that-compiles code.
-{ grep -qi 'ultrathink' "$IMP" && grep -qi 'design beat' "$IMP"; } \
-  && ok "G4: implement skill has the ultrathink design beat (reuse/simplest/don't-duplicate before GREEN)" \
-  || bad "G4: implement skill missing the design beat (Issue 1 — rote code risk)"
-{ grep -qi 'ultrathink' "$ROOT/agents/claudehut-implementer.md" && grep -qi 'design beat' "$ROOT/agents/claudehut-implementer.md"; } \
-  && ok "G5: implementer agent has the ultrathink design beat" \
-  || bad "G5: implementer agent missing the design beat"
+# C15 — v0.7 Cognition (Issue 1): Implement reasons before coding (design beat: reuse? simplest shape?
+# don't duplicate?) instead of writing rote first-thing-that-compiles code. v0.12 M4 (ADR-V4): the beat stays,
+# the `ultrathink` keyword goes.
+{ ! grep -qi 'ultrathink' "$IMP" && grep -qi 'design beat' "$IMP"; } \
+  && ok "G4: implement skill has the design beat (reuse/simplest/don't-duplicate before GREEN), no ultrathink" \
+  || bad "G4: implement skill missing the design beat, or still says ultrathink"
+{ ! grep -qi 'ultrathink' "$ROOT/agents/claudehut-implementer.md" && grep -qi 'design beat' "$ROOT/agents/claudehut-implementer.md"; } \
+  && ok "G5: implementer agent has the design beat, no ultrathink" \
+  || bad "G5: implementer agent missing the design beat, or still says ultrathink"
 
 # C16 — v0.7 Memory-Loop (Issue 7): measurable learning. Quality-gate + recurrence (effectiveness) in the
 # engine; a deterministic scoreboard script + an on-demand command surface the metrics.
@@ -1084,7 +1078,7 @@ echo "== v0.8 P2 WS-9 (concision) =="
   && ok "WS-9: shared rigor contract extracted to references/review-rigor.md (single source)" || bad "WS-9: review-rigor.md missing"
 # every code-review auditor body REFERENCES the contract instead of restating it
 ad_ok=true
-for a in claudehut-reviewer claudehut-security-auditor claudehut-perf-reviewer claudehut-db-reviewer; do
+for a in claudehut-reviewer claudehut-security-auditor claudehut-db-reviewer claudehut-contract-reviewer; do
   grep -qi 'rigor contract' "$ROOT/agents/$a.md" || ad_ok=false
 done
 $ad_ok && ok "WS-9: all 4 code-review auditors reference the rigor contract (not a 5th inlined copy)" || bad "WS-9: an auditor still inlines / does not reference the rigor contract"
@@ -1145,10 +1139,11 @@ BRS="$ROOT/skills/brainstorm/SKILL.md"; WPS="$ROOT/skills/write-plan/SKILL.md"; 
 grep -q 'no new dispatch' "$RVW" \
   && bad "DT-12: review step 2 still promises 'no new dispatch' while dispatching an escalated refute pass" \
   || ok "DT-12: review step 2 no longer contradicts its own escalation"
-{ grep -q 'Escalated refute pass' "$RVW" && grep -q 'auditors returned a CRITICAL' "$RVW" \
+# v0.12 M4 (ADR-V7): the escalated refute pass became the `mode: verify` tie-break; same two halves pinned.
+{ grep -q 'mode: verify' "$RVW" && grep -q 'only when you cannot decide' "$RVW" \
   && grep -q 'counts against the 2-round cap' "$RVW"; } \
-  && ok "DT-12: the escalated refute pass has a predicate and counts against the round cap" \
-  || bad "DT-12: the escalated refute dispatch has no selection criterion / sits outside the round cap"
+  && ok "DT-12: the mode: verify tie-break has a predicate and counts against the round cap" \
+  || bad "DT-12: the tie-break dispatch has no selection criterion / sits outside the round cap"
 
 # DT-10 — Review keyed only on tier + diff, so an audit/investigation paid a code-review fan-out over an
 # empty diff while gate-done.sh already knew the deliverable was findings.md. The profile is read from the

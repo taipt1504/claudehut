@@ -1,0 +1,3 @@
+{"desc":"test-only change on the light route → reviewer only; test folded into the reviewer pack","route":"light","mode":"commit",
+ "lanes":["reviewer"],"skipped":["test","security","db","contract"],
+ "pack_contains":{"reviewer":["## Test command","./gradlew test --tests '*OrderServiceTest'"]}}

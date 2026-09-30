@@ -1,0 +1,4 @@
+{"desc":"AC3: untracked docs/*.md and sql/tmp.sql outside src never enter FILES; an untracked file under src does","route":"full","mode":"untracked",
+ "lanes":["reviewer","test"],"skipped":["security","db","contract"],"files":1,
+ "pack_contains":{"reviewer":["src/main/java/com/x/service/NewService.java"]},
+ "pack_lacks":{"reviewer":["sql/tmp.sql","docs/notes.md",".claude/"]}}

@@ -203,10 +203,10 @@ check "M3-V3: set-plan passes the recorded spec to the engine (--spec <spec_path
   'dcs "$P6" sI set-plan "$R6/plan.md" 2>/dev/null && grep -q -- "--spec $P6/$R6/spec.md" "$STUB_LOG"'
 e="$(dcs "$P6" sI set-spec "$R6/spec.md" 2>&1)"
 check "M3-V1: set-spec with the plan on the same spec-rev prints no stale-plan note" '! grep -q "pins spec-rev" <<<"$e"'
-sed -i.bak 's/ rev: 1$/ rev: 2/' "$P6/$R6/spec.md"; before="$(tj "$P6" "$id6" | jq -c 'del(.spec_path)')"
+sed -i.bak 's/ rev: 1$/ rev: 2/' "$P6/$R6/spec.md"; before="$(tj "$P6" "$id6" | jq -c 'del(.spec_path, .updated)')"   # .updated is stamped per call (seconds)
 e="$(dcs "$P6" sI set-spec "$R6/spec.md" 2>&1)"; r=$?
 check "M3-V1: set-spec rev 2 over a plan pinned to spec-rev 1 → exit 0 + a re-plan note, no state flag" \
-  '[ "$r" = 0 ] && grep -q "pins spec-rev 1, spec is now rev 2" <<<"$e" && [ "$(tj "$P6" "$id6" | jq -c "del(.spec_path)")" = "$before" ] && [ "$(tj "$P6" "$id6" | jq -r .plan_approved)" = true ]'
+  '[ "$r" = 0 ] && grep -q "pins spec-rev 1, spec is now rev 2" <<<"$e" && [ "$(tj "$P6" "$id6" | jq -c "del(.spec_path, .updated)")" = "$before" ] && [ "$(tj "$P6" "$id6" | jq -r .plan_approved)" = true ]'
 
 # the real engine against a minimal ch:schema template (DOCLINT_TEMPLATES), so it runs before the shipped templates do
 if [ -f "$ROOT/scripts/doclint.sh" ] && command -v python3 >/dev/null 2>&1; then
