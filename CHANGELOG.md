@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.3 — 2026-10-01
+
+Prompt audit of the v0.12.2 prompt surface (111 findings), and a hub brief fix.
+
+- **Stale v0.11 machinery removed from prompts.** Rule templates, agents and skills no longer cite the Phase
+  Loop, the "Phase 5 verify gate", `claudehut-config.json`, `reviewer-reactive`, the `plan-spec-coverage` script,
+  `.claudehut/memory/`, a threat-model or arch-unit-check skill, or auditors that query DB/MCP live. Wrong names
+  are fixed: `@MockitoSpyBean`, JSpecify `@NonNull`, the Boot 3 `management.prometheus.metrics.export.enabled` key.
+- **Contradictions resolved.** The implementer's remedy for code written before its test matches the implement
+  skill (delete and restart). The learner keeps the lines the harvest already wrote. Minimalism numbers the
+  reuse ladder like Discover. Actuator exposure is `health,info` everywhere, and prometheus is allowed only behind
+  the ADMIN chain or a scraper-only network policy. `REQUIRES_NEW` stays out of loops, and field self-injection is
+  gone. Bean-validation failures map to 400. The db reviewer checks Flyway names against `flyway-naming.md`.
+- **Plainer wording.** Thinking-time caps, all-caps laws and history narratives are rewritten as plain
+  statements with their reasons. The dead `Reused & enhanced from committed rules/` tail is gone from rule headers.
+- **Hub brief under long paths.** `brief --json` at the hub now counts its head lines (absolute hub and CLI paths)
+  against the budget, so the sections still equal the markdown lines when the checkout path is long.
+
 ## 0.12.2 — 2026-10-01
 
 Summer library (java-common-ms) support in the index, the hub and `claudehut-migrate`.

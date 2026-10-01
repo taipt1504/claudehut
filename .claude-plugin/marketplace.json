@@ -21,7 +21,7 @@
       "license": "MIT",
       "category": "development",
       "keywords": ["java", "spring-boot", "agentic-workflow", "tdd"],
-      "version": "0.12.2"
+      "version": "0.12.3"
     }
   ]
 }
