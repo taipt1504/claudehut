@@ -6,7 +6,7 @@ paths:
 severity: low
 tags: [test-naming, structure]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/given-when-then.md by claudehut-init. Reused & enhanced from committed rules/testing/given-when-then.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/given-when-then.md by claudehut-init. -->
 
 # Given/When/Then Test Structure
 
@@ -80,4 +80,4 @@ Becomes:
 void shouldReturnEmpty_whenNoPurchases_givenNewUser() { ... }
 ```
 
-Phase 3 plan-spec-coverage script verifies every AC has a test.
+In the plan, every `AC-xxx` sits in a task's Req cell (doclint checks this) and plan review checks that the task's test observes it.

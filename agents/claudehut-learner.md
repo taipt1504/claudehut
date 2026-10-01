@@ -30,9 +30,11 @@ flowchart TB
     wr --> out(["4 return one-line summary (counts by category) — the skill runs merge-learnings.sh"])
 ```
 
-## Candidate schema (07 §8.2)
+## Candidate schema
 
-Write to `${task_dir}/learn-candidates.jsonl` (the task dir given in your dispatch), **one JSON object per line**:
+Write to `${task_dir}/learn-candidates.jsonl` (the task dir given in your dispatch), **one JSON object per line**.
+`harvest-candidates.sh` may already have written candidates there: Read the file first and write back its
+existing lines followed by yours (Write replaces the whole file):
 
    ```json
    {"category": "pitfall", "trigger": "jpa, n+1, entitygraph",

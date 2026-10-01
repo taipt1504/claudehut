@@ -7,7 +7,7 @@ stack: "web=webflux"
 severity: high
 tags: [backpressure, webflux, reactor]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/backpressure.md by claudehut-init. Reused & enhanced from committed rules/performance/backpressure.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/backpressure.md by claudehut-init. -->
 
 
 # Backpressure (WebFlux)
@@ -90,7 +90,7 @@ Without bound → memory grows until OOM if subscribers slow.
 
 ## Detection
 
-Phase 5 reviewer-reactive flags:
+In Review, `claudehut-db-reviewer` flags:
 
 - `Flux.fromIterable` on large collection without rate limit.
 - `Sinks.many().multicast()` without `onBackpressureBuffer`.

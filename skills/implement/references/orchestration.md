@@ -50,12 +50,12 @@ flowchart TB
   Advance to the next phase only after the current phase's batch reconciles. After the last phase:
   `"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-worktree" sweep` — removes only merged/unchanged managed worktrees,
   leaving **zero orphans**.
-- **Commit-before-dependent-dispatch (HARD — this is what makes `baseRef=head` work).** A phase's worktrees
-  fork from the **current HEAD**, so every prior phase's work must be **committed on the feature branch
-  before the next phase dispatches**. Reconcile already commits the worktree branches; **an inline phase you
-  do NOT — so after implementing a phase inline (a sequential spine, a ≤2-file task), `git commit` it before
-  dispatching the next phase's batch.** Skip this and the next phase's implementers fork from a HEAD missing
-  the inline work → they can't build on it → you're forced back to inline (the exact failure this fixes).
+- **Commit-before-dependent-dispatch.** A phase's worktrees fork from the current HEAD (`baseRef=head`), so
+  every prior phase's work must be committed on the feature branch before the next phase dispatches.
+  Reconcile commits the worktree branches; an inline phase is not committed for you, so after implementing a
+  phase inline (a sequential spine, a ≤2-file task), `git commit` it before dispatching the next phase's
+  batch. Otherwise the next phase's implementers fork from a HEAD that lacks the inline work and cannot build
+  on it.
 
 **Native task mirror — boundary updates (main thread ONLY, and only if task tools exist in this session;
 they frequently do not. No task tools → skip every mirror instruction below, including the two mirror nodes

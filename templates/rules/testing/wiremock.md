@@ -8,7 +8,7 @@ paths:
 severity: medium
 tags: [wiremock, http-stub, integration-test]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/wiremock.md by claudehut-init. Reused & enhanced from committed rules/testing/wiremock.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/wiremock.md by claudehut-init. -->
 
 
 # WireMock Rules

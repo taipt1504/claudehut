@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "claudehut",
   "displayName": "ClaudeHut",
-  "version": "0.12.2",
+  "version": "0.12.3",
   "description": "Claude Code workflow for Java/Spring Boot backends: routes each request direct, light or full; advisory hooks that never block; a deterministic codebase index with a microservice knowledge hub; review lanes chosen from the diff.",
   "author": {
     "name": "ClaudeHut Authors",

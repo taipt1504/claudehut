@@ -45,7 +45,7 @@ flowchart TB
    `${CLAUDE_PLUGIN_ROOT}/scripts/doclint.sh --json --kind spec --route full --profile <p> <spec.md>`.
    Fix every `blocking` entry. `advisory` entries (words over budget) are for the user to judge, not a stop.
 3. **Enforcement set.** Record every skill and `.claude/rules/` file that plausibly applies to the change;
-   the rules listed decide which specialist auditors Review spawns:
+   Review audits against this set (its items ride in each lane's pack; lanes come from the diff's paths and hunks):
 
    ```
    claudehut-state --session ${CLAUDE_SESSION_ID} set-enforcement --skills <a,b> --rules <framework/jpa.md,…>

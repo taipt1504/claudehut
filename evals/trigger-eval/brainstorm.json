@@ -1,6 +1,6 @@
 {
   "skill": "brainstorm",
-  "description": "Use when a ClaudeHut full-route task has unclear intent or two or more materially different approaches - scores distinct options on trade-offs, recommends one, and assembles the enforcement set Review audits against.",
+  "description": "Use when a ClaudeHut full-route task has unclear intent or two or more materially different approaches - scores distinct options on trade-offs, recommends one for the spec's Decisions.",
   "should_trigger": [
     "what are my options for making this consumer idempotent",
     "weigh a few approaches for the payout retry design",

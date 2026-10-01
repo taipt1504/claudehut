@@ -6,7 +6,7 @@ stack: "mapper=mapstruct"
 severity: medium
 tags: [mapstruct, mapping]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/mapstruct.md by claudehut-init. Reused & enhanced from committed rules/framework/mapstruct.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/mapstruct.md by claudehut-init. -->
 
 
 # MapStruct Rules

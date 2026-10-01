@@ -5,7 +5,7 @@ paths:
 severity: low
 tags: [adr, decisions, madr]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/adr-format.md by claudehut-init. Reused & enhanced from committed rules/architecture/adr-format.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/adr-format.md by claudehut-init. -->
 
 
 # Architecture Decision Records (MADR)
@@ -70,7 +70,7 @@ Negative:
 
 Mitigations:
 - Pair programming sessions for first 2 sprints.
-- ClaudeHut `r2dbc` skill enforces conventions.
+- ClaudeHut `framework/r2dbc` rule carries the conventions.
 
 ## Links
 
@@ -105,4 +105,3 @@ Never delete an ADR. Mark deprecated; new ADR references it.
 ## Tooling
 
 - `adr-tools` CLI: `adr new "Use R2DBC over JPA"`.
-- Phase 2 Spec skill prompts user "Should we write an ADR?" when decision logged.

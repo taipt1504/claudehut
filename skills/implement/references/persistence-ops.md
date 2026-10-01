@@ -137,9 +137,9 @@ spring:
       leak-detection-threshold: 30000  # 30 s; log warning if connection held longer
 
 management:
-  metrics:
-    export:
-      prometheus:
+  prometheus:
+    metrics:
+      export:
         enabled: true
 ```
 

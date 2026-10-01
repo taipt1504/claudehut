@@ -6,7 +6,7 @@ paths:
 severity: medium
 tags: [junit5, jupiter, test]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/junit5.md by claudehut-init. Reused & enhanced from committed rules/testing/junit5.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/junit5.md by claudehut-init. -->
 
 
 # JUnit 5 Conventions

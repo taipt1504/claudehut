@@ -8,7 +8,7 @@ stack: "cache=redis"
 severity: medium
 tags: [redis, cache, distributed-lock, stampede]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/redis.md by claudehut-init. Reused & enhanced from committed rules/framework/redis.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/redis.md by claudehut-init. -->
 
 # Redis / Spring Cache Rules
 

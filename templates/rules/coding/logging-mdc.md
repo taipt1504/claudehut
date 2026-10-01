@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [logging, mdc, observability]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/logging-mdc.md by claudehut-init. Reused & enhanced from committed rules/coding/logging-mdc.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/logging-mdc.md by claudehut-init. -->
 
 
 # Logging + MDC

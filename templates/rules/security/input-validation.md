@@ -6,7 +6,7 @@ paths:
 severity: high
 tags: [validation, bean-validation, owasp]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/input-validation.md by claudehut-init. Reused & enhanced from committed rules/security/input-validation.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/input-validation.md by claudehut-init. -->
 
 
 # Input Validation

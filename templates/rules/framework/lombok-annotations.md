@@ -5,11 +5,11 @@ paths:
 severity: medium
 tags: [lombok, annotations, conventions]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-annotations.md by claudehut-init. Reused & enhanced from committed rules/framework/lombok-annotations.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-annotations.md by claudehut-init. -->
 
 # Lombok — annotation conventions
 
-These rules auto-load on every `.java` file. Lombok's classpath presence is detected at build time; if not present, treat rules as no-ops (`@Slf4j` etc. produce compile errors so the case won't arise in practice).
+These rules auto-load on every `.java` file; nothing detects Lombok, so in a project without Lombok treat them as no-ops.
 
 ## DO
 
@@ -30,9 +30,9 @@ These rules auto-load on every `.java` file. Lombok's classpath presence is dete
 - Use `@SneakyThrows` to hide checked exceptions. Wrap with a meaningful unchecked exception, OR declare the throws.
 - Use `@UtilityClass` for static utilities — a plain `final class WithPrivateCtor` reads more clearly to reviewers.
 
-## lombok.config required
+## lombok.config
 
-A `lombok.config` MUST exist at project root and contain at least:
+In a project that uses Lombok, keep a `lombok.config` at the project root containing at least:
 
 ```ini
 config.stopBubbling = true
@@ -40,9 +40,6 @@ lombok.addLombokGeneratedAnnotation = true
 ```
 
 Without `config.stopBubbling`, behaviour can change when the project is checked out under a parent directory that ships its own `lombok.config`. Without `lombok.addLombokGeneratedAnnotation`, JaCoCo / SonarQube count generated code against coverage / complexity metrics.
-
-If the project root has no `lombok.config`, create one with at least `config.stopBubbling = true` and
-`lombok.addLombokGeneratedAnnotation = true`.
 
 ## Examples
 

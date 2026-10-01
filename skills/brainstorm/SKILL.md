@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Use when a ClaudeHut full-route task has unclear intent or two or more materially different approaches - scores distinct options on trade-offs, recommends one, and assembles the enforcement set Review audits against.
+description: Use when a ClaudeHut full-route task has unclear intent or two or more materially different approaches - scores distinct options on trade-offs, recommends one for the spec's Decisions.
 ---
 
 # Brainstorm (optional, full route)

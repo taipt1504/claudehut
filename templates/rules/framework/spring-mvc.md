@@ -8,7 +8,7 @@ stack: "web=mvc"
 severity: high
 tags: [spring-mvc, rest, controller, problem-detail, validation]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/spring-mvc.md by claudehut-init. Reused & enhanced from committed rules/framework/spring-mvc.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/spring-mvc.md by claudehut-init. -->
 
 # Spring MVC Controller Rules
 
@@ -68,13 +68,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     protected ResponseEntity<Object> handleMethodArgumentNotValid(
             MethodArgumentNotValidException ex,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        var pd = ProblemDetail.forStatus(HttpStatus.UNPROCESSABLE_ENTITY);
+        var pd = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
         pd.setType(URI.create("urn:problem:validation-failed"));
         pd.setTitle("Validation failed");
         pd.setProperty("violations", ex.getFieldErrors().stream()
             .map(e -> Map.of("field", e.getField(), "message", e.getDefaultMessage()))
             .toList());
-        return ResponseEntity.unprocessableEntity().body(pd);
+        return ResponseEntity.badRequest().body(pd);
     }
 
     @ExceptionHandler(NotFoundException.class)

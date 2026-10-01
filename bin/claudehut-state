@@ -250,7 +250,7 @@ shift_args=()
 
 # ── Removed verbs: accepted, no state change, one line on stderr, exit 0 (M1 compatibility shims) ─────────
 case "$sub" in
-  set-bypass)     note "set-bypass was removed in v0.12 and did nothing: hooks are advisory; the one remaining refusal (set-plan on a sensitive or ≥5-task full-route plan) is cleared by a plan-reviewer APPROVE or by claudehut-state set-route light."; exit 0 ;;
+  set-bypass)     note "set-bypass was removed in v0.12 and did nothing: hooks are advisory; the set-* verbs refuse only what their checks fail, and each refusal names its way out (for set-plan on a sensitive, migration-profile or ≥5-task full-route plan: a plan-reviewer APPROVE, or claudehut-state set-route light)."; exit 0 ;;
   mark-skill)     note "mark-skill was removed in v0.12 and did nothing: there is no skill rail."; exit 0 ;;
   pause|rename|route) note "$sub was removed in v0.12 and did nothing."; exit 0 ;;
   # set-complexity (deprecated) and set-profile (live) are real verbs below; see "Legacy verbs" in the header.
@@ -488,7 +488,7 @@ spec_rev_note() { # $1 spec path (as recorded)
   [ -f "$pf" ] || return 0
   pr="$(hdr_num "$pf" spec-rev)"; sr="$(hdr_num "$sf" rev)"
   [ -n "$pr" ] && [ -n "$sr" ] && [ "$pr" != "$sr" ] || return 0
-  echo "note: plan $pl pins spec-rev $pr, spec is now rev $sr — re-plan (set-plan will refuse via L10)." >&2
+  echo "note: plan $pl pins spec-rev $pr, spec is now rev $sr — re-plan (set-plan refuses a stale spec-rev)." >&2
 }
 # set-plan / set-phase --plan: the light route's one artifact is task.md (06 §2, §10); the full route records plan.md.
 plan_kind() { # $1 path → task|plan

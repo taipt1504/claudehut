@@ -19,7 +19,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 4. Recommendation | req=full
 Changelog         | req=-
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- Optional on the full route: only when two or more workable mechanisms differ in cost or risk and Discover
      did not settle the choice. The brainstormer returns the data; the main thread copies from the
      "# Brainstorm" line down to tasks/NNNN-slug/brainstorm.md. The recommendation becomes a D-n row in the

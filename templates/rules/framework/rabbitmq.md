@@ -8,7 +8,7 @@ stack: "messaging=rabbitmq"
 severity: high
 tags: [rabbitmq, amqp, consumer, dlq, idempotency]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/rabbitmq.md by claudehut-init. Reused & enhanced from committed rules/framework/rabbitmq.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/rabbitmq.md by claudehut-init. -->
 
 
 # Spring AMQP (RabbitMQ) Consumer Rules

@@ -7,7 +7,7 @@ paths:
 severity: critical
 tags: [security, owasp]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/owasp-top10.md by claudehut-init. Reused & enhanced from committed rules/security/owasp-top10.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/owasp-top10.md by claudehut-init. -->
 
 
 # OWASP Top 10 — Java/Spring Checklist
@@ -39,7 +39,7 @@ Apply at every endpoint, every input boundary, every persistence layer.
 
 ## A04 — Insecure Design
 
-- Threat model new features (`/threat-model` skill).
+- Threat-model new features: name the trust boundaries and abuse cases before implementing.
 - Rate limit auth endpoints (login, password reset, OTP).
 - Defense in depth — multiple layers per concern.
 
@@ -98,4 +98,4 @@ Apply at every endpoint, every input boundary, every persistence layer.
 
 ## Phase 6 (Review) security-auditor focus
 
-When Phase Loop runs, `claudehut-security-auditor` checks every category above with reference to changed files in the diff.
+When Review dispatches `claudehut-security-auditor`, it checks every category above against the changed files in the diff.

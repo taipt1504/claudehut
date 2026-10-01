@@ -2,7 +2,7 @@
 
 <!-- Researched vs Spring Security 6.5 (context7 ID: /websites/spring_io_spring-security_reference_6_5).
      Source rules folded in: spring-security.md, owasp-top10.md, input-validation.md,
-     deserialization.md, secret-mgmt.md, actuator.md, method-security.md. -->
+     deserialization.md, secret-mgmt.md, actuator.md. -->
 
 **When:** *SecurityConfig.java, security/ packages, controllers/handlers (authz + validation), deserialization, secrets/actuator config.*
 
@@ -182,7 +182,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
   endpoint:
     health:
       show-details: when_authorized   # not "always"

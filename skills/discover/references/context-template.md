@@ -16,7 +16,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 Index brief  | req=full
 Explorer map | req=full
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- context.md = the full route's evidence cache. The spec's Context section cites file:line or nodes from here
      instead of retelling. Discover writes it to tasks/NNNN-slug/context.md; doclint does not gate it. -->
 # Context: order-rate-limit

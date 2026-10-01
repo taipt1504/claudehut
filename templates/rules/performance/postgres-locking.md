@@ -7,7 +7,7 @@ stack: "db=postgresql"
 severity: high
 tags: [postgres, locking, concurrency]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/postgres-locking.md by claudehut-init. Reused & enhanced from committed rules/performance/postgres-locking.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/postgres-locking.md by claudehut-init. -->
 
 # PostgreSQL Locking
 
@@ -31,18 +31,6 @@ SELECT * FROM outbox_entry
  ORDER BY id
  LIMIT :n
    FOR UPDATE SKIP LOCKED;
-```
-
-`-2` is Hibernate's magic constant for `SKIP LOCKED`; alternatively use the string `"SKIP_LOCKED"` — both map to `FOR UPDATE SKIP LOCKED` on the Postgres dialect.
-
-Native query alternative (always safe, dialect-agnostic in intent):
-
-```sql
-SELECT * FROM outbox_entry
-WHERE published = false
-ORDER BY id
-LIMIT 50
-FOR UPDATE SKIP LOCKED;
 ```
 
 **Why SKIP LOCKED beats SELECT + UPDATE:** Single round-trip; no phantom re-lock; multiple pollers auto-partition the queue without coordination.

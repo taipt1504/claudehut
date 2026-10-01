@@ -16,10 +16,6 @@ reuse decision Review checks — without it, the task has no proof that nothing 
 **Impact** (callers, coupling, regression risk). A high-Fit, low-Impact reuse is a win; a low-Fit reuse
 adopted anyway is how the wrong abstraction spreads.
 
-```
-NO NEW CLASS, SERVICE, UTILITY, CONFIG, OR ENDPOINT BEFORE A REUSE SCAN
-```
-
 You answer the full **decision ladder** for each thing the task would build — stop at the first rung that fits:
 
 ```

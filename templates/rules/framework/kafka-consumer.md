@@ -7,7 +7,7 @@ stack: "messaging=kafka"
 severity: high
 tags: [kafka, consumer, dlt, idempotency, rebalance, backoff]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/kafka-consumer.md by claudehut-init. Reused & enhanced from committed rules/framework/kafka-consumer.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/kafka-consumer.md by claudehut-init. -->
 
 # Spring Kafka Consumer Rules
 

@@ -11,7 +11,7 @@ paths:
 severity: critical
 tags: [secrets, vault, env-vars]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/secret-mgmt.md by claudehut-init. Reused & enhanced from committed rules/security/secret-mgmt.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/secret-mgmt.md by claudehut-init. -->
 
 
 # Secret Management
@@ -99,7 +99,7 @@ repos:
       - id: gitleaks
 ```
 
-Phase 6 (Review) `claudehut-security-auditor` regex-scans diff for secret patterns:
+In Review, `claudehut-security-auditor` looks for secret patterns like these in the diff:
 
 ```
 sk-[a-zA-Z0-9_-]{20,}

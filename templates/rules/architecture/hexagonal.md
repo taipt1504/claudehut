@@ -6,7 +6,7 @@ severity: high
 tags: [architecture, hexagonal, ports-adapters]
 stack: "arch=hexagonal"
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/hexagonal.md by claudehut-init. Reused & enhanced from committed rules/architecture/hexagonal.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/hexagonal.md by claudehut-init. -->
 
 
 # Hexagonal Architecture (Ports & Adapters)
@@ -45,7 +45,7 @@ com.foo/
 | application | domain, port |
 | adapter | application, port, framework |
 
-Enforce with ArchUnit (see `arch-unit-check` skill).
+Enforce with an ArchUnit test (example in `package-layout.md` → Enforcement).
 
 ## Example
 

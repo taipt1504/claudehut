@@ -10,7 +10,7 @@ paths:
 severity: high
 tags: [lombok, builder, jackson, inheritance]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-builder.md by claudehut-init. Reused & enhanced from committed rules/framework/lombok-builder.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-builder.md by claudehut-init. -->
 
 # `@Builder` / `@SuperBuilder` safety
 

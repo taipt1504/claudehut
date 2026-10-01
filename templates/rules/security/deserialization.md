@@ -5,7 +5,7 @@ paths:
 severity: critical
 tags: [jackson, deserialization, rce]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/deserialization.md by claudehut-init. Reused & enhanced from committed rules/security/deserialization.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/deserialization.md by claudehut-init. -->
 
 
 # Safe Deserialization
@@ -80,7 +80,7 @@ Yaml yaml = new Yaml();  // Default Constructor → can instantiate arbitrary cl
 
 ## Detection (Phase 6 Review — claudehut-security-auditor)
 
-Regex flagged Critical:
+Patterns that mark unsafe deserialization:
 
 ```regex
 \.enableDefaultTyping\(

@@ -7,7 +7,7 @@ ClaudeHut plans and reviews Java/Spring changes. Route every new request yoursel
 |---|---|---|
 | `direct` | No file change (question, explaining, RCA, audit), or a one-sentence diff in one module with no risk signal | Answer, or edit + related tests. No task |
 | `light` | Clear intent, one obvious approach, new tests or several files in one service | `start --route light`; `task.md` (Approach, Tasks), test-first, one reviewer |
-| `full` | Unclear intent, 2+ materially different approaches, or an API/Kafka contract, schema/migration, authn/authz or cross-service change | `start --route full`; `claudehut:discover`, brainstorm, write-spec, write-plan, implement, review, capture-learnings |
+| `full` | Unclear intent, 2+ materially different approaches, or an API/Kafka contract, schema/migration, authn/authz or cross-service change | `start --route full`; `claudehut:discover`, brainstorm (optional), write-spec, write-plan, implement, review, capture-learnings |
 
 ## Ask, escalate, override
 - Two adjacent routes fit with very different effort: one AskUserQuestion, 2-3 options, your pick first with a reason.

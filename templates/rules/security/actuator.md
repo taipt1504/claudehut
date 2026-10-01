@@ -6,7 +6,7 @@ paths:
 severity: high
 tags: [actuator, spring-boot, exposure]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/actuator.md by claudehut-init. Reused & enhanced from committed rules/security/actuator.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/actuator.md by claudehut-init. -->
 
 
 # Spring Boot Actuator — Safe Exposure
@@ -30,7 +30,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
         exclude: env,heapdump,threaddump,beans,configprops
       base-path: /actuator
   endpoint:
@@ -120,9 +120,9 @@ public class KafkaHealthIndicator implements HealthIndicator {
 }
 ```
 
-## Detection (Phase 5)
+## Detection (Review — `claudehut-security-auditor`)
 
-Regex flagged High:
+Patterns that mark an over-exposed config:
 
 ```regex
 management\.endpoints\.web\.exposure\.include[ =:]*\*

@@ -9,7 +9,7 @@ stack: "orm=jpa"
 severity: high
 tags: [jpa, hibernate, n+1, lazy-load, pagination, optimistic-locking]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/jpa.md by claudehut-init. Reused & enhanced from committed rules/framework/jpa.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/jpa.md by claudehut-init. -->
 
 
 # JPA / Hibernate Rules

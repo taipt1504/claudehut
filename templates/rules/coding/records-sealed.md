@@ -6,7 +6,7 @@ stack: "java=17,21"
 severity: low
 tags: [java17, records, sealed, pattern-matching]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/records-sealed.md by claudehut-init. Reused & enhanced from committed rules/coding/records-sealed.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/records-sealed.md by claudehut-init. -->
 
 # Records + Sealed + Pattern Matching (Java 17+)
 

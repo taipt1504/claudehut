@@ -6,7 +6,7 @@ paths:
 severity: medium
 tags: [mockito, mocking]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/mockito.md by claudehut-init. Reused & enhanced from committed rules/testing/mockito.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/mockito.md by claudehut-init. -->
 
 
 # Mockito Conventions
@@ -23,7 +23,6 @@ tags: [mockito, mocking]
 - Mock value objects (records, simple data classes).
 - Mock framework types (Spring beans you don't own).
 - Use `PowerMock` for static / final — refactor instead.
-- `when(...).thenReturn(...)` followed by NO verification — orphan stubbing.
 - Strict stubbing exceptions ignored — fix stubs.
 
 ## Setup

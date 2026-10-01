@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [database, indexing, query-performance]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/indexing.md by claudehut-init. Reused & enhanced from committed rules/performance/indexing.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/indexing.md by claudehut-init. -->
 
 
 # Database Indexing
@@ -34,7 +34,7 @@ Used for queries:
 - `WHERE user_id = ?`
 - `WHERE user_id = ? AND status = ?`
 - `WHERE user_id = ? AND status = ? AND created_at > ?`
-- `WHERE user_id = ? ORDER BY created_at` (with status anywhere — sort uses index)
+- `WHERE user_id = ? AND status = ? ORDER BY created_at` (sort uses index)
 
 NOT used for:
 - `WHERE status = ?` alone (must start with leftmost column).
@@ -117,7 +117,7 @@ In Flyway migration:
 CREATE INDEX CONCURRENTLY idx_users_tenant_id ON users(tenant_id);
 ```
 
-Note: `CONCURRENTLY` cannot be inside a transaction. Configure Flyway with `transactional: false` per-migration or use callback.
+Note: `CONCURRENTLY` cannot run inside a transaction. Set Flyway's `executeInTransaction=false` for that migration.
 
 ## MySQL specifics
 

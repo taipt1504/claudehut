@@ -35,12 +35,12 @@ flowchart TB
     step --> red["RED — smallest failing test"]
     red --> rr{"fails for the RIGHT reason?"}
     rr -- "no" --> red
-    rr -- "yes" --> beat["DESIGN-BEAT (≤30s) — refute rote code:<br/>reuse anchor? simplest shape? no dup? (READ playbook if CREATING)"]
+    rr -- "yes" --> beat["DESIGN-BEAT — refute rote code:<br/>reuse anchor? simplest shape? no dup? (READ playbook if CREATING)"]
     beat --> green["GREEN — minimal code to pass"]
     green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
-    ev -- "no" --> iron{"wrote production code before its test?"}
-    iron -- "yes" --> blk
-    iron -- "no" --> green
+    ev -- "no" --> first{"wrote production code before its test?"}
+    first -- "yes" --> del["delete it; restart this step from the test"] --> red
+    first -- "no" --> green
     ev -- "yes" --> refac["REFACTOR with tests green"]
     refac --> more{"more steps AND<br/>only owned files touched?"}
     more -- "no (steps remain)" --> step
@@ -51,7 +51,7 @@ flowchart TB
 ## Procedure
 
 The Flow above is your loop. Pause before each GREEN step to think through the design;
-rote, first-thing-that-compiles code is the failure it guards against. The **design beat** (≤30s before GREEN)
+rote, first-thing-that-compiles code is the failure it guards against. The **design beat** (before GREEN)
 is: (1) **reuse?** honor the plan's reuse anchor (§1 Approach) — don't re-implement a util the project or stdlib/an
 installed dep already ships; (2) **simplest sufficient shape** — minimal code that passes, not a speculative
 abstraction nor the flimsier algorithm; (3) **don't duplicate** — repeating a sibling-file helper this task?
@@ -82,7 +82,7 @@ End with one status line, then details:
 - **DONE (branch: <name>, commit: <sha>)** — all assigned plan steps implemented, tests green, work
   committed in the worktree branch. List files changed + which enforcement-set items you satisfied.
 - **DONE_WITH_CONCERNS** — implemented but with caveats (flaky test, a TODO you couldn't resolve). List them.
-- **BLOCKED** — a phase is missing (no reuse-scan / plan), a test can't be made to pass, or the plan is wrong. Explain.
+- **BLOCKED** — the dispatch prompt lacks the T-xxx rows or acceptance criteria, a test can't be made to pass, or the plan is wrong. Explain.
 
 Then a **per-task status block** — one line per plan task, so the main thread can mirror progress to the
 native Claude Code task list (you don't update that list yourself — you have no task tools):

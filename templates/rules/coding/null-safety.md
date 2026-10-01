@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [null-safety, jsr-305, jspecify]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/null-safety.md by claudehut-init. Reused & enhanced from committed rules/coding/null-safety.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/null-safety.md by claudehut-init. -->
 
 
 # Null Safety
@@ -16,23 +16,23 @@ Use `@NonNull` / `@Nullable` from `org.jspecify.annotations` (JSpecify). Do **no
 (`javax.annotation`) — unmaintained, and the `javax` package is wrong on a Jakarta baseline.
 
 ```java
-import jakarta.annotation.Nonnull;
-import jakarta.annotation.Nullable;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 
 public interface UserService {
 
-    @Nonnull
-    User findById(@Nonnull String id);  // never returns null; throws
+    @NonNull
+    User findById(@NonNull String id);  // never returns null; throws
 
     @Nullable
-    User findByEmail(@Nonnull String email);  // may return null
+    User findByEmail(@NonNull String email);  // may return null
 
-    @Nonnull
-    Optional<User> tryFindByEmail(@Nonnull String email);  // explicit optional
+    @NonNull
+    Optional<User> tryFindByEmail(@NonNull String email);  // explicit optional
 }
 ```
 
-Better: use `Optional<T>` for optional returns; `@Nonnull` for guaranteed.
+Better: use `Optional<T>` for optional returns; `@NonNull` for guaranteed.
 
 ## DO
 
@@ -58,7 +58,7 @@ public List<User> findActive() {
     return users == null ? List.of() : users;
 }
 
-public User get(@Nonnull String id) {
+public User get(@NonNull String id) {
     Objects.requireNonNull(id, "id");
     return repo.findById(id)
         .orElseThrow(() -> new NotFoundException("user", id));
@@ -90,4 +90,4 @@ public Order(@Nullable List<OrderLine> lines) {
 
 ## Static analysis
 
-Enable SpotBugs + jsr305/jspecify annotations. Phase 5 verify gate catches violations.
+Run a nullness checker that understands JSpecify (e.g. NullAway) in the build, so a violation fails the build.

@@ -8,7 +8,7 @@ paths:
 severity: critical
 tags: [jwt, oauth2, security]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/jwt-validation.md by claudehut-init. Reused & enhanced from committed rules/security/jwt-validation.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/jwt-validation.md by claudehut-init. -->
 
 
 # JWT Validation — Spring Security 6 OAuth2 Resource Server

@@ -7,9 +7,9 @@ class OrderControllerTest {
   @Autowired MockMvcTester mvc;      // Boot 3.4+, AssertJ-native; MockMvc on older
   @MockitoBean OrderService service; // collaborators mocked (@MockBean is removed in Boot 4)
 
-  @Test void rejectsInvalidBody() throws Exception {
-    mvc.perform(post("/orders").contentType(APPLICATION_JSON).content("{}"))
-       .andExpect(status().isBadRequest());
+  @Test void rejectsInvalidBody() {
+    assertThat(mvc.post().uri("/orders").contentType(APPLICATION_JSON).content("{}"))
+        .hasStatus(HttpStatus.BAD_REQUEST);
   }
 }
 ```

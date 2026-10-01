@@ -86,9 +86,9 @@ provenance line — re-`init` treats them as authoritative and won't overwrite t
 
 ClaudeHut ships **no** active MCP config and connects **nothing** automatically. Match
 `${CLAUDE_PLUGIN_ROOT}/templates/mcp-recommendations.md` against the detected stack: **tech-stack** servers whose
-`detect-when` matches a dependency (live data for the Review auditors), the **memory** knowledge-graph MCP, and
-the **research** docs MCP (context7). Emit a `claude mcp add --scope project …` line **only** per selected
-server (interactive vs `-p` per the Flow). The developer substitutes their own connection string / token —
+`detect-when` matches a dependency (live data for Review's main-thread checks) and the **research** docs MCP
+(context7). Emit each selected row's own `claude mcp add` line (context7: user scope) **only**
+per selected server (interactive vs `-p` per the Flow). The developer substitutes their own connection string / token —
 **never** print or store real secrets, and do **not** run these commands yourself (suggest, don't force).
 
 Finish: "Bootstrapped. Commit `.claude/` (except `state/`) to share with the team."

@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [optional, stream, java]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/optional-stream.md by claudehut-init. Reused & enhanced from committed rules/coding/optional-stream.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/optional-stream.md by claudehut-init. -->
 
 
 # Optional + Stream Best Practices

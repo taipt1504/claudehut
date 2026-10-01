@@ -20,7 +20,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 5. Risks & Rollback  | req=full
 Changelog            | req=-
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- Plan = HOW. Reference the spec's AC-xxx and D-n by ID; do not retell the spec. No java or kotlin code
      blocks: interface shapes go in the section 3 table, control flow in section 2 or in task notes.
      Copy from the "# Plan" line down to tasks/NNNN-slug/plan.md. spec-rev pins the spec rev this plan follows.

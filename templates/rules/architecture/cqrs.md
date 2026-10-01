@@ -6,7 +6,7 @@ severity: medium
 tags: [cqrs, command, query]
 stack: "arch=cqrs"
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/cqrs.md by claudehut-init. Reused & enhanced from committed rules/architecture/cqrs.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/cqrs.md by claudehut-init. -->
 
 
 # CQRS — Command/Query Responsibility Segregation

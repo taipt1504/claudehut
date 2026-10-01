@@ -9,7 +9,7 @@ stack: "messaging=nats"
 severity: high
 tags: [nats, jetstream, consumer, idempotency, dlq]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/nats.md by claudehut-init. Reused & enhanced from committed rules/framework/nats.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/nats.md by claudehut-init. -->
 
 
 # NATS JetStream Consumer Rules

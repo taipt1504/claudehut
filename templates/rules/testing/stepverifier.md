@@ -7,7 +7,7 @@ stack: "web=webflux"
 severity: medium
 tags: [stepverifier, reactor, webflux, reactive]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/stepverifier.md by claudehut-init. Reused & enhanced from committed rules/testing/stepverifier.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/stepverifier.md by claudehut-init. -->
 
 
 # StepVerifier Conventions

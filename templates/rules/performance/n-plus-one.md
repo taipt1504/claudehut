@@ -6,7 +6,7 @@ paths:
 severity: high
 tags: [n+1, jpa, r2dbc, performance]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/n-plus-one.md by claudehut-init. Reused & enhanced from committed rules/performance/n-plus-one.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/n-plus-one.md by claudehut-init. -->
 
 
 # N+1 Query Prevention

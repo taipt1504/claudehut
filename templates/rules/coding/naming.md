@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [naming, conventions]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/naming.md by claudehut-init. Reused & enhanced from committed rules/coding/naming.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/naming.md by claudehut-init. -->
 
 
 # Java Naming Conventions

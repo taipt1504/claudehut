@@ -7,7 +7,7 @@ stack: "orm=jpa"
 severity: high
 tags: [transactions, spring, jpa]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/transaction-propagation.md by claudehut-init. Reused & enhanced from committed rules/framework/transaction-propagation.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/transaction-propagation.md by claudehut-init. -->
 
 # Spring @Transactional — Propagation & Isolation
 
@@ -34,7 +34,7 @@ public void create(Order o) { this.save(o); }
 public void save(Order o) { repo.save(o); }
 ```
 
-Fix: inject self (`@Autowired private OrderService self`) **or** split into two beans.
+Fix: split into two beans and call the `@Transactional` method through the other bean (constructor-injected).
 
 ### 2. Checked exceptions do NOT roll back by default
 
@@ -57,7 +57,7 @@ public List<Order> findPending() { return repo.findByStatus(PENDING); }
 ```
 
 Benefits: Hibernate skips dirty-check flush; JDBC driver/load-balancer can route to replica.
-Risk: none — read-only flag is a hint, silently ignored if unsupported.
+Risk: when the read is routed to a replica, a read right after a write can return stale data (replica lag).
 
 ### 4. Listener methods — one tx per message
 
@@ -102,7 +102,7 @@ Set to **p99 query time × 2**. Expiry throws `TransactionTimedOutException` (Ru
 
 - `@Transactional` on `private` or `final` methods — proxy cannot intercept; silently no-ops with Spring AOP.
 - Repository interface methods — Spring Data already wraps each in a tx; double-wrapping is harmless but misleading.
-- Huge batch operations — one tx per 1k rows, not one tx for the whole table; use `REQUIRES_NEW` in a loop **sparingly** (pool exhaustion risk above ~10 concurrent callers).
+- Huge batch operations — one tx per ~1k-row chunk, not one tx for the whole table: a non-transactional loop calls a `REQUIRED` method on a separate bean (or a `TransactionTemplate`) once per chunk. Not `REQUIRES_NEW` in a loop (see the table).
 
 ## Quick-reference snippet
 
@@ -124,4 +124,4 @@ public class OrderService {
 
 ## References
 
-- See `claudehut:implement` skill for outbox + saga patterns.
+- See `claudehut:implement` skill for the outbox pattern.
