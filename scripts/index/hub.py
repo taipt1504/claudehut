@@ -647,6 +647,7 @@ def join(links, aliases):
         for cns in links[s]["kafka"]["consumes"]:
             t = cns["topic"]
             owner = aliases["topic_owner"].get(t)
+            owner = names.get(owner, owner)
             cev = [ev(s, a) for a in cns["at"]]
             if owner:
                 add(owner, s, "kafka", t, cev, "high")
@@ -708,6 +709,7 @@ def join(links, aliases):
         if len(by) < 2:
             continue
         owner = aliases["db_owner"].get(name)
+        owner = names.get(owner, owner)
         if not owner:
             mig = [s for s in by if links[s].get("has_migrations")]
             owner = mig[0] if len(mig) == 1 else None
@@ -865,6 +867,45 @@ def ensure_hub(h):
         write_atomic(gi, have + ("" if not have or have.endswith("\n") else "\n") + "\n".join(miss) + "\n")
 
 
+def dedupe_services(hroot, services):
+    """One entry per repo. A repo hub-scanned under its dir name (ekyc-int-ms) and later init'd under its build name
+    (kyc-ms) is registered twice with one path; every edge then doubles. Keep the key the repo's plane names
+    (topology.json service, svc_name), else the entry with a plane, else the first key; a dropped entry only fills
+    fields the kept one lacks. The dir name stays an alias of the kept key (repo_dir). Returns the dropped keys."""
+    by_repo = {}
+    for k in sorted(services):
+        by_repo.setdefault(os.path.realpath(os.path.join(hroot, services[k].get("path") or k)), []).append(k)
+    dropped = []
+    for repo, keys in sorted(by_repo.items()):
+        if len(keys) < 2:
+            continue
+        name = svc_name(repo) if os.path.isdir(repo) else None
+        keep = name if name in keys else next((k for k in keys if services[k].get("has_plane")), keys[0])
+        for k in keys:
+            if k != keep:
+                for f, v in services.pop(k).items():
+                    if services[keep].get(f) is None:
+                        services[keep][f] = v
+                dropped.append(k)
+    return dropped
+
+
+def prune_links(h, services):
+    """links/ is hub-sync's own output: a file whose service is no longer registered (a deduped key, or one init
+    dropped from services.json) goes, so no reader sees the old name. A registered but missing repo keeps its file."""
+    d = os.path.join(h, "links")
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return
+    for n in names:
+        if n.endswith(".json") and n[:-5] not in services:
+            try:
+                os.remove(os.path.join(d, n))
+            except OSError:
+                pass
+
+
 def sync(h, add_repos=()):
     """Register add_repos, then rebuild every output from all registered services: a repo with a built plane is read
     from its index, any other is hub-scanned read-only (hub-scan and hub-sync differ only in intent). Returns a
@@ -884,6 +925,7 @@ def sync(h, add_repos=()):
             ent = dict(services.get(s) or {})
             ent["path"] = os.path.relpath(repo, hroot)
             services[s] = ent
+        dedupe_services(hroot, services)
         links, missing = {}, []
         for s in sorted(services):
             repo = os.path.normpath(os.path.join(hroot, services[s].get("path") or s))
@@ -902,6 +944,7 @@ def sync(h, add_repos=()):
                 ent["remote"] = lk_doc["remote"]
             else:
                 ent.setdefault("remote", None)
+        prune_links(h, services)
         aliases = load_aliases(h)
         edges, unresolved, sugg = join(links, aliases)
         write_aliases(h, sugg)

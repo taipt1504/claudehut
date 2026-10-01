@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.12.1 — 2026-10-01
+
+Fixes found while migrating the real ewallet workspace.
+
+- **One hub entry per repo.** `claudehut-migrate` hub-scans a repo without a plane under its dir name
+  (`ekyc-int-ms`). A later `claudehut-init --mode microservice --hub` registered it again under its build name
+  (`kyc-ms`), so `services.json` held two entries with one path and that repo's edges were doubled (158 instead
+  of 148). Init now drops the other entry with the same path. `hub-sync` and `hub-scan` collapse entries that
+  resolve to one repo: they keep the key the repo's `topology.json` names and remove `links/*.json` files of
+  unregistered services. Running `hub-sync` once repairs a hub that 0.12.0 left doubled.
+- `topic_owner` and `db_owner` in `aliases.json` accept a repo dir name for its service key, like `env` and
+  `lib_owner` already did.
+- **`claudehut-migrate --dry-run` on a migrated workspace reports 0 changes.** The simulated copy wrote its temp
+  path into generated files (the MEMORY.md plane line, the git-hook shim path), so about 50 identical files were
+  listed as modified. The plan now compares content with that prefix removed.
+
 ## 0.12.0 — 2026-10-01
 
 v0.12 stops forcing a seven-phase workflow on every request. Hooks only advise, a router picks the route, and a

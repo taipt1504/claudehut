@@ -455,7 +455,7 @@ jwrite() { # $1 file  $2 json — tmp + mv; 0644 like every other hub file (mkte
 # Hub skeleton (07 §4.3): <hub>/.claude/claudehut/hub/. Only this service's entry in services.json and absent
 # files are written; hub-sync owns the rest. Sets T_HUB_ABS, t_hlang (the hub's language), t_hnew (hub.json had none).
 hub_setup() {
-  local h="${1%/}" hd hj sj aj created=false rel remote l cur
+  local h="${1%/}" hd hj sj aj created=false rel remote l cur dup
   h="${h%/.claude/claudehut/hub}"   # the inner hub dir (init prints it for the dashboard) names the same hub
   if [ ! -e "$h" ]; then
     mkdir -p "$h" 2>/dev/null || { echo "  WARN: cannot create hub $h — mode stays mono" >&2; return 1; }
@@ -494,9 +494,14 @@ hub_setup() {
   remote="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#://[^/@]*@#://#')" || remote=""
   cur="$(jq -c 'if type=="object" then . else {} end' "$sj" 2>/dev/null)" || cur=""
   [ -n "$cur" ] || cur='{}'
+  # One entry per repo: another key with this path (hub-scan registered the repo under its dir name before init
+  # named it by its build name) is dropped, else hub-sync joins the repo twice. hub-sync prunes its links file.
+  dup="$(jq -r --arg s "$T_SVC" --arg p "$rel" 'to_entries[] | select(.key != $s and (.value|type) == "object"
+    and ((.value.path // "") | rtrimstr("/")) == $p) | .key' <<<"$cur" | tr '\n' ' ')"
   jwrite "$sj" "$(jq --arg s "$T_SVC" --arg p "$rel" --arg r "$remote" \
-    '.[$s] = ((.[$s] // {}) + {path:$p, has_plane:true} + (if $r != "" then {remote:$r} else {} end))' <<<"$cur")" \
-    && echo "  hub: registered $T_SVC in $sj (path $rel)"
+    'with_entries(select(.key == $s or (.value|type) != "object" or ((.value.path // "") | rtrimstr("/")) != $p))
+     | .[$s] = ((.[$s] // {}) + {path:$p, has_plane:true} + (if $r != "" then {remote:$r} else {} end))' <<<"$cur")" \
+    && echo "  hub: registered $T_SVC in $sj (path $rel)${dup:+ — dropped the old entry for the same repo: ${dup% }}"
   return 0
 }
 if ! $RULES_REFRESH || $REFRESH; then

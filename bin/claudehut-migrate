@@ -450,19 +450,25 @@ for p in ptrs:
 PY
 }
 snap() { # $1 dir, rest: members → "path<TAB>size<TAB>sha1" for every file/symlink under the members (.git/objects skipped)
-  python3 - "$@" <<'PY'
+  # Size and sha1 are of the content with the copy's prefix ($FS) removed: the simulated run writes absolute paths
+  # (MEMORY.md's plane line, the git-hook shim path) under $FS, and the real run writes the same bytes without it.
+  CHM_STRIP="${FS:-}" python3 - "$@" <<'PY'
 import hashlib, os, sys
 d = sys.argv[1]
+strip = os.environ.get("CHM_STRIP", "").encode()
 out = []
 def add(rel):
     p = os.path.join(d, rel)
     if os.path.islink(p):
-        t = os.readlink(p).encode(); out.append((rel, len(t), hashlib.sha1(t).hexdigest()))
+        t = os.readlink(p).encode()
     elif os.path.isfile(p):
-        h = hashlib.sha1()
         with open(p, "rb") as f:
-            for c in iter(lambda: f.read(1 << 20), b""): h.update(c)
-        out.append((rel, os.path.getsize(p), h.hexdigest()))
+            t = f.read()
+    else:
+        return
+    if strip:
+        t = t.replace(strip, b"")
+    out.append((rel, len(t), hashlib.sha1(t).hexdigest()))
 for m in sys.argv[2:]:
     top = os.path.join(d, m)
     if os.path.islink(top) or os.path.isfile(top):

@@ -24,6 +24,9 @@
 #   8. init-driven      claudehut-init with the inner hub dir (--hub, CLAUDEHUT_HUB) → one hub; rootProject.name ≠ repo
 #                       dir: evidence by repo dir, env joins the dir name, svc/links/find accept it; a yml-only
 #                       consumer topic joins (medium); cdc URL / shared group make no edge; hint-explore speaks vi
+#   9. scan then init   a repo hub-scanned by its dir name, then init'd by its build name → one service, one links
+#                       file, no doubled edge; hub-sync collapses the doubled services.json 0.12.0 left; an alias
+#                       naming the dir resolves to the build-name key
 #
 # Run: evals/regress/hub-tests.sh
 set -uo pipefail
@@ -329,6 +332,50 @@ chk "topology.hub=<inner dir>: Grep naming a service → vi line; a pattern nami
 chk "hint-explore: Grep under the sibling repo, or a pattern naming its repo dir → hint for pay-service" \
   '[[ "$H4" == *"pay-service là service khác"* ]] && [[ "$H5" == *"pay-service là service khác"* ]]'
 chk "hint-explore: a pattern naming only this repo (its dir wal-ms or its key wal-service) → silent" '[ -z "$H6" ]'
+
+# ---------------------------------------------------------------- 9. scan then init ------------------------------
+echo "== 9. one repo, two names: hub-scanned by dir (ekyc-int-ms), then init'd by build name (kyc-ms) =="
+WS="$W/ws3"; KH="$WS/knowledge/.claude/claudehut/hub"
+mk() { # $1 dir, $2 rootProject.name
+  mkdir -p "$WS/$1/src/main/resources" "$WS/$1/src/main/java/com/acme/k"
+  printf "rootProject.name = '%s'\n" "$2" > "$WS/$1/settings.gradle"
+  printf "plugins { id 'java' }\ndependencies { implementation 'org.springframework.kafka:spring-kafka' }\n" > "$WS/$1/build.gradle"
+}
+mk acc-ms acc-ms
+printf 'package com.acme.k;\n\nimport org.springframework.kafka.annotation.KafkaListener;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class KycListener {\n  @KafkaListener(topics = "kyc.done.v1")\n  public void on(String v) {}\n}\n' \
+  > "$WS/acc-ms/src/main/java/com/acme/k/KycListener.java"
+mk ekyc-int-ms kyc-ms
+printf 'clients:\n  acc:\n    base-url: ${ACC_SERVICE_URL:http://localhost:8082}\n' > "$WS/ekyc-int-ms/src/main/resources/application.yml"
+printf 'package com.acme.k;\n\nimport org.springframework.kafka.core.KafkaTemplate;\nimport org.springframework.stereotype.Component;\n\n@Component\npublic class KycProducer {\n  private final KafkaTemplate<String, String> kafkaTemplate;\n\n  public KycProducer(KafkaTemplate<String, String> kafkaTemplate) {\n    this.kafkaTemplate = kafkaTemplate;\n  }\n\n  public void publish(String v) {\n    kafkaTemplate.send("kyc.done.v1", v);\n  }\n}\n' \
+  > "$WS/ekyc-int-ms/src/main/java/com/acme/k/KycProducer.java"
+for r in acc-ms ekyc-int-ms; do
+  git -C "$WS/$r" init -q -b main; git -C "$WS/$r" config commit.gpgsign false; git -C "$WS/$r" add -A; git -C "$WS/$r" commit -qm base --no-verify
+done
+( cd "$WS/acc-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --hub ../knowledge --language en --git-hooks no >"$W/init-acc.log" 2>&1 )
+ix "$WS/knowledge" hub-scan --hub . --repo ../ekyc-int-ms   # what claudehut-migrate does for a repo without a plane
+SL="$KH/service-links.json"; n_scan="$(jq '.edges | length' "$SL")"
+chk "hub-scan keys the repo by its dir: ekyc-int-ms → acc-ms http + kafka" \
+  '[ "$n_scan" = 2 ] && [ "$(jq -c "[.edges[] | .from] | unique" "$SL")" = "[\"ekyc-int-ms\"]" ]'
+one_repo() { # $1 label — exactly one entry for ../ekyc-int-ms (kyc-ms), links/ = registered keys, no doubled edge
+  chk "$1: services.json holds one entry for ../ekyc-int-ms, keyed kyc-ms" \
+    '[ "$(jq -c "[to_entries[] | select(.value.path == \"../ekyc-int-ms\") | .key]" "$KH/services.json")" = "[\"kyc-ms\"]" ]'
+  chk "$1: links/ holds acc-ms.json and kyc-ms.json only" '[ "$(ls "$KH/links" | tr "\n" " ")" = "acc-ms.json kyc-ms.json " ]'
+  chk "$1: $n_scan edges, none doubled, none naming the dir key" \
+    '[ "$(jq ".edges | length" "$SL")" = "$n_scan" ] && jq -e "(.edges | map([.from,.to,.type,.via]) | unique | length) == (.edges | length) and all(.edges[]; .from != \"ekyc-int-ms\" and .to != \"ekyc-int-ms\")" "$SL" >/dev/null'
+}
+( cd "$WS/ekyc-int-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --mode microservice --hub ../knowledge --git-hooks no >"$W/init-kyc.log" 2>&1 )
+one_repo "init after hub-scan"
+chk "init logs the dropped entry" 'grep -q "registered kyc-ms .*dropped the old entry for the same repo: ekyc-int-ms" "$W/init-kyc.log"'
+# The state 0.12.0 left behind (init added kyc-ms beside ekyc-int-ms): hub-sync collapses it. A user alias that
+# still names the dir (topic_owner → ekyc-int-ms) resolves to kyc-ms, not to a ghost node.
+jq '. + {"ekyc-int-ms": {path: "../ekyc-int-ms", has_plane: false}}' "$KH/services.json" > "$W/s.json" && cp "$W/s.json" "$KH/services.json"
+cp "$KH/links/kyc-ms.json" "$KH/links/ekyc-int-ms.json"
+printf '{"env":{},"topic_owner":{"kyc.done.v1":"ekyc-int-ms"},"db_owner":{}}\n' > "$KH/aliases.json"
+ix "$WS/knowledge" hub-sync --hub .
+chk "hub-sync on a doubled services.json reports 2 services" '[[ "$OUT" == "hub: synced 2 services, $n_scan edges"* ]]'
+one_repo "hub-sync dedupe"
+chk "topic_owner naming the repo dir → kyc-ms → acc-ms kafka high" \
+  'jq -e "any(.edges[]; .from==\"kyc-ms\" and .to==\"acc-ms\" and .type==\"kafka\" and .confidence==\"high\")" "$SL" >/dev/null'
 
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__ 2>/dev/null)" ]'
 echo "hub-tests: $PASS passed, $FAIL failed"
