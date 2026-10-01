@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.12.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.12.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
 path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
@@ -493,22 +493,22 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1555 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1564 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 844  advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 854  advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 97 there (mutants + ewallet off), 127 alone with mutants and the va-ms part;
-                                  #       hub-tests counts 51 there (ewallet, dashboard and UA validator off), 62 alone with all three
+                                  #       hub-tests counts 61 there (ewallet, dashboard and UA validator off), 72 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
-evals/init-tests.sh               # 148  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    # 107  learnings merge, prune, injection, federation
+evals/init-tests.sh               # 149  claudehut-init: detection, plane generation, migrations
+evals/merge-learnings-tests.sh    # 104  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
 evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
-evals/migrate-tests.sh            #  38  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
+evals/migrate-tests.sh            #  39  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI
