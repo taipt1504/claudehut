@@ -713,6 +713,18 @@ jq -e '.mode=="microservice" and .hub=="../ws-knowledge"' "$WS/d-ms/.claude/clau
 D6="$(cd "$WS/c-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --detect 2>/dev/null)"
 echo "$D6" | jq -e 'has("hub") and .hub_language=="vi" and (.default_hub|type)=="string" and (.siblings_without_plane|type)=="array"' >/dev/null 2>&1 \
   && ok "--detect adds hub, hub_language, default_hub, siblings_without_plane (one JSON line)" || bad "--detect M6 keys missing: $D6"
+# hub-scan registered the repo under its dir (ekyc-int-ms); init names it by its build name (kyc-ms) and must not
+# leave the old entry beside it (ewallet: two entries with one path doubled 10 edges); hub-sync prunes its links file.
+mkdir -p "$WS/ekyc-int-ms"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$WS/ekyc-int-ms/"
+printf "rootProject.name = 'kyc-ms'\n" > "$WS/ekyc-int-ms/settings.gradle"; git -C "$WS/ekyc-int-ms" init -q -b main 2>/dev/null
+jq '. + {"ekyc-int-ms": {path: "../ekyc-int-ms", has_plane: false, remote: null}}' "$HD/services.json" > "$WS/s.json" && cp "$WS/s.json" "$HD/services.json"
+mkdir -p "$HD/links"; printf '{"svc":"ekyc-int-ms"}\n' > "$HD/links/ekyc-int-ms.json"
+( cd "$WS/ekyc-int-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --mode microservice --hub ../ws-knowledge >"$WS/init-kyc.log" 2>&1 )
+jq -e '[to_entries[] | select(.value.path == "../ekyc-int-ms") | .key] == ["kyc-ms"] and (."a-ms"|type)=="object" and (."d-ms"|type)=="object"' "$HD/services.json" >/dev/null 2>&1 \
+  && grep -q "registered kyc-ms .*dropped the old entry for the same repo: ekyc-int-ms" "$WS/init-kyc.log" \
+  && [ ! -e "$HD/links/ekyc-int-ms.json" ] && [ -f "$HD/links/kyc-ms.json" ] \
+  && ok "init after hub-scan: one services.json entry for ../ekyc-int-ms (kyc-ms), the dir-keyed one and its links file gone" \
+  || bad "init after hub-scan: $(jq -c 'with_entries(.value |= .path)' "$HD/services.json") links=$(ls "$HD/links" | tr '\n' ' ')"
 ( cd "$WS/a-ms" && CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --mode mono >/dev/null 2>&1 )
 jq -e '.mode=="mono" and .hub==null and .language=="vi"' "$TA" >/dev/null 2>&1 && ok "--mode mono drops the hub and keeps the hub's language (vi)" || bad "--mode mono wrong: $(cat "$TA")"
 rm -rf "$WS"
