@@ -91,6 +91,9 @@ jobs:
       - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
         run: bash evals/worktree-tests.sh
 
+      - name: migrate-tests.sh (claudehut-migrate on a generated v0.11 workspace)
+        run: bash evals/migrate-tests.sh
+
       # Must stay AFTER every suite above: it reads their $EVAL_COUNT_DIR/*.count files to check the
       # README's advertised numbers. Moved earlier it still passes, by falling back to re-running each
       # one — correct, but it is the whole cost W19 removed.

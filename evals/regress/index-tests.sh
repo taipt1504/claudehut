@@ -319,6 +319,16 @@ for mgr in hooksPath husky lefthook; do
   chk "AC-13: $mgr → only instructions printed, no hook written" \
     '[[ "$OUT" == *"nothing written"* ]] && [[ "$OUT" == *">>> claudehut-index >>>"* ]] && [ "$(ls -A "$R/.git/hooks" | grep -v "\.sample$" | sort)" = "$before" ] && [ ! -e "$R/.githooks" ]'
 done
+chk "AC-13: the manual block calls the stable shim, not the versioned plugin path" \
+  '[[ "$OUT" == *"$CLAUDE_PLUGIN_DATA/bin/claudehut-index"* ]] && [[ "$OUT" != *"'"'"'$CLI'"'"'"* ]]'
+# core.hooksPath spelling out the repo's own .git/hooks (absolute or relative) is the default location, not a manager
+for hp in abs rel; do
+  R="$W/r4-own-$hp"; build "$R"
+  if [ "$hp" = abs ]; then git -C "$R" config core.hooksPath "$(cd "$R" && pwd -P)/.git/hooks"; else git -C "$R" config core.hooksPath .git/hooks; fi
+  ix "$R" install-git-hooks
+  chk "core.hooksPath = own .git/hooks ($hp) → hooks installed there" \
+    '[[ "$OUT" == *"git hooks installed"* ]] && grep -q ">>> claudehut-index >>>" "$R/.git/hooks/post-merge"'
+done
 R="$W/r5"; build "$R"; printf '#!/usr/bin/env python3\nprint(1)\n' > "$R/.git/hooks/post-checkout"
 ix "$R" install-git-hooks
 chk "a non-shell hook is left alone and reported for manual edit" \

@@ -1,0 +1,56 @@
+== AC12 benchmark (report only; HOOK_BENCH_STRICT=1 gates it) ==
+  advise-write: p95 6.72 ms (p50 6.08), baseline p95 8.99 ms, wall ratio 0.77x
+      normalized p95 6.0 ms vs bound 50 ms (relaxed bound 56.19 ms; batches p95/bound 6.7/54 7.6/58 6.7/56)
+      CPU ratio hook/baseline 0.8x vs ceiling 2.0 (batches 0.79 0.80 0.80); off-CPU over baseline -0.91 ms vs ≤33.2; load 2.93
+  inject-phase: p95 11.96 ms (p50 10.07), baseline p95 8.84 ms, wall ratio 1.29x
+      normalized p95 10.5 ms vs bound 50 ms (relaxed bound 55.22 ms; batches p95/bound 11.1/54 12.0/64 12.2/55)
+      CPU ratio hook/baseline 1.31x vs ceiling 2.7 (batches 1.32 1.29 1.31); off-CPU over baseline 0.22 ms vs ≤33.0; load 2.93
+  inject-phase(100-entry store): p95 31.27 ms (p50 26.34), baseline p95 9.42 ms, wall ratio 3.05x
+      normalized p95 24.5 ms vs bound 50 ms (relaxed bound 58.87 ms; batches p95/bound 32.5/106 31.3/59 27.4/56)
+      CPU ratio hook/baseline 3.74x vs ceiling 6.4 (batches 3.68 3.74 3.75); off-CPU over baseline 2.76 ms vs ≤33.4; load 2.95
+  bootstrap: p95 15.91 ms (p50 12.21), baseline p95 10.77 ms, wall ratio 1.48x
+      normalized p95 12.0 ms vs bound 300 ms (relaxed bound 403.92 ms; batches p95/bound 15.9/404)
+      CPU ratio hook/baseline 1.75x vs ceiling 5.0 (batches 1.75); off-CPU over baseline -0.01 ms vs ≤33.3; load 2.86
+  inject-phase(va-ms learnings): p95 31.17 ms (p50 26.07), baseline p95 9.53 ms, wall ratio 3.25x
+      normalized p95 26.0 ms vs bound 50 ms (relaxed bound 59.54 ms; batches p95/bound 31.2/60 34.5/73 29.9/58)
+      CPU ratio hook/baseline 3.7x vs ceiling n/a (batches 3.70 3.69 3.70); off-CPU over baseline 2.73 ms vs ≤33.4; load 3.03
+  doclint-advise(non-artifact .md): p95 15.56 ms (p50 12.45), baseline p95 9.39 ms, wall ratio 1.47x
+      normalized p95 12.0 ms vs bound 150 ms (relaxed bound 176.1 ms; batches p95/bound 16.3/176 15.6/226 13.3/169)
+      CPU ratio hook/baseline 1.63x vs ceiling n/a (batches 1.62 1.66 1.63); off-CPU over baseline 0.17 ms vs ≤33.2; load 4.23
+  doclint-advise(plan.md): p95 96.28 ms (p50 83.47), baseline p95 10.03 ms, wall ratio 9.87x
+      normalized p95 79.5 ms vs bound 150 ms (relaxed bound 188.03 ms; batches p95/bound 96.3/190 90.6/172 114.2/188)
+      CPU ratio hook/baseline 11.09x vs ceiling n/a (batches 11.33 11.09 11.04); off-CPU over baseline 18.86 ms vs ≤33.6; load 4.23
+  inject-phase(1000-file index): p95 11.8 ms (p50 10.62), baseline p95 9.62 ms, wall ratio 1.31x
+      normalized p95 10.5 ms vs bound 50 ms (relaxed bound 60.1 ms; batches p95/bound 11.7/60 13.0/61 11.8/56)
+      CPU ratio hook/baseline 1.38x vs ceiling n/a (batches 1.39 1.38 1.38); off-CPU over baseline 0.6 ms vs ≤33.1; load 4.03
+  bootstrap(1000-file index): p95 18.82 ms (p50 17.09), baseline p95 8.7 ms, wall ratio 2.16x
+      normalized p95 18.0 ms vs bound 300 ms (relaxed bound 326.31 ms; batches p95/bound 18.8/326)
+      CPU ratio hook/baseline 2.41x vs ceiling n/a (batches 2.41); off-CPU over baseline 1.26 ms vs ≤33.2; load 4.03
+  hint-explore(sibling Read, 80 KB response): p95 24.5 ms (p50 22.15), baseline p95 13.54 ms, wall ratio 1.82x
+      normalized p95 14.4 ms vs bound 30 ms (relaxed bound 50.76 ms; batches p95/bound 24.9/51 24.2/56 24.5/51)
+      CPU ratio hook/baseline 2.01x vs ceiling n/a (batches 2.05 2.01 2.01); off-CPU over baseline 0.87 ms vs ≤36.8; load 3.71
+  hint-explore(in-project Read, 80 KB response): p95 14.33 ms (p50 12.41), baseline p95 13.1 ms, wall ratio 1.09x
+      normalized p95 8.7 ms vs bound 30 ms (relaxed bound 49.12 ms; batches p95/bound 13.6/48 14.3/49 17.8/58)
+      CPU ratio hook/baseline 1.06x vs ceiling n/a (batches 1.07 1.06 1.05); off-CPU over baseline 0.51 ms vs ≤36.5; load 3.49
+  hint-explore(Grep naming a sibling, 80 KB response): p95 22.04 ms (p50 20.12), baseline p95 13.34 ms, wall ratio 1.64x
+      normalized p95 13.2 ms vs bound 30 ms (relaxed bound 50.03 ms; batches p95/bound 22.0/54 21.9/50 22.2/50)
+      CPU ratio hook/baseline 1.78x vs ceiling n/a (batches 1.78 1.82 1.78); off-CPU over baseline 0.97 ms vs ≤36.9; load 3.49
+  hint-explore(Grep escaped regex naming none, 80 KB response): p95 17.67 ms (p50 15.1), baseline p95 12.69 ms, wall ratio 1.33x
+      normalized p95 10.5 ms vs bound 30 ms (relaxed bound 47.58 ms; batches p95/bound 21.2/46 17.7/50 16.9/48)
+      CPU ratio hook/baseline 1.38x vs ceiling n/a (batches 1.39 1.35 1.38); off-CPU over baseline 0.09 ms vs ≤36.4; load 3.49
+  (load = median 1-min load average over the batches, on 10 CPUs, Darwin; reference baseline p95 8.0 ms)
+  ok   - AC12: advise-write within its bound and ratio ceiling (normalized true, ratio true, wait true)
+  ok   - AC12: inject-phase within its bound and ratio ceiling (normalized true, ratio true, wait true)
+  ok   - AC12: inject-phase(100-entry store) within its bound and ratio ceiling (normalized true, ratio true, wait true)
+  ok   - AC12: bootstrap within its bound and ratio ceiling (normalized true, ratio true, wait true)
+  info - real va-ms learnings store: within bound and ceiling = true (machine-local, never gated; the 100-entry synthetic store is the gated probe)
+  info - doclint-advise(non-artifact .md): p95 15.56 ms, p50 12.45 ms, CPU ratio 1.63x (never gated, no ceiling calibrated)
+  info - doclint-advise(plan.md): p95 96.28 ms, p50 83.47 ms, CPU ratio 11.09x (never gated, no ceiling calibrated)
+  info - inject-phase(1000-file index): p95 11.8 ms, p50 10.62 ms, CPU ratio 1.38x (never gated, no ceiling calibrated)
+  info - bootstrap(1000-file index): p95 18.82 ms, p50 17.09 ms, CPU ratio 2.41x (never gated, no ceiling calibrated)
+  info - hint-explore(sibling Read, 80 KB response): p95 24.5 ms, p50 22.15 ms, CPU ratio 2.01x (never gated, no ceiling calibrated)
+  info - hint-explore(in-project Read, 80 KB response): p95 14.33 ms, p50 12.41 ms, CPU ratio 1.06x (never gated, no ceiling calibrated)
+  info - hint-explore(Grep naming a sibling, 80 KB response): p95 22.04 ms, p50 20.12 ms, CPU ratio 1.78x (never gated, no ceiling calibrated)
+  info - hint-explore(Grep escaped regex naming none, 80 KB response): p95 17.67 ms, p50 15.1 ms, CPU ratio 1.38x (never gated, no ceiling calibrated)
+
+HOOK-BENCH: 4 ok, 0 failed (report only)

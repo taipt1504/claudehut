@@ -7,7 +7,7 @@
 # plugin-owned files (regenerate with --refresh), and NEVER clobbers learnings.jsonl.
 #
 # Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect] [--language vi|en] [--mode mono|microservice]
-#                       [--git-hooks yes|no] [--hub DIR]
+#                       [--git-hooks yes|no] [--hub DIR] [--no-extras]
 #   PROJECT_DIR  default ${CLAUDE_PROJECT_DIR:-$PWD}
 #   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl)
 #   --detect     print detected stack values as JSON and exit (no writes) — used by the eval harness
@@ -18,12 +18,14 @@
 #   --hub DIR    hub root (07 §4.3); implies microservice. Created + `git init` (local, no remote) when absent;
 #                writes <hub>/.claude/claudehut/hub/{hub.json,aliases.json,services.json} (merge, never clobber)
 #   --git-hooks  yes → claudehut-index install-git-hooks (opt-in, 07 §7); no → uninstall-git-hooks
+#   --no-extras  never ADD .worktreeinclude or the extraKnownMarketplaces entry (existing ones are left as they are).
+#                Used by claudehut-migrate on repos the user already owns; the unattended --refresh-rules behaves the same
 set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
 REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; MIGRATE_MEM=false; AUDIT=false; PROJ=""; RETIRED_LIST=""
-LANG_SEL=""; MODE_SEL=""; HOOKS_SEL=""; HUB_SEL=""
+LANG_SEL=""; MODE_SEL=""; HOOKS_SEL=""; HUB_SEL=""; NO_EXTRAS=false
 # Valued flags take the next argument (or --flag=value); a bare value must never be read as PROJECT_DIR.
 _args=(); _want=""
 for a in "$@"; do
@@ -52,10 +54,14 @@ for a in ${_args[@]+"${_args[@]}"}; do case "$a" in
   # --audit reaches an already-stamped repo without needing a version change and writes nothing.
   --audit)   AUDIT=true ;;
   --detect)  DETECT=true ;;
+  --no-extras) NO_EXTRAS=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
 esac; done
 PROJ="${PROJ:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+# The unattended --refresh-rules (maintain.sh, every plugin version bump) never ADDS the extras either: a repo
+# migrated with --no-extras must not gain them on the next upgrade (10 §4, M7).
+$RULES_REFRESH && ! $REFRESH && NO_EXTRAS=true
 case "$HUB_SEL" in ''|/*) : ;; *) HUB_SEL="$PWD/$HUB_SEL" ;; esac   # a relative --hub is relative to the caller's cwd
 cd "$PROJ" 2>/dev/null || { echo "claudehut-init: cannot cd '$PROJ'" >&2; exit 1; }
 # A plane init generated, as opposed to a bare .claude/claudehut/ (hooks create state/ in it). Decided BEFORE
@@ -263,7 +269,9 @@ if $AUDIT; then
         case " $ACTIVE " in *" $one "*) hit=true; break ;; esac
       done
     fi
-    if $hit && [ ! -e "$dest" ]; then
+    if $hit && [ ! -e "$dest" ] && grep -qxF "$rel" "$A_CHD/rules-emitted.txt" 2>/dev/null; then
+      echo "  deleted: $rel (removed by hand, kept deleted; --refresh restores it)"
+    elif $hit && [ ! -e "$dest" ]; then
       echo "  missing: $rel${tag:+ (tag '$tag' IS active)}"; a_missing=$((a_missing+1))
     elif ! $hit && [ -e "$dest" ]; then
       echo "  stale:   $rel (stack tag '$tag' not active — remove with --retire-inactive)"; a_stale=$((a_stale+1))
@@ -340,6 +348,22 @@ fi
 $MIGRATE_MEM && { migrate_memory || exit 1; }
 mkdir -p "$RULES"
 
+# ---------------- rules a user deleted stay deleted ----------------
+# rules-emitted.txt lists every plugin-owned rule this plane has received. One that is listed but absent was removed
+# by hand, so neither a re-init nor the unattended --refresh-rules (maintain.sh, every version bump) brings it back;
+# an explicit --refresh restores it. A plane initialized before the list existed is seeded once: every version since
+# v0.2.0 emitted the two always-on rules, so a missing one there was deleted by hand (va-ms dropped vocabulary.md).
+# GONE is decided before any rule write; the record is rebuilt from disk after the loop (the loop is a subshell).
+EMITTED="$CHD/rules-emitted.txt"; GONE="|"; RETIRED_F="$(mktemp)"; trap 'rm -f "$RETIRED_F"' EXIT
+if ! $REFRESH && ! $RULES_ONLY; then
+  if [ -f "$EMITTED" ]; then
+    while IFS= read -r r; do [ -n "$r" ] && [ ! -e "$RULES/$r" ] && GONE="$GONE$r|"; done < "$EMITTED"
+  elif $INITIALIZED; then
+    for r in project-structure.md vocabulary.md; do [ -e "$RULES/$r" ] || GONE="$GONE$r|"; done
+  fi
+fi
+gone() { case "$GONE" in *"|$1|"*) echo "  keep deleted: $RULES/$1 (removed by hand; --refresh restores it)"; return 0 ;; esac; return 1; }
+
 # ---------------- rule tree (stack-gated) ----------------
 # Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three
 # shipped untagged — so every project received three contradictory rule files at once (9,385 B of guidance
@@ -347,8 +371,8 @@ mkdir -p "$RULES"
 # silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
 # always-on project-identity rules (substituted)
-render rules/project-structure.md "$RULES/project-structure.md"
-render rules/vocabulary.md        "$RULES/vocabulary.md"
+gone project-structure.md || render rules/project-structure.md "$RULES/project-structure.md"
+gone vocabulary.md        || render rules/vocabulary.md        "$RULES/vocabulary.md"
 # domain rules: copy untagged always; copy stack-tagged only when the tag is active
 find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
@@ -379,7 +403,7 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
           elif grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
             echo "  kept: $rel (no longer active, but holds learned pitfalls — remove by hand if unwanted)"
           elif [ -f "$dest" ] && [ ! -L "$dest" ]; then
-            rm -f "$dest" && echo "  retired: $rel (stack tag '$tag' not active)"
+            rm -f "$dest" && echo "$rel" >> "$RETIRED_F" && echo "  retired: $rel (stack tag '$tag' not active)"
           else
             # a symlink or a directory where a rule file was expected: never remove it blindly, and never
             # stay silent about it either — the `&&` above used to swallow the case entirely
@@ -389,6 +413,7 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
         continue ;;
     esac
   fi
+  gone "$rel" && continue
   if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
   mkdir -p "$(dirname "$dest")"
   # A refresh must NOT clobber learner-promoted pitfalls (07 §5.4) — carry the section over.
@@ -400,6 +425,14 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   fi
 done
 echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
+if ! $RULES_ONLY; then   # a bare plane gets nothing outside .claude/rules
+  { cat "$EMITTED" 2>/dev/null; printf '%s\n' "$GONE" | tr '|' '\n'
+    for r in project-structure.md vocabulary.md; do [ -e "$RULES/$r" ] && echo "$r"; done
+    find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do r="${f#$TPL/rules/}"; [ -e "$RULES/$r" ] && echo "$r"; done
+  } | sed '/^$/d' | { grep -vxF -f "$RETIRED_F" || :; } | LC_ALL=C sort -u > "$RETIRED_F.new"
+  cmp -s "$RETIRED_F.new" "$EMITTED" || { chmod 644 "$RETIRED_F.new"; mv -f "$RETIRED_F.new" "$EMITTED"; }
+  rm -f "$RETIRED_F.new"
+fi
 if $RULES_ONLY; then
   echo "claudehut-init: rules refreshed under $RULES/ (no plane generated here yet — run claudehut-init to create one)"
   exit 0
@@ -584,21 +617,24 @@ if command -v jq >/dev/null 2>&1; then
     # project that already has baseRef=head — i.e. every existing install and every re-run — so the
     # marketplace entry would reach nobody while a fresh-init assertion stayed green. Same failure the
     # ledger/ gitignore block below documents; asserted by init-tests' pre-seeded-baseRef upgrade case.
+    # --no-extras: the marketplace entry is never added, so an absent one does not force the merge either.
+    $NO_EXTRAS && [ -z "$have_mkt" ] && have_mkt="skip"
     if [ "$have_ref" = "head" ] && [ -n "$have_mkt" ]; then
       echo "  worktree.baseRef=head and marketplace $MKT_NAME already set in $SETTINGS"
     else
       tmp="$(mktemp)"
-      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
+      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" --argjson nx "$NO_EXTRAS" \
            '.worktree = (.worktree // {}) | .worktree.baseRef = "head"
             | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)
-            | .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
-            | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}})' \
+            | if $nx then . else
+                .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
+                | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}}) end' \
            "$SETTINGS" > "$tmp" 2>/dev/null; then
         # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
         # because worktrees then fork from the wrong ref with no sign anything went wrong.
         if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
           echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
-          MKT_ANNOUNCE=1
+          $NO_EXTRAS || MKT_ANNOUNCE=1
         else
           rm -f "$tmp" 2>/dev/null
           echo "  WARN: could not write $SETTINGS — worktree.baseRef NOT set; dependent phases will fork from origin" >&2
@@ -613,10 +649,10 @@ if command -v jq >/dev/null 2>&1; then
     # question the team is asking. ONLY the resource attribute is written here. OTEL_EXPORTER_OTLP_HEADERS
     # carries a bearer token and must never enter a committed settings file; the endpoint and headers stay
     # in the user's own environment.
-    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
-         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc},
-           extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}}' > "$SETTINGS" 2>/dev/null; then
-      MKT_ANNOUNCE=1
+    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" --argjson nx "$NO_EXTRAS" \
+         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc}}
+          + (if $nx then {} else {extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}} end)' > "$SETTINGS" 2>/dev/null; then
+      $NO_EXTRAS || MKT_ANNOUNCE=1
     else
       # Degraded path: jq itself failed. Keep the fallback to the one setting that breaks the fan-out if
       # it is missing; the marketplace entry is an update convenience and is not worth hand-rolled JSON.
@@ -642,7 +678,9 @@ fi
 # so we let the platform do it instead of hand-copying. Seed if absent (user-editable; never clobbered,
 # like CLAUDE.md). Only gitignored matches are copied; tracked files are never duplicated.
 WTI=".worktreeinclude"
-if [ ! -f "$WTI" ]; then
+if [ ! -f "$WTI" ] && $NO_EXTRAS; then
+  echo "  .worktreeinclude absent — not created (--no-extras)"
+elif [ ! -f "$WTI" ]; then
   { printf '# ClaudeHut: copied into agent worktrees (subagent `isolation: worktree`) so parallel\n'
     printf '# implementers see your gitignored local config. .gitignore syntax; ONLY gitignored\n'
     printf '# matching files are copied (tracked files are never duplicated). Edit freely.\n'

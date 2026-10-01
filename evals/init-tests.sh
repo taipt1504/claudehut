@@ -598,6 +598,32 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W5" --refresh-rules >/dev/null 2>&1
   || ok "MEM-1: --refresh-rules does not migrate (opt-in only)"
 rm -rf "$W4" "$W5"
 
+echo "== M7: --no-extras (claudehut-migrate) and the unattended --refresh-rules never ADD .worktreeinclude / marketplace =="
+WX="$(mktemp -d)/repo"; mkdir -p "$WX/src/main/java/com/x" "$WX/.claude"; touch "$WX/src/main/java/com/x/A.java"
+printf '{"worktree":{"baseRef":"head"},"permissions":{"allow":["Bash(ls:*)"]}}' > "$WX/.claude/settings.json"
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" --no-extras 2>&1)"
+[ ! -e "$WX/.worktreeinclude" ] && ! jq -e 'has("extraKnownMarketplaces")' "$WX/.claude/settings.json" >/dev/null 2>&1 \
+  && jq -e '.worktree.baseRef=="head" and (.permissions.allow|length==1)' "$WX/.claude/settings.json" >/dev/null 2>&1 \
+  && ok "--no-extras: no .worktreeinclude, no extraKnownMarketplaces; settings otherwise kept" \
+  || bad "--no-extras added an extra: wti=$([ -e "$WX/.worktreeinclude" ] && echo y) settings=$(cat "$WX/.claude/settings.json")"
+case "$out" in *"registered marketplace"*) bad "--no-extras still announces a marketplace registration" ;; *) ok "--no-extras: no marketplace announcement" ;; esac
+# maintain.sh runs --refresh-rules unattended on every version bump: it must not add them afterwards either.
+printf '0.0.1' > "$WX/.claude/claudehut/.plugin-version"
+s1="$(cksum < "$WX/.claude/settings.json")"; c1="$(cksum < "$WX/CLAUDE.md")"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" --refresh-rules >/dev/null 2>&1
+[ ! -e "$WX/.worktreeinclude" ] && [ "$s1" = "$(cksum < "$WX/.claude/settings.json")" ] && [ "$c1" = "$(cksum < "$WX/CLAUDE.md")" ] \
+  && ok "--refresh-rules on a --no-extras plane: settings.json and CLAUDE.md byte-identical, no .worktreeinclude" \
+  || bad "--refresh-rules re-added an extra on a --no-extras plane: $(cat "$WX/.claude/settings.json")"
+# Present extras are left exactly as they are.
+printf 'mine\n' > "$WX/.worktreeinclude"
+printf '{"worktree":{"baseRef":"head"},"extraKnownMarketplaces":{"claudehut-marketplace":{"source":{"source":"github","repo":"myfork/claudehut"}}}}' > "$WX/.claude/settings.json"
+s2="$(cksum < "$WX/.claude/settings.json")"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WX" --no-extras >/dev/null 2>&1
+[ "$(cat "$WX/.worktreeinclude")" = mine ] && [ "$s2" = "$(cksum < "$WX/.claude/settings.json")" ] \
+  && ok "--no-extras keeps an existing .worktreeinclude and marketplace entry byte-identical" \
+  || bad "--no-extras changed existing extras: $(cat "$WX/.claude/settings.json")"
+rm -rf "$WX"
+
 echo "== M5: topology.json (language / mode) and bare-plane --refresh-rules =="
 W6="$(mktemp -d)/work"; mkdir -p "$W6"; cp -R "$ROOT/evals/tasks/clean-first-run/repo/." "$W6/"
 T6="$W6/.claude/claudehut/topology.json"
@@ -628,6 +654,31 @@ CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W7" --refresh-rules >/dev/null 2>&1
   && ok "--refresh-rules on a bare plane writes only .claude/rules (no CLAUDE.md, .gitignore, settings, .worktreeinclude, topology, MEMORY.md)" \
   || bad "--refresh-rules on a bare plane wrote outside .claude/rules: $(ls -A "$W7" "$W7/.claude" "$W7/.claude/claudehut" | tr '\n' ' ')"
 rm -rf "$W7"
+
+echo "== rules deleted by hand stay deleted (M7 rehearsal: va-ms dropped vocabulary.md, the apply brought it back) =="
+W8="$(run_init "$ROOT/evals/tasks/_fixtures/servlet-jpa")"; E8="$W8/.claude/claudehut/rules-emitted.txt"
+DR="$(cd "$W8/.claude/rules" && find . -mindepth 2 -name '*.md' | head -1 | sed 's#^\./##')"
+grep -qx vocabulary.md "$E8" 2>/dev/null && grep -qx project-structure.md "$E8" && [ -n "$DR" ] && grep -qxF "$DR" "$E8" \
+  && ok "init records every plugin-owned rule it emitted in rules-emitted.txt" || bad "rules-emitted.txt incomplete: $(tr '\n' ' ' < "$E8" 2>/dev/null)"
+rm -f "$W8/.claude/rules/vocabulary.md" "$W8/.claude/rules/$DR"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" >/dev/null 2>&1
+printf '0.0.1' > "$W8/.claude/claudehut/.plugin-version"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" --refresh-rules >/dev/null 2>&1
+AU8="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" --audit 2>/dev/null)"
+[ ! -e "$W8/.claude/rules/vocabulary.md" ] && [ ! -e "$W8/.claude/rules/$DR" ] && grep -qx vocabulary.md "$E8" \
+  && grep -q "deleted: $DR" <<<"$AU8" && grep -q ' 0 missing' <<<"$AU8" \
+  && ok "re-init and the version-bump --refresh-rules leave a deleted rule deleted; --audit reports it as deleted, not missing" \
+  || bad "deleted rule came back or is reported missing: vocab=$([ -e "$W8/.claude/rules/vocabulary.md" ] && echo back) $DR=$([ -e "$W8/.claude/rules/$DR" ] && echo back) / $(grep -E 'summary|deleted' <<<"$AU8")"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" --refresh >/dev/null 2>&1
+[ -f "$W8/.claude/rules/vocabulary.md" ] && [ -f "$W8/.claude/rules/$DR" ] && ok "an explicit --refresh restores the deleted rules" || bad "--refresh did not restore the deleted rules"
+# A plane initialized before rules-emitted.txt existed: a missing always-on rule (emitted by every version since
+# v0.2.0) was deleted by hand — the seed keeps it deleted; a domain rule absent there is still emitted.
+rm -f "$E8" "$W8/.claude/rules/vocabulary.md" "$W8/.claude/rules/$DR"
+CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$W8" --refresh-rules >/dev/null 2>&1
+[ ! -e "$W8/.claude/rules/vocabulary.md" ] && [ -f "$W8/.claude/rules/$DR" ] && grep -qx vocabulary.md "$E8" \
+  && ok "legacy plane (no record): a missing always-on rule is seeded as deleted; a missing domain rule is emitted" \
+  || bad "legacy seed wrong: vocab=$([ -e "$W8/.claude/rules/vocabulary.md" ] && echo present) $DR=$([ -e "$W8/.claude/rules/$DR" ] && echo present || echo absent)"
+rm -rf "$W8"
 
 echo "== M6: --hub / --mode microservice, hub skeleton, language inherit/override (07 §4, AC-15) =="
 WS="$(mktemp -d)"; WS="$(cd "$WS" && pwd -P)"

@@ -4,6 +4,63 @@ Measured against the documented objectives (00-overview goals + 6 pillars + 01 w
 Every row is a real measurement, `[not run]`, or `[uncertain]`. Tiers: **T0** deterministic gate unit-tests ·
 **T1** static/structural + ranker + runtime-load · **T2** live agentic (multi-trial).
 
+## v0.12.0 (M7): the M0 baseline re-run on v0.12
+
+Measured 2026-10-01 on plugin 0.12.0 (branch `feat/v0.12-m7`). The full table, sources and files are in
+[`results/v012/README.md`](results/v012/README.md); the v0.11 baseline is in
+[`results/baseline-v011/README.md`](results/baseline-v011/README.md). Every command ran read-only against the
+ewallet workspace.
+
+| Metric | v0.11 | v0.12 | Target | Met? |
+|---|---|---|---|---|
+| Router, 22 labelled prompts, sonnet, 1 trial | 10/22; direct/light→full 6; 1 skip-workflow violation | 18/22; full→direct 0; direct/light→full 0; 0 violations | full→direct 0; fewer escalations than v0.11 | yes |
+| Hook decisions / errors | ~8 denies; 356 hook errors | 0 `decision`/`permissionDecision`/`updatedInput`; every output `jq -s 'length<=1'` | 0 | yes |
+| Stop hook | 292 blocks | none; 13 handlers / 16 entries | 0 | yes |
+| SessionStart | median 8,999 B | worst 3,702 B; digest 2,400 B; index card 413 B | ≤4,000 / ≤2,500 / ≤500 B | yes |
+| UserPromptSubmit on machine turns | 51% of ~1.15 MB | 0 B on every fixture | empty | yes |
+| Hook latency (benchmark, load 2.9–4.2) | bootstrap 1–5 s | bootstrap p95 15.9 ms; inject-phase 12.0 ms; hint-explore ≤24.5 ms | ≤50 ms; bootstrap ≤300 ms | yes (report only) |
+| MEMORY.md after migration | party-ms 105,333 B | party-ms 1,380 B; largest 3,312 B | ≤8,192 B | yes (dry-run on the real tree) |
+| Empty learnings | 40 | 40 moved to `learnings.rejected.jsonl`, 0 left | 0 | yes (dry-run) |
+| Index paths | reuse-index 24/43 | va-ms 149/149 pass `test -f` | 100% | yes |
+| Review fan-out | 28/52 waves ≥4 agents | replay 22.7% (22 tasks); projected 21.2–32.7% on the 52-wave frame | ≤25% | not proven |
+| Review recall | — | lane or reviewer floor 73.6% of 72 MED+; 19/19 escalate-only findings have a fixture | 100% incl. escalate | conditional (100% by construction) |
+
+### Post-release, not claimed here
+
+These need real v0.12 sessions:
+
+- Explorer calls and cross-service reads (07 AC-14).
+- The language line reaching dispatched agents (04 AC15).
+- Review fan-out and cost on real waves; the ≤25% target is only projected so far.
+- Artifact length on the first 20 v0.12 tasks.
+- Learning hits after 30 days.
+- The live route mix in real sessions.
+
+### Migration (M7)
+
+`bin/claudehut-migrate --dry-run` on the 13-service workspace wrote nothing to it: checksums matched before and
+after, including `.git/index`, `.git/config` and `.git/hooks`. The plan is in
+[`results/v012/migrate-dry-run.txt`](results/v012/migrate-dry-run.txt).
+
+`--apply` was rehearsed on a clonefile copy:
+
+- The hub came out with 19 services and 147 edges.
+- A second apply changed nothing.
+- `--restore` returned every backed-up file of the 13 services and the root byte for byte.
+
+The dry-run found three defects, now fixed and tested:
+
+- `merge-learnings.sh` dropped a body stored under `summary` (aml-service).
+- It read a date-only `ts` as epoch, so prune would have deleted those entries. `--repair` now also gives these
+  hand-written entries an id, confidence 0.6 and hits 1.
+- `memory.py` wrote MEMORY.md with mode 0600.
+
+`claudehut-init --no-extras` (also applied to the unattended `--refresh-rules`) keeps `.worktreeinclude` and
+the marketplace entry out of repos that do not already have them.
+
+The legacy no-op verbs (`set-bypass`, `mark-skill`, `pause`, `rename`, `route`, plus `set-complexity`) are kept
+as deletion candidates for 0.13, because cached v0.11 skill text can still call them.
+
 ## Scorecard (interim — T0+T1 complete, T2 blocked)
 
 | Objective | Criterion | Result | Method · confidence |

@@ -203,6 +203,10 @@ def atomic_write(path, data):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(data)
+        try:  # mkstemp creates 0600: keep the file's own mode (0644 for a new one), as claudehut-migrate's restore expects
+            os.chmod(tmp, os.stat(path).st_mode & 0o7777 if os.path.exists(path) else 0o644)
+        except OSError:
+            pass
         os.replace(tmp, path)
     except Exception:
         try:

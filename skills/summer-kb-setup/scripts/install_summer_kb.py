@@ -197,6 +197,12 @@ def main():
     dest = os.path.join(service, '.claude', 'summer-kb')
     print(f"Dest:      {dest}")
 
+    # java-common-ms itself: the sibling source IS the destination. Copying onto itself raises SameFileError (and the
+    # scoped INDEX would overwrite the canonical one), so the KB home installs nothing.
+    if os.path.realpath(src) == os.path.realpath(dest):
+        print("\nThis service holds the canonical KB (source = destination). Nothing installed.")
+        return 0
+
     if args.dry_run:
         print("\n[dry-run] would write: " + ", ".join(included) + ".md + INDEX.md + USAGE.md + .claude/rules/summer-kb.md")
         return 0

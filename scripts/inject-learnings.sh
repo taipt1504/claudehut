@@ -69,8 +69,9 @@ trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
 # 07 §8.2 Fleet (M6): a microservice plane also reads its hub's fleet-learnings.jsonl — ONE ranking over local +
 # fleet, so --top is the combined cap. Fleet rows carry confidence x0.7 and the label [fleet]; their ids are
 # namespaced "fleet:F-####" so --exclude/--snapshot never collide with a local L-####. A fleet row whose sources
-# include this service (the lesson is already in the local store) or whose text equals a local learning is
-# dropped. The mode test is a bash string match, so a mono plane pays no extra fork.
+# name this service with an id the local store still holds (the lesson is already there) or whose text equals a
+# local learning is dropped; a source whose local row is gone (the workspace root after claudehut-migrate moved
+# its store to the hub) does not hide the row. The mode test is a bash string match, so a mono plane pays no extra fork.
 FLEETF=""; SELF=""
 TOPO="$PROJECT_DIR/.claude/claudehut/topology.json"
 if [ -f "$TOPO" ]; then
@@ -120,8 +121,10 @@ OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
          else . end]
     | ( if $fleetf == "" then .
         else ( [ .[] | select(._fleet | not) | (.learning // "") ] | map({(.): true}) | add // {} ) as $loc
+        | ( [ .[] | select(._fleet | not) | (.id // "") | tostring ] | map({(.): true}) | add // {} ) as $locid
         | map(select((._fleet | not)
-                     or ((any((.sources // [])[]; .service == $self) | not) and ($loc[(.learning // "")] | not))))
+                     or ((any((.sources // [])[]; .service == $self and $locid[(.id // "") | tostring]) | not)
+                         and ($loc[(.learning // "")] | not))))
         end )
     | ( ["the","and","for","fix","add","use","this","that","with","into","from","run","new","get","set","you","are","can","its","but"] ) as $stop
     | ( $filter | ascii_downcase | gsub("[^a-z0-9+ ]";" ") | split(" ")

@@ -869,9 +869,22 @@ def hook_block(hook, cmd):
     ]) + "\n"
 
 
+def own_hooks_path(repo, hp):
+    """True when core.hooksPath names the repo's own <git-common-dir>/hooks — the default location spelled out
+    (ewallet: party-ms, payment-gateway-ms, report-service-ms), which no hook manager owns."""
+    top = (git(repo, "rev-parse", "--show-toplevel") or "").strip() or repo
+    common = (git(repo, "rev-parse", "--git-common-dir") or "").strip()
+    if not common:
+        return False
+    hp = os.path.expanduser(hp)
+    hp = hp if os.path.isabs(hp) else os.path.join(top, hp)
+    common = common if os.path.isabs(common) else os.path.join(repo, common)
+    return os.path.realpath(hp) == os.path.realpath(os.path.join(common, "hooks"))
+
+
 def hook_manager(ctx):
     hp = git(ctx.repo, "config", "--get", "core.hooksPath")
-    if hp and hp.strip():
+    if hp and hp.strip() and not own_hooks_path(ctx.repo, hp.strip()):
         return "core.hooksPath=%s" % hp.strip()
     for f in (".husky", "lefthook.yml", ".lefthook.yml", "lefthook.yaml", ".lefthook.yaml"):
         if os.path.exists(os.path.join(ctx.repo, f)):
@@ -939,7 +952,7 @@ def cmd_install_hooks(ctx, opts):
     if not ctx.is_git:
         return out_line(opts, {"installed": False, "reason": "not a git repo"}, "index: not a git repo — no hooks installed")
     mgr = hook_manager(ctx)
-    cmd = os.path.abspath(cli_path()) if mgr else shim_cmd()
+    cmd = shim_cmd()   # the manual block too: a versioned plugin path dies on the next upgrade
     if mgr:
         blocks = "\n".join("## %s\n%s" % (h, hook_block(h, cmd)) for h in HOOKS)
         return out_line(opts, {"installed": False, "reason": mgr, "blocks": {h: hook_block(h, cmd) for h in HOOKS}},

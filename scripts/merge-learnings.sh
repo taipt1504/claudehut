@@ -122,13 +122,14 @@ CANDS='[]'; [ -n "$CAND" ] && [ -f "$CAND" ] && CANDS="$(jq -R 'fromjson? // emp
 
 # ── KEY NORMALIZATION + REPAIR (07 §8.2, D5): candidates that carried the body under `text` (or `lesson`) were
 #    stored with learning:"" — 40 empty entries across the real stores. The body is the first NON-empty of
-#    learning/text/lesson (jq `//` does not fall through on ""), trimmed. The same rule repairs the store: an
+#    learning/text/lesson/summary (jq `//` does not fall through on ""), trimmed. `summary`: aml-service's 7 hand-written
+#    v0.11 entries carry the body there, and the M7 migration dry-run would have moved all of them to rejected. The same rule repairs the store: an
 #    entry that is still empty after it moves to learnings.rejected.jsonl (append — never deleted), so the
 #    repair is idempotent. Runs on every merge; `--repair` runs it alone (no candidates needed).
 # shellcheck disable=SC2016
-JQ_BODY='def body: ([.learning, .text, .lesson] | map(select(type=="string") | sub("^\\s+"; "") | sub("\\s+$"; "")) | map(select(length > 0)) | first) // "";'
+JQ_BODY='def body: ([.learning, .text, .lesson, .summary] | map(select(type=="string") | sub("^\\s+"; "") | sub("\\s+$"; "")) | map(select(length > 0)) | first) // "";'
 REPAIRED_JSON="$(jq -c "$JQ_BODY"'
-  [ .[] | (body) as $b | if $b == "" then {bad: .} else {ok: (. + {learning: $b} | del(.text, .lesson))} end ]
+  [ .[] | (body) as $b | if $b == "" then {bad: .} else {ok: (. + {learning: $b} | del(.text, .lesson, .summary))} end ]
   | {ok: [ .[] | .ok // empty ], bad: [ .[] | .bad // empty ]}' <<<"$EXISTING" 2>/dev/null || echo '')"
 # Ids are never reused: a repaired (moved) entry keeps its id in learnings.rejected.jsonl, so the next id is
 # max+1 over the store AND that file, taken before the repair.
@@ -143,6 +144,21 @@ if [ -n "$REPAIRED_JSON" ]; then
       >> "$DIR/learnings.rejected.jsonl" 2>/dev/null || true
   fi
   EXISTING="$(jq -c '.ok' <<<"$REPAIRED_JSON")"
+fi
+# Hand-written v0.11 entries (aml-service) carry no id, confidence or hits and a date-only ts. Give them what a new
+# entry gets (id max+1, confidence 0.6, hits 1, ts at that day's midnight): without it they cannot be excluded or
+# stamped .applied, and PRUNE reads the missing confidence as 0 and retires them at 90 days. Idempotent.
+FILLED="$(jq -c --argjson maxid "${MAXID:-0}" '
+  def pad4: tostring | ("0000" + .)[-4:];
+  reduce .[] as $e ({n: $maxid, out: []};
+    ($e | if (.ts | type) == "string" and (.ts | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) then .ts += "T00:00:00Z" else . end
+        | if has("confidence") then . else .confidence = 0.6 end
+        | if has("hits") then . else .hits = 1 end) as $f
+    | if (($f.id // "") | tostring) == "" then .n += 1 | .out += [$f + {id: ("L-" + (.n | pad4))}]
+      else .out += [$f] end)
+  | {n, out}' <<<"$EXISTING" 2>/dev/null || echo '')"
+if jq -e '(.out | type) == "array"' <<<"$FILLED" >/dev/null 2>&1; then
+  EXISTING="$(jq -c '.out' <<<"$FILLED")"; MAXID="$(jq -r '.n' <<<"$FILLED")"
 fi
 
 # ── INGEST SANITIZATION (v0.9 Rec 1, audit SEC-1): candidate .learning/.evidence is derived from tool output
@@ -392,11 +408,12 @@ fi
 #    it goes DORMANT (untouched >180d — .ts is bumped on every merge/recurrence/apply, so dormant = it stopped
 #    resurfacing), so the store cannot grow without bound. Also RESET a promoted pitfall's recurrence after it
 #    stops recurring (untouched >60d) so it is no longer re-injected + 2.5x-boosted forever. A promoted+live
-#    entry is never retired.
+#    entry is never retired. A date-only .ts (aml-service's hand-written v0.11 entries: "2026-07-23") is read as that
+#    day's midnight; fromdateiso8601 rejects it, and the age used to fall back to the epoch — instant retirement.
 BEFORE="$(jq 'length' <<<"$ARR")"
 ARR="$(jq -c --argjson now "$NOW" '
   [ .[]
-    | ( ($now - ((.ts // "1970-01-01T00:00:00Z") | fromdateiso8601? // 0)) / 86400 ) as $age
+    | ( ($now - ((.ts // "1970-01-01T00:00:00Z") | tostring | (if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + "T00:00:00Z" else . end) | fromdateiso8601? // 0)) / 86400 ) as $age
     | (if ((.promoted // false) and ((.recurrence // 0) > 0) and ($age > 60)) then .recurrence = 0 else . end)
     | select(
         (((.promoted // false)) and (((.status // "") != "superseded")))
@@ -414,7 +431,7 @@ ARR="$(jq -c --argjson now "$NOW" --argjson cap 400 '
     ( [ .[] | select((.promoted // false)) ] ) as $keep
     | ( [ .[] | select((.promoted // false) | not)
           | . + { _r: ( (.confidence // 0.5) * (((.hits // 1) | if . < 1 then 1 else . end))
-                        / (1 + ((($now - ((.ts // "1970-01-01T00:00:00Z") | fromdateiso8601? // 0)) / 86400) / 30)) ) } ]
+                        / (1 + ((($now - ((.ts // "1970-01-01T00:00:00Z") | tostring | (if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + "T00:00:00Z" else . end) | fromdateiso8601? // 0)) / 86400) / 30)) ) } ]
         | sort_by(-._r) | .[0:(if ($cap - ($keep | length)) > 0 then ($cap - ($keep | length)) else 0 end)]
         | map(del(._r)) ) as $rest
     | $keep + $rest

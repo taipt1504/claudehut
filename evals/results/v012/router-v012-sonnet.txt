@@ -1,0 +1,47 @@
+== router-eval: digest skills/claudehut-workflow/references/digest.md · model sonnet · 22 cases ==
+  ok   rc-01 expected direct got direct
+        first action: none
+  ok   rc-02 expected direct got direct
+        first action: none
+  ok   rc-03 expected direct got direct
+        first action: claudehut-index find businessKey
+  ok   rc-04 expected direct got direct · skip-workflow: no start, no bypass, no ask
+        first action: Grep for the VA amount field in response models (e.g. pattern `BigDecimal.*amount` in `**/*.java`) to locate the VA response classes to change
+  ok   rc-05 expected direct got direct
+        first action: Grep pattern `ops-account\.required|OPS_ACCOUNT_REQUIRED` across the working directory, to find the enum and the message bundle where sibling error codes define
+  ok   rc-06 expected direct got direct
+        first action: claudehut-index find inquireByOrder
+  ok   rc-07 expected direct got direct
+        first action: Grep pattern `renew` across the working directory (to find the VaService.renew definition and all its callers before deleting it)
+  ok   rc-08 expected light got light
+        first action: claudehut start --route light --slug tcb-token-service-redis-cache --profile feature
+  ok   rc-09 expected light got light
+        first action: claudehut start --route light --slug fold-accents-vietnamese --profile feature
+  ok   rc-10 expected light got light
+        first action: claudehut start --route light --slug remove-observer-metrics --profile feature
+  ok   rc-11 expected light got light
+        first action: claudehut start --route light --slug refund-dispatch-outbox-publisher-deserialize-event --profile feature
+  ok   rc-12 expected light got light
+        first action: claudehut start --route light --slug fix-saga-tests --profile bugfix
+  MISS rc-13 expected light got direct
+        first action: Grep pattern "VaCommandConsumer|recordProcessed" in <tmp>
+  ok   rc-14 expected full got full
+        first action: start --route full --slug dynamic-va-view-add-columns --profile feature
+  ok   rc-15 expected full got full
+        first action: claudehut start --route full --slug settlement-cycle-per-merchant-enhance --profile feature
+  ok   rc-16 expected full got full
+        first action: claudehut start --route full --slug va-double-paid-refund-flow --profile feature
+  ok   rc-17 expected full got full
+        first action: claudehut start --route full --slug remove-optimistic-lock-version --profile migration
+  ok   rc-18 expected full got full
+        first action: claudehut start --route full --slug dynamic-va-enhancements --profile feature
+  MISS rc-19 expected full got light
+        first action: claudehut start --route light --slug add-vsic-category --profile feature
+  ok   rc-20 expected full got full
+        first action: claudehut start --route full --slug resolve-payment-method-from-channel-source --profile feature
+  MISS rc-21 expected ask got light
+        first action: claudehut start --route light --slug filter-transactions-by-ftid --profile feature
+  MISS rc-22 expected ask got full
+        first action: claudehut start --route full --slug tcb-token-service-clean-cache --profile feature
+  accuracy 18/22 · full->direct 0 (invariant: 0) · direct/light->full 0 · skip-workflow violations 0
+router rc=0

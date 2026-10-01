@@ -527,6 +527,16 @@ R2="$("$SH" --repair --ts 2026-09-30T01:00:00Z)"
   || bad "D5 repair: second --repair run changed state ($R2)"
 rm -rf "$T"
 
+# M7 (migration dry-run on aml-service): hand-written v0.11 entries keep the body under `summary`, with no id.
+new_proj; mkdir -p "$T/.claude/claudehut/state"
+printf '%s\n' '{"category":"pitfall","trigger":"summer-bom-bump|outbox_events","summary":"Summer BOM 0.3.14 needs an outbox_events.topic column; add an ALTER migration when bumping","promoted":false,"ts":"2026-06-01"}' > "$(store)"
+R="$("$SH" --repair --ts 2026-10-01T00:00:00Z)"
+[ "$(jq -r '.repaired' <<<"$R")" = 0 ] && jq -e '(.learning | startswith("Summer BOM 0.3.14")) and (has("summary") | not)' "$(store)" >/dev/null 2>&1 \
+  && jq -e '.id == "L-0001" and .confidence == 0.6 and .hits == 1 and .ts == "2026-06-01T00:00:00Z"' "$(store)" >/dev/null 2>&1 \
+  && ok "repair: a \`summary\`-keyed entry (aml-service v0.11 shape, 4 months old) is normalized, gets id/confidence/hits/ts, survives prune" \
+  || bad "repair: summary-keyed entry rejected or not normalized ($R)"
+rm -rf "$T"
+
 echo "== v0.12 M5: trigger normalization + fuzzy dedup (07 §8.2, D6 / AC-3) =="
 new_proj
 cat > "$T/cand.jsonl" <<'EOF'

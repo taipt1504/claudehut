@@ -1,28 +1,77 @@
 # ClaudeHut
 
-> **v0.11.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.12.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
-ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
-it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
-the model to remember:
+ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
+path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
+review, learn). Since v0.12 it no longer forces every request through all seven phases:
 
+- **Router.** Each request takes one of three routes. `direct` answers or makes a small change with no task.
+  `light` opens a task with a short `task.md`. `full` runs the phases with spec and plan approval. The rubric
+  is a 2,400 B digest injected at session start; saying "skip workflow" is honored for that request.
+- **Advisory hooks.** All 13 hook handlers only add context: no hook denies a tool call, blocks a turn from
+  ending or rewrites input. Task state is a per-task `task.json` (schema 2) written only by `claudehut-state`.
+- **Index and hub.** `claudehut-index` builds a deterministic index (components, HTTP/Kafka contracts, DB,
+  libraries) stamped with the indexed commit, and keeps it fresh after pull through optional git hooks. In a
+  microservice workspace, a knowledge hub repo links the services (`svc`, `links`, `find --svc`) and holds
+  fleet-wide learnings.
+- **Review from the diff.** `review-pack.sh` picks the review lanes (security, db, contract, tests) from the
+  changed paths and hunks; the reviewer always runs and escalates any lane that did not.
+- **Bounded artifacts and memory.** `doclint` checks spec/plan/brainstorm structure and word budgets (advisory)
+  at `set-spec`/`set-plan`; MEMORY.md has a generated part of at most 2 KB; artifacts follow the language you
+  choose at init (Tiếng Việt or English).
+
+`/claudehut:claudehut-init` sets a repo up once (stack detection, plane, rules, index). The design for v0.12
+lives in [`.claude/docs/v0.12/`](.claude/docs/v0.12/README.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Upgrading from v0.11
+
+What changes once the plugin is updated:
+
+- Nothing blocks any more: the write gate, the `Stop` completion gate, out-of-workflow denies and the
+  "Untriaged" notices are gone from the first session.
+- v0.11 task state (files without `schema: 2`) counts as no task. Unfinished tasks cannot be resumed; start a
+  new one with `claudehut-state start --route … --slug …` and link the old `tasks/NNNN-*` artifacts, which are
+  kept as reference.
+- `set-bypass`, `mark-skill`, `pause`, `rename` and `route` are accepted as no-ops with a notice;
+  `set-complexity` maps onto the route. `perf-reviewer` and `observability-reviewer` were folded into the db and
+  contract lanes; `db-reviewer`, `test-runner` and `reviewer` keep their names.
+- `.claude/rules/` refreshes itself when `.plugin-version` changes. The unattended refresh never adds
+  `.worktreeinclude` or the marketplace entry to a repo that does not have them.
+
+A microservice workspace migrates in one command. It backs every repo up first, and it never edits
+`.gitignore`, commits or pushes:
+
+```bash
+bin/claudehut-migrate --workspace ~/ws --hub ~/ws/<name>-knowledge --language vi --git-hooks safe --dry-run
+bin/claudehut-migrate --workspace ~/ws --hub ~/ws/<name>-knowledge --language vi --git-hooks safe --apply
+bin/claudehut-migrate --restore ~/ws/.claudehut-backup-<ts>     # puts every backed-up file back exactly
 ```
-            ┌────────────────────────────────────────────────────────────────────┐
-  init  →   │  Discover → Brainstorm → Spec → Plan → Implement → Review → Learn    │
-(pre-index) └────────────────────────────────────────────────────────────────────┘
-             reuse-first  ideation              test-first   evidence-first  reinforced
-```
 
-A **complexity triage** (Phase 0) routes each task: `trivial`/`small` tasks skip the deliberation phases
-(Brainstorm/Spec/Plan) through a **gate-verified fast lane** (≤2 files, no security/auth/migration paths —
-checked deterministically, not by model judgment); the safety rails (reuse-scan, test-first, Review) are
-never skipped in any tier.
+`--dry-run` runs the migration on a copy in a temp dir and prints, for each repo, the files it would create or
+modify (with byte sizes) and the backup it would take. `--apply` runs these steps for each repo that has
+`.claude/claudehut`:
 
-`/claudehut:claudehut-init` **pre-indexes** the codebase once (stack, structure, memory, rules) — indexing is a
-prerequisite, not a phase. After that, you describe a task and the workflow drives every phase
-automatically, gating progress so you can't skip reuse, skip tests, or claim "done" without a clean review.
+1. MEMORY.md is migrated (per-task blocks move to `MEMORY-history.md`).
+2. `merge-learnings.sh --repair` moves empty learnings to `learnings.rejected.jsonl`.
+3. The index is built.
+4. `claudehut-init --mode microservice --hub … --no-extras` runs, and the service inherits the hub language.
+5. Git hooks are installed only where no husky, lefthook or `core.hooksPath` manages them (a `core.hooksPath`
+   naming the repo's own `.git/hooks` counts as unmanaged). The hooks call a shim in the plugin's data dir
+   (`--plugin-data`, derived when run from the installed plugin), which every later index update re-points at
+   the current install, so a plugin upgrade does not leave them dead.
 
-The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md).
+Run it from the installed plugin, with every Claude session in the workspace closed. `--apply` refuses while a
+claudehut install that covers the workspace (user scope, or a project scope at or under it) is another version:
+an older plugin's hooks rewrite a migrated plane. Update those installs first (`claude plugin update`).
+A rule you deleted from `.claude/rules/` stays deleted (`rules-emitted.txt` records what init emitted); an
+explicit `claudehut-init --refresh` brings it back.
+
+After the repos, repos without a plane are hub-scanned read-only, and the workspace root's learnings move to
+the hub's `fleet-learnings.jsonl`. The old file is kept as `.migrated`, and the root `CLAUDE.md` then imports
+only `PROJECT.md` and the hub's `HUB.md`.
+
+For a single repo, `claudehut-init` (or the skill) is enough.
 
 ---
 
@@ -444,21 +493,22 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1505 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1555 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 841  advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 844  advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
-                                  #       index-tests counts 93 there (mutants + ewallet off), 117 alone with mutants, 122 with the va-ms part;
-                                  #       hub-tests counts 34 there (ewallet, dashboard and UA validator off), 45 alone with all three
+                                  #       index-tests counts 97 there (mutants + ewallet off), 127 alone with mutants and the va-ms part;
+                                  #       hub-tests counts 51 there (ewallet, dashboard and UA validator off), 62 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
-evals/init-tests.sh               # 140  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    # 106  learnings merge, prune, injection, federation
+evals/init-tests.sh               # 148  claudehut-init: detection, plane generation, migrations
+evals/merge-learnings-tests.sh    # 107  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
 evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
+evals/migrate-tests.sh            #  38  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI

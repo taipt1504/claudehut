@@ -1,0 +1,557 @@
+#!/usr/bin/env bash
+# claudehut-migrate — move a v0.11 microservice workspace to v0.12 (10-rollout-eval.md §4). Reuses the plugin CLIs:
+# claudehut-index (memory, update, install-git-hooks, hub-scan, hub-sync), merge-learnings.sh --repair, claudehut-init.
+#
+# Usage: claudehut-migrate --workspace DIR --hub DIR --language vi|en [--git-hooks safe|none] [--plugin-data DIR]
+#                          (--dry-run [--keep-temp] | --apply [--ignore-preflight] | --restore BACKUP_DIR)
+#   --workspace  directory whose direct children are the service repos (the root itself need not be a git repo)
+#   --hub        knowledge hub root (created with `git init`, no remote, when absent); backups go to <hub parent>
+#   --language   hub.json language; services inherit it (claudehut-init runs without --language)
+#   --git-hooks  safe → install the index refresh hooks where no husky / lefthook / core.hooksPath manages hooks (a
+#                hooksPath naming the repo's own .git/hooks is the default spelled out, so it counts as safe);
+#                none (default) → leave .git/hooks alone
+#   --plugin-data  the plugin's stable data dir: the hooks call the shim <dir>/bin/claudehut-index, which every later
+#                `claudehut-index update` (maintain.sh, each SessionStart) re-points at the current install, so a
+#                plugin upgrade never leaves dead hooks. Default: <config>/plugins/data/<plugin>-<marketplace> when run
+#                from an installed plugin (<config>/plugins/cache/<marketplace>/<plugin>/<version>); from a dev
+#                checkout without it the hooks call this checkout's CLI (warned)
+#   --dry-run    runs the whole migration on a copy in a temp dir and prints, per repo, the files it would create,
+#                modify or delete (with byte sizes) and the backups it would take. Writes nothing outside that temp dir
+#   --apply      backs every repo up first (<hub parent>/.claudehut-backup-<ts>/<repo>.tar.gz, tar listing verified
+#                before the first write), then migrates. Safe to re-run. Refused while a claudehut install covering
+#                the workspace (user scope, or a project scope at or under it, in <config>/plugins/
+#                installed_plugins.json) is another version: its hooks would rewrite the migrated planes.
+#                --ignore-preflight overrides. Close every Claude session in the workspace and pause IDE auto-fetch
+#                first
+#   --restore    puts back exactly what a backup holds (.claude/, CLAUDE.md, .gitignore, .worktreeinclude, .git/hooks
+#                of every repo in it); what is there now is moved to <backup>/.restore-<ts>/aside/, never deleted.
+#                File names come back byte-identical (bsdtar on macOS extracts NFC names as NFD; they are renamed
+#                back to the archive's bytes)
+#
+# Per service repo (a child with .claude/claudehut and a .git dir): backup → claudehut-index memory (MEMORY.md
+# migration) → merge-learnings --repair → claudehut-index update (--full when there is no index yet) →
+# claudehut-init --mode microservice --hub <hub> --no-extras → git hooks (safe only) → .gitignore patch printed when
+# the plane is ignored (.gitignore is never edited). Then the hub: hub-scan of git repos without a plane that carry a
+# build manifest, hub-sync. Then the workspace root plane: memory, repair, topology.json → hub, valid learnings moved
+# to <hub>/fleet-learnings.jsonl (old file renamed .migrated), CLAUDE.md @imports only PROJECT.md + the hub's HUB.md.
+# Never deletes tasks/, reuse-index.json or the root .understand-anything graph; never commits or pushes.
+set -uo pipefail
+export GIT_OPTIONAL_LOCKS=0   # a git read must never rewrite a repo's .git/index
+
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+INIT="$PLUGIN_ROOT/bin/claudehut-init"
+IDX="$PLUGIN_ROOT/bin/claudehut-index"
+MERGE="$PLUGIN_ROOT/scripts/merge-learnings.sh"
+MEMBERS=(.claude CLAUDE.md .gitignore .worktreeinclude .git/hooks)
+MARK="ClaudeHut: project-adaptive memory"
+
+die() { echo "claudehut-migrate: $*" >&2; exit 2; }
+WS=""; HUB=""; LANG_SEL=""; HOOKS=none; ACTION=""; RESTORE=""; KEEP=false; PDATA=""; NOPRE=false
+CFG="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --workspace) WS="${2:-}"; shift 2 ;;
+    --hub) HUB="${2:-}"; shift 2 ;;
+    --language) LANG_SEL="${2:-}"; shift 2 ;;
+    --git-hooks) HOOKS="${2:-}"; shift 2 ;;
+    --dry-run) ACTION=dry; shift ;;
+    --apply) ACTION=apply; shift ;;
+    --restore) ACTION=restore; RESTORE="${2:-}"; shift 2 ;;
+    --keep-temp) KEEP=true; shift ;;
+    --plugin-data) PDATA="${2:-}"; shift 2 ;;
+    --ignore-preflight) NOPRE=true; shift ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    *) die "unknown argument $1" ;;
+  esac
+done
+abspath() { case "$1" in /*) printf '%s\n' "${1%/}" ;; *) printf '%s\n' "$PWD/${1%/}" ;; esac; }
+
+# ------------------------------------------------------------------------------------------------ restore
+if [ "$ACTION" = restore ]; then
+  [ -n "$RESTORE" ] && [ -f "$RESTORE/manifest.tsv" ] || die "--restore needs a backup dir with manifest.tsv"
+  B="$(cd "$RESTORE" && pwd -P)"; TS="$(date -u +%Y%m%dT%H%M%SZ)"; R="$B/.restore-$TS"; rc=0
+  mkdir -p "$R/stage" "$R/aside" || die "cannot write $R"
+  # Stage every archive first: nothing in a repo moves until all of them extracted cleanly.
+  while IFS=$'\t' read -r kind name path tarf _; do
+    [ "$kind" = repo ] || continue
+    mkdir -p "$R/stage/$name" && tar -xpzf "$B/$tarf" -C "$R/stage/$name" || die "cannot extract $tarf — nothing restored"
+    # bsdtar (macOS) writes an NFC member name to disk as NFD; APFS keeps whichever bytes it is given. Rename every
+    # non-ASCII path component back to the archive's bytes, parents first (only those names are looked at).
+    python3 - "$B/$tarf" "$R/stage/$name" <<'PY' || die "cannot restore the file names of $tarf — nothing restored"
+import os, sys, tarfile, unicodedata
+tz, root = sys.argv[1], sys.argv[2]
+nfc = lambda x: unicodedata.normalize("NFC", x)
+with tarfile.open(tz, "r:gz") as t:
+    names = [n for n in t.getnames() if not n.isascii()]
+for n in sorted(names, key=lambda x: x.count("/")):
+    cur = root
+    for comp in os.path.normpath(n).split("/"):
+        if comp in ("", "."):
+            continue
+        try:
+            entries = os.listdir(cur)
+        except OSError:
+            break
+        if comp not in entries:
+            alt = [e for e in entries if nfc(e) == nfc(comp)]
+            if len(alt) != 1:
+                break
+            os.rename(os.path.join(cur, alt[0]), os.path.join(cur, comp))
+        cur = os.path.join(cur, comp)
+PY
+  done < "$B/manifest.tsv"
+  while IFS=$'\t' read -r kind name path tarf _; do
+    case "$kind" in
+      repo)
+        [ -d "$path" ] || { echo "  WARN: $path is gone — $name not restored" >&2; rc=1; continue; }
+        for m in "${MEMBERS[@]}"; do
+          if [ -e "$path/$m" ] || [ -L "$path/$m" ]; then
+            mkdir -p "$(dirname "$R/aside/$name/$m")" && mv "$path/$m" "$R/aside/$name/$m" || { echo "  WARN: cannot move $path/$m aside" >&2; rc=1; continue; }
+          fi
+          if [ -e "$R/stage/$name/$m" ] || [ -L "$R/stage/$name/$m" ]; then
+            mkdir -p "$(dirname "$path/$m")" && mv "$R/stage/$name/$m" "$path/$m" || { echo "  WARN: cannot restore $path/$m" >&2; rc=1; }
+          fi
+        done
+        echo "restored: $name ($path)" ;;
+      hub_created)
+        # The migration created this hub: move it aside so the workspace is as it was before.
+        if [ -d "$path" ]; then mv "$path" "$R/aside/_hub_$name" && echo "moved aside: hub $path (created by the migration)"; fi ;;
+    esac
+  done < "$B/manifest.tsv"
+  echo "claudehut-migrate: restore done; replaced files are in $R/aside"
+  exit $rc
+fi
+
+# ------------------------------------------------------------------------------------------------ arguments
+[ -n "$ACTION" ] || die "pick one of --dry-run, --apply, --restore BACKUP_DIR"
+[ -n "$WS" ] && [ -d "$WS" ] || die "--workspace must be an existing directory"
+[ -n "$HUB" ] || die "--hub DIR is required"
+case "$LANG_SEL" in vi|en) : ;; *) die "--language takes vi|en" ;; esac
+case "$HOOKS" in safe|none) : ;; *) die "--git-hooks takes safe|none" ;; esac
+command -v jq >/dev/null 2>&1 || die "jq is required"
+command -v python3 >/dev/null 2>&1 || die "python3 is required"
+WS="$(cd "$WS" && pwd -P)"; HUB="$(abspath "$HUB")"
+HUB="${HUB%/.claude/claudehut/hub}"
+[ -d "$(dirname "$HUB")" ] || die "the hub's parent $(dirname "$HUB") does not exist"
+HUB="$(cd "$(dirname "$HUB")" && pwd -P)/$(basename "$HUB")"
+[ "$HUB" != "$WS" ] || die "the hub must be its own directory, not the workspace root"
+# The git-hook shim's home: Claude Code's per-plugin data dir, kept across plugin updates (CLAUDE_PLUGIN_DATA).
+if [ -n "$PDATA" ]; then PDATA="$(abspath "$PDATA")"
+else
+  case "$PLUGIN_ROOT/" in
+    "$CFG"/plugins/cache/*/*/*/*)
+      _r="${PLUGIN_ROOT#"$CFG"/plugins/cache/}"; _m="${_r%%/*}"; _r="${_r#*/}"; _p="${_r%%/*}"
+      PDATA="$CFG/plugins/data/$(printf '%s@%s' "$_p" "$_m" | LC_ALL=C sed 's/[^A-Za-z0-9_-]/-/g')" ;;
+  esac
+fi
+PV="$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json" 2>/dev/null)" || PV=""
+
+preflight() { # prints what would fight the migration; returns 1 when a claudehut install covering WS is another version
+  local f="$CFG/plugins/installed_plugins.json" rows
+  case "$PLUGIN_ROOT/" in
+    "$CFG"/plugins/cache/*) : ;;
+    *) echo "  note: running from $PLUGIN_ROOT, not an installed plugin — the real apply runs the installed ${PV:-plugin}'s bin/claudehut-migrate" ;;
+  esac
+  echo "  note: close every Claude session in $WS and pause IDE auto-fetch for the run"
+  [ -f "$f" ] && [ -n "$PV" ] || return 0
+  rows="$(jq -r --arg ws "$WS" --arg pv "$PV" '(.plugins // {}) | to_entries[] | select(.key | startswith("claudehut@")) | .key as $k
+      | .value[]? | select(type == "object" and (.version // "") != $pv)
+      | select(.scope == "user" or ((.projectPath // "") as $p | $p == $ws or ($p | startswith($ws + "/"))))
+      | "  stale install: \($k) \(.version // "?") (\(.scope) scope\(if .projectPath then " " + .projectPath else "" end))"' "$f" 2>/dev/null)" || rows=""
+  [ -n "$rows" ] || return 0
+  printf '%s\n' "$rows"
+  echo "  → an older claudehut's hooks rewrite a migrated plane (.plugin-version, .claude/rules, forced-phase context)."
+  echo "    Publish $PV, run \`claude plugin update claudehut@<marketplace> --scope <scope>\` in each directory listed, then re-run."
+  return 1
+}
+
+relpath() { python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$2"; }
+manifest_of() { # $1 repo → "path<TAB>has build manifest" helper: does the repo carry a build manifest?
+  local d="$1" f
+  for f in pom.xml build.gradle build.gradle.kts settings.gradle settings.gradle.kts package.json; do
+    [ -f "$d/$f" ] && return 0
+  done
+  return 1
+}
+
+# Discovery (by path, never by content): the hub and backup dirs are never services or scan targets.
+discover() { # $1 workspace, $2 hub → sets SERVICES[], SCANS[], SKIPPED[]
+  local ws="$1" hub="$2" d n
+  SERVICES=(); SCANS=(); SKIPPED=()
+  for d in "$ws"/*/ "$ws"/.[!.]*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"; n="${d##*/}"
+    case "$n" in .claudehut-backup-*|.git|.claude|.understand-anything|.idea) continue ;; esac
+    [ "$(cd "$d" && pwd -P)" = "$hub" ] && continue
+    if [ -d "$d/.claude/claudehut" ]; then
+      if [ -d "$d/.git" ]; then SERVICES+=("$d")
+      else SKIPPED+=("$n: has a plane but no .git directory (not a repo, or a linked worktree) — skipped"); fi
+    elif [ -d "$d/.git" ] && manifest_of "$d"; then SCANS+=("$d")
+    fi
+  done
+}
+
+# Child env: pinned per call so nothing inherited from the caller's session (CLAUDE_PROJECT_DIR, a hub override, the
+# plugin data dir that holds the git-hook shim) steers a write to another plane.
+run_env() { # $1 project dir, rest: command
+  local p="$1"; shift
+  env -u CLAUDE_PLUGIN_DATA -u CLAUDEHUT_HUB -u CLAUDEHUT_FEDERATION_ROOT -u CLAUDE_ENV_FILE \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" CLAUDE_PROJECT_DIR="$p" ${MIG_TMPDIR:+TMPDIR="$MIG_TMPDIR"} \
+    ${MIG_DATA:+CLAUDE_PLUGIN_DATA="$MIG_DATA"} "$@"
+}
+log() { printf '%s\n' "$*"; [ -z "${LOG:-}" ] || printf '%s\n' "$*" >> "$LOG"; }
+indent() { sed 's/^/      /'; }
+
+realp() { python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"; }
+hook_manager() { # $1 repo → prints the reason hooks are managed elsewhere, or nothing
+  local r="$1" hp f top common abs
+  hp="$(git -C "$r" config --get core.hooksPath 2>/dev/null)" || hp=""
+  if [ -n "$hp" ]; then
+    # Same test as claudehut-index: a hooksPath naming the repo's own <git-common-dir>/hooks is the default location.
+    top="$(git -C "$r" rev-parse --show-toplevel 2>/dev/null)" || top="$r"
+    common="$(cd "$r" && git rev-parse --git-common-dir 2>/dev/null)" || common=".git"
+    case "$common" in /*) : ;; *) common="$r/$common" ;; esac
+    case "$hp" in "~/"*) abs="$HOME/${hp#\~/}" ;; /*) abs="$hp" ;; *) abs="$top/$hp" ;; esac
+    if [ "$(realp "$abs")" != "$(realp "$common/hooks")" ]; then
+      if [ -d "$abs" ]; then echo "core.hooksPath=$hp manages hooks"
+      else echo "core.hooksPath=$hp (that directory does not exist: git runs no hooks in this repo today)"; fi
+      return
+    fi
+  fi
+  for f in .husky lefthook.yml .lefthook.yml lefthook.yaml .lefthook.yaml; do
+    [ -e "$r/$f" ] && { echo "$f"; return; }
+  done
+}
+
+backup_entry() { # $1 name, $2 dir, $3 backup dir → tar + verified listing + manifest row
+  local name="$1" dir="$2" b="$3" present=() m want got
+  for m in "${MEMBERS[@]}"; do { [ -e "$dir/$m" ] || [ -L "$dir/$m" ]; } && present+=("$m"); done
+  if [ ${#present[@]} -eq 0 ]; then
+    tar -czf "$b/$name.tar.gz" -T /dev/null 2>/dev/null || return 1
+  else
+    tar -czf "$b/$name.tar.gz" -C "$dir" "${present[@]}" || return 1
+    # Verify: every path under the backed-up members is listed in the archive (names compared in NFC: APFS hands
+    # back decomposed Vietnamese file names, tar may list them composed).
+    python3 - "$dir" "$b/$name.tar.gz" "${present[@]}" <<'PY' || { echo "  backup listing mismatch for $name" >&2; return 1; }
+import os, sys, tarfile, unicodedata
+d, tz, members = sys.argv[1], sys.argv[2], sys.argv[3:]
+nfc = lambda x: unicodedata.normalize("NFC", os.path.normpath(x))
+want = set()
+for m in members:
+    want.add(nfc(m))
+    for r, ds, fs in os.walk(os.path.join(d, m)):
+        for x in ds + fs:
+            want.add(nfc(os.path.relpath(os.path.join(r, x), d)))
+with tarfile.open(tz, "r:gz") as t:
+    got = {nfc(n) for n in t.getnames()}
+miss = sorted(want - got)
+if miss:
+    sys.stderr.write("  not in the archive: %s\n" % ", ".join(miss[:5]))
+    sys.exit(1)
+PY
+  fi
+  printf 'repo\t%s\t%s\t%s\t%s\n' "$name" "$dir" "$name.tar.gz" "$(IFS=,; echo "${present[*]:-}")" >> "$b/manifest.tsv"
+  log "  backup: $b/$name.tar.gz ($(wc -c < "$b/$name.tar.gz" | tr -d ' ') B; ${present[*]:-nothing to keep})"
+}
+
+# Root learnings → <hub>/fleet-learnings.jsonl. Valid = learning ≥20 chars after trim, not superseded. Upsert by
+# provenance {service:<root>, id}, so a re-run (or a run after a crash) never duplicates a row. The provenance id is
+# "migrated:L-####": the emptied root store numbers new learnings from L-0001 again, and inject-learnings hides a
+# fleet row whose source id the local store holds — a plain L-0001 would hide the moved row behind an unrelated one.
+move_root_learnings() { # $1 root plane, $2 hub dir, $3 root service name
+  local p="$1" hd="$2" svc="$3" L="$1/learnings.jsonl" F="$2/fleet-learnings.jsonl" ex out n
+  [ -s "$L" ] || { log "  root learnings: none to move"; return 0; }
+  ex='[]'; [ -f "$F" ] && ex="$(jq -R 'fromjson? // empty' "$F" | jq -s '.')"
+  out="$(jq -R 'fromjson? // empty' "$L" | jq -s -c --argjson ex "$ex" --arg svc "$svc" '
+    def pad4: tostring | ("0000" + .)[-4:];
+    reduce (.[] | select(type=="object") | . as $e | ([.learning, .text, .lesson, .summary] | map(select(type=="string") | gsub("^\\s+|\\s+$";"")) | map(select(length > 0)) | first // "") as $l
+            | select(($l | length) >= 20 and ((.status // "") != "superseded")) | $e + {learning: $l}) as $e
+      ({f: $ex, n: ([$ex[] | (.id // "") | tostring | capture("F-(?<n>[0-9]+)")? | .n | tonumber] | max // 0), c: 0};
+       (if $e.id != null then "migrated:" + ($e.id | tostring) else null end) as $pid
+       | if any(.f[]; . as $r | any(($r.sources // [])[]; .service == $svc and ((.id != null and .id == $pid) or $r.learning == $e.learning))) then .
+       else .n += 1 | .c += 1
+         | .f += [{id: ("F-" + (.n | pad4)), ts: $e.ts, category: ($e.category // "note"), trigger: $e.trigger,
+                   learning: $e.learning, evidence: $e.evidence, confidence: ($e.confidence // 0.6),
+                   hits: ($e.hits // 1), scope: "fleet", sources: [{service: $svc, id: $pid}]}] end)')" \
+    || { log "  WARN: root learnings unreadable — left in place"; return 1; }
+  n="$(jq -r '.c' <<<"$out")"
+  jq -c '.f[]' <<<"$out" > "$F.tmp.$$" && mv -f "$F.tmp.$$" "$F" || { rm -f "$F.tmp.$$"; log "  WARN: cannot write $F"; return 1; }
+  # Keep the old store: appended to .migrated (a second run never clobbers the first), then emptied. The empty
+  # learnings.jsonl stays because inject-phase only injects (fleet rows too) when a local store exists.
+  cat "$L" >> "$L.migrated" && : > "$L" || { log "  WARN: cannot rename $L"; return 1; }
+  log "  root learnings: $n moved to $F; old store → $L.migrated"
+}
+
+root_claude_md() { # $1 root, $2 hub dir → CLAUDE.md @imports PROJECT.md + HUB.md; keeps the marker (init greps it)
+  local root="$1" rel new tmp
+  rel="$(relpath "$2" "$root")"
+  new="$(printf '<!-- %s (workspace root: PROJECT.md + the hub HUB.md only — 10 §4 step 6, D9) -->\n@.claude/claudehut/PROJECT.md\n@%s/HUB.md' "$MARK" "$rel")"
+  tmp="$(mktemp "$root/.claudehut-migrate.XXXXXX")" || return 1
+  if [ -f "$root/CLAUDE.md" ] && grep -q "$MARK" "$root/CLAUDE.md"; then
+    CHM_NEW="$new" CHM_MARK="$MARK" awk '
+      index($0, ENVIRON["CHM_MARK"]) && !done { print ENVIRON["CHM_NEW"]; skip=1; done=1; next }
+      skip && /^@\.claude\/claudehut\// { next }
+      skip && /^@.*\/HUB\.md$/ { next }
+      { skip=0; print }' "$root/CLAUDE.md" > "$tmp"
+  else
+    { [ -f "$root/CLAUDE.md" ] && cat "$root/CLAUDE.md"; printf '\n%s\n' "$new"; } > "$tmp"
+  fi
+  if cmp -s "$tmp" "$root/CLAUDE.md"; then rm -f "$tmp"; log "  root CLAUDE.md: already imports PROJECT.md + HUB.md"
+  else chmod 644 "$tmp"; mv -f "$tmp" "$root/CLAUDE.md" && log "  root CLAUDE.md: @imports PROJECT.md + $rel/HUB.md"; fi
+}
+
+# ------------------------------------------------------------------------------------------------ migrate
+# migrate_all WS HUB → runs every step against WS/HUB (the real tree for --apply, the copy for --dry-run).
+migrate_all() {
+  local ws="$1" hub="$2" ts b hd rc=0 s name out mgr P hj cur gi gsrc gln gpat
+  discover "$ws" "$hub"
+  ts="$(date -u +%Y%m%dT%H%M%SZ)"; b="$(dirname "$hub")/.claudehut-backup-$ts"
+  mkdir -p "$b" || { echo "cannot create $b" >&2; return 1; }
+  LOG="$b/migrate.log"; : > "$LOG"; : > "$b/manifest.tsv"
+  log "claudehut-migrate: workspace=$ws hub=$hub language=$LANG_SEL git-hooks=$HOOKS"
+  log "  services (${#SERVICES[@]}): $(for s in ${SERVICES[@]+"${SERVICES[@]}"}; do printf '%s ' "${s##*/}"; done)"
+  log "  hub-scan, no plane (${#SCANS[@]}): $(for s in ${SCANS[@]+"${SCANS[@]}"}; do printf '%s ' "${s##*/}"; done)"
+  for s in ${SKIPPED[@]+"${SKIPPED[@]}"}; do log "  skip: $s"; done
+  # 1. Backups — all of them, verified, before the first write.
+  log "== backups → $b"
+  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do backup_entry "${s##*/}" "$s" "$b" || { log "ABORT: backup of ${s##*/} failed — nothing was changed"; return 1; }; done
+  if [ -d "$ws/.claude/claudehut" ]; then backup_entry "_workspace-root" "$ws" "$b" || { log "ABORT: root backup failed"; return 1; }; fi
+  if [ -d "$hub" ]; then backup_entry "_hub" "$hub" "$b" || { log "ABORT: hub backup failed"; return 1; }
+  else printf 'hub_created\t%s\t%s\t\t\n' "${hub##*/}" "$hub" >> "$b/manifest.tsv"; fi
+  # 2. Hub first, so its language is set before any service init inherits it.
+  hd="$hub/.claude/claudehut/hub"
+  log "== hub $hub"
+  if [ ! -d "$hub" ]; then
+    mkdir -p "$hub" && git -C "$hub" init -q && log "  created $hub (git init, local only — no remote)" || { log "ABORT: cannot create hub"; return 1; }
+  fi
+  mkdir -p "$hd"; hj="$hd/hub.json"
+  cur="$(jq -c 'if type=="object" then . else {} end' "$hj" 2>/dev/null)" || cur=""; [ -n "$cur" ] || cur='{}'
+  if [ "$(jq -r '.language // ""' <<<"$cur")" != "$LANG_SEL" ] || [ "$(jq -r '.schema // ""' <<<"$cur")" != 1 ]; then
+    jq --arg l "$LANG_SEL" '. + {schema:1, language:$l}' <<<"$cur" > "$hj.tmp.$$" && chmod 644 "$hj.tmp.$$" && mv -f "$hj.tmp.$$" "$hj" \
+      && log "  wrote $hj (language $LANG_SEL)"
+  else log "  keep $hj (language $LANG_SEL)"; fi
+  # 3. Services.
+  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do
+    name="${s##*/}"; P="$s/.claude/claudehut"
+    log "== service $name"
+    out="$(run_env "$s" "$IDX" memory --plane "$P" 2>&1)"; log "  memory: $out"
+    out="$(cd "$s" && run_env "$s" bash "$MERGE" --repair 2>&1 | tail -1)"; log "  learnings --repair: $out"
+    if [ -f "$P/index/meta.json" ]; then out="$(cd "$s" && run_env "$s" "$IDX" update --plane "$P" 2>&1)"
+    else out="$(cd "$s" && run_env "$s" "$IDX" update --full --plane "$P" 2>&1)"; fi
+    log "  $out"
+    out="$(cd "$s" && run_env "$s" "$INIT" "$s" --mode microservice --hub "$hub" --no-extras 2>&1)"
+    printf '%s\n' "$out" >> "$LOG"
+    printf '%s\n' "$out" | grep -E '^  (wrote|created|topology|hub: registered|WARN|index: |  WARN)' | sed 's/^  /  init: /'
+    case "$out" in *"claudehut-init: done"*) : ;; *) log "  WARN: claudehut-init did not finish for $name"; rc=1 ;; esac
+    if [ "$HOOKS" = safe ]; then
+      mgr="$(hook_manager "$s")"
+      if [ -n "$mgr" ]; then log "  git hooks: skipped — $mgr; print the block to add by hand: ${PDATA:+CLAUDE_PLUGIN_DATA='$PDATA' }$IDX install-git-hooks --plane $P"
+      else
+        out="$(cd "$s" && run_env "$s" "$IDX" install-git-hooks --plane "$P" 2>&1)"
+        if [ -n "${MIG_DATA:-}" ]; then log "  $out (hooks call the shim $PDATA/bin/claudehut-index → $IDX)"
+        else log "  $out (hooks call $IDX)"
+          log "  WARN: no --plugin-data — these hooks stop once $PLUGIN_ROOT moves; re-run install-git-hooks from the installed plugin"
+        fi
+      fi
+    fi
+    # Appending the patch is not enough: a '!' line cannot re-include a path under an ignored directory ('.claude/')
+    # nor a file another rule names, so the matching rule (check-ignore -v: source:line:pattern) must go first.
+    # -q decides (-v also prints a matching '!' rule, i.e. a plane that is NOT ignored); -v only names the rule.
+    if git -C "$s" check-ignore -q .claude/claudehut/MEMORY.md 2>/dev/null; then
+      gi="$(git -C "$s" check-ignore -v .claude/claudehut/MEMORY.md 2>/dev/null | cut -f1)"
+      gsrc="${gi%%:*}"; gi="${gi#*:}"; gln="${gi%%:*}"; gpat="${gi#*:}"
+      log "  gitignore: plane ignored by $gsrc:$gln ($gpat) — .gitignore NOT edited; to share the plane, delete line $gln of $gsrc ('!' cannot re-include what it ignores), add the lines below, then re-run: git check-ignore -v .claude/claudehut/MEMORY.md"
+      log "      .claude/*  !.claude/claudehut/  !.claude/rules/  .claude/claudehut/state/  .claude/claudehut/ledger/  .claude/claudehut/index/  .claude/claudehut/tasks/"
+    fi
+  done
+  # 4. Hub: read-only scan of repos without a plane, then one sync over everything registered.
+  log "== hub-scan + hub-sync"
+  if [ ${#SCANS[@]} -gt 0 ]; then
+    local args=(); for s in ${SCANS[@]+"${SCANS[@]}"}; do args+=(--repo "$s"); done
+    out="$(cd "$hub" && run_env "$hub" "$IDX" hub-scan --hub "$hub" ${args[@]+"${args[@]}"} 2>&1)"; log "  hub-scan: $out"
+  fi
+  out="$(cd "$hub" && run_env "$hub" "$IDX" hub-sync --hub "$hub" 2>&1)"; log "  hub-sync: $out"
+  # 5. Workspace root plane (never claudehut-init here: it would register the root as a service).
+  if [ -d "$ws/.claude/claudehut" ]; then
+    P="$ws/.claude/claudehut"; log "== workspace root $ws"
+    if [ -f "$P/learnings.jsonl" ]; then out="$(cd "$ws" && run_env "$ws" bash "$MERGE" --repair 2>&1 | tail -1)"; log "  learnings --repair: $out"; fi
+    local topo="$P/topology.json" rel tnew
+    rel="$(relpath "$hub" "$ws")"
+    cur="$(jq -c 'if type=="object" then . else {} end' "$topo" 2>/dev/null)" || cur=""; [ -n "$cur" ] || cur='{}'
+    tnew="$(jq --arg svc "${ws##*/}" --arg hub "$rel" '{schema:1, mode:"microservice", service:(.service // $svc), hub:$hub}
+             + (if .language then {language} else {} end) + {shared:(.shared // false), git_hooks:(.git_hooks // false)}' <<<"$cur")"
+    if [ "$tnew" != "$(jq . "$topo" 2>/dev/null)" ]; then printf '%s\n' "$tnew" > "$topo" && log "  wrote $topo (mode microservice, hub $rel)"
+    else log "  keep $topo"; fi
+    move_root_learnings "$P" "$hd" "${ws##*/}" || rc=1
+    root_claude_md "$ws" "$hd" || rc=1
+    # Last, so the generated block sees the final topology and learnings (a re-run then leaves it byte-identical).
+    out="$(run_env "$ws" "$IDX" memory --plane "$P" 2>&1)"; log "  memory: $out"
+  fi
+  log "claudehut-migrate: done (rc=$rc). Backup + log: $b"
+  MIG_BACKUP="$b"
+  return $rc
+}
+
+# ------------------------------------------------------------------------------------------------ apply
+if [ "$ACTION" = apply ]; then
+  echo "claudehut-migrate: preflight"
+  if ! preflight; then
+    $NOPRE || die "refused: a claudehut install covering $WS is not $PV (see above; --ignore-preflight overrides)"
+    echo "  --ignore-preflight: continuing"
+  fi
+  MIG_DATA="$PDATA"
+  migrate_all "$WS" "$HUB"; rc=$?
+  echo "restore with: $0 --workspace $WS --hub $HUB --language $LANG_SEL --restore ${MIG_BACKUP:-<backup dir>}"
+  exit $rc
+fi
+
+# ------------------------------------------------------------------------------------------------ dry-run
+# The same migration on a copy: <tmp>/fs<absolute path> mirrors every path, so relative hub paths come out the same.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/claudehut-migrate.XXXXXX")" || die "cannot create a temp dir"
+TMP="$(cd "$TMP" && pwd -P)"
+$KEEP || trap 'rm -rf "$TMP"' EXIT
+FS="$TMP/fs"; MIG_TMPDIR="$TMP/tmp"; mkdir -p "$MIG_TMPDIR"
+SWS="$FS$WS"; SHUB="$FS$HUB"
+clone() { # $1 src $2 dst — clonefile (APFS) when available, else a plain copy
+  cp -cRp "$1" "$2" 2>/dev/null || cp -Rp "$1" "$2"
+}
+copy_repo() { # $1 src repo, $2 dst — .git, the files git sees (tracked + untracked, not ignored), the backup members
+  local src="$1" dst="$2" m
+  mkdir -p "$dst"
+  [ -d "$src/.git" ] && clone "$src/.git" "$dst/.git"
+  if [ -d "$src/.git" ]; then
+    ( cd "$src" && git ls-files -z -co --exclude-standard 2>/dev/null | tar --null -T - -cf - 2>/dev/null ) | ( cd "$dst" && tar -xpf - 2>/dev/null )
+  fi
+  # + the hook-manager markers even when untracked or ignored, so the copy takes the same hooks decision
+  for m in .claude CLAUDE.md .gitignore .worktreeinclude .husky lefthook.yml .lefthook.yml lefthook.yaml .lefthook.yaml; do
+    if [ -e "$src/$m" ]; then rm -rf "${dst:?}/$m"; clone "$src/$m" "$dst/$m"; fi
+  done
+  # The copy must never reach back into the source repo: an absolute core.hooksPath (install-git-hooks writes where
+  # it points) and linked-worktree pointers (.claude/worktrees/*/.git, .git/worktrees/*/gitdir) move to the copy.
+  local hp; hp="$(git -C "$dst" config --get core.hooksPath 2>/dev/null)" || hp=""
+  case "$hp" in "$src"|"$src"/*) git -C "$dst" config core.hooksPath "$dst${hp#"$src"}" ;; esac
+  python3 - "$src" "$dst" <<'PY'
+import glob, os, sys
+src, dst = sys.argv[1], sys.argv[2]
+ptrs = glob.glob(os.path.join(dst, ".git", "worktrees", "*", "gitdir"))
+for r, ds, fs in os.walk(os.path.join(dst, ".claude")):
+    if ".git" in fs:
+        ptrs.append(os.path.join(r, ".git"))
+    ds[:] = [d for d in ds if d != ".git"]
+for p in ptrs:
+    try:
+        t = open(p, encoding="utf-8").read()
+    except (OSError, UnicodeDecodeError):
+        continue
+    n = t.replace(src + "/", dst + "/")
+    if n != t:
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(n)
+PY
+}
+snap() { # $1 dir, rest: members → "path<TAB>size<TAB>sha1" for every file/symlink under the members (.git/objects skipped)
+  python3 - "$@" <<'PY'
+import hashlib, os, sys
+d = sys.argv[1]
+out = []
+def add(rel):
+    p = os.path.join(d, rel)
+    if os.path.islink(p):
+        t = os.readlink(p).encode(); out.append((rel, len(t), hashlib.sha1(t).hexdigest()))
+    elif os.path.isfile(p):
+        h = hashlib.sha1()
+        with open(p, "rb") as f:
+            for c in iter(lambda: f.read(1 << 20), b""): h.update(c)
+        out.append((rel, os.path.getsize(p), h.hexdigest()))
+for m in sys.argv[2:]:
+    top = os.path.join(d, m)
+    if os.path.islink(top) or os.path.isfile(top):
+        add(os.path.normpath(m)); continue
+    for r, dirs, files in os.walk(top):
+        rr = os.path.relpath(r, d)
+        dirs[:] = [x for x in dirs if not (x == "objects" and os.path.basename(r) == ".git")]
+        for x in files + [y for y in dirs if os.path.islink(os.path.join(r, y))]:
+            add(os.path.normpath(os.path.join(rr, x)))
+for rel, n, h in sorted(out):
+    print("%s\t%d\t%s" % (rel, n, h))
+PY
+}
+plan_diff() { # $1 before, $2 after → create/modify/delete lines; index/ collapsed into one line
+  python3 - "$1" "$2" <<'PY'
+import sys
+def load(p):
+    d = {}
+    for ln in open(p, encoding="utf-8", errors="replace"):
+        f, s, h = (ln.rstrip("\n").split("\t") + ["", ""])[:3]
+        if f: d[f] = (int(s or 0), h)
+    return d
+a, b = load(sys.argv[1]), load(sys.argv[2])
+agg = {}
+for f in sorted(set(a) | set(b)):
+    key = None
+    for pre in (".claude/claudehut/index/", ".claude/rules/", ".claude/claudehut/hub/links/", ".claude/claudehut/hub/.understand-anything/"):
+        if f.startswith(pre): key = pre
+    if f in a and f in b and a[f][1] == b[f][1]:
+        continue
+    op = "create" if f not in a else "delete" if f not in b else "modify"
+    if key:
+        n, sz = agg.get((key, op), (0, 0)); agg[(key, op)] = (n + 1, sz + (b.get(f) or a.get(f))[0]); continue
+    if op == "modify": print("    modify %s (%d → %d B)" % (f, a[f][0], b[f][0]))
+    elif op == "create": print("    create %s (%d B)" % (f, b[f][0]))
+    else: print("    delete %s (was %d B)" % (f, a[f][0]))
+for (k, op), (n, sz) in sorted(agg.items()):
+    print("    %s %s (%d files, %d B)" % (op, k, n, sz))
+PY
+}
+
+echo "claudehut-migrate --dry-run: copying the workspace into $TMP (nothing is written outside it)"
+echo "== preflight (--apply refuses on a stale install)"
+preflight || echo "  --apply would refuse until these installs are $PV (or with --ignore-preflight)"
+MIG_DATA="${PDATA:+$FS$PDATA}"
+discover "$WS" "$HUB"
+R_SERVICES=(${SERVICES[@]+"${SERVICES[@]}"})   # migrate_all re-discovers on the copy and overwrites SERVICES
+mkdir -p "$SWS"
+for s in ${SERVICES[@]+"${SERVICES[@]}"} ${SCANS[@]+"${SCANS[@]}"}; do copy_repo "$s" "$SWS/${s##*/}"; done
+for m in .claude CLAUDE.md .gitignore .worktreeinclude; do [ -e "$WS/$m" ] && clone "$WS/$m" "$SWS/$m"; done
+if [ -d "$HUB" ]; then mkdir -p "$(dirname "$SHUB")"; clone "$HUB" "$SHUB"; fi
+mkdir -p "$(dirname "$SHUB")"
+for s in ${SERVICES[@]+"${SERVICES[@]}"}; do snap "$SWS/${s##*/}" "${MEMBERS[@]}" > "$TMP/before.${s##*/}"; done
+snap "$SWS" .claude CLAUDE.md .gitignore .worktreeinclude > "$TMP/before._root"
+snap "$SHUB" . > "$TMP/before._hub" 2>/dev/null || : > "$TMP/before._hub"
+LOG=""; migrate_all "$SWS" "$SHUB" > "$TMP/run.out" 2>&1; mrc=$?
+echo
+echo "== plan (sizes measured on the copy; paths shown as they will be on disk)"
+sed "s#$FS##g" "$TMP/run.out" | grep -E '^(claudehut-migrate: workspace|  services|  hub-scan, no plane|  skip:|ABORT)' || :
+if grep -q '^ABORT' "$TMP/run.out"; then
+  sed "s#$FS##g" "$TMP/run.out" | grep -E 'not in the archive|mismatch' >&2 || :
+  echo "claudehut-migrate --dry-run: the simulated run aborted before any write — fix the cause above first."; exit 1
+fi
+for s in ${R_SERVICES[@]+"${R_SERVICES[@]}"}; do
+  n="${s##*/}"; snap "$SWS/$n" "${MEMBERS[@]}" > "$TMP/after.$n"
+  echo "-- $n ($s)"
+  echo "    backup → $(dirname "$HUB")/.claudehut-backup-<ts>/$n.tar.gz ($(cat "$(dirname "$SHUB")"/.claudehut-backup-*/"$n".tar.gz 2>/dev/null | wc -c | tr -d ' ') B)"
+  plan_diff "$TMP/before.$n" "$TMP/after.$n"
+  sed "s#$FS##g" "$TMP/run.out" | awk -v n="== service $n" '$0==n{on=1;next} /^== /{on=0} on' | grep -E 'git hooks|gitignore|WARN|^      \.claude' || :
+done
+if [ -d "$WS/.claude/claudehut" ]; then
+  snap "$SWS" .claude CLAUDE.md .gitignore .worktreeinclude > "$TMP/after._root"
+  echo "-- workspace root ($WS)"
+  echo "    backup → $(dirname "$HUB")/.claudehut-backup-<ts>/_workspace-root.tar.gz"
+  plan_diff "$TMP/before._root" "$TMP/after._root"
+fi
+if [ -n "$PDATA" ] && [ -f "$FS$PDATA/bin/claudehut-index" ]; then
+  echo "-- plugin data ($PDATA)"
+  echo "    write bin/claudehut-index (git-hook shim → $IDX; re-pointed by every later index update)"
+elif [ "$HOOKS" = safe ]; then
+  echo "-- git hooks call $IDX directly (no --plugin-data): they stop working once this path moves"
+fi
+tot="$(cat "$(dirname "$SHUB")"/.claudehut-backup-*/*.tar.gz 2>/dev/null | wc -c | tr -d ' ')"
+echo "-- backups: ${tot:-0} B in total; free on $(dirname "$HUB"): $(df -k "$(dirname "$HUB")" | awk 'NR==2{print $4*1024}') B"
+snap "$SHUB" . > "$TMP/after._hub"
+echo "-- hub ($HUB)$([ -d "$HUB" ] || echo ' — created: git init, no remote')"
+plan_diff "$TMP/before._hub" "$TMP/after._hub" | grep -v '\.git/' || :
+echo
+sed "s#$FS##g" "$TMP/run.out" | grep -E '^  (hub-scan|hub-sync):|WARN|ABORT' || :
+$KEEP && echo "temp copy kept: $TMP (full log: $TMP/run.out)"
+echo "claudehut-migrate --dry-run: done (simulated rc=$mrc). Nothing outside $TMP was written."
+exit $mrc

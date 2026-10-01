@@ -273,6 +273,7 @@ merge-learnings-tests.sh
 worktree-tests.sh
 artifact-oracle-tests.sh
 ranker-tests.sh
+migrate-tests.sh
 PAIRS
 # The TOTAL was unchecked, which is the same drift the per-suite rows guard against one level up: every
 # row could be individually correct while the headline number stayed at a figure from two releases ago.
