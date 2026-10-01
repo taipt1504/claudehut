@@ -4,7 +4,8 @@
 # so every step is idempotent and records its marker (.plugin-version) only after the step succeeded.
 #
 #   1. rules: re-emit .claude/rules when .plugin-version differs from the plugin; report drift as systemMessage
-#   2. Summer KB: zero-touch install for a Summer consumer, self-heal when the bundle's summerCommit moved
+#   2. Summer KB: zero-touch install for a Summer consumer; a stale stamp (summerCommit vs java-common-ms HEAD or the
+#      bundle, or a newer build file) starts a detached refresh
 #   3. sweep: session sidecars and v0.11 state files older than 7 days (never the current session's)
 #   4. hook-errors.log: keep the newest 32 KB once it passes 64 KB
 #   5. memory + index (07 §7, §8.1; initialized plane only): `claudehut-index memory` migrates a v0.11
@@ -37,25 +38,51 @@ if [ -n "$PV" ] && [ -x "$PLUGIN_ROOT/bin/claudehut-init" ] \
   esac
 fi
 
-# 2. Summer KB install / self-heal (initialized plane only)
-KB_META="$PROJECT_DIR/.claude/summer-kb/.summer-kb-meta.json"
+# 2. Summer KB install / self-heal (initialized plane only). First install (a Summer consumer without a KB) runs
+#    here. Staleness is a stamp comparison only: the KB's summerCommit vs the source's (sibling java-common-ms: its
+#    git HEAD; no sibling: the bundled snapshot), plus "a build file is newer than the stamp" (the Summer module set
+#    may have changed). A stale KB — or, in java-common-ms itself, a source stamp behind HEAD — is refreshed by a
+#    detached `install_summer_kb.py --if-stale` (an async hook is killed under -p).
+KB_DIR="$PROJECT_DIR/.claude/summer-kb"; KB_META="$KB_DIR/.summer-kb-meta.json"
 KB_INSTALL="$PLUGIN_ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
 KB_BUNDLE_META="$PLUGIN_ROOT/skills/summer-kb-setup/references/summer-kb/.bundle-meta.json"
 if hc_plane_initialized && command -v python3 >/dev/null 2>&1 && [ -f "$KB_INSTALL" ]; then
-  # -exec, not `| xargs`: a project path with a space must not split. Captured, not tested in a pipeline: with
-  # pipefail an early-exiting `head` would make a real match read as a miss.
-  kb_hit=""
-  [ -f "$KB_META" ] || kb_hit="$(find "$PROJECT_DIR" -maxdepth 3 -name '*.gradle*' -not -path '*/build/*' \
-      -exec grep -l 'io\.f8a\.summer:' {} + 2>/dev/null | head -1)" || kb_hit=""
-  if [ -n "$kb_hit" ]; then
-    python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || hc_log "summer-kb install failed"
+  kb_lib=""; kb_d="$PROJECT_DIR"
+  for _ in 1 2 3 4 5 6 7 8; do
+    [ -f "$kb_d/java-common-ms/.claude/summer-kb/INDEX.md" ] && { kb_lib="$kb_d/java-common-ms"; break; }
+    [ "$kb_d" = "${kb_d%/*}" ] || [ -z "${kb_d%/*}" ] && break
+    kb_d="${kb_d%/*}"
+  done
+  kb_src=""
+  if [ -n "$kb_lib" ]; then
+    kb_src="$(GIT_OPTIONAL_LOCKS=0 git -C "$kb_lib" rev-parse -q --verify HEAD 2>/dev/null)" || kb_src=""
+  elif [ -f "$KB_BUNDLE_META" ]; then
+    kb_src="$(jq -r '.summerCommit // empty' "$KB_BUNDLE_META" 2>/dev/null)" || kb_src=""
   fi
-  if [ -f "$KB_META" ] && [ -f "$KB_BUNDLE_META" ]; then
+  kb_stale=""
+  if [ -n "$kb_lib" ] && [ "$(cd "$kb_lib" 2>/dev/null && pwd -P)" = "$(cd "$PROJECT_DIR" 2>/dev/null && pwd -P)" ]; then
+    # The KB home: nothing to install, only its own stamp to keep in line with HEAD.
+    [ -n "$kb_src" ] && [ "$(jq -r '.summerCommit // empty' "$KB_META" 2>/dev/null)" != "$kb_src" ] && kb_stale=1
+  elif [ -f "$KB_META" ]; then
     inst="$(jq -r '.summerCommit // empty' "$KB_META" 2>/dev/null)" || inst=""
-    bund="$(jq -r '.summerCommit // empty' "$KB_BUNDLE_META" 2>/dev/null)" || bund=""
-    if [ -n "$inst" ] && [ -n "$bund" ] && [ "$inst" != "$bund" ]; then
-      python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || hc_log "summer-kb self-heal failed"
+    if [ -n "$kb_src" ] && [ "$inst" != "$kb_src" ]; then kb_stale=1
+    else
+      kb_new="$(find "$PROJECT_DIR" -maxdepth 3 \( -name '*.gradle' -o -name '*.gradle.kts' -o -name '*.toml' \) \
+          -not -path '*/build/*' -not -path '*/.claude/*' -newer "$KB_META" -print 2>/dev/null | head -1)" || kb_new=""
+      [ -n "$kb_new" ] && kb_stale=1
     fi
+  else
+    # -exec, not `| xargs`: a project path with a space must not split. Captured, not tested in a pipeline: with
+    # pipefail an early-exiting `head` would make a real match read as a miss.
+    kb_hit="$(find "$PROJECT_DIR" -maxdepth 3 -name '*.gradle*' -not -path '*/build/*' -not -path '*/.claude/*' \
+        -exec grep -l 'io\.f8a\.summer:' {} + 2>/dev/null | head -1)" || kb_hit=""
+    if [ -n "$kb_hit" ]; then
+      python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || hc_log "summer-kb install failed"
+    fi
+  fi
+  if [ -n "$kb_stale" ]; then
+    ( nohup python3 "$KB_INSTALL" "$PROJECT_DIR" --if-stale </dev/null >/dev/null 2>&1 & ) </dev/null >/dev/null 2>&1 \
+      || hc_log "summer-kb refresh could not start"
   fi
 fi
 

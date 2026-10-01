@@ -21,23 +21,29 @@ flowchart TB
     det --> any{"any summer-* dep?"}
     any -- "no" --> stop(["exit 1 — not a Summer consumer, write nothing"])
     any -- "yes" --> src{"sibling java-common-ms/.claude/summer-kb/ present?"}
-    src -- "yes" --> fresh["source = sibling (fresher)"]
+    src -- "yes" --> fresh["source = sibling, stamped with java-common-ms HEAD<br/>(its own .summer-kb-meta.json)"]
     src -- "no" --> bundled["source = bundled snapshot<br/>(references/summer-kb/, stamped summerCommit)"]
     fresh --> copy["copy the USED module docs + core<br/>→ &lt;service&gt;/.claude/summer-kb/"]
     bundled --> copy
-    copy --> gen["generate scoped INDEX.md + localize USAGE.md<br/>write .claude/rules/summer-kb.md (always-on pointer)"]
+    copy --> gen["generate scoped INDEX.md + localize USAGE.md<br/>create .claude/rules/summer-kb.md if missing (always-on pointer)"]
     gen --> stamp(["stamp .summer-kb-meta.json<br/>(source · summerCommit · modules · artifacts)"])
 ```
 
 ## What it does (one deterministic script)
-1. Detects `io.f8a.summer:summer-*` deps in the service (`*.gradle`, `*.gradle.kts`, `*.toml`, excluding `build/`).
-2. Maps them to module docs; **always includes `core`, `INDEX`, `USAGE`**.
-3. Resolves the source of truth: sibling **`java-common-ms/.claude/summer-kb/`** if present in the workspace
-   (fresher), else the **bundled snapshot** in this skill (`references/summer-kb/`, stamped with the Summer commit).
+1. Detects `io.f8a.summer:summer-*` deps in the service with the hub's own dependency parser (`*.gradle(.kts)`,
+   `gradle.properties`, `gradle/*.versions.toml`; comments ignored, a catalog entry counts only where a build file uses
+   it), so the KB's modules are exactly the service's `lib` edges in the hub.
+2. Maps them to module docs; **always includes `core`, `INDEX`, `USAGE`** (`vietqr.md` ships with `payment-sdk`;
+   `kafka-dlt-handling.md` with `summer-kafka-dlt-handling*`).
+3. Resolves the source of truth: sibling **`java-common-ms/.claude/summer-kb/`** if present in the workspace, else the
+   **bundled snapshot** in this skill (`references/summer-kb/`, stamped with the Summer commit). The sibling's
+   `summerCommit` is the java-common-ms **git HEAD**; its own `.summer-kb-meta.json` (role `source`: summerCommit +
+   per-module doc list) is (re)written when it lags HEAD. Run inside java-common-ms, the script does only that.
 4. Copies only the used module docs into `<service>/.claude/summer-kb/`, generates a **scoped `INDEX.md`**,
-   localizes `USAGE.md`.
-5. Writes the always-on pointer `<service>/.claude/rules/summer-kb.md` (agents auto-load the KB).
-6. Stamps `.claude/summer-kb/.summer-kb-meta.json` (source, summerCommit, modules, detected artifacts).
+   localizes `USAGE.md`; removes the docs of modules the previous stamp listed and the service no longer uses.
+5. Creates the always-on pointer `<service>/.claude/rules/summer-kb.md` when it is missing (an existing one is never
+   rewritten — it may carry team edits). Nothing else outside `.claude/summer-kb/` is touched.
+6. Stamps `.claude/summer-kb/.summer-kb-meta.json` (source, summerCommit, modules, docs, detected artifacts).
 Docs are local/untracked — the script does **not** `git add`/commit.
 
 ## How to run
@@ -47,6 +53,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/summer-kb-setup/scripts/install_summer_kb.
 ```
 
 - Preview with `--dry-run` (shows detected deps + modules, writes nothing).
+- `--if-stale`: install when missing, refresh when the stamp's summerCommit differs from the source's or the Summer
+  module set changed, otherwise write nothing. The last line is `summer-kb: installed|refreshed|up-to-date|source …|skip …`.
 - `SERVICE_DIR` defaults to the cwd.
 - Report the script's summary: detected artifacts, included modules, source (sibling|bundled), files written.
 
@@ -58,14 +66,17 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/summer-kb-setup/scripts/install_summer_kb.
   `summerCommit` (see `references/summer-kb/.bundle-meta.json`) and may lag the live library.
 
 ## Refresh after a Summer upgrade
-Re-run the installer — it overwrites the scoped docs from the current source. The SessionStart hook also
-self-heals: when the plugin ships a newer bundle (`summerCommit` mismatch vs the service's
-`.summer-kb-meta.json`), it re-runs this installer automatically at session start.
+Re-run the installer — it overwrites the scoped docs from the current source. Two paths keep KBs fresh on their own:
+- **SessionStart (maintain.sh, async)** compares stamps only — the service's `summerCommit` vs java-common-ms HEAD
+  (or the bundle's when there is no sibling), plus "a build file is newer than the stamp" — and on a mismatch starts a
+  detached `--if-stale` run. In java-common-ms it keeps the source stamp at HEAD the same way.
+- **`claudehut-migrate`** runs `--if-stale` for every service (java-common-ms first) after its backups, and reports
+  `summer-kb: refresh N, install M, up-to-date K` (dry-run included). Re-running it changes nothing.
 
 ## Maintaining the bundled snapshot (plugin maintainer only)
 When the canonical KB in `java-common-ms/.claude/summer-kb/` changes:
 ```bash
 cp <workspace>/java-common-ms/.claude/summer-kb/*.md skills/summer-kb-setup/references/summer-kb/
-# update references/summer-kb/.bundle-meta.json → summerCommit = java-common-ms .understand-anything/meta.json gitCommitHash
+# update references/summer-kb/.bundle-meta.json → summerCommit = `git -C <workspace>/java-common-ms rev-parse HEAD`
 # bump plugin version (plugin.json + marketplace.json) so consumer sessions pick up the refresh
 ```

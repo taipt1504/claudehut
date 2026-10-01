@@ -5,13 +5,22 @@ install_summer_kb.py — install a service-scoped Summer Framework KB into a con
 Detects io.f8a.summer:summer-* deps in the target service, resolves the KB source
 (sibling java-common-ms/.claude/summer-kb if present, else the skill's bundled snapshot),
 copies only the module docs that service uses, generates a scoped INDEX.md + local USAGE.md,
-writes a local always-on pointer (.claude/rules/summer-kb.md), and stamps .summer-kb-meta.json.
+writes the local always-on pointer (.claude/rules/summer-kb.md) when it is missing, and stamps
+.summer-kb-meta.json with the source's summerCommit.
 
-Usage:  python3 install_summer_kb.py [SERVICE_DIR]   (default: current working directory)
+The source of truth is java-common-ms/.claude/summer-kb/, stamped with the library repo's HEAD in its own
+.summer-kb-meta.json (role "source": summerCommit + the doc list of every module). Run in java-common-ms itself,
+this script only (re)writes that stamp; run in a consumer, it refreshes a stale source stamp first.
+
+Usage:  python3 install_summer_kb.py [SERVICE_DIR] [--if-stale] [--dry-run]   (SERVICE_DIR default: cwd)
+        --if-stale  install when the KB is missing, refresh when the consumer's summerCommit differs from the
+                    source's or its Summer module set changed; otherwise write nothing
         --dry-run   print the plan, write nothing
-Does NOT git add/commit (committing .claude/summer-kb/ is the team's call).
+The last line is always "summer-kb: <installed|refreshed|up-to-date|source ...|skip ...>" (claudehut-migrate parses
+it). Exit 0 = done, 1 = not a Summer consumer, 2 = error. Never touches a file outside .claude/summer-kb/ except
+creating a missing .claude/rules/summer-kb.md. Does NOT git add/commit.
 """
-import sys, os, re, json, shutil, glob, argparse, datetime
+import sys, os, re, json, shutil, argparse, datetime, subprocess
 
 ARTIFACT_TO_MODULE = {
     'summer-core': 'core',
@@ -23,57 +32,170 @@ ARTIFACT_TO_MODULE = {
     'summer-jwt-resource-server': 'security', 'summer-apikey-resource-server': 'security',
     'summer-keycloak': 'security',
     'summer-kafka-consumer': 'kafka', 'summer-kafka-consumer-autoconfigure': 'kafka',
+    'summer-kafka-dlt-handling': 'kafka-dlt-handling', 'summer-kafka-dlt-handling-autoconfigure': 'kafka-dlt-handling',
     'summer-ratelimit-core': 'ratelimit', 'summer-ratelimit-autoconfigure': 'ratelimit',
     'summer-payment-sdk': 'payment-sdk',
     'summer-platform': 'platform',
     'summer-test': 'test',
     'summer-file': 'file',
 }
-ALL_MODULES = ['core', 'rest', 'data', 'security', 'kafka', 'ratelimit', 'payment-sdk', 'platform', 'test', 'file']
+MODULE_ORDER = ['core', 'rest', 'data', 'security', 'kafka', 'kafka-dlt-handling', 'ratelimit', 'payment-sdk',
+                'platform', 'test', 'file']
+# Docs that ship inside another module (INDEX: "vietqr.md — ships in payment-sdk").
+EXTRA_DOCS = {'payment-sdk': ['vietqr']}
+# Every doc stem INDEX scoping knows; extended at runtime with the source's own *.md (a new doc is never dangling).
+ALL_MODULES = list(MODULE_ORDER) + ['vietqr']
 COORD = re.compile(r'io\.f8a\.summer:(summer-[a-z0-9-]+)')
+SKIP_DIRS = {'build', '.claude', '.gradle', '.git', '.idea', 'node_modules', 'out'}
+META = '.summer-kb-meta.json'
+
+
+def _extract():
+    """The hub's dependency parser (scripts/index/extract.py of this plugin), so the KB's module set is exactly the
+    set of lib edges the hub draws for this service. None when the skill runs outside the plugin tree."""
+    d = os.path.join(os.path.dirname(os.path.realpath(__file__)), '..', '..', '..', 'scripts', 'index')
+    if not os.path.isfile(os.path.join(d, 'extract.py')):
+        return None
+    sys.path.insert(0, os.path.abspath(d))
+    sys.dont_write_bytecode = True  # never a __pycache__ inside the plugin
+    try:
+        import extract
+        return extract
+    except Exception:
+        return None
+    finally:
+        sys.path.pop(0)
+
+
+def build_texts(service):
+    """{repo-relative path: text} of the dependency inputs: *.gradle(.kts), gradle.properties, gradle/*.versions.toml.
+    .claude/ is skipped: agent worktrees under it are full repo copies (java-common-ms's settings.gradle excludes it
+    for the same reason)."""
+    texts = {}
+    for root, dirs, files in os.walk(service):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for f in files:
+            if not (f.endswith(('.gradle', '.gradle.kts', '.toml')) or f == 'gradle.properties'):
+                continue
+            try:
+                txt = open(os.path.join(root, f), encoding='utf-8', errors='ignore').read()
+            except OSError:
+                continue
+            texts[os.path.relpath(os.path.join(root, f), service).replace(os.sep, '/')] = txt
+    return texts
 
 
 def detect_artifacts(service):
-    arts = set()
-    for ext in ('*.gradle', '*.gradle.kts', '*.toml'):
-        for f in glob.glob(os.path.join(service, '**', ext), recursive=True):
-            if os.sep + 'build' + os.sep in f:
-                continue
-            try:
-                txt = open(f, encoding='utf-8', errors='ignore').read()
-            except OSError:
-                continue
-            arts.update(COORD.findall(txt))
-    return arts
+    """summer-* artifacts the service declares, parsed like the hub's lib edges (extract.extract_deps: comments
+    ignored, a version-catalog entry counts only where a build file references it, map-style group:/name: too).
+    Without the plugin's parser: a plain coordinate grep."""
+    texts = build_texts(service)
+    ex = _extract()
+    if ex is not None:
+        return {d['artifact'] for d in ex.extract_deps(texts) if d.get('group') == 'io.f8a.summer'
+                and d.get('artifact', '').startswith('summer-')}
+    return {a for t in texts.values() for a in COORD.findall(t)}
+
+
+def module_for(art, mod_docs):
+    """artifact → KB module: the table, else the artifact minus summer- / -autoconfigure when the source has that doc."""
+    if art in ARTIFACT_TO_MODULE:
+        return ARTIFACT_TO_MODULE[art]
+    m = re.sub(r'-autoconfigure$', '', art[len('summer-'):])
+    return m if m in mod_docs else None
+
+
+def load_json(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            v = json.load(f)
+        return v if isinstance(v, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def git_head(repo):
+    if not os.path.exists(os.path.join(repo, '.git')):
+        return None
+    try:
+        r = subprocess.run(['git', '-C', repo, 'rev-parse', '-q', '--verify', 'HEAD'], capture_output=True, text=True,
+                           timeout=10, env=dict(os.environ, GIT_OPTIONAL_LOCKS='0'))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    h = r.stdout.strip()
+    return h if r.returncode == 0 and re.fullmatch(r'[0-9a-f]{40,64}', h) else None
 
 
 def resolve_source(service, skill_dir):
-    """Return (source_dir, kind, summer_commit). Prefer sibling java-common-ms, else bundled."""
+    """Return (source_dir, kind, library_dir). Prefer sibling java-common-ms, else the bundled snapshot."""
     d = os.path.abspath(service)
     for _ in range(8):  # walk up to workspace root
-        cand = os.path.join(d, 'java-common-ms', '.claude', 'summer-kb')
+        lib = os.path.join(d, 'java-common-ms')
+        cand = os.path.join(lib, '.claude', 'summer-kb')
         if os.path.isfile(os.path.join(cand, 'INDEX.md')):
-            commit = None
-            meta = os.path.join(d, 'java-common-ms', '.understand-anything', 'meta.json')
-            if os.path.isfile(meta):
-                try:
-                    commit = json.load(open(meta)).get('gitCommitHash')
-                except Exception:
-                    pass
-            return cand, 'sibling', commit
+            return cand, 'sibling', lib
         parent = os.path.dirname(d)
         if parent == d:
             break
         d = parent
-    bundle = os.path.join(skill_dir, 'references', 'summer-kb')
-    commit = None
-    bm = os.path.join(bundle, '.bundle-meta.json')
-    if os.path.isfile(bm):
-        try:
-            commit = json.load(open(bm)).get('summerCommit')
-        except Exception:
-            pass
-    return bundle, 'bundled', commit
+    return os.path.join(skill_dir, 'references', 'summer-kb'), 'bundled', None
+
+
+def source_commit(src, kind, lib):
+    """The source's summerCommit: the library repo's HEAD; without git, its stamp, then the UA graph's commit."""
+    if kind == 'bundled':
+        return (load_json(os.path.join(src, '.bundle-meta.json')) or {}).get('summerCommit')
+    return git_head(lib) or (load_json(os.path.join(src, META)) or {}).get('summerCommit') \
+        or (load_json(os.path.join(lib, '.understand-anything', 'meta.json')) or {}).get('gitCommitHash')
+
+
+def module_docs(src):
+    """module → its doc stems present in the source (a doc no module claims is a module of its own)."""
+    stems = sorted(f[:-3] for f in os.listdir(src) if f.endswith('.md') and f not in ('INDEX.md', 'USAGE.md'))
+    for st in stems:
+        if st not in ALL_MODULES:
+            ALL_MODULES.append(st)
+    out, claimed = {}, set()
+    for m in MODULE_ORDER:
+        docs = [x for x in [m] + EXTRA_DOCS.get(m, []) if x in stems]
+        claimed.update(docs)
+        if docs:
+            out[m] = docs
+    for st in stems:
+        if st not in claimed:
+            out[st] = [st]
+    return out
+
+
+def write_if_changed(path, text):
+    try:
+        if open(path, encoding='utf-8').read() == text:
+            return False
+    except OSError:
+        pass
+    tmp = path + '.tmp.%d' % os.getpid()
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(text)
+    os.replace(tmp, path)
+    return True
+
+
+def stamp_source(src, commit, docs, dry):
+    """Write the source's own .summer-kb-meta.json (no timestamp: unchanged content is never rewritten)."""
+    if not commit:
+        return None
+    doc = {'schema': 1, 'role': 'source', 'summerCommit': commit, 'includedModules': list(docs), 'modules': docs}
+    text = json.dumps(doc, indent=2) + '\n'
+    path = os.path.join(src, META)
+    try:
+        same = open(path, encoding='utf-8').read() == text
+    except OSError:
+        same = False
+    if same:
+        return 'current'
+    if not dry:
+        write_if_changed(path, text)
+    return 'stamped'
 
 
 def referenced_modules(line):
@@ -162,96 +284,145 @@ KB lives under `.claude/` (committable — share with the team; never commit `.c
 """
 
 
+
+def consumer_state(dest, commit, included, docs, if_stale):
+    """→ (state, old meta). install: no KB yet · refresh: stale stamp, module set changed or a doc missing."""
+    old = load_json(os.path.join(dest, META))
+    if old is None:
+        return 'install', None
+    if not if_stale:
+        return 'refresh', old
+    if old.get('summerCommit') != commit or old.get('includedModules') != included:
+        return 'refresh', old
+    want = docs + ['INDEX', 'USAGE']
+    if any(not os.path.isfile(os.path.join(dest, d + '.md')) for d in want):
+        return 'refresh', old
+    return 'up-to-date', old
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('service', nargs='?', default=os.getcwd())
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--if-stale', action='store_true')
     ap.add_argument('--skill-dir', default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     args = ap.parse_args()
 
     service = os.path.abspath(args.service)
     if not os.path.isdir(service):
         print(f"ERROR: service dir not found: {service}", file=sys.stderr)
+        print("summer-kb: skip (error: no such directory)")
         return 2
+
+    src, kind, lib = resolve_source(service, args.skill_dir)
+    dest = os.path.join(service, '.claude', 'summer-kb')
+    commit = source_commit(src, kind, lib)
+    mod_docs = module_docs(src) if os.path.isdir(src) else {}
+
+    # java-common-ms itself: the sibling source IS the destination. It installs nothing (the scoped INDEX would
+    # overwrite the canonical one); it only keeps its own stamp in line with the library HEAD.
+    if os.path.realpath(src) == os.path.realpath(dest):
+        st = stamp_source(src, commit, mod_docs, args.dry_run)
+        print(f"This service holds the canonical KB ({src}). Nothing installed.")
+        if st is None:
+            print("summer-kb: source (no commit to stamp)")
+        else:
+            print(f"summer-kb: source {'would be stamped' if args.dry_run and st == 'stamped' else st} "
+                  f"summerCommit={commit[:7]}")
+        return 0
 
     arts = detect_artifacts(service)
     if not arts:
         print(f"No io.f8a.summer:summer-* dependencies found under {service}.")
         print("This does not look like a Summer consumer service. Nothing installed.")
-        print("(Checked *.gradle, *.gradle.kts, *.toml, excluding build/.)")
+        print("(Checked *.gradle, *.gradle.kts, gradle.properties, *.toml, excluding build/ and .claude/; comments ignored.)")
+        print("summer-kb: skip (not a Summer consumer)")
         return 1
 
-    modules = {ARTIFACT_TO_MODULE[a] for a in arts if a in ARTIFACT_TO_MODULE}
+    modules = {module_for(a, mod_docs) for a in arts} - {None}
     modules.add('core')  # base value types are always in play
-    unknown = sorted(a for a in arts if a not in ARTIFACT_TO_MODULE)
+    unknown = sorted(a for a in arts if module_for(a, mod_docs) is None)
+    included = sorted(modules, key=lambda m: (MODULE_ORDER.index(m) if m in MODULE_ORDER else len(MODULE_ORDER), m))
+    docs = [d for m in included for d in mod_docs.get(m, [])]
 
-    src, kind, commit = resolve_source(service, args.skill_dir)
-    included = sorted(modules, key=ALL_MODULES.index)
+    # A sibling source stamp that lags the library HEAD is refreshed first (the only file outside this service
+    # the script writes, and only the generated stamp).
+    src_stamp = stamp_source(src, commit, mod_docs, args.dry_run) if kind == 'sibling' else None
+    state, old = consumer_state(dest, commit, included, docs, args.if_stale)
 
     print(f"Service:   {service}")
     print(f"Detected:  {', '.join(sorted(arts))}")
     if unknown:
         print(f"Unknown artifacts (no module doc): {', '.join(unknown)}")
-    print(f"Modules:   {', '.join(included)}")
-    print(f"Source:    {kind}  ({src})  summerCommit={commit}")
-    dest = os.path.join(service, '.claude', 'summer-kb')
+    print(f"Modules:   {', '.join(included)}  (docs: {', '.join(docs) or 'none'})")
+    print(f"Source:    {kind}  ({src})  summerCommit={commit}" + (f"  [source stamp {src_stamp}]" if src_stamp else ''))
     print(f"Dest:      {dest}")
-
-    # java-common-ms itself: the sibling source IS the destination. Copying onto itself raises SameFileError (and the
-    # scoped INDEX would overwrite the canonical one), so the KB home installs nothing.
-    if os.path.realpath(src) == os.path.realpath(dest):
-        print("\nThis service holds the canonical KB (source = destination). Nothing installed.")
+    word = {'install': 'installed', 'refresh': 'refreshed', 'up-to-date': 'up-to-date'}[state]
+    if state == 'up-to-date':
+        if not args.dry_run:  # mtime only: maintain.sh's "build file newer than the stamp" check stops firing
+            try:
+                os.utime(os.path.join(dest, META))
+            except OSError:
+                pass
+        print(f"summer-kb: up-to-date summerCommit={(commit or 'unknown')[:7]}")
         return 0
-
     if args.dry_run:
-        print("\n[dry-run] would write: " + ", ".join(included) + ".md + INDEX.md + USAGE.md + .claude/rules/summer-kb.md")
+        print("\n[dry-run] would write: " + ", ".join(d + '.md' for d in docs) + " + INDEX.md + USAGE.md"
+              + ("" if os.path.exists(os.path.join(service, '.claude', 'rules', 'summer-kb.md'))
+                 else " + .claude/rules/summer-kb.md"))
+        print(f"summer-kb: would be {word} summerCommit={(commit or 'unknown')[:7]}")
         return 0
 
     os.makedirs(dest, exist_ok=True)
     written = []
-    for m in included:
-        s = os.path.join(src, f'{m}.md')
-        if os.path.isfile(s):
-            shutil.copyfile(s, os.path.join(dest, f'{m}.md'))
-            written.append(f'{m}.md')
+    for d in docs:
+        shutil.copyfile(os.path.join(src, d + '.md'), os.path.join(dest, d + '.md'))
+        written.append(d + '.md')
+    # Docs of modules this service no longer uses: only the ones the previous stamp says it installed.
+    if old:
+        prev = old.get('docs') if isinstance(old.get('docs'), list) else \
+            [m for m in (old.get('includedModules') or []) if isinstance(m, str)]
+        for d in prev:
+            if isinstance(d, str) and re.fullmatch(r'[a-z0-9-]+', d) and d not in docs:
+                f = os.path.join(dest, d + '.md')
+                if os.path.isfile(f):
+                    os.remove(f)
+                    written.append(f'{d}.md (removed)')
 
-    # scoped INDEX
     idx_src = os.path.join(src, 'INDEX.md')
     if os.path.isfile(idx_src):
-        scoped = scope_index(open(idx_src, encoding='utf-8').read(), set(included), arts)
+        scoped = scope_index(open(idx_src, encoding='utf-8').read(), set(docs), arts)
         banner = (f"<!-- service-scoped install: {', '.join(included)} · source={kind} "
                   f"· summerCommit={commit} -->\n")
-        open(os.path.join(dest, 'INDEX.md'), 'w', encoding='utf-8').write(banner + scoped)
+        write_if_changed(os.path.join(dest, 'INDEX.md'), banner + scoped)
         written.append('INDEX.md')
-
-    # localized USAGE
     usage_src = os.path.join(src, 'USAGE.md')
     if os.path.isfile(usage_src):
-        open(os.path.join(dest, 'USAGE.md'), 'w', encoding='utf-8').write(
-            localize_usage(open(usage_src, encoding='utf-8').read()))
+        write_if_changed(os.path.join(dest, 'USAGE.md'), localize_usage(open(usage_src, encoding='utf-8').read()))
         written.append('USAGE.md')
 
-    # local always-on pointer
+    # The always-on pointer: created when missing, never rewritten (it may carry the team's own edits).
     rules_dir = os.path.join(service, '.claude', 'rules')
-    os.makedirs(rules_dir, exist_ok=True)
-    open(os.path.join(rules_dir, 'summer-kb.md'), 'w', encoding='utf-8').write(LOCAL_POINTER)
-    written.append('.claude/rules/summer-kb.md')
+    pointer = os.path.join(rules_dir, 'summer-kb.md')
+    if not os.path.exists(pointer):
+        os.makedirs(rules_dir, exist_ok=True)
+        write_if_changed(pointer, LOCAL_POINTER)
+        written.append('.claude/rules/summer-kb.md')
 
-    # stamp
     stamp = {
         'source': kind, 'summerCommit': commit,
         'installedAt': datetime.datetime.now().isoformat(timespec='seconds'),
-        'includedModules': included, 'detectedArtifacts': sorted(arts),
+        'includedModules': included, 'docs': docs, 'detectedArtifacts': sorted(arts),
         'unknownArtifacts': unknown,
     }
-    json.dump(stamp, open(os.path.join(dest, '.summer-kb-meta.json'), 'w'), indent=2)
-    written.append('.summer-kb-meta.json')
+    write_if_changed(os.path.join(dest, META), json.dumps(stamp, indent=2) + '\n')
+    written.append(META)
 
-    print("\nInstalled (local, untracked — not committed):")
+    print("\nWritten (local, untracked — not committed):")
     for w in written:
         print(f"  .claude/summer-kb/{w}" if not w.startswith('.claude') else f"  {w}")
-    print(f"\nDone. {len(included)} module docs scoped to this service. "
-          f"Agents auto-load via .claude/rules/summer-kb.md.")
+    print(f"\nDone. {len(docs)} module docs scoped to this service. Agents auto-load via .claude/rules/summer-kb.md.")
+    print(f"summer-kb: {word} summerCommit={(commit or 'unknown')[:7]}")
     return 0
 
 
