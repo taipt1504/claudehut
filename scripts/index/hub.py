@@ -23,7 +23,10 @@ Join rules (07 §4.3 table):
          literals / @Value fields (high), from yml topic keys not under a consumer path and not consumed by the same
          service (medium), and outbox topic-prefix (prefix match, medium). Exact == high unless the producer side is
          a yml heuristic; no producer → unresolved; a prefix no consumer matches → unresolved.
-  lib    io.f8a.summer:* (or any group in aliases.lib_owner / a service's gradle `group=`) → owner service, high.
+  lib    one edge per (service, library module): a dependency whose group a registered library publishes (a repo
+         extract.library_info detects as a multi-module publisher), or aliases.lib_owner / a gradle `group=` only one
+         service declares / io.f8a.summer → owner, high. The edge carries module, version and version_src (explicit,
+         property, catalog, or bom = the version of the service's platform/BOM of that group; bom_version always).
   db     one database name in ≥2 services → shared-db edge non-owner → owner (aliases.db_owner, else the only
          service with Flyway migrations): medium; no single owner: low. Reflects in-repo defaults only.
 """
@@ -200,13 +203,14 @@ def read_rel(repo, rel):
 def scan_repo(repo, svc):
     """hub-scan: extract rows + contracts in memory from a repo without a plane. Read-only."""
     files = list_repo_files(repo)
-    rows, texts = [], {}
+    lib = extract.library_info(files, lambda rel: read_rel(repo, rel))
+    rows, texts = extract.library_rows(lib, svc), {}
     for p in files:
         if extract.is_source(p):
             t = read_rel(repo, p)
             if t is not None:
                 try:
-                    rows.extend(extract.extract_file(p, t, svc))
+                    rows.extend(extract.extract_file(p, t, svc, lib))
                 except Exception as e:  # one unparsable file never fails the scan
                     sys.stderr.write("hub-scan %s: %s\n" % (p, e))
         elif extract.is_contract_input(p):
@@ -434,10 +438,13 @@ def build_link(repo, svc, hroot):
            if not DB_SKIP_SEG.intersection(props.get(d.get("at"), "").lower().split("."))]
     has_mig = any(r.get("kind") == "migration" for r in rows)
     comp = [{k: r[k] for k in ("id", "kind", "name", "fqn", "file", "line", "http", "topic", "topic_expr", "table",
-                               "target", "purpose", "tags") if r.get(k) not in (None, "", [])} for r in rows]
+                               "target", "purpose", "tags", "module", "props_prefix", "props", "type")
+             if r.get(k) not in (None, "", [])} for r in rows]
+    lib = extract.library_info(files, lambda rel: read_rel(repo, rel))
     remote = re.sub(r"://[^/@]*@", "://", (git(repo, "config", "--get", "remote.origin.url") or "").strip()) or None
     return {"schema": SCHEMA, "svc": svc, "path": os.path.relpath(repo, hroot), "source": source,
             "indexed_commit": commit, "remote": remote, "has_migrations": has_mig, "group": lib_group(repo, files),
+            "library": lib,
             "contracts": dict({k: contracts.get(k, []) for k in ("http_exposed", "http_clients", "client_targets",
                                                                 "libs")}, db=dbs),
             "kafka": {"consumes": consumes, "produces": produces}, "unresolved": unres, "components": comp}
@@ -689,15 +696,17 @@ def join(links, aliases):
         if len(ss) == 1:
             owners[g] = ss[0]
             sugg["lib_owner"][g] = ss[0]
+    for s in svcs:  # a detected multi-module publisher owns its group
+        li = links[s].get("library")
+        if li and li.get("group"):
+            owners[li["group"]] = s
     owners.update({g: names.get(o, o) for g, o in aliases["lib_owner"].items()})
     for s in svcs:
-        seen = {}
-        for lib in links[s]["contracts"].get("libs", []):
-            g = lib["coord"].split(":")[0]
-            if g in owners:
-                seen.setdefault(g, []).append(ev(s, lib["at"]))
-        for g, evid in sorted(seen.items()):
-            add(s, owners[g], "lib", g + ":*", evid[:1], "high")
+        for k, e in lib_edges(s, links, owners).items():
+            if e["to"] == s:
+                continue
+            add(s, e["to"], "lib", k, e["evidence"], "high")
+            edges[(s, e["to"], "lib", k)].update({x: v for x, v in e.items() if x not in ("to", "evidence")})
     # db
     users = {}
     for s in svcs:
@@ -731,8 +740,99 @@ def join(links, aliases):
     return out, unresolved, {k: dict(sorted(v.items())) for k, v in sugg.items() if v}
 
 
+def lib_edges(s, links, owners):
+    """Service s → {coord: {to, module, version?, version_src?, bom_version?, bom?, scope?, missing?, evidence[]}} for
+    every dependency whose group has an owner. One entry per module (implementation + testImplementation merge)."""
+    def ev(at):
+        return "%s/%s" % (repo_dir(links[s], s), at)
+    libs = [l for l in links[s]["contracts"].get("libs", []) if l["coord"].split(":")[0] in owners]
+    boms = {}
+    for l in libs:  # the service's platform/BOM per group (a main-scope one wins)
+        g = l["coord"].split(":")[0]
+        if l.get("platform") and l.get("version") and (g not in boms or boms[g].get("scope") == "test"):
+            boms[g] = l
+    out = {}
+    for l in libs:
+        g, a = l["coord"].split(":", 1)
+        owner = owners[g]
+        li = (links.get(owner) or {}).get("library") or {}
+        mod = next((m for m in li.get("modules") or [] if m["artifact"] == a), None)
+        e = out.setdefault(l["coord"], {"to": owner, "module": a, "evidence": [], "_scopes": set()})
+        e["evidence"].append(ev(l["at"]))
+        e["_scopes"].add(l.get("scope") or "main")
+        if l.get("platform"):
+            e["bom"] = True
+        if l.get("version") and "version" not in e:
+            e.update(version=l["version"], version_src=l.get("version_src") or "explicit")
+        if li and mod is None:
+            e["missing"] = True
+    for coord, e in out.items():
+        g = coord.split(":")[0]
+        b = boms.get(g)
+        if "version" not in e and b and not e.get("bom"):
+            mod = next((m for m in ((links.get(e["to"]) or {}).get("library") or {}).get("modules") or []
+                        if m["artifact"] == e["module"]), None)
+            e.update(version_src="bom", bom_version=b["version"])
+            if not (mod and mod.get("version")):  # a module versioned apart from the BOM (payment-sdk) has no BOM version
+                e["version"] = b["version"]
+            e["evidence"].append(ev(b["at"]))
+        sc = e.pop("_scopes")
+        if sc == {"test"}:
+            e["scope"] = "test"
+        e["evidence"] = list(dict.fromkeys(e["evidence"]))
+    return out
+
+
+def vkey(v):
+    """Numeric version order: 0.3.9 < 0.3.10; a non-numeric tail sorts after its numbers."""
+    return tuple((0, int(p)) if p.isdigit() else (1, p) for p in re.split(r"[.\-+]", v or ""))
+
+
+def eff_version(e):
+    return e.get("version") or ("bom %s" % e["bom_version"] if e.get("bom_version") else "?")
+
+
+def lib_summary(edges, links=None):
+    """owner → {group, version, modules:{artifact: {svc: edge}}, consumers:set, published:[artifacts]}."""
+    out = {}
+    for e in edges:
+        if e["type"] != "lib":
+            continue
+        o = out.setdefault(e["to"], {"group": e["via"].split(":")[0], "modules": {}, "consumers": set()})
+        o["modules"].setdefault(e.get("module") or e["via"].split(":", 1)[-1], {})[e["from"]] = e
+        o["consumers"].add(e["from"])
+    for owner, o in out.items():
+        li = ((links or {}).get(owner) or {}).get("library") or {}
+        o["version"] = li.get("version")
+        o["published"] = [m["artifact"] for m in li.get("modules") or []]
+        o["root"] = li.get("root")
+    return out
+
+
+def skewed(mods):
+    """{svc: edge} → sorted distinct effective versions (numeric order)."""
+    return sorted({eff_version(e) for e in mods.values()}, key=lambda v: vkey(v.replace("bom ", "")))
+
+
 # ---------------------------------------------------------------- outputs -------------------------------------
-def hub_md(h, services, edges, unresolved):
+def lib_md_lines(edges, links=None):
+    """HUB.md "Shared libraries": one line per library owner — modules used, consumers, BOM / version skew."""
+    L = []
+    for owner, o in sorted(lib_summary(edges, links).items()):
+        bom = [vs for a, m in o["modules"].items() if any(e.get("bom") for e in m.values()) for vs in [skewed(m)]]
+        sk = sorted(a for a, m in o["modules"].items() if len(skewed(m)) > 1 and not any(e.get("bom") for e in m.values())
+                    and not all(e.get("version_src") == "bom" for e in m.values()))  # BOM-managed: the BOM's skew
+        parts = ["%d module(s) used by %d service(s)" % (len(o["modules"]), len(o["consumers"]))]
+        if bom:
+            vs = bom[0]
+            parts.append("BOM %s%s" % (vs[0] if len(vs) == 1 else "%s…%s (%d versions, skew)" % (vs[0], vs[-1], len(vs)), ""))
+        if sk:
+            parts.append("skew: " + ", ".join(sk[:4]) + (" +%d" % (len(sk) - 4) if len(sk) > 4 else ""))
+        L.append("- %s (%s%s): %s" % (owner, o["group"], " @" + o["version"] if o.get("version") else "", "; ".join(parts)))
+    return L
+
+
+def hub_md(h, services, edges, unresolved, links=None):
     hroot = hub_root(h)
     L = ["# Hub — %d services, %d edges" % (len(services), len(edges)),
          "Service paths are relative to the hub root `%s`; evidence is `<repo dir>/<file>:<line>`. Full data: "
@@ -742,9 +842,14 @@ def hub_md(h, services, edges, unresolved):
         m = services[s]
         L.append("- %s `%s` @%s%s" % (s, m.get("path"), (m.get("indexed_commit") or "none")[:7],
                                      "" if m.get("has_plane") else " (hub-scan)"))
+    libl = lib_md_lines(edges, links)
+    if libl:
+        L += ["", "## Shared libraries (per-module edges: `claudehut-index svc <library>`, `links --type lib`)"] + libl
     L += ["", "## Edges (from → to · type · via · confidence)"]
     rest = []
     for e in edges:
+        if e["type"] == "lib" and libl:
+            continue
         rest.append("- %s → %s · %s · %s · %s" % (e["from"], e["to"], e["type"], e["via"], e["confidence"]))
     tail = ["", "Unresolved: %d (see service-links.json `unresolved`, fix with aliases.json)." % len(unresolved)]
     text = "\n".join(L)
@@ -809,12 +914,16 @@ def graph(h, services, links, edges, analyzed_at):
             gedges[-1]["description"] = "publishes %s" % e["via"]
             gedge(svc_node(e["to"]), tp, "subscribes", e["confidence"])
             gedges[-1]["description"] = "subscribes %s" % e["via"]
-        elif e["type"] == "lib":
-            g = e["via"].split(":")[0]
-            short = g.split(".")[-1]
-            m = node("module:" + short, "module", g, "Shared library group %s (owner %s)" % (g, e["to"]), ["lib"])
+        elif e["type"] == "lib":  # one node per library module; the owner contains it, a consumer depends on it
+            mod = e.get("module") or e["via"].split(":", 1)[-1]
+            m = node("module:" + e["via"], "module", mod, "Library module %s (owner %s)" % (e["via"], e["to"]),
+                     ["lib"] + (["bom"] if e.get("bom") else []))
             gedge(a, m, "depends_on", e["confidence"])
-            gedges[-1]["description"] = "uses %s" % e["via"]
+            gedges[-1]["description"] = "uses %s @%s%s" % (e["via"], eff_version(e), " (%s)" % e["version_src"]
+                                                           if e.get("version_src") and e.get("version") else "")
+            if not e.get("missing"):
+                gedge(svc_node(e["to"]), m, "contains", e["confidence"])
+                gedges[-1]["description"] = "publishes %s" % e["via"]
         elif e["type"] == "db":
             t = node("table:" + e["via"], "table", e["via"], "Database %s shared by services" % e["via"], ["db"])
             for s in (e["from"], e["to"]):
@@ -830,7 +939,7 @@ def graph(h, services, links, edges, analyzed_at):
     for lid, name, typ, desc in (("layer:services", "Services", "service", "Registered and referenced services"),
                                  ("layer:topics", "Kafka topics", "topic", "Topics joining producers and consumers"),
                                  ("layer:data", "Databases", "table", "Databases used by more than one service"),
-                                 ("layer:libs", "Shared libraries", "module", "Shared library groups"),
+                                 ("layer:libs", "Shared libraries", "module", "Library modules used by services"),
                                  ("layer:external", "External", "resource", "External HTTP hosts")):
         ids = sorted(n for n, v in nodes.items() if v["type"] == typ)
         if ids:
@@ -951,7 +1060,7 @@ def sync(h, add_repos=()):
         write_if_changed(os.path.join(h, "services.json"), dumps(dict(other, **services)))
         write_if_changed(os.path.join(h, "service-links.json"),
                          dumps({"schema": SCHEMA, "edges": edges, "unresolved": unresolved}))
-        write_if_changed(os.path.join(h, "HUB.md"), hub_md(h, {k: services[k] for k in links}, edges, unresolved))
+        write_if_changed(os.path.join(h, "HUB.md"), hub_md(h, {k: services[k] for k in links}, edges, unresolved, links))
         dates = [d for d in (commit_date(os.path.join(hroot, services[s]["path"]), services[s].get("indexed_commit"))
                              for s in links) if d]
         analyzed = max(dates) if dates else "1970-01-01T00:00:00Z"
@@ -1014,6 +1123,54 @@ def behind(h, svc):
     return (int(n.strip()) if n else None), repo, ent
 
 
+def library_lines(link, edges, by):
+    """svc <library>: its surface counts, then modules × consumers × versions (skew = >1 version in use; a BOM-managed
+    module follows the service's BOM line, so only its consumer count is printed)."""
+    s, li = link["svc"], link.get("library")
+    o = lib_summary(edges, {s: link}).get(s)
+    if not li and not o:
+        return []
+    L = []
+    if li:
+        kinds = ["module", "autoconfig", "properties", "annotation", "spi", "bean"]
+        L.append("Library %s%s · %d modules · %s — find --svc %s <term>" % (
+            li["group"], " @" + li["version"] if li.get("version") else "", len(li.get("modules") or []),
+            ", ".join("%s %d" % (k, len(by[k])) for k in kinds if by.get(k)) or "no surface rows", s))
+    if not o:
+        return L
+    pre = (li or {}).get("root")
+    short = lambda a: a[len(pre) + 1:] if pre and a.startswith(pre + "-") else a  # noqa: E731
+    L.append("Modules × consumers × versions (%d services; who uses one: links --module <name>):" % len(o["consumers"]))
+    rows, newer = [], set()
+    own = {x["artifact"]: x.get("version") for x in (li or {}).get("modules") or []}
+    for a, m in sorted(o["modules"].items(), key=lambda x: (not any(e.get("bom") for e in x[1].values()), x[0])):
+        vs = skewed(m)
+        bomonly = all(e.get("version_src") == "bom" for e in m.values())
+        tag = "[bom] " if any(e.get("bom") for e in m.values()) else ""
+        if bomonly:
+            rows.append("- %s%s %d svc (bom)" % (tag, short(a), len(m)))
+            continue
+        by_v = {}
+        for svc, e in m.items():
+            by_v.setdefault(eff_version(e), []).append(svc)
+            cur = own.get(a) or o.get("version")  # a module versioned apart (payment-sdk) has its own repo version
+            if cur and e.get("version") and vkey(e["version"]) > vkey(cur):
+                newer.add("%s %s %s>%s" % (svc, short(a), e["version"], cur))
+        rows.append("- %s%s %d svc%s: %s" % (tag, short(a), len(m), " SKEW" if len(vs) > 1 else "", " · ".join(
+            "%s %s" % (v, ",".join(sorted(by_v[v]))) for v in vs)))
+    L += rows
+    if o.get("published"):
+        unused = [short(a) for a in o["published"] if a not in o["modules"]]
+        if unused:
+            L.append("Unused modules: " + ", ".join(unused))
+    miss = sorted(short(a) for a, m in o["modules"].items() if any(e.get("missing") for e in m.values()))
+    if miss:
+        L.append("Not published by this repo: " + ", ".join(miss))
+    if newer:
+        L.append("Newer than this repo's version: " + ", ".join(sorted(newer)))
+    return L
+
+
 def render_svc(link, edges, stale_note, repo, budget=2499):
     """repo: the service's absolute root — every path below is relative to it (printed once in the header)."""
     s = link["svc"]
@@ -1023,6 +1180,7 @@ def render_svc(link, edges, stale_note, repo, budget=2499):
         by.setdefault(r["kind"], []).append(r)
     L = ["# %s (hub · %s@%s)%s" % (s, link["source"], (link.get("indexed_commit") or "none")[:7], stale_note),
          "repo: %s (paths below are relative to it)" % repo]
+    L += library_lines(link, edges, by)
     eps = c.get("http_exposed", [])
     if eps:
         L.append("Endpoints (%d):" % len(eps))
@@ -1046,6 +1204,12 @@ def render_svc(link, edges, stale_note, repo, budget=2499):
         L.append("Calls/uses: " + peers(out_e, "to"))
     if in_e:
         L.append("Used by: " + peers(in_e, "from"))
+    mine = [e for e in out_e if e["type"] == "lib"]
+    for owner in sorted({e["to"] for e in mine}):
+        es = sorted((e for e in mine if e["to"] == owner), key=lambda e: e["via"])
+        L.append("Libs from %s: %s" % (owner, ", ".join("%s %s%s" % (e.get("module"), eff_version(e),
+                                                                       " [test]" if e.get("scope") == "test" else "")
+                                                         for e in es)))
     cl = [r for r in by.get("client", [])]
     if cl:
         L.append("Clients: " + ", ".join(r["name"] for r in cl[:10]))

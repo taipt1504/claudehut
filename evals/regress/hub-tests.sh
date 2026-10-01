@@ -27,6 +27,11 @@
 #   9. scan then init   a repo hub-scanned by its dir name, then init'd by its build name → one service, one links
 #                       file, no doubled edge; hub-sync collapses the doubled services.json 0.12.0 left; an alias
 #                       naming the dir resolves to the build-name key
+#  10. shared library   kit-lib (a multi-module publisher, no alias, not summer) + cons-x-ms (BOM 1.2.0, explicit,
+#                       BOM-managed, versioned-apart module, unpublished test module) + cons-y-ms (Kotlin DSL, catalog
+#                       version.ref BOM 1.4.0, gradle.properties version, map notation): exact per-module lib edges with
+#                       version + version_src + evidence; svc <library> modules × consumers × versions with SKEW;
+#                       links --type lib; find --svc <library> on its surface; HUB.md "Shared libraries"; UA graph
 #
 # Run: evals/regress/hub-tests.sh
 set -uo pipefail
@@ -80,8 +85,8 @@ c_before="$(snap "$W/c-ms")"
 ix "$W/hubrepo" hub-sync --hub . --repo ../a-ms --repo ../b-ms
 chk "hub-sync registers 2 planes" '[[ "$OUT" == "hub: synced 2 services"* ]]'
 ix "$W/hubrepo" hub-scan --hub . --repo "$W/c-ms"
-chk "hub-scan adds c-ms (no plane): 3 services, 5 edges, 3 unresolved" \
-  '[[ "$OUT" == "hub: synced 3 services, 5 edges (http 2, kafka 1, lib 1, db 1), 3 unresolved"* ]]'
+chk "hub-scan adds c-ms (no plane): 3 services, 6 edges (lib per module), 3 unresolved" \
+  '[[ "$OUT" == "hub: synced 3 services, 6 edges (http 2, kafka 1, lib 2, db 1), 3 unresolved"* ]]'
 chk "services.json: c-ms has_plane=false, a-ms/b-ms true, paths relative to the hub root" \
   '[ "$(jq -c "[.\"a-ms\".has_plane, .\"b-ms\".has_plane, .\"c-ms\".has_plane, .\"c-ms\".path]" "$H/services.json")" = "[true,true,false,\"../c-ms\"]" ]'
 GOT="$(jq -S '{edges: .edges, unresolved: .unresolved}' "$H/service-links.json")"; WANT="$(jq -S . "$FX/expected-links.json")"
@@ -91,8 +96,8 @@ chk "reactor-kafka (hub-scan): XReactiveConsumer → high consume of x.v1 via it
   'jq -e "any(.kafka.consumes[]; .topic==\"x.v1\" and .at==[\"src/main/java/com/acme/c/kafka/XReactiveConsumer.java:15\",\"src/main/resources/application.yml:14\"])" "$H/links/c-ms.json" >/dev/null && jq -e "[.components[] | select(.kind==\"listener\" and (.file|test(\"KafkaConfigUtil\")))] | length == 0" "$H/links/c-ms.json" >/dev/null'
 chk "no edge from r2dbc/redis/SERVER_HOST/LOG_LEVEL/self-topic/offset topics" \
   '! jq -e "[.edges[] | .via] | any(test(\"R2DBC|REDIS|SERVER_HOST|LOG_LEVEL|b.internal|offsets|schema.history\"))" "$H/service-links.json" >/dev/null'
-chk "HUB.md ≤3072 B, lists 3 services and the 5 edges" \
-  '[ "$(wc -c < "$H/HUB.md")" -le 3072 ] && grep -q "c-ms \`../c-ms\`.*(hub-scan)" "$H/HUB.md" && [ "$(grep -c "^- .* → " "$H/HUB.md")" = 5 ]'
+chk "HUB.md ≤3072 B, lists 3 services, the 4 non-lib edges and one Shared libraries line" \
+  '[ "$(wc -c < "$H/HUB.md")" -le 3072 ] && grep -q "c-ms \`../c-ms\`.*(hub-scan)" "$H/HUB.md" && [ "$(grep -c "^- .* → " "$H/HUB.md")" = 4 ] && grep -qx "\- java-common-ms (io.f8a.summer): 2 module(s) used by 1 service(s); BOM 0.3.22" "$H/HUB.md"'
 chk "hub.json created as {schema:1} (language is init's)" '[ "$(jq -c . "$H/hub.json")" = "{\"schema\":1}" ]'
 
 # ---------------------------------------------------------------- 2. evidence + determinism -----------------------
@@ -138,8 +143,8 @@ console.log(JSON.stringify({success: r.success, issues: r.issues.length, fatal: 
 else
   echo "  skip - UA validator (node or $UA/packages/core/dist/schema.js absent)"
 fi
-chk "graph nodes: service:a-ms/b-ms/c-ms, topic:x.v1, table:shared_db, module:summer, resource:external:*" \
-  '[ "$(jq -c "[.nodes[].id]" "$G")" = "[\"module:summer\",\"resource:external:api.partner.example.com\",\"service:a-ms\",\"service:b-ms\",\"service:c-ms\",\"table:shared_db\",\"topic:x.v1\"]" ]'
+chk "graph nodes: service:a-ms/b-ms/c-ms + the unregistered lib owner, topic:x.v1, table:shared_db, one module per summer artifact, resource:external:*" \
+  '[ "$(jq -c "[.nodes[].id]" "$G")" = "[\"module:io.f8a.summer:summer-kafka-consumer\",\"module:io.f8a.summer:summer-platform\",\"resource:external:api.partner.example.com\",\"service:a-ms\",\"service:b-ms\",\"service:c-ms\",\"service:java-common-ms\",\"table:shared_db\",\"topic:x.v1\"]" ]'
 chk "graph edge weights: high=1, medium=0.6" \
   'jq -e "([.edges[] | select(.type==\"reads_from\") | .weight] | unique) == [0.6] and ([.edges[] | select(.type==\"calls\") | .weight] | unique) == [1]" "$G" >/dev/null'
 DASH="$UA/packages/dashboard"
@@ -245,7 +250,8 @@ else
   jc_before="$(snap "$E/java-common-ms")"
   ix "$E/ewallet-knowledge" hub-scan --hub . --repo ../java-common-ms; echo "  $OUT"
   EH="$E/ewallet-knowledge/.claude/claudehut/hub"
-  chk "AC-9: every lib edge goes to java-common-ms" 'jq -e "[.edges[] | select(.type==\"lib\") | .to] | length > 0 and all(. == \"java-common-ms\")" "$EH/service-links.json" >/dev/null'
+  chk "AC-9: every lib edge goes to java-common-ms, one per summer module, with a version" \
+    'jq -e "[.edges[] | select(.type==\"lib\")] | length > 4 and all(.[]; .to == \"java-common-ms\" and (.module|startswith(\"summer-\")) and (.version != null or .bom_version != null))" "$EH/service-links.json" >/dev/null'
   chk "AC-9: LEDGER_SERVICE_URL → core-ledger-ms medium" \
     'jq -e "any(.edges[]; .from==\"payment-orchestrator-ms\" and .to==\"core-ledger-ms\" and .via==\"LEDGER_SERVICE_URL\" and .confidence==\"medium\")" "$EH/service-links.json" >/dev/null'
   chk "pg client targets resolved: PGMS_CORE_LEDGER_BASE_URL → core-ledger-ms high with the config class as evidence" \
@@ -376,6 +382,63 @@ chk "hub-sync on a doubled services.json reports 2 services" '[[ "$OUT" == "hub:
 one_repo "hub-sync dedupe"
 chk "topic_owner naming the repo dir → kyc-ms → acc-ms kafka high" \
   'jq -e "any(.edges[]; .from==\"kyc-ms\" and .to==\"acc-ms\" and .type==\"kafka\" and .confidence==\"high\")" "$SL" >/dev/null'
+
+# ---------------------------------------------------------------- 10. shared library ---------------------------
+echo "== 10. shared library: per-module lib edges, versions, skew, library surface =="
+WS="$W/ws4"; mkdir -p "$WS/kh"; git -C "$WS/kh" init -q -b main; KH="$WS/kh/.claude/claudehut/hub"
+for r in kit-lib cons-x-ms cons-y-ms; do
+  cp -R "$FX/$r" "$WS/$r"; git -C "$WS/$r" init -q -b main; git -C "$WS/$r" config commit.gpgsign false
+  git -C "$WS/$r" add -A; git -C "$WS/$r" commit -qm base --no-verify
+done
+mkdir -p "$WS/kit-lib/.claude/claudehut"; "$CLI" update --plane "$WS/kit-lib/.claude/claudehut" >/dev/null  # an indexed library
+ix "$WS/kh" hub-scan --hub . --repo ../kit-lib --repo ../cons-x-ms --repo ../cons-y-ms
+SL="$KH/service-links.json"
+chk "3 services, 9 lib edges (one per consumer × module), none to a group alias" '[[ "$OUT" == "hub: synced 3 services, 9 edges (http 0, kafka 0, lib 9, db 0), 0 unresolved"* ]]'
+LIBE="$(jq -c '[.edges[] | select(.type=="lib") | [.from, .to, .module, .version, .version_src, .bom_version, (.bom // false), (.scope // "main"), (.missing // false), .evidence]]' "$SL")"
+WANT='[["cons-x-ms","kit-lib","kit-core","1.3.0","explicit",null,false,"main",false,["cons-x-ms/build.gradle:9"]],["cons-x-ms","kit-lib","kit-kafka",null,"bom","1.2.0",false,"main",false,["cons-x-ms/build.gradle:10","cons-x-ms/build.gradle:7"]],["cons-x-ms","kit-lib","kit-legacy","1.2.0","bom","1.2.0",false,"test",true,["cons-x-ms/build.gradle:11","cons-x-ms/build.gradle:7"]],["cons-x-ms","kit-lib","kit-platform","1.2.0","explicit",null,true,"main",false,["cons-x-ms/build.gradle:7"]],["cons-x-ms","kit-lib","kit-rest-autoconfigure","1.2.0","bom","1.2.0",false,"main",false,["cons-x-ms/build.gradle:8","cons-x-ms/build.gradle:7"]],["cons-y-ms","kit-lib","kit-core","1.4.0","explicit",null,false,"main",false,["cons-y-ms/build.gradle.kts:12"]],["cons-y-ms","kit-lib","kit-kafka","2.0.1","property",null,false,"main",false,["cons-y-ms/build.gradle.kts:11"]],["cons-y-ms","kit-lib","kit-platform","1.4.0","catalog",null,true,"main",false,["cons-y-ms/build.gradle.kts:9"]],["cons-y-ms","kit-lib","kit-rest-autoconfigure","1.4.0","bom","1.4.0",false,"main",false,["cons-y-ms/build.gradle.kts:10","cons-y-ms/build.gradle.kts:9"]]]'
+chk "lib edges == expected: module, version, version_src (explicit/bom/catalog/property), BOM, test scope, unpublished module, evidence" '[ "$LIBE" = "$WANT" ]'
+[ "$LIBE" = "$WANT" ] || { echo "    want $WANT"; echo "    got  $LIBE"; }
+nbad=0
+while read -r e; do f="${e%:*}"; ln="${e##*:}"; { [ -f "$WS/$f" ] && [ "$(wc -l < "$WS/$f")" -ge "$ln" ]; } || { nbad=$((nbad+1)); echo "    missing: $e"; }; done \
+  < <(jq -r '.edges[].evidence[]' "$SL")
+chk "every lib evidence path exists with that line" '[ "$nbad" = 0 ]'
+ix "$WS/kh" svc kit-lib --hub .
+chk "svc kit-lib ≤2500 B: surface counts, modules × consumers × versions, SKEW, BOM-managed, unpublished, newer" \
+  '[ "$(printf "%s\n" "$OUT" | wc -c)" -le 2500 ] && for w in "Library io.acme.kit @1.4.0 · 4 modules · module 4, autoconfig 3, properties 2, annotation 1, spi 1, bean 1 — find --svc kit-lib <term>" \
+     "- [bom] platform 2 svc SKEW: 1.2.0 cons-x-ms · 1.4.0 cons-y-ms" "- core 2 svc SKEW: 1.3.0 cons-x-ms · 1.4.0 cons-y-ms" \
+     "- kafka 2 svc SKEW: bom 1.2.0 cons-x-ms · 2.0.1 cons-y-ms" "- rest-autoconfigure 2 svc (bom)" "Not published by this repo: legacy"; do
+     printf "%s\n" "$OUT" | grep -qxF -- "$w" || { echo "    missing line: $w"; exit 1; }; done && ! printf "%s" "$OUT" | grep -q "Newer than"'
+ix "$WS/kh" svc cons-x-ms --hub .
+chk "svc <consumer> lists the library modules it uses with their versions" \
+  '[[ "$OUT" == *"Libs from kit-lib: kit-core 1.3.0, kit-kafka bom 1.2.0, kit-legacy 1.2.0 [test], kit-platform 1.2.0, kit-rest-autoconfigure 1.2.0"* ]]'
+ix "$WS/kh" links --type lib --service cons-y-ms --hub .
+chk "links --type lib --service: one line per module with its version and evidence" \
+  '[ "$(printf "%s\n" "$OUT" | grep -c "^cons-y-ms → kit-lib lib via io.acme.kit:")" = 4 ] && printf "%s\n" "$OUT" | grep -qxF "cons-y-ms → kit-lib lib via io.acme.kit:kit-kafka @2.0.1 (high) cons-y-ms/build.gradle.kts:11"'
+ix "$WS/kh" links --module rest-autoconfigure --hub .
+chk "links --module <short name> → every consumer of that module with its version (the impact of a change)" \
+  '[ "$(printf "%s\n" "$OUT" | grep -c "lib via io.acme.kit:kit-rest-autoconfigure @")" = 2 ] && [[ "$OUT" == *"cons-x-ms → kit-lib lib via io.acme.kit:kit-rest-autoconfigure @1.2.0 (high) cons-x-ms/build.gradle:8"* ]] && [[ "$OUT" == *"2 edge(s)"* ]]'
+ix "$WS/kh" links --hub .
+chk "links (all types) folds lib edges into one line per consumer → library" \
+  '[ "$(printf "%s\n" "$OUT" | grep -c " lib ")" = 2 ] && [[ "$OUT" == *"cons-x-ms → kit-lib lib 5 module(s): (links --type lib --service cons-x-ms)"* ]]'
+ix "$WS/kh" find --svc kit-lib --hub . kit.rest.retry
+chk "find --svc <library> finds a property key → the properties class, absolute path, module" \
+  '[[ "$OUT" == "properties io.acme.kit.rest.KitRestProperties prefix=kit.rest (4 keys) [kit-rest-autoconfigure] $WS/kit-lib/rest/rest-autoconfigure/src/main/java/io/acme/kit/rest/KitRestProperties.java:8" ]]'
+ix "$WS/kh" find --svc kit-lib --hub . --kind autoconfig "*"
+chk "find --svc <library> --kind autoconfig → the 3 registered auto-configurations (imports + spring.factories)" '[ "$(printf "%s\n" "$OUT" | grep -c "^autoconfig ")" = 3 ]'
+chk "HUB.md: a Shared libraries line with BOM skew and module skew; lib edges not in the Edges list; ≤3072 B" \
+  'grep -qxF -- "- kit-lib (io.acme.kit @1.4.0): 5 module(s) used by 2 service(s); BOM 1.2.0…1.4.0 (2 versions, skew); skew: kit-core, kit-kafka" "$KH/HUB.md" && ! grep -q "^- .* → .* · lib" "$KH/HUB.md" && [ "$(wc -c < "$KH/HUB.md")" -le 3072 ]'
+G4="$KH/.understand-anything/knowledge-graph.json"
+chk "graph: module node per library artifact; consumers depend_on, the library contains (not the unpublished one)" \
+  '[ "$(jq "[.edges[] | select(.type==\"depends_on\")] | length" "$G4")" = 9 ] && [ "$(jq -c "[.edges[] | select(.type==\"contains\") | .target]" "$G4")" = "[\"module:io.acme.kit:kit-core\",\"module:io.acme.kit:kit-kafka\",\"module:io.acme.kit:kit-platform\",\"module:io.acme.kit:kit-rest-autoconfigure\"]" ]'
+if command -v node >/dev/null 2>&1 && [ -f "$UA/packages/core/dist/schema.js" ]; then
+  n="$(cd "$UA/packages/core" && node --input-type=module -e 'import { validateGraph, sanitizeGraph } from "./dist/schema.js"; import fs from "fs";
+    const g = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const r = validateGraph(g);
+    console.log(r.success && g.edges.length === r.data.edges.length && JSON.stringify(sanitizeGraph(g)) === JSON.stringify(g) ? r.issues.length : -1);' "$G4")"
+  chk "shared-library graph: UA validateGraph 0 issues, nothing dropped, sanitizeGraph no-op" '[ "$n" = 0 ]'
+fi
+mv "$WS/kit-lib/.claude" "$W/kit-plane"; ix "$WS/kh" hub-sync --hub .
+chk "a hub-scanned library (no plane) yields the same surface and the same lib edges" \
+  '[ "$(jq -c "[.edges[] | select(.type==\"lib\") | [.from, .to, .module, .version, .version_src, .bom_version, (.bom // false), (.scope // \"main\"), (.missing // false), .evidence]]" "$SL")" = "$WANT" ] && [ "$(jq "[.components[] | select(.kind==\"autoconfig\" or .kind==\"properties\" or .kind==\"bean\")] | length" "$KH/links/kit-lib.json")" = 6 ]'
 
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__ 2>/dev/null)" ]'
 echo "hub-tests: $PASS passed, $FAIL failed"

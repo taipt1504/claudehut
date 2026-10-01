@@ -1,0 +1,13 @@
+plugins {
+  id 'java'
+  id 'org.springframework.boot' version '3.3.0'
+}
+
+dependencies {
+  implementation platform('io.acme.kit:kit-platform:1.2.0')
+  implementation 'io.acme.kit:kit-rest-autoconfigure'
+  implementation 'io.acme.kit:kit-core:1.3.0'
+  implementation 'io.acme.kit:kit-kafka'
+  testImplementation 'io.acme.kit:kit-legacy'
+  // implementation 'io.acme.kit:kit-ghost:9.9.9'
+}
