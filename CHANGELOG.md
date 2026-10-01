@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.12.2 — 2026-10-01
+
+Summer library (java-common-ms) support in the index, the hub and `claudehut-migrate`.
+
+- **Per-module lib edges.** The hub draws one `lib` edge per (service, library module) instead of one
+  `summer lib via io.f8a.summer:*` edge per service. Each edge carries the module, the version and where it came
+  from (`explicit`, `property`, `catalog`, or `bom` = the service's platform/BOM version), and `scope: test` for
+  test-only deps. The dependency parser reads string, map-style (`group:/name:/version:`) and version-catalog
+  (`libs.x.y`, `version.ref`) declarations, resolves `${var}` from `gradle.properties` / `ext`, and ignores comments.
+  A repo that publishes ≥2 Gradle modules (maven-publish / java-platform, no Boot app plugin) is detected as a
+  library and owns its group; module names follow its `settings.gradle` (the `'summer'.concat('-'…)` style too).
+- **`svc <library>`** prints modules × consumers × versions with `SKEW` markers, unused and unpublished modules;
+  `svc <consumer>` lists `Libs from <library>: <module> <version>…`; `links --module <name>` lists every consumer of
+  one module (the impact of a change). HUB.md folds lib edges into a "Shared libraries" section with BOM skew.
+- **Library surface in the index.** In a library repo the index adds `module` rows (module → artifact),
+  `autoconfig` rows from `META-INF/spring/*AutoConfiguration.imports` and `spring.factories`, `properties` rows
+  (`@ConfigurationProperties` prefix + kebab-case keys, nested types expanded), public `annotation` / `spi` types and
+  `@Bean` factories, each tagged with its module. A service's own `@interface`s stay unindexed.
+- **Summer KB stays current.** `java-common-ms/.claude/summer-kb/` gets its own `.summer-kb-meta.json` stamped with
+  the library's git HEAD. `install_summer_kb.py --if-stale` installs a missing KB, refreshes one whose summerCommit or
+  module set moved, and otherwise writes nothing; it reads the build with the hub's parser, so a KB's modules are the
+  service's `lib` edges. `claudehut-migrate` runs it for every service (java-common-ms first) and reports
+  `summer-kb: refresh N, install M, up-to-date K`; SessionStart starts a detached refresh on a stale stamp. A
+  hand-edited `.claude/rules/summer-kb.md` is never rewritten.
+
 ## 0.12.1 — 2026-10-01
 
 Fixes found while migrating the real ewallet workspace.
