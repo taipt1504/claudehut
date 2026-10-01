@@ -36,14 +36,33 @@
       "via": "x.v1"
     },
     {
+      "bom_version": "0.3.22",
+      "confidence": "high",
+      "evidence": [
+        "a-ms/build.gradle:8",
+        "a-ms/build.gradle:7"
+      ],
+      "from": "a-ms",
+      "module": "summer-kafka-consumer",
+      "to": "java-common-ms",
+      "type": "lib",
+      "version": "0.3.22",
+      "version_src": "bom",
+      "via": "io.f8a.summer:summer-kafka-consumer"
+    },
+    {
+      "bom": true,
       "confidence": "high",
       "evidence": [
         "a-ms/build.gradle:7"
       ],
       "from": "a-ms",
+      "module": "summer-platform",
       "to": "java-common-ms",
       "type": "lib",
-      "via": "io.f8a.summer:*"
+      "version": "0.3.22",
+      "version_src": "explicit",
+      "via": "io.f8a.summer:summer-platform"
     },
     {
       "confidence": "medium",

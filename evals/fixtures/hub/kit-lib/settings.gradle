@@ -1,0 +1,14 @@
+rootProject.name = 'kit'
+
+// every sub-directory build file is a module named kit-<dir> (the java-common-ms style; no include list)
+fileTree(rootProject.projectDir) {
+  include '**/*.gradle'
+  exclude 'build', 'settings.gradle', '/build.gradle'
+}
+  .forEach { module ->
+    String name = module.parentFile.name
+    include ":${name}"
+    def p = findProject(":${name}")
+    p.name = 'kit'.concat('-'.concat(name))
+    p.projectDir = module.parentFile
+  }

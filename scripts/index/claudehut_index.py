@@ -39,7 +39,7 @@ import extract  # noqa: E402
 import hub  # noqa: E402
 from memory import resolve_language  # noqa: E402
 
-TOOL_VERSION = "0.12.0-idx4"  # idx4: reactor-kafka receiver listeners (topic_ref); idx3: client-target resolution
+TOOL_VERSION = "0.12.2-idx5"  # idx5: library surface + per-module lib deps; idx4: reactor-kafka receivers; idx3: client targets
 SCHEMA = 1
 LOCK_STALE_S = 120
 FULL_RATIO = 0.30
@@ -398,6 +398,10 @@ def do_update(ctx, opts, t0):
         reason = "indexed_commit unknown"
     all_files = list_files(ctx)
     sources = [p for p in all_files if extract.is_source(p)]
+    lib = extract.library_info(all_files, lambda rel: read_text(ctx, rel) if os.path.isfile(os.path.join(ctx.repo, rel)) else None)
+    lib_key = [m["artifact"] + "@" + m["dir"] for m in lib["modules"]] if lib else None
+    if reason is None and meta.get("library") != lib_key:
+        reason = "library layout changed"
     changed = []
     if reason is None:
         cand = set(ctx.dirty_paths()) | set(was_dirty)
@@ -420,15 +424,16 @@ def do_update(ctx, opts, t0):
     if reason is None:
         mode = "incremental"
         drop = set(changed)
-        rows = [r for r in ctx.rows() if r.get("file") not in drop]
+        rows = [r for r in ctx.rows() if r.get("file") not in drop and r.get("kind") != "module"]
         files = {p: s for p, s in files_meta.items() if p not in drop}
         todo = [p for p in changed if os.path.isfile(os.path.join(ctx.repo, p))]
     else:
         mode = "full"
         rows, files, todo = [], {}, sources
+    rows.extend(extract.library_rows(lib, ctx.svc))  # recomputed every update: build files are not sources
     for p in todo:
         try:
-            rows.extend(extract.extract_file(p, read_text(ctx, p), ctx.svc))
+            rows.extend(extract.extract_file(p, read_text(ctx, p), ctx.svc, lib))
         except Exception as e:  # one unparsable file never fails the index
             sys.stderr.write("extract %s: %s\n" % (p, e))
         files[p] = sha1_file(os.path.join(ctx.repo, p))
@@ -455,6 +460,7 @@ def do_update(ctx, opts, t0):
         raise RuntimeError("injected failure before meta.json")
     new_meta = {"schema": SCHEMA, "indexed_commit": head, "indexed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "tool_version": TOOL_VERSION, "extractor": "regex/python3-stdlib", "svc": ctx.svc, "counts": counts,
+                "library": lib_key,
                 "mode": mode, "reextracted": len(todo), "elapsed_ms": int((time.time() - t0) * 1000)}
     # indexed_commit first: hc_indexed_commit reads only the head of this file.
     order = ("schema", "indexed_commit", "indexed_at", "tool_version")
@@ -535,6 +541,12 @@ def row_line(r):
         extra = " table=%s" % r["table"]
     elif r["kind"] == "client" and r.get("target"):
         extra = " → %s" % r["target"]
+    elif r.get("props_prefix"):
+        extra = " prefix=%s%s" % (r["props_prefix"], " (%d keys)" % len(r["props"]) if r.get("props") else "")
+    elif r["kind"] == "bean" and r.get("type"):
+        extra = " : %s" % r["type"]
+    if r.get("module") and r["kind"] != "module":
+        extra += " [%s]" % r["module"]
     head = "%s %s%s %s:%d" % (r["kind"], r.get("fqn") or r["name"], extra, r["file"], r["line"])
     if r.get("purpose"):
         p = r["purpose"]
@@ -699,8 +711,9 @@ def cmd_find(ctx, opts):
         if kind and r["kind"] != kind:
             continue
         fields = [r.get("name", ""), r.get("fqn", ""), r.get("file", ""), (r.get("http") or {}).get("path", ""),
-                  r.get("topic") or "", r.get("table") or "", r.get("target") or "", r.get("topic_prop") or ""]
-        fields += list(r.get("tags") or [])
+                  r.get("topic") or "", r.get("table") or "", r.get("target") or "", r.get("topic_prop") or "",
+                  r.get("props_prefix") or "", r.get("module") or "", r.get("type") or ""]
+        fields += list(r.get("tags") or []) + list(r.get("props") or [])
         fields = [f.lower() for f in fields if f]
         if (glob and any(fnmatch.fnmatchcase(f, term) for f in fields)) or (not glob and any(term in f for f in fields)):
             res.append(r)
@@ -766,9 +779,14 @@ def cmd_svc(ctx, opts):
     dbs = sorted({d["name"] for d in contracts.get("db", [])})
     if dbs:
         L.append("DB: " + ", ".join(dbs))
-    libs = sorted({x["coord"] for x in contracts.get("libs", [])})
-    if libs:
-        L.append("Libs: " + ", ".join(libs[:8]))
+    libs = contracts.get("libs", [])
+    if libs:  # a library group with ≥2 artifacts here (io.f8a.summer) first, then the rest by group
+        groups = {}
+        for x in libs:
+            groups.setdefault(x["coord"].split(":")[0], set()).add(x["coord"].split(":", 1)[-1])
+        order = sorted(groups, key=lambda g: (-len(groups[g]), g))
+        L.append("Libs: " + "; ".join("%s: %s" % (g, ", ".join(sorted(groups[g])[:12])) for g in order[:2])
+                 + ("; +%d group(s)" % (len(order) - 2) if len(order) > 2 else ""))
     svcs = by.get("service", [])
     if svcs:
         L.append("Services: " + ", ".join(r["name"] for r in svcs[:16]))
@@ -818,20 +836,40 @@ def svc_other(ctx, opts, name):
 
 
 def cmd_links(ctx, opts):
-    """links [--service S] [--type http|kafka|lib|db] [--json]: cross-service edges from service-links.json."""
+    """links [--service S] [--type http|kafka|lib|db] [--module M] [--json]: cross-service edges from service-links.json
+    (--module: the lib edges of one library module — its artifact or the name without the library prefix)."""
     h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
     data = hub.read_links(h) if h else None
     if not data:
         return out_line(opts, {"edges": [], "hub": h, "note": "hub not configured" if not h else "hub not synced"},
                         MSG["en"]["hub"] if not h else "hub: no service-links.json yet (run %s hub-sync)" % cli_path())
-    s, t = hub.resolve_svc(h, opts.get("service") or opts.get("svc")), opts.get("type")
-    edges = [e for e in data.get("edges", []) if (not s or s in (e["from"], e["to"])) and (not t or e["type"] == t)]
-    unres = [u for u in data.get("unresolved", []) if not s or u.get("svc") == s]
+    s, t, mod = hub.resolve_svc(h, opts.get("service") or opts.get("svc")), opts.get("type"), opts.get("module")
+    if mod:  # --module <artifact|short name>: the services a change to that library module impacts
+        t = "lib"
+    edges = [e for e in data.get("edges", []) if (not s or s in (e["from"], e["to"])) and (not t or e["type"] == t)
+             and (not mod or mod in (e.get("module"), e["via"]) or (e.get("module") or "").endswith("-" + mod))]
+    unres = [] if mod else [u for u in data.get("unresolved", []) if not s or u.get("svc") == s]
     if opts.get("json"):
         print(json.dumps({"hub": h, "edges": edges, "unresolved": unres}, ensure_ascii=False, sort_keys=True))
         return 0
-    lines = ["%s → %s %s via %s (%s) %s" % (e["from"], e["to"], e["type"], e["via"], e["confidence"], e["evidence"][0])
-             for e in edges]
+    def ver(e):
+        return "%s%s" % (hub.eff_version(e), " [test]" if e.get("scope") == "test" else "")
+    libs = [e for e in edges if e["type"] == "lib"]
+    group = t != "lib" or len(libs) > 30  # one line per consumer → library pair unless a narrow lib query
+    lines, done = [], set()
+    for e in edges:
+        if e["type"] != "lib" or not group:
+            lines.append("%s → %s %s via %s%s (%s) %s" % (e["from"], e["to"], e["type"], e["via"],
+                                                         " @" + ver(e) if e["type"] == "lib" else "", e["confidence"],
+                                                         e["evidence"][0]))
+            continue
+        if (e["from"], e["to"]) in done:
+            continue
+        done.add((e["from"], e["to"]))
+        es = [x for x in libs if (x["from"], x["to"]) == (e["from"], e["to"])]
+        lines.append("%s → %s lib %d module(s): %s" % (e["from"], e["to"], len(es), ", ".join(
+            "%s %s" % (x.get("module") or x["via"], ver(x)) for x in es) if t == "lib" else
+            "(links --type lib%s)" % ("" if s else " --service %s" % e["from"])))
     lines.append("%d edge(s), %d unresolved%s" % (len(edges), len(unres), "" if not unres else " (links --json)"))
     print(clip("\n".join(lines), 6000))
     return 0
@@ -1021,7 +1059,8 @@ def cmd_uninstall_hooks(ctx, opts):
 COMMANDS = {"status": cmd_status, "brief": cmd_brief, "find": cmd_find, "svc": cmd_svc, "links": cmd_links,
             "update": cmd_update, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
             "uninstall-git-hooks": cmd_uninstall_hooks, "hub-sync": cmd_hub_sync, "hub-scan": cmd_hub_scan}
-VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo", "--hub"}
+VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo", "--hub",
+          "--module"}
 
 
 def parse(argv):

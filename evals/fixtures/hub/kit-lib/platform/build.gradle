@@ -1,0 +1,12 @@
+plugins {
+  id 'java-platform'
+}
+
+dependencies {
+  constraints {
+    api project(':kit-core')
+    api project(':kit-rest-autoconfigure')
+    // kit-kafka is versioned apart from the BOM release
+    api "io.acme.kit:kit-kafka:${kafkaVersion}"
+  }
+}

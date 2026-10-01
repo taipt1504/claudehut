@@ -31,9 +31,11 @@
 # Per service repo (a child with .claude/claudehut and a .git dir): backup → claudehut-index memory (MEMORY.md
 # migration) → merge-learnings --repair → claudehut-index update (--full when there is no index yet) →
 # claudehut-init --mode microservice --hub <hub> --no-extras → git hooks (safe only) → .gitignore patch printed when
-# the plane is ignored (.gitignore is never edited). Then the hub: hub-scan of git repos without a plane that carry a
-# build manifest, hub-sync. Then the workspace root plane: memory, repair, topology.json → hub, valid learnings moved
-# to <hub>/fleet-learnings.jsonl (old file renamed .migrated), CLAUDE.md @imports only PROJECT.md + the hub's HUB.md.
+# the plane is ignored (.gitignore is never edited). Then the Summer KB of every service (install_summer_kb.py
+# --if-stale; the java-common-ms source stamp first): "summer-kb: refresh N, install M, up-to-date K". Then the hub:
+# hub-scan of git repos without a plane that carry a build manifest, hub-sync. Then the workspace root plane: memory,
+# repair, topology.json → hub, valid learnings moved to <hub>/fleet-learnings.jsonl (old file renamed .migrated),
+# CLAUDE.md @imports only PROJECT.md + the hub's HUB.md.
 # Never deletes tasks/, reuse-index.json or the root .understand-anything graph; never commits or pushes.
 set -uo pipefail
 export GIT_OPTIONAL_LOCKS=0   # a git read must never rewrite a repo's .git/index
@@ -42,6 +44,7 @@ PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INIT="$PLUGIN_ROOT/bin/claudehut-init"
 IDX="$PLUGIN_ROOT/bin/claudehut-index"
 MERGE="$PLUGIN_ROOT/scripts/merge-learnings.sh"
+KB="$PLUGIN_ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
 MEMBERS=(.claude CLAUDE.md .gitignore .worktreeinclude .git/hooks)
 MARK="ClaudeHut: project-adaptive memory"
 
@@ -60,7 +63,7 @@ while [ $# -gt 0 ]; do
     --keep-temp) KEEP=true; shift ;;
     --plugin-data) PDATA="${2:-}"; shift 2 ;;
     --ignore-preflight) NOPRE=true; shift ;;
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,39p' "$0"; exit 0 ;;
     *) die "unknown argument $1" ;;
   esac
 done
@@ -364,6 +367,27 @@ migrate_all() {
       log "      .claude/*  !.claude/claudehut/  !.claude/rules/  .claude/claudehut/state/  .claude/claudehut/ledger/  .claude/claudehut/index/  .claude/claudehut/tasks/"
     fi
   done
+  # 3b. Summer KB, every service: the KB home (java-common-ms) first so its source stamp is at HEAD, then each
+  #     consumer — refreshed when its summerCommit or module set moved, installed when missing (all under .claude/,
+  #     so the backups above cover it). install_summer_kb.py --if-stale writes nothing when up to date.
+  log "== summer-kb"
+  local kb_n=0 kb_m=0 kb_k=0 kb_order=() st
+  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ -f "$s/.claude/summer-kb/INDEX.md" ] && [ "${s##*/}" = java-common-ms ] && kb_order+=("$s"); done
+  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ "${kb_order[0]:-}" = "$s" ] || kb_order+=("$s"); done
+  for s in ${kb_order[@]+"${kb_order[@]}"}; do
+    out="$(run_env "$s" python3 "$KB" "$s" --if-stale 2>&1)"; printf '%s\n' "$out" >> "${LOG:-/dev/null}"
+    st="$(printf '%s\n' "$out" | grep '^summer-kb: ' | tail -1)"; st="${st#summer-kb: }"
+    case "$st" in
+      installed*) kb_m=$((kb_m+1)) ;;
+      refreshed*) kb_n=$((kb_n+1)) ;;
+      up-to-date*) kb_k=$((kb_k+1)) ;;
+      "skip (not a Summer consumer)") continue ;;
+      source*) : ;;
+      *) log "  WARN: summer-kb ${s##*/}: $(printf '%s' "$out" | tail -1)"; rc=1; continue ;;
+    esac
+    log "  summer-kb ${s##*/}: $st"
+  done
+  log "  summer-kb: refresh $kb_n, install $kb_m, up-to-date $kb_k"
   # 4. Hub: read-only scan of repos without a plane, then one sync over everything registered.
   log "== hub-scan + hub-sync"
   if [ ${#SCANS[@]} -gt 0 ]; then
@@ -495,7 +519,7 @@ a, b = load(sys.argv[1]), load(sys.argv[2])
 agg = {}
 for f in sorted(set(a) | set(b)):
     key = None
-    for pre in (".claude/claudehut/index/", ".claude/rules/", ".claude/claudehut/hub/links/", ".claude/claudehut/hub/.understand-anything/"):
+    for pre in (".claude/claudehut/index/", ".claude/rules/", ".claude/summer-kb/", ".claude/claudehut/hub/links/", ".claude/claudehut/hub/.understand-anything/"):
         if f.startswith(pre): key = pre
     if f in a and f in b and a[f][1] == b[f][1]:
         continue
@@ -557,7 +581,7 @@ snap "$SHUB" . > "$TMP/after._hub"
 echo "-- hub ($HUB)$([ -d "$HUB" ] || echo ' — created: git init, no remote')"
 plan_diff "$TMP/before._hub" "$TMP/after._hub" | grep -v '\.git/' || :
 echo
-sed "s#$FS##g" "$TMP/run.out" | grep -E '^  (hub-scan|hub-sync):|WARN|ABORT' || :
+sed "s#$FS##g" "$TMP/run.out" | grep -E '^  (hub-scan|hub-sync|summer-kb)( |:)|WARN|ABORT' || :
 $KEEP && echo "temp copy kept: $TMP (full log: $TMP/run.out)"
 echo "claudehut-migrate --dry-run: done (simulated rc=$mrc). Nothing outside $TMP was written."
 exit $mrc

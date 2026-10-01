@@ -265,6 +265,95 @@ printf '{"session_id":"s-kb","hook_event_name":"SessionStart","source":"startup"
   && ok "KB home: no 'summer-kb install failed' in hook-errors.log; canonical INDEX.md/core.md untouched" \
   || bad "KB home: $(cat "$K/.claude/claudehut/state/hook-errors.log" 2>/dev/null)"
 
+echo "== 7. Summer KB: the java-common-ms source stamp follows HEAD; consumers stale → refresh, missing → install, current → kept"
+WS="$T/kws"; KH="$WS/kws-knowledge"; mkdir -p "$WS"; KBI="$ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
+for s in java-common-ms c-stale c-missing c-current; do mkrepo "$s"; v011_plane "$WS/$s"; done
+L="$WS/java-common-ms"; mkdir -p "$L/.claude/summer-kb"
+printf "dependencies { api platform('io.f8a.summer:summer-platform:1.0') }\n" > "$L/platform.gradle"
+printf '# INDEX\n| Doc |\n|---|\n| [core.md](core.md) |\n| [kafka.md](kafka.md) |\n| [payment-sdk.md](payment-sdk.md) |\n| [vietqr.md](vietqr.md) |\n' > "$L/.claude/summer-kb/INDEX.md"
+for d in USAGE core kafka payment-sdk vietqr; do printf '# %s\n' "$d" > "$L/.claude/summer-kb/$d.md"; done
+gitq "$L" add -A && gitq "$L" commit -qm kb
+kbdeps(){ printf "dependencies {\n" > "$WS/$1/build.gradle"; for a in "${@:2}"; do printf "  implementation 'io.f8a.summer:%s'\n" "$a" >> "$WS/$1/build.gradle"; done; printf "}\n" >> "$WS/$1/build.gradle"; gitq "$WS/$1" commit -qam deps; }
+kbdeps c-stale summer-core summer-kafka-consumer; kbdeps c-missing summer-payment-sdk; kbdeps c-current summer-core
+# c-missing: a commented-out dep (never a module) and one declared only through the version catalog (a module) —
+# the KB must read the build like the hub's lib edges do.
+mkdir -p "$WS/c-missing/gradle"; printf '[libraries]\nsummer-file = { module = "io.f8a.summer:summer-file" }\nsummer-unused = { module = "io.f8a.summer:summer-rest-common" }\n' > "$WS/c-missing/gradle/libs.versions.toml"
+printf "dependencies {\n  // implementation 'io.f8a.summer:summer-kafka-consumer'\n  implementation libs.summer.file\n}\n" >> "$WS/c-missing/build.gradle"; gitq "$WS/c-missing" add -A; gitq "$WS/c-missing" commit -qm catalog
+python3 "$KBI" "$WS/c-current" >/dev/null 2>&1; rm -f "$L/.claude/summer-kb/.summer-kb-meta.json"   # current consumer; source unstamped
+SK="$WS/c-stale/.claude/summer-kb"; mkdir -p "$SK"
+printf '{"source":"sibling","summerCommit":"b6017fb680607a025181445be45b84f6152add32","includedModules":["core","payment-sdk"]}\n' > "$SK/.summer-kb-meta.json"
+for d in INDEX USAGE core payment-sdk; do printf 'old %s\n' "$d" > "$SK/$d.md"; done
+printf '# team-edited pointer\n' > "$WS/c-stale/.claude/rules/summer-kb.md"; printf 'mine\n' > "$SK/NOTES.txt"
+HEADL="$(git -C "$L" rev-parse HEAD)"; cur0="$(tree_sum "$WS/c-current/.claude/summer-kb")"; kw0="$(tree_sum "$WS")"
+out="$("$MIG" --workspace "$WS" --hub "$KH" --language vi --dry-run 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q '^  summer-kb: refresh 1, install 1, up-to-date 1$' <<<"$out" && [ "$kw0" = "$(tree_sum "$WS")" ] \
+  && ok "KB dry-run: 'summer-kb: refresh 1, install 1, up-to-date 1' reported; workspace unchanged" \
+  || bad "KB dry-run (rc=$rc): $(grep -E 'summer-kb' <<<"$out" | head -6)"
+grep -q 'modify .claude/summer-kb/' <<<"$out" && grep -q 'create .claude/summer-kb/' <<<"$out" \
+  && ok "KB dry-run plan lists the .claude/summer-kb/ writes per service" || bad "KB dry-run plan: $(grep -E 'summer-kb' <<<"$out" | head -6)"
+out="$("$MIG" --workspace "$WS" --hub "$KH" --language vi --apply 2>&1)"; rc=$?
+grep -q '^  summer-kb: refresh 1, install 1, up-to-date 1$' <<<"$out" && grep -q '^  summer-kb java-common-ms: source stamped' <<<"$out" \
+  && ok "KB apply: java-common-ms stamped first, then refresh 1, install 1, up-to-date 1" || bad "KB apply (rc=$rc): $(grep -E 'summer-kb' <<<"$out" | head -6)"
+[ "$(jq -r '.summerCommit + " " + .role' "$L/.claude/summer-kb/.summer-kb-meta.json" 2>/dev/null)" = "$HEADL source" ] \
+  && [ "$(jq -c '.modules["payment-sdk"]' "$L/.claude/summer-kb/.summer-kb-meta.json")" = '["payment-sdk","vietqr"]' ] \
+  && ok "source .summer-kb-meta.json: summerCommit = java-common-ms HEAD, per-module doc list (vietqr ships in payment-sdk)" \
+  || bad "source meta: $(cat "$L/.claude/summer-kb/.summer-kb-meta.json" 2>/dev/null)"
+[ "$(jq -r '.summerCommit' "$SK/.summer-kb-meta.json")" = "$HEADL" ] && [ "$(jq -c '.includedModules' "$SK/.summer-kb-meta.json")" = '["core","kafka"]' ] \
+  && [ "$(cat "$SK/kafka.md")" = '# kafka' ] && [ ! -e "$SK/payment-sdk.md" ] && ! grep -q 'payment-sdk' "$SK/INDEX.md" \
+  && ok "stale consumer refreshed: stamp at HEAD, modules core+kafka, dropped payment-sdk doc removed, INDEX scoped" \
+  || bad "stale consumer: $(cat "$SK/.summer-kb-meta.json"; ls "$SK")"
+[ "$(cat "$WS/c-stale/.claude/rules/summer-kb.md")" = '# team-edited pointer' ] && [ "$(cat "$SK/NOTES.txt")" = mine ] \
+  && ok "hand-edited pointer and a non-KB file in the KB dir are left alone" || bad "a hand-edited file was touched"
+MK="$WS/c-missing/.claude/summer-kb"
+[ -f "$MK/payment-sdk.md" ] && [ -f "$MK/vietqr.md" ] && [ -f "$MK/core.md" ] && [ ! -e "$MK/kafka.md" ] \
+  && [ -f "$WS/c-missing/.claude/rules/summer-kb.md" ] && [ "$(jq -r .summerCommit "$MK/.summer-kb-meta.json")" = "$HEADL" ] \
+  && ok "missing consumer installed: payment-sdk + vietqr + core, pointer created, stamp at HEAD" || bad "missing consumer: $(ls -a "$MK" 2>&1)"
+KBA="$(jq -c '.detectedArtifacts' "$MK/.summer-kb-meta.json" 2>/dev/null)"
+HBA="$(jq -c '[.edges[] | select(.type=="lib" and .from=="c-missing") | .module] | sort' "$KH/.claude/claudehut/hub/service-links.json" 2>/dev/null)"
+[ "$KBA" = '["summer-file","summer-payment-sdk"]' ] && [ "$KBA" = "$HBA" ] \
+  && ok "KB module set == the hub's lib edges for that service (commented dep ignored, catalog-only dep counted)" \
+  || bad "KB artifacts $KBA vs hub lib-edge modules $HBA"
+[ -z "$(find "$ROOT/scripts" "$ROOT/skills" -name __pycache__ -print -quit)" ] \
+  && ok "the KB installer imports the hub parser without writing __pycache__ into the plugin" || bad "__pycache__ written into the plugin"
+[ "$cur0" = "$(tree_sum "$WS/c-current/.claude/summer-kb")" ] && grep -q '^  summer-kb c-current: up-to-date' <<<"$out" \
+  && ok "current consumer: reported up-to-date, KB byte-identical" || bad "current consumer KB changed"
+KB1="$(ls -d "$WS"/.claudehut-backup-* 2>/dev/null | tail -1)"
+tar -tzf "$KB1/c-stale.tar.gz" 2>/dev/null | grep -q 'summer-kb/.summer-kb-meta.json' && ok "the backup taken before the write holds c-stale's old KB" || bad "c-stale KB not in $KB1"
+kw1="$(tree_sum "$WS")"
+out="$("$MIG" --workspace "$WS" --hub "$KH" --language vi --apply 2>&1)"
+grep -q '^  summer-kb: refresh 0, install 0, up-to-date 3$' <<<"$out" && [ "$kw1" = "$(tree_sum "$WS")" ] \
+  && ok "KB re-apply: refresh 0, install 0, up-to-date 3; tree identical (idempotent)" \
+  || bad "KB re-apply: $(grep -E 'summer-kb' <<<"$out" | head -5) $(diff <(printf '%s\n' "$kw1") <(tree_sum "$WS") | head -5)"
+gitq "$L" commit -q --allow-empty -m bump
+out="$("$MIG" --workspace "$WS" --hub "$KH" --language vi --dry-run 2>&1)"
+grep -q '^  summer-kb: refresh 3, install 0, up-to-date 0$' <<<"$out" && ok "a new java-common-ms commit makes every consumer stale (dry-run: refresh 3)" \
+  || bad "after a library commit: $(grep -E 'summer-kb' <<<"$out" | head -5)"
+
+# maintain.sh: a stamp comparison only; a stale KB (here: the library moved one commit) is refreshed detached.
+HEADL="$(git -C "$L" rev-parse HEAD)"
+kb_wait(){ local i; for i in $(seq 1 50); do [ "$(jq -r .summerCommit "$1" 2>/dev/null)" = "$HEADL" ] && return 0; sleep 0.2; done; return 1; }
+# A plugin root with only the KB skill: maintain.sh's rule refresh and detached index update (no bin/) stay out, so no
+# background job writes into the hub while the suite cleans up.
+KR="$T/kbroot"; mkdir -p "$KR/skills"; ln -s "$ROOT/skills/summer-kb-setup" "$KR/skills/summer-kb-setup"
+for s in java-common-ms c-stale; do
+  printf '{"session_id":"s-kb2","hook_event_name":"SessionStart","source":"startup"}' \
+    | env -u CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT="$KR" CLAUDE_PROJECT_DIR="$WS/$s" "$ROOT/scripts/maintain.sh" >/dev/null 2>&1
+done
+kb_wait "$L/.claude/summer-kb/.summer-kb-meta.json" && kb_wait "$SK/.summer-kb-meta.json" \
+  && [ "$(cat "$WS/c-stale/.claude/rules/summer-kb.md")" = '# team-edited pointer' ] \
+  && ok "maintain.sh: a library commit → detached refresh of the source stamp and of a consumer's KB (pointer kept)" \
+  || bad "maintain.sh refresh: source=$(jq -r .summerCommit "$L/.claude/summer-kb/.summer-kb-meta.json") consumer=$(jq -r .summerCommit "$SK/.summer-kb-meta.json") head=$HEADL"
+
+# maintain.sh first install for a consumer that names Summer only in gradle/libs.versions.toml.
+mkrepo c-toml; v011_plane "$WS/c-toml"; mkdir -p "$WS/c-toml/gradle"
+printf '[libraries]\nsummer-file = { module = "io.f8a.summer:summer-file" }\n' > "$WS/c-toml/gradle/libs.versions.toml"
+printf "dependencies {\n  implementation libs.summer.file\n}\n" > "$WS/c-toml/build.gradle"
+printf '{"session_id":"s-kb3","hook_event_name":"SessionStart","source":"startup"}' \
+  | env -u CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT="$KR" CLAUDE_PROJECT_DIR="$WS/c-toml" "$ROOT/scripts/maintain.sh" >/dev/null 2>&1
+[ "$(jq -c .detectedArtifacts "$WS/c-toml/.claude/summer-kb/.summer-kb-meta.json" 2>/dev/null)" = '["summer-file"]' ] \
+  && ok "maintain.sh: a catalog-only Summer consumer (libs.versions.toml) gets its first KB install" \
+  || bad "catalog-only consumer: $(ls -a "$WS/c-toml/.claude/summer-kb" 2>&1)"
+
 echo; echo "MIGRATE: $PASS passed, $FAIL failed"
 [ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/migrate-tests.count"
 [ "$FAIL" -eq 0 ]

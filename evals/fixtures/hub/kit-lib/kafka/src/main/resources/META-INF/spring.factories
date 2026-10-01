@@ -1,0 +1,4 @@
+org.springframework.context.ApplicationListener=io.acme.kit.kafka.NotAnAutoConfig
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+  io.acme.kit.kafka.KitKafkaAutoConfiguration,\
+  io.acme.kit.kafka.KitKafkaDltAutoConfiguration

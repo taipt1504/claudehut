@@ -16,7 +16,9 @@ import re
 # ---------------------------------------------------------------- source filters ----------------------------
 JAVA_RE = re.compile(r"(^|/)src/main/(.+/)?[^/]+\.java$")
 MIGRATION_RE = re.compile(r"(^|/)src/main/resources/db/migration/(.+/)?[^/]+\.sql$")
-CONTRACT_RE = re.compile(r"(^|/)(src/main/resources/application[^/]*\.ya?ml|[^/]*\.gradle(\.kts)?|pom\.xml)$")
+CONTRACT_RE = re.compile(r"(^|/)(src/main/resources/application[^/]*\.ya?ml|[^/]*\.gradle(\.kts)?|pom\.xml|gradle\.properties|gradle/[^/]+\.versions\.toml)$")
+# Spring Boot auto-configuration registrations (a library's public surface; a service's own ones too)
+AUTOCONF_RE = re.compile(r"(^|/)src/main/resources/META-INF/(spring/[^/]*AutoConfiguration\.imports|spring\.factories)$")
 EXCLUDE_RE = re.compile(r"(^|/)(build|target|out|\.gradle|node_modules)/")
 
 
@@ -29,7 +31,7 @@ def excluded(path):
 
 def is_source(path):
     """A file whose content produces components (java under src/main, Flyway migrations)."""
-    return not excluded(path) and bool(JAVA_RE.search(path) or MIGRATION_RE.search(path))
+    return not excluded(path) and bool(JAVA_RE.search(path) or MIGRATION_RE.search(path) or AUTOCONF_RE.search(path))
 
 
 def is_contract_input(path):
@@ -50,6 +52,14 @@ CLASS_RULES = [
     ("service", lambda t: "Service" in t["ann"]),  # rule:service
     ("component", lambda t: bool(t["ann"] & {"Component", "RestControllerAdvice", "ControllerAdvice", "Aspect"})),  # rule:component
 ]
+# Library surface (a repo detected as a multi-module publisher, see library_info): checked only there, so a
+# service's public interfaces / annotations never flood its index. "properties" wins over CLASS_RULES' config.
+LIB_CLASS_RULES = {}
+LIB_CLASS_RULES["properties"] = lambda t: "ConfigurationProperties" in t["ann"]  # rule:lib-properties
+LIB_CLASS_RULES["annotation"] = lambda t: t["kw"] == "@interface" and t["public"]  # rule:lib-annotation
+LIB_CLASS_RULES["spi"] = lambda t: t["kw"] == "interface" and t["public"]  # rule:lib-spi
+LIB_MEMBER_RULES = {}
+LIB_MEMBER_RULES["bean"] = "Bean"  # rule:lib-bean
 REPO_EXT_RE = re.compile(r"\b(Jpa|R2dbc|Crud|ReactiveCrud|ReactiveSorting|PagingAndSorting|ListCrud|ListPagingAndSorting|Mongo|ReactiveMongo|Elasticsearch)?Repository\s*<")
 
 
@@ -90,10 +100,11 @@ BASE_URL_RE = re.compile(r"\.\s*(baseUrl|rootUri)\s*\(")  # rule:client-base-url
 CREATE_TABLE_RE = re.compile(r"\b(create\s+table(?:\s+if\s+not\s+exists)?|alter\s+table(?:\s+if\s+exists)?(?:\s+only)?)\s+([\"\w.]+)", re.I)  # rule:flyway-table
 
 KIND_ORDER = ["controller", "endpoint", "router", "service", "listener", "producer", "client", "repository",
-              "entity", "config", "migration", "component"]
+              "entity", "config", "migration", "component", "module", "autoconfig", "properties", "annotation", "spi",
+              "bean"]
 
 MODIFIERS = r"(?:(?:public|protected|private|static|final|abstract|sealed|non-sealed|default|synchronized|strictfp|native|transient|volatile)\s+)*"
-TYPE_DECL_RE = re.compile(r"(?<![\w.@])(class|interface|enum|record)\s+([A-Za-z_$][\w$]*)")
+TYPE_DECL_RE = re.compile(r"(?<![\w.@])(class|@?interface|enum|record)\s+([A-Za-z_$][\w$]*)")
 ANN_RE = re.compile(r"@(?!interface\b)([A-Za-z_$][\w$.]*)")
 PKG_RE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.M)
 IDENT_BEFORE_PAREN_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*$")
@@ -277,7 +288,56 @@ def first_doc_sentence(text):
 
 
 # ---------------------------------------------------------------- java extraction -----------------------------
-def extract_java(rel, text, svc):
+def class_kind(t, lib):
+    """CLASS_RULES first-match; in a library repo @ConfigurationProperties is `properties` and an otherwise
+    unclassified public interface / @interface is `spi` / `annotation`. A service's @interface stays unindexed."""
+    if lib and LIB_CLASS_RULES.get("properties", lambda _t: False)(t):
+        return "properties"
+    if t["kw"] == "@interface" and not lib:
+        return None
+    k = next((k for k, pred in CLASS_RULES if pred(t)), None)
+    if k or not lib:
+        return k
+    return next((k for k, pred in LIB_CLASS_RULES.items() if k != "properties" and pred(t)), None)
+
+
+def camel_kebab(name):
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"-\1", name).lower()
+
+
+PROP_FIELD_RE = re.compile(r"\b([A-Za-z][\w.]*)\s*(<[^;{}()=]*?>)?\s*(?:\[\s*\])?\s+([a-z]\w*)\s*[;=]")
+
+
+def prop_keys(src, types, t, prefix, depth=0):
+    """@ConfigurationProperties keys: non-static fields (or record components) of t in kebab case; a field whose type is
+    a nested type of the same file expands one more level (Map<String, X> → key.*.sub)."""
+    out = []
+    if t["kw"] == "record":
+        head = src.code[src.skel.find("(", t["at"]) + 1:t["body"]]
+        comps = [re.findall(r"(\w+)\s*$", p.strip()) for p in split_top(head.rsplit(")", 1)[0])]
+        return ["%s.%s" % (prefix, camel_kebab(c[0])) for c in comps if c]
+    inner = [(o["body"], o["end"]) for o in types if t["body"] < o["at"] < t["end"]]
+    by = {o["name"]: o for o in types}
+    for m in PROP_FIELD_RE.finditer(src.skel, t["body"], t["end"]):
+        p = m.start(3)
+        if src.depth(p) != t["depth"] or src.pdepth(p) != 0 or any(lo < p < hi for lo, hi in inner):
+            continue
+        if re.search(r"\bstatic\b", src.skel[src.stmt_start(m.start()):m.start()]):
+            continue
+        key = "%s.%s" % (prefix, camel_kebab(m.group(3)))
+        ty, args = m.group(1), re.findall(r"[A-Z][\w.]*", m.group(2) or "")
+        if ty in ("return", "throw", "new", "else", "case", "yield"):
+            continue
+        nested = by.get(ty) or (by.get(args[-1]) if ty in ("Map", "List", "Set") and args else None)
+        if nested is not None and nested is not t and depth < 2 and nested["kw"] in ("class", "record"):
+            sub = key + (".*" if ty == "Map" else "[*]" if ty in ("List", "Set") else "")
+            out += prop_keys(src, types, nested, sub, depth + 1) or [sub]
+        else:
+            out.append(key)
+    return out
+
+
+def extract_java(rel, text, svc, lib=None):
     src = Src(text)
     pm = PKG_RE.search(src.code)
     pkg = pm.group(1) if pm else ""
@@ -305,13 +365,18 @@ def extract_java(rel, text, svc):
         t["ann"] = {a[0] for a in anns}
         at = anns[0][2] if anns else t["at"]
         t["line"] = src.line(at)
+        mods = src.skel[(anns[-1][3] if anns else src.stmt_start(t["at"])):t["at"]]
+        outer_iface = any(o["body"] < t["at"] < o["end"] and o["kw"] in ("interface", "@interface") for o in types)
+        t["public"] = bool(re.search(r"\bpublic\b", mods)) or outer_iface
         inner = [(o["body"], o["end"]) for o in types if t["body"] < o["at"] < t["end"]]
         body_code = src.skel[t["body"]:t["end"]]
         t["uses"] = set(re.findall(r"\b([A-Z]\w*)\b", body_code + " " + t["ext"])) & (HTTP_CLIENT_TYPES | KAFKA_PRODUCER_TYPES)
         members = member_decls(src, t, inner)
-        kind = next((k for k, pred in CLASS_RULES if pred(t)), None)
+        kind = class_kind(t, lib)
         purpose = doc_before(src, at)
         base = {"svc": svc, "file": rel}
+        if lib and lib.get("module_of"):
+            base["module"] = lib["module_of"]
         if kind:
             row = dict(base, id="%s:%s" % (svc, t["fqn"]), kind=kind, name=t["name"], fqn=t["fqn"], line=t["line"],
                        annotations=sorted(t["ann"]),
@@ -326,12 +391,14 @@ def extract_java(rel, text, svc):
                 row["target"] = client_target(src, t)
             if kind in ("client", "config") and not row.get("target"):
                 row.update(client_target_ref(src, t))
-            if kind == "config":
+            if kind in ("config", "properties"):
                 pre = props_prefix(t["ann_list"])
                 if pre:
                     row["props_prefix"] = pre
+                    if kind == "properties":
+                        row["props"] = prop_keys(src, types, t, pre)[:40]
             rows.append(row)
-        rows.extend(member_rows(src, t, members, base, kind))
+        rows.extend(member_rows(src, t, members, base, kind, bool(lib)))
         rows.extend(producer_rows(src, t, inner, base))
         rows.extend(receiver_rows(src, t, inner, base))
     return rows
@@ -408,7 +475,7 @@ def mapping_paths(args, consts=None):
     return out or [""]
 
 
-def member_rows(src, t, members, base, kind):
+def member_rows(src, t, members, base, kind, lib=False):
     rows = []
     cls_base = [""]
     consts = dict(CONST_RE.findall(src.code))
@@ -447,6 +514,15 @@ def member_rows(src, t, members, base, kind):
                 rows.append(dict(base, id="%s:%s#%s" % (base["svc"], t["fqn"], mem["name"]), kind="router",
                                  name="%s#%s" % (t["name"], mem["name"]), fqn="%s#%s" % (t["fqn"], mem["name"]),
                                  line=src.line(at)))
+            elif lib and name == LIB_MEMBER_RULES.get("bean"):  # a library's @Bean factory (what a consumer gets)
+                ret = re.sub(r"\b(public|protected|private|static|final|synchronized)\b", " ", mem["ret"])
+                ret = re.sub(r"<[^<>]*>", "", re.sub(r"<[^<>]*>", "", ret)).split()
+                row = dict(base, id="%s:%s#%s" % (base["svc"], t["fqn"], mem["name"]), kind="bean",
+                           name="%s#%s" % (t["name"], mem["name"]), fqn="%s#%s" % (t["fqn"], mem["name"]),
+                           line=src.line(at), annotations=sorted({a[0] for a in mem["anns"]}))
+                if len(ret) >= 2:  # "... Type name" — the return type precedes the method name
+                    row["type"] = ret[-2]
+                rows.append(row)
     return rows
 
 
@@ -712,10 +788,144 @@ def extract_migration(rel, text, svc):
     return [row]
 
 
-def extract_file(rel, text, svc):
+# ---------------------------------------------------------------- library surface ------------------------------
+AUTOCONF_LINE = {}
+AUTOCONF_LINE["imports"] = re.compile(r"^\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*(?:#.*)?$")  # rule:autoconfig-imports
+AUTOCONF_LINE["factories"] = re.compile(r"(?:^|,)\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*(?=,|$)")  # rule:spring-factories
+FACTORIES_KEY = "org.springframework.boot.autoconfigure.EnableAutoConfiguration"
+
+
+def extract_autoconf(rel, text, svc, lib=None):
+    """META-INF/spring/…AutoConfiguration.imports (one class per line) or spring.factories (the EnableAutoConfiguration
+    key, backslash continuations) → one autoconfig row per registered class, at its own line."""
+    rows, base = [], {"svc": svc, "file": rel}
+    if lib and lib.get("module_of"):
+        base["module"] = lib["module_of"]
+    imports = rel.endswith(".imports")
+    rule = AUTOCONF_LINE.get("imports" if imports else "factories")
+    if rule is None:
+        return rows
+    on = cont = False
+    for i, ln in enumerate(text.splitlines(), 1):
+        if not cont and ln.lstrip().startswith(("#", "!")):
+            continue
+        if imports:
+            found = [m.group(1) for m in [rule.match(ln)] if m]
+        else:
+            val = ln
+            if not cont:
+                key, _eq, val = ln.partition("=")
+                on = bool(_eq) and key.strip() == FACTORIES_KEY
+            cont = ln.rstrip().endswith("\\")
+            found = [m.group(1) for m in rule.finditer(val.rstrip("\\ \t"))] if on else []
+        for fqn in found:
+            rows.append(dict(base, id="%s:%s!autoconfig%s" % (svc, fqn, "" if imports else "@factories"),
+                             kind="autoconfig", name=fqn.rsplit(".", 1)[-1], fqn=fqn, line=i))
+    return rows
+
+
+LIB_DETECT = {}
+LIB_DETECT["publish"] = re.compile(r"maven-publish|java-platform|\bpublishing\s*\{")  # rule:lib-module
+BOOT_APP_RE = re.compile(r"""(?:\bid\s*\(?\s*|apply\s*\(?\s*plugin\s*[:=]\s*)['"]org\.springframework\.boot['"]""")
+GROUP_RE = re.compile(r"""(?m)^\s*group\s*=?\s*['"]?([\w.\-]+)['"]?\s*$""")
+VERSION_LINE_RE = re.compile(r"""(?m)^\s*version\s*=\s*(['"]?)([\w.\-+]+)\1\s*$""")
+SETTINGS = ("settings.gradle", "settings.gradle.kts")
+
+
+def library_info(files, read):
+    """A repo that publishes ≥2 Gradle modules (maven-publish / java-platform, a group, no Spring Boot application
+    plugin) → {group, root, version, modules:[{artifact, dir, build, bom?, version?}]}; anything else → None.
+    Module names follow settings.gradle: explicit include(…) paths, else every sub-directory build file (the dynamic
+    fileTree style); a root-name prefix (`'summer'.concat('-'…)`, "${rootProject.name}-…") is applied."""
+    pub = LIB_DETECT.get("publish")
+    st = next((f for f in SETTINGS if f in files), None)
+    if pub is None or st is None:
+        return None
+    stext = lex(read(st) or "")[0]
+    m = re.search(r"""rootProject\.name\s*=\s*['"]([^'"]+)['"]""", stext)
+    root = m.group(1) if m else None
+    builds = [f for f in files if re.search(r"(^|/)[^/]*\.gradle(\.kts)?$", f) and "/" in f
+              and not re.match(r"(buildSrc|gradle)/", f) and "/src/" not in "/" + f and not f.endswith(SETTINGS)]
+    texts = {f: lex(read(f) or "")[0] for f in builds + [x for x in ("build.gradle", "build.gradle.kts") if x in files]}
+    if not any(pub.search(t) for t in texts.values()) or any(BOOT_APP_RE.search(t) for t in texts.values()):
+        return None
+    props = read("gradle.properties") if "gradle.properties" in files else ""
+    group = None
+    for t in [props or ""] + [texts.get(x, "") for x in ("build.gradle", "build.gradle.kts")]:
+        g = GROUP_RE.search(t)
+        if g:
+            group = g.group(1)
+            break
+    if not group:
+        return None
+    pvars = dict(re.findall(r"(?m)^\s*([\w.\-]+)\s*=\s*(\S+)\s*$", props or ""))
+    incl = []
+    for im in re.finditer(r"""\binclude\s*\(?((?:\s*['"][^'"]+['"]\s*,?)+)""", stext):
+        incl += [x for x in re.findall(r"""['"]([^'"]+)['"]""", im.group(1)) if re.fullmatch(r":?[\w.\-]+(:[\w.\-]+)*", x)]
+    dirs = {}
+    for f in builds:
+        dirs.setdefault(f.rsplit("/", 1)[0], f)
+    pdir = dict(re.findall(r"""project\(\s*['"]:?([\w:.\-]+)['"]\s*\)\.projectDir\s*=\s*(?:new\s+File\([^,]+,\s*|file\(\s*)['"]([^'"]+)['"]""", stext))
+    pname = dict(re.findall(r"""project\(\s*['"]:?([\w:.\-]+)['"]\s*\)\.name\s*=\s*['"]([^'"]+)['"]""", stext))
+    prefix = ""
+    if root and re.search(r"""['"]%s['"]\s*\.concat\(|['"]%s-|\$\{?rootProject\.name\}?-""" % (re.escape(root), re.escape(root)), stext):
+        prefix = root + "-"
+    mods = []
+    paths = [p.lstrip(":") for p in incl] if incl else sorted(dirs)
+    for p in paths:
+        d = pdir.get(p) or (p.replace(":", "/") if incl else p)
+        build = dirs.get(d)
+        if incl and not build:
+            continue
+        leaf = (p.split(":")[-1] if incl else d.rsplit("/", 1)[-1])
+        art = pname.get(p) or (leaf if leaf.startswith(prefix) else prefix + leaf)
+        mod = {"artifact": art, "dir": d, "build": build}
+        bt = texts.get(build, "")
+        if "java-platform" in bt:
+            mod["bom"] = True
+        vm = re.search(r"(?m)^\s*version\s*=\s*(['\"]?)([\w.\-+]+)\1\s*$", bt)
+        if vm:
+            mod["version"] = vm.group(2) if vm.group(1) else pvars.get(vm.group(2), None)
+            if not mod["version"]:
+                mod.pop("version")
+        mods.append(mod)
+    if len(mods) < 2:
+        return None
+    vm = VERSION_LINE_RE.search(props or "") or VERSION_LINE_RE.search(texts.get("build.gradle", ""))
+    return {"group": group, "root": root, "version": vm.group(2) if vm else None,
+            "modules": sorted(mods, key=lambda x: x["dir"])}
+
+
+def module_of(lib, rel):
+    """The artifact of the deepest library module dir containing rel (None outside every module)."""
+    best = None
+    for m in (lib or {}).get("modules", []):
+        if rel.startswith(m["dir"] + "/") and (best is None or len(m["dir"]) > len(best["dir"])):
+            best = m
+    return best["artifact"] if best else None
+
+
+def library_rows(lib, svc):
+    """One `module` row per published module (at its build file)."""
+    rows = []
+    for m in (lib or {}).get("modules", []):
+        r = {"svc": svc, "file": m["build"], "line": 1, "id": "%s:module:%s" % (svc, m["artifact"]), "kind": "module",
+             "name": m["artifact"], "fqn": "%s:%s" % (lib["group"], m["artifact"]), "module": m["artifact"]}
+        if m.get("bom"):
+            r["tags"] = ["bom"]
+        rows.append(r)
+    return rows
+
+
+def extract_file(rel, text, svc, lib=None):
+    """lib: library_info() of the repo (None for a service); its module of rel is added as row['module']."""
+    if lib:
+        lib = dict(lib, module_of=module_of(lib, rel))
     if MIGRATION_RE.search(rel):
         return extract_migration(rel, text, svc)
-    return extract_java(rel, text, svc)
+    if AUTOCONF_RE.search(rel):
+        return extract_autoconf(rel, text, svc, lib)
+    return extract_java(rel, text, svc, lib)
 
 
 def sort_rows(rows):
@@ -726,7 +936,140 @@ def sort_rows(rows):
 YML_URL_RE = re.compile(r"^\s*([\w.-]*(?:url|uri|base-url|baseUrl|host)[\w.-]*)\s*:\s*[\"']?\$\{([A-Z0-9_]+)(?::([^}]*))?\}", re.I)  # rule:yml-client-env
 YML_DB_RE = re.compile(r"(?:r2dbc|jdbc):(?:pool:)?(?:postgresql|mysql|mariadb|sqlserver|oracle)[^\s\"']*?/([A-Za-z_][\w-]*)(?:[?\"'\s}]|$)")  # rule:yml-db
 YML_TOPIC_RE = re.compile(r"^\s*([\w.-]*topic[\w.-]*)\s*:\s*[\"']?(?:\$\{[A-Z0-9_]+:)?([A-Za-z0-9_.\-]+)", re.I)  # rule:yml-topic
-LIB_RE = re.compile(r"[\"'](io\.f8a\.summer:[\w.-]+)(?::[^\"']*)?[\"']")  # rule:summer-lib
+# Library dependencies (any group:artifact[:version]; the hub decides which group a registered library owns).
+DEP_RULES = {}
+DEP_RULES["string"] = re.compile(r"""(['"])([A-Za-z][\w\-]*(?:\.[\w\-]+)+):([A-Za-z0-9][\w.\-]*)(?::([^'"@\s]+))?(?:@\w+)?\1""")  # rule:lib-dep
+DEP_RULES["map"] = re.compile(r"""\bgroup\s*[:=]\s*['"]([\w.\-]+)['"]\s*,\s*name\s*[:=]\s*['"]([\w.\-]+)['"](?:\s*,\s*version\s*[:=]\s*['"]([^'"]+)['"])?""")  # rule:lib-dep-map
+DEP_RULES["catalog"] = re.compile(r"\b([a-z]\w*)\.((?:[A-Za-z]\w*)(?:\.[A-Za-z]\w*)*)")  # rule:catalog-dep
+DEP_RULES["platform"] = re.compile(r"\b(?:platform|enforcedPlatform|mavenBom)\b")  # rule:bom-platform
+VERSION_RULES = {}
+VERSION_RULES["property"] = re.compile(r"(?m)^\s*([A-Za-z_][\w.\-]*)\s*[=:]\s*([\w.\-+]+)\s*$")  # rule:version-prop
+VERSION_RULES["ext"] = re.compile(r"""(?m)(?:^|[\s{;.])(?:ext\.|def\s+|val\s+|var\s+|extra\[\s*["'])?([A-Za-z_]\w*)(?:["']\s*\])?\s*=\s*['"]([\w.\-+]+)['"]""")  # rule:version-ext
+VERSION_RULES["catalog-ref"] = re.compile(r'\bversion\.ref\s*=\s*"([^"]+)"|\bversion\s*=\s*\{\s*ref\s*=\s*"([^"]+)"')  # rule:catalog-version-ref
+VAR_REF_RE = re.compile(r"""\$\{?\s*(?:project\.|rootProject\.|ext\.|property\(\s*['"])?([A-Za-z_]\w*)""")
+
+
+def catalog(rel, text):
+    """gradle/<name>.versions.toml → {accessor-key: {coord, version?, at_def}} (accessor-key: the alias lower-cased
+    without - _ . so libs.summer.rest and libs.summerRest both find it). A regex reader: [versions] and
+    [libraries] with string or inline-table values."""
+    name = rel.rsplit("/", 1)[-1].split(".")[0]
+    vers, libs, sec = {}, {}, None
+    for i, ln in enumerate(text.splitlines(), 1):
+        t = ln.split("#", 1)[0].strip()
+        m = re.match(r"^\[([\w.\-]+)\]$", t)
+        if m:
+            sec = m.group(1)
+            continue
+        m = re.match(r"""^([\w.\-]+|"[^"]+")\s*=\s*(.+)$""", t)
+        if not m:
+            continue
+        key, val = m.group(1).strip('"'), m.group(2).strip()
+        if sec == "versions":
+            v = re.match(r'^"([^"]+)"', val)
+            if v:
+                vers[key] = v.group(1)
+        elif sec == "libraries":
+            ent = {"at_def": "%s:%d" % (rel, i)}
+            v = re.match(r'^"([^":]+):([^":]+)(?::([^"]+))?"$', val)
+            if v:
+                ent.update(coord="%s:%s" % (v.group(1), v.group(2)), version=v.group(3))
+            else:
+                mod = re.search(r'\bmodule\s*=\s*"([^":]+):([^"]+)"', val)
+                g, a = re.search(r'\bgroup\s*=\s*"([^"]+)"', val), re.search(r'\bname\s*=\s*"([^"]+)"', val)
+                if mod:
+                    ent["coord"] = "%s:%s" % (mod.group(1), mod.group(2))
+                elif g and a:
+                    ent["coord"] = "%s:%s" % (g.group(1), a.group(1))
+                else:
+                    continue
+                lit = re.search(r'\bversion\s*=\s*"([^"]+)"', val)
+                ref = VERSION_RULES.get("catalog-ref")
+                rm = ref.search(val) if ref else None
+                if lit:
+                    ent["version"] = lit.group(1)
+                elif rm:
+                    r = rm.group(1) or rm.group(2)
+                    ent["version"] = vers.get(r)
+                    ent["version_expr"] = "versions." + r
+            libs[re.sub(r"[-_.]", "", key.lower())] = ent
+    return name, libs
+
+
+def dep_vars(texts):
+    """Version variables: gradle.properties (root first) and ext / def / val assignments in *.gradle(.kts)."""
+    out = {}
+    for rel in sorted(texts, key=lambda r: (r.count("/"), r)):
+        rule = VERSION_RULES.get("property") if rel.endswith("gradle.properties") else \
+            VERSION_RULES.get("ext") if re.search(r"\.gradle(\.kts)?$", rel) else None
+        if rule:
+            for k, v in rule.findall(lex(texts[rel])[0] if rel.endswith((".gradle", ".kts")) else texts[rel]):
+                out.setdefault(k, v)
+    return out
+
+
+def resolve_version(expr, dvars):
+    """'1.2.3' → ('1.2.3', 'explicit'); '${summerVersion}' / '$v' → (value, 'property'); unresolved → (None, None)."""
+    if not expr:
+        return None, None
+    if "$" not in expr:
+        return expr, "explicit"
+    out = VAR_REF_RE.sub(lambda m: dvars.get(m.group(1), "\0"), expr)
+    out = re.sub(r"""['"]\s*\)|\}""", "", out)
+    return (out, "property") if "\0" not in out and re.fullmatch(r"[\w.\-+]+", out) else (None, None)
+
+
+def extract_deps(texts):
+    """*.gradle(.kts) (+ gradle.properties, gradle/*.versions.toml) → [{coord, group, artifact, at, config, scope,
+    version?, version_src?, version_expr?, platform?, at_def?}]: one entry per dependency declaration line."""
+    dvars = dep_vars(texts)
+    cats = dict(catalog(rel, texts[rel]) for rel in sorted(texts) if rel.endswith(".versions.toml"))
+    out, seen = [], set()
+    plat = DEP_RULES.get("platform")
+    for rel in sorted(texts):
+        if not re.search(r"\.gradle(\.kts)?$", rel):
+            continue
+        for i, ln in enumerate(lex(texts[rel])[0].splitlines(), 1):
+            if not ln.strip():
+                continue
+            cm = re.match(r"\s*([A-Za-z]\w*)\s*[\s(]", ln)
+            base = {"at": "%s:%d" % (rel, i), "config": cm.group(1) if cm else None}
+            if plat and plat.search(ln):
+                base["platform"] = True
+            found = []
+            if DEP_RULES.get("string"):
+                found += [(m.group(2), m.group(3), m.group(4), None) for m in DEP_RULES["string"].finditer(ln)]
+            if DEP_RULES.get("map"):
+                found += [(m.group(1), m.group(2), m.group(3), None) for m in DEP_RULES["map"].finditer(ln)]
+            if DEP_RULES.get("catalog"):
+                for m in DEP_RULES["catalog"].finditer(ln):
+                    acc = re.sub(r"\.get$", "", m.group(2))
+                    if m.group(1) not in cats or acc.split(".")[0] in ("versions", "plugins", "bundles"):
+                        continue
+                    ent = cats[m.group(1)].get(re.sub(r"[-_.]", "", acc.lower()))
+                    if ent:
+                        g, a = ent["coord"].split(":", 1)
+                        found.append((g, a, None, ent))
+            for g, a, v, ent in found:
+                if (rel, i, g, a) in seen:
+                    continue
+                seen.add((rel, i, g, a))
+                e = dict(base, coord="%s:%s" % (g, a), group=g, artifact=a)
+                e["scope"] = "test" if (e["config"] or "").startswith("test") else "main"
+                if ent:
+                    e["at_def"] = ent["at_def"]
+                    if ent.get("version"):
+                        e.update(version=ent["version"], version_src="catalog")
+                    elif ent.get("version_expr"):
+                        e["version_expr"] = ent["version_expr"]
+                elif v:
+                    ver, src = resolve_version(v, dvars)
+                    if ver:
+                        e.update(version=ver, version_src=src)
+                    else:
+                        e["version_expr"] = v[:60]
+                out.append({k: x for k, x in e.items() if x is not None})
+    return out
 
 
 def extract_contracts(rows, texts):
@@ -765,7 +1108,5 @@ def extract_contracts(rows, texts):
                 m = YML_TOPIC_RE.search(ln)
                 if m:
                     c["yml_topics"].append({"key": m.group(1), "topic": m.group(2), "at": at})
-            else:
-                for coord in LIB_RE.findall(ln):
-                    c["libs"].append({"coord": coord, "at": at})
+    c["libs"] = extract_deps(texts)
     return c

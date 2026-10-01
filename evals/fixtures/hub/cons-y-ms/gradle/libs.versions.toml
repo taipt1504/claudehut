@@ -1,0 +1,6 @@
+[versions]
+kit = "1.4.0"
+
+[libraries]
+kit-platform = { module = "io.acme.kit:kit-platform", version.ref = "kit" }
+kit-rest-autoconfigure = { group = "io.acme.kit", name = "kit-rest-autoconfigure" }
