@@ -493,12 +493,12 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1613 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1615 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 889  advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 890  advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 119 there (mutants + ewallet off), 162 alone with mutants and the va-ms part;
-                                  #       hub-tests counts 74 there (ewallet, dashboard and UA validator off), 86 alone with all three
+                                  #       hub-tests counts 75 there (ewallet, dashboard and UA validator off), 87 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 149  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    # 104  learnings merge, prune, injection, federation
@@ -508,7 +508,7 @@ evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
 evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
-evals/migrate-tests.sh            #  53  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
+evals/migrate-tests.sh            #  54  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI

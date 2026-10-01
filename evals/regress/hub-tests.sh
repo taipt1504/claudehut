@@ -436,6 +436,13 @@ if command -v node >/dev/null 2>&1 && [ -f "$UA/packages/core/dist/schema.js" ];
     console.log(r.success && g.edges.length === r.data.edges.length && JSON.stringify(sanitizeGraph(g)) === JSON.stringify(g) ? r.issues.length : -1);' "$G4")"
   chk "shared-library graph: UA validateGraph 0 issues, nothing dropped, sanitizeGraph no-op" '[ "$n" = 0 ]'
 fi
+cp "$SL" "$W/sl.bak"   # 15 peers into kit-lib: "Used by:" shows 14 and says how many it left off
+jq '.edges += [range(1;14) as $i | {from: ("peer-\($i)-ms"), to: "kit-lib", type: "http", via: "GET /p", evidence: [], confidence: "high"}]' \
+  "$W/sl.bak" > "$SL"
+ix "$WS/kh" svc kit-lib --hub .
+chk "svc with 15 inbound peers: Used by lists 14 and ends with +1" \
+  '[ "$(printf "%s\n" "$OUT" | grep "^Used by: " | grep -o "(" | wc -l | tr -d " ")" = 14 ] && printf "%s\n" "$OUT" | grep -q "^Used by: .* +1$"'
+cp "$W/sl.bak" "$SL"
 mv "$WS/kit-lib/.claude" "$W/kit-plane"; ix "$WS/kh" hub-sync --hub .
 chk "a hub-scanned library (no plane) yields the same surface and the same lib edges" \
   '[ "$(jq -c "[.edges[] | select(.type==\"lib\") | [.from, .to, .module, .version, .version_src, .bom_version, (.bom // false), (.scope // \"main\"), (.missing // false), .evidence]]" "$SL")" = "$WANT" ] && [ "$(jq "[.components[] | select(.kind==\"autoconfig\" or .kind==\"properties\" or .kind==\"bean\")] | length" "$KH/links/kit-lib.json")" = 6 ]'

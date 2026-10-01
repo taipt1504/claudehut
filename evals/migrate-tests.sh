@@ -344,6 +344,16 @@ kb_wait "$L/.claude/summer-kb/.summer-kb-meta.json" && kb_wait "$SK/.summer-kb-m
   && ok "maintain.sh: a library commit → detached refresh of the source stamp and of a consumer's KB (pointer kept)" \
   || bad "maintain.sh refresh: source=$(jq -r .summerCommit "$L/.claude/summer-kb/.summer-kb-meta.json") consumer=$(jq -r .summerCommit "$SK/.summer-kb-meta.json") head=$HEADL"
 
+# maintain.sh first install for a consumer that names Summer only in gradle/libs.versions.toml.
+mkrepo c-toml; v011_plane "$WS/c-toml"; mkdir -p "$WS/c-toml/gradle"
+printf '[libraries]\nsummer-file = { module = "io.f8a.summer:summer-file" }\n' > "$WS/c-toml/gradle/libs.versions.toml"
+printf "dependencies {\n  implementation libs.summer.file\n}\n" > "$WS/c-toml/build.gradle"
+printf '{"session_id":"s-kb3","hook_event_name":"SessionStart","source":"startup"}' \
+  | env -u CLAUDE_PLUGIN_DATA CLAUDE_PLUGIN_ROOT="$KR" CLAUDE_PROJECT_DIR="$WS/c-toml" "$ROOT/scripts/maintain.sh" >/dev/null 2>&1
+[ "$(jq -c .detectedArtifacts "$WS/c-toml/.claude/summer-kb/.summer-kb-meta.json" 2>/dev/null)" = '["summer-file"]' ] \
+  && ok "maintain.sh: a catalog-only Summer consumer (libs.versions.toml) gets its first KB install" \
+  || bad "catalog-only consumer: $(ls -a "$WS/c-toml/.claude/summer-kb" 2>&1)"
+
 echo; echo "MIGRATE: $PASS passed, $FAIL failed"
 [ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/migrate-tests.count"
 [ "$FAIL" -eq 0 ]

@@ -74,7 +74,7 @@ if hc_plane_initialized && command -v python3 >/dev/null 2>&1 && [ -f "$KB_INSTA
   else
     # -exec, not `| xargs`: a project path with a space must not split. Captured, not tested in a pipeline: with
     # pipefail an early-exiting `head` would make a real match read as a miss.
-    kb_hit="$(find "$PROJECT_DIR" -maxdepth 3 -name '*.gradle*' -not -path '*/build/*' -not -path '*/.claude/*' \
+    kb_hit="$(find "$PROJECT_DIR" -maxdepth 3 \( -name '*.gradle*' -o -name '*.versions.toml' \) -not -path '*/build/*' -not -path '*/.claude/*' \
         -exec grep -l 'io\.f8a\.summer:' {} + 2>/dev/null | head -1)" || kb_hit=""
     if [ -n "$kb_hit" ]; then
       python3 "$KB_INSTALL" "$PROJECT_DIR" >/dev/null 2>&1 || hc_log "summer-kb install failed"

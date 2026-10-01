@@ -1199,7 +1199,8 @@ def render_svc(link, edges, stale_note, repo, budget=2499):
             k = (e[side], e["type"])
             if k not in seen or CONF_W[e["confidence"]] > CONF_W[seen[k]]:
                 seen[k] = e["confidence"]
-        return ", ".join("%s(%s %s)" % (p, t, c) for (p, t), c in list(seen.items())[:14])
+        more = " +%d" % (len(seen) - 14) if len(seen) > 14 else ""
+        return ", ".join("%s(%s %s)" % (p, t, c) for (p, t), c in list(seen.items())[:14]) + more
     if out_e:
         L.append("Calls/uses: " + peers(out_e, "to"))
     if in_e:
