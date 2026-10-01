@@ -221,6 +221,10 @@ chk "brief at the hub (no index of its own) ranks every service's components, ab
 ix "$W/hubrepo" brief --json --budget 600
 chk "brief --json at the hub keeps the shared contract (sections = markdown lines) and the budget" \
   '[ "$(jq -r "[.budget, (.bytes <= 600), (.sections[0].name), ((.markdown | split(\"\\n\") | length) == ([.sections[].lines[]] | length))] | join(\",\")" <<<"$OUT")" = "600,true,banner,true" ]'
+LONGBIN="$W/$(printf 'p%.0s' $(seq 1 300))/bin/claudehut-index"
+OUT="$(cd "$W/hubrepo" && CLAUDEHUT_INDEX_BIN="$LONGBIN" python3 -B "$ROOT/scripts/index/claudehut_index.py" brief --json --budget 600 2>"$W/stderr")"
+chk "brief --json at the hub keeps the contract and the budget when the checkout path is long (${#LONGBIN} B CLI path)" \
+  '[ "$(jq -r "[.budget, (.bytes <= 600), (.sections[0].name), (.markdown == ([.sections[].lines[]] | join(\"\\n\")))] | join(\",\")" <<<"$OUT")" = "600,true,banner,true" ]'
 ix "$W/c-ms" links
 chk "links in a repo with no plane and no hub → hub not configured" '[ "$OUT" = "n/a — hub not configured" ]'
 HB="$(python3 -B - "$ROOT/scripts/index" "$H" <<'PY'

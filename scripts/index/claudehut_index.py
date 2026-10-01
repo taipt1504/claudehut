@@ -659,10 +659,23 @@ def brief_hub(ctx, opts, h, budget):
     if terms and not hits:
         hits = rank(rows, [])
         head.append("(no component matched %s — top components by kind)" % " ".join(terms[:6]))
-    out, kept, used, more = [], [], 0, None
-    for ln in head + ["Top components:"]:
+    # The head carries absolute paths (hub, CLI), so it is budgeted too: the banner always shows, clipped if it
+    # must be; any other head line shows only whole (a cut-off path is worse than none).
+    out, shown, kept, used, more = [], [], [], 0, None
+    title = "Top components:"
+    reserve = 48 + len((title + "\n").encode("utf-8"))
+    for j, ln in enumerate(head):
+        n = len((ln + "\n").encode("utf-8"))
+        if used + n > budget - reserve:
+            if j:
+                continue
+            ln = clip(ln, max(0, budget - reserve - 1))
+            n = len((ln + "\n").encode("utf-8"))
         out.append(ln)
-        used += len((ln + "\n").encode("utf-8"))
+        shown.append(ln)
+        used += n
+    out.append(title)
+    used += len((title + "\n").encode("utf-8"))
     for i, r in enumerate(hits[:12]):
         ln = "- [%s] %s" % (r["svc"], row_line(r))
         n = len((ln + "\n").encode("utf-8"))
@@ -675,9 +688,9 @@ def brief_hub(ctx, opts, h, budget):
         used += n
     text = clip("\n".join(out), budget - 1)
     if opts.get("json"):
-        secs = [{"name": "banner", "lines": head}]
+        secs = [{"name": "banner", "lines": shown}, {"name": "top", "lines": out[len(shown):len(shown) + 1 + len(kept)]}]
         if kept:
-            secs.append({"name": "top", "lines": out[len(head):len(head) + 1 + len(kept)], "rows": kept})
+            secs[1]["rows"] = kept
         if more:
             secs.append({"name": "more", "lines": [more]})
         print(json.dumps({"budget": budget, "bytes": len((text + "\n").encode("utf-8")), "sections": secs,
