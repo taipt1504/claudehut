@@ -9,7 +9,7 @@ stack: "java=21"
 severity: medium
 tags: [virtual-threads, loom, java21]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/virtual-threads.md by claudehut-init. Reused & enhanced from committed rules/framework/virtual-threads.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/virtual-threads.md by claudehut-init. -->
 
 
 # Spring Virtual Threads (Project Loom)

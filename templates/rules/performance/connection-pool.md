@@ -87,9 +87,9 @@ Expose pool metrics:
 
 ```yaml
 management:
-  metrics:
-    export:
-      prometheus:
+  prometheus:
+    metrics:
+      export:
         enabled: true
 ```
 

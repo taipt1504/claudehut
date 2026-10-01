@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [immutability, records, defensive-copy]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/immutability.md by claudehut-init. Reused & enhanced from committed rules/coding/immutability.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/immutability.md by claudehut-init. -->
 
 
 # Immutability

@@ -6,7 +6,7 @@ severity: high
 tags: [architecture, hexagonal, ports-adapters]
 stack: "arch=hexagonal"
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/hexagonal.md by claudehut-init. Reused & enhanced from committed rules/architecture/hexagonal.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/hexagonal.md by claudehut-init. -->
 
 
 # Hexagonal Architecture (Ports & Adapters)

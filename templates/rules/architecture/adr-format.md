@@ -5,7 +5,7 @@ paths:
 severity: low
 tags: [adr, decisions, madr]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/adr-format.md by claudehut-init. Reused & enhanced from committed rules/architecture/adr-format.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/adr-format.md by claudehut-init. -->
 
 
 # Architecture Decision Records (MADR)

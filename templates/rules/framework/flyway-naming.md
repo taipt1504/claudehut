@@ -6,7 +6,7 @@ paths:
 severity: high
 tags: [flyway, migration, naming]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/flyway-naming.md by claudehut-init. Reused & enhanced from committed rules/framework/flyway-naming.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/flyway-naming.md by claudehut-init. -->
 
 
 # Flyway Migration Naming

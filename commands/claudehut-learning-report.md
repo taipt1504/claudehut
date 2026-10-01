@@ -13,4 +13,4 @@ Then add at most 2 lines of plain interpretation IF a signal stands out — e.g.
 promoted pitfalls recurred → those rules aren't sticking; consider strengthening them" or "Quality below
 50% → learner is recording vague entries". No essays. If the store is empty, say so and stop.
 
-This is read-only: it changes no state, writes no flag, and does not switch phase.
+This is read-only: it changes no state and no task phase.

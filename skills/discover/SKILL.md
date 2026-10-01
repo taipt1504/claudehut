@@ -6,8 +6,8 @@ allowed-tools: Read Grep Glob Bash Agent
 
 # Discover (phase 1 of 7)
 
-Ground the task in **this codebase** and settle the reuse question before any ideation; Brainstorm (phase 2)
-then ideates on top of it. Runs **inline on the main thread** (it owns the state write; a forked subagent
+Ground the task in **this codebase** and settle the reuse question before any ideation; Brainstorm (phase 2,
+optional) builds on it. Runs **inline on the main thread** (it owns the state write; a forked subagent
 cannot write state or ask the user).
 
 ## Why the scan comes first

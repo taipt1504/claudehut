@@ -7,7 +7,7 @@ stack: "messaging=kafka"
 severity: high
 tags: [kafka, producer, idempotent, outbox]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/kafka-producer.md by claudehut-init. Reused & enhanced from committed rules/framework/kafka-producer.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/kafka-producer.md by claudehut-init. -->
 
 
 # Spring Kafka Producer Rules

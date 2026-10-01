@@ -5,7 +5,7 @@ paths:
 severity: medium
 tags: [null-safety, jsr-305, jspecify]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/null-safety.md by claudehut-init. Reused & enhanced from committed rules/coding/null-safety.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/null-safety.md by claudehut-init. -->
 
 
 # Null Safety

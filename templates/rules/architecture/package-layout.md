@@ -8,7 +8,7 @@ paths:
 severity: high
 tags: [architecture, layout]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/architecture/package-layout.md by claudehut-init. Reused & enhanced from committed rules/architecture/package-layout.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/architecture/package-layout.md by claudehut-init. -->
 
 
 # Package Layout Rule

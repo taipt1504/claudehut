@@ -5,7 +5,7 @@ paths:
 severity: high
 tags: [exception, error-handling]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/coding/exception.md by claudehut-init. Reused & enhanced from committed rules/coding/exception.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/coding/exception.md by claudehut-init. -->
 
 
 # Exception Handling

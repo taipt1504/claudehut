@@ -8,7 +8,7 @@ paths:
 severity: high
 tags: [jackson, deserialization, polymorphism]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/jackson.md by claudehut-init. Reused & enhanced from committed rules/framework/jackson.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/jackson.md by claudehut-init. -->
 
 
 # Jackson Rules

@@ -8,7 +8,7 @@ stack: "web=mvc"
 severity: high
 tags: [spring-mvc, rest, controller, problem-detail, validation]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/spring-mvc.md by claudehut-init. Reused & enhanced from committed rules/framework/spring-mvc.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/spring-mvc.md by claudehut-init. -->
 
 # Spring MVC Controller Rules
 

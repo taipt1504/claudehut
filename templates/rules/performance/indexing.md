@@ -34,7 +34,7 @@ Used for queries:
 - `WHERE user_id = ?`
 - `WHERE user_id = ? AND status = ?`
 - `WHERE user_id = ? AND status = ? AND created_at > ?`
-- `WHERE user_id = ? ORDER BY created_at` (with status anywhere — sort uses index)
+- `WHERE user_id = ? AND status = ? ORDER BY created_at` (sort uses index)
 
 NOT used for:
 - `WHERE status = ?` alone (must start with leftmost column).

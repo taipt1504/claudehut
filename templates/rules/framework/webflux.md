@@ -8,7 +8,7 @@ stack: "web=webflux"
 severity: high
 tags: [webflux, reactive, reactor, handler, router]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/webflux.md by claudehut-init. Reused & enhanced from committed rules/framework/webflux.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/webflux.md by claudehut-init. -->
 
 # Spring WebFlux Handler Rules
 

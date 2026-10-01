@@ -7,7 +7,7 @@ stack: "orm=jpa"
 severity: high
 tags: [transactions, spring, jpa]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/transaction-propagation.md by claudehut-init. Reused & enhanced from committed rules/framework/transaction-propagation.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/transaction-propagation.md by claudehut-init. -->
 
 # Spring @Transactional — Propagation & Isolation
 
@@ -57,7 +57,7 @@ public List<Order> findPending() { return repo.findByStatus(PENDING); }
 ```
 
 Benefits: Hibernate skips dirty-check flush; JDBC driver/load-balancer can route to replica.
-Risk: none — read-only flag is a hint, silently ignored if unsupported.
+Risk: when the read is routed to a replica, a read right after a write can return stale data (replica lag).
 
 ### 4. Listener methods — one tx per message
 

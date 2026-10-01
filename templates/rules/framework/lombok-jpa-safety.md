@@ -8,7 +8,7 @@ stack: "orm=jpa"
 severity: critical
 tags: [lombok, jpa, hibernate, entity, safety]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-jpa-safety.md by claudehut-init. Reused & enhanced from committed rules/framework/lombok-jpa-safety.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/lombok-jpa-safety.md by claudehut-init. -->
 
 # Lombok safety on JPA `@Entity`
 

@@ -5,7 +5,7 @@ paths:
 severity: critical
 tags: [flyway, migration, online-safety]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/migration-safety.md by claudehut-init. Reused & enhanced from committed rules/framework/migration-safety.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/migration-safety.md by claudehut-init. -->
 
 
 # Migration Safety

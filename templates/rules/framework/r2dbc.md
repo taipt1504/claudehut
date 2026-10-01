@@ -8,7 +8,7 @@ stack: "orm=r2dbc"
 severity: high
 tags: [r2dbc, reactive, repository]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/framework/r2dbc.md by claudehut-init. Reused & enhanced from committed rules/framework/r2dbc.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/framework/r2dbc.md by claudehut-init. -->
 
 
 # R2DBC Rules
