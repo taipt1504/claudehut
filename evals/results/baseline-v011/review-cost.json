@@ -1,0 +1,944 @@
+{
+  "measured_at": "2026-09-29T07:12:33Z",
+  "transcripts": 23,
+  "gap_s": 300.0,
+  "auditor_dispatches": 208,
+  "dispatches_with_subagent_transcript": 62,
+  "waves": 52,
+  "waves_ge4_auditors": 28,
+  "waves_all7_kinds": 7,
+  "sensitivity": {
+    "gap_60s": {
+      "waves": 55,
+      "waves_ge4_auditors": 28,
+      "waves_all7_kinds": 6
+    },
+    "gap_120s": {
+      "waves": 52,
+      "waves_ge4_auditors": 28,
+      "waves_all7_kinds": 7
+    },
+    "gap_300s": {
+      "waves": 52,
+      "waves_ge4_auditors": 28,
+      "waves_all7_kinds": 7
+    },
+    "gap_600s": {
+      "waves": 52,
+      "waves_ge4_auditors": 28,
+      "waves_all7_kinds": 7
+    },
+    "gap_1800s": {
+      "waves": 49,
+      "waves_ge4_auditors": 28,
+      "waves_all7_kinds": 7
+    },
+    "same_message_id": {
+      "waves": 77,
+      "waves_ge4_auditors": 24,
+      "waves_all7_kinds": 4
+    }
+  },
+  "fully_linked_waves": 18,
+  "median_wave_input_tokens": 8514016.0,
+  "median_wave_output_tokens": 55245.0,
+  "median_wave_wall_s": 678.0,
+  "fully_linked_ge4_waves": 8,
+  "median_ge4_wave_input_tokens": 22577321.5,
+  "median_ge4_wave_output_tokens": 118249.0,
+  "median_ge4_wave_wall_s": 761.5,
+  "median_output_tokens_per_auditor": 22149.5,
+  "auditor_subagent_transcripts": 62,
+  "auditor_git_diff_calls": 119,
+  "complexity": {
+    "full": 61,
+    "small": 12,
+    "trivial": 2,
+    "total": 75
+  },
+  "per_wave": [
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-07T02:45:36Z",
+      "auditors": 3,
+      "kinds": [
+        "db-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 3,
+      "input_tokens": 9999732,
+      "cache_read_tokens": 9420600,
+      "output_tokens": 85553,
+      "wall_s": 666
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-15T05:23:25Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 6,
+      "input_tokens": 17494805,
+      "cache_read_tokens": 16642622,
+      "output_tokens": 112676,
+      "wall_s": 765
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-15T05:38:32Z",
+      "auditors": 2,
+      "kinds": [
+        "db-reviewer",
+        "reviewer"
+      ],
+      "linked": 2,
+      "input_tokens": 1364275,
+      "cache_read_tokens": 1206008,
+      "output_tokens": 20578,
+      "wall_s": 325
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-16T07:22:15Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 6,
+      "input_tokens": 13016666,
+      "cache_read_tokens": 12242539,
+      "output_tokens": 123822,
+      "wall_s": 608
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-16T09:13:28Z",
+      "auditors": 3,
+      "kinds": [
+        "db-reviewer",
+        "reviewer",
+        "test-runner"
+      ],
+      "linked": 3,
+      "input_tokens": 3863143,
+      "cache_read_tokens": 3513701,
+      "output_tokens": 48388,
+      "wall_s": 512
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-16T09:24:44Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 1,
+      "input_tokens": 1484866,
+      "cache_read_tokens": 1372186,
+      "output_tokens": 10868,
+      "wall_s": 282
+    },
+    {
+      "project": "core-ledger-ms",
+      "session": "2e70d1d8",
+      "start": "2026-09-18T10:10:46Z",
+      "auditors": 3,
+      "kinds": [
+        "perf-reviewer",
+        "reviewer",
+        "test-runner"
+      ],
+      "linked": 3,
+      "input_tokens": 2409837,
+      "cache_read_tokens": 2189007,
+      "output_tokens": 35834,
+      "wall_s": 433
+    },
+    {
+      "project": "java-common-ms",
+      "session": "42e9e82f",
+      "start": "2026-08-20T14:58:34Z",
+      "auditors": 2,
+      "kinds": [
+        "contract-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "party-ms",
+      "session": "7a5b7ba2",
+      "start": "2026-09-22T18:56:46Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "party-ms",
+      "session": "7a5b7ba2",
+      "start": "2026-09-23T01:57:33Z",
+      "auditors": 3,
+      "kinds": [
+        "observability-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 3,
+      "input_tokens": 3287044,
+      "cache_read_tokens": 2747969,
+      "output_tokens": 12720,
+      "wall_s": 2437
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "3f12a4f2",
+      "start": "2026-09-17T07:01:59Z",
+      "auditors": 4,
+      "kinds": [
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "test-runner"
+      ],
+      "linked": 4,
+      "input_tokens": 11949725,
+      "cache_read_tokens": 11271429,
+      "output_tokens": 107564,
+      "wall_s": 715
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-08-27T21:19:38Z",
+      "auditors": 5,
+      "kinds": [
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-08-27T21:52:08Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-08-28T01:11:31Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-04T07:32:38Z",
+      "auditors": 3,
+      "kinds": [
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-05T09:26:53Z",
+      "auditors": 3,
+      "kinds": [
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-05T15:36:09Z",
+      "auditors": 3,
+      "kinds": [
+        "contract-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-07T01:09:03Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-08T07:09:41Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-15T02:16:44Z",
+      "auditors": 3,
+      "kinds": [
+        "db-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-16T09:17:42Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-gateway-ms",
+      "session": "6eed6ca3",
+      "start": "2026-09-16T20:03:28Z",
+      "auditors": 6,
+      "kinds": [
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-08-21T08:36:03Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 6,
+      "input_tokens": 30330620,
+      "cache_read_tokens": 29246539,
+      "output_tokens": 188171,
+      "wall_s": 1239
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-08-21T09:09:45Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-08-21T13:05:16Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-08-21T14:19:51Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-08-25T04:27:31Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-09-07T00:54:33Z",
+      "auditors": 2,
+      "kinds": [
+        "contract-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "payment-orchestrator-ms",
+      "session": "62d1c4c6",
+      "start": "2026-09-16T18:03:34Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "09a5aa8a",
+      "start": "2026-09-25T01:56:49Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 5,
+      "input_tokens": 27659838,
+      "cache_read_tokens": 26646475,
+      "output_tokens": 46242,
+      "wall_s": 1936
+    },
+    {
+      "project": "va-ms",
+      "session": "09a5aa8a",
+      "start": "2026-09-25T02:33:50Z",
+      "auditors": 4,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 4,
+      "input_tokens": 7028300,
+      "cache_read_tokens": 6449236,
+      "output_tokens": 27344,
+      "wall_s": 682
+    },
+    {
+      "project": "va-ms",
+      "session": "09a5aa8a",
+      "start": "2026-09-25T03:54:46Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 1,
+      "input_tokens": 323989,
+      "cache_read_tokens": 264040,
+      "output_tokens": 933,
+      "wall_s": 82
+    },
+    {
+      "project": "va-ms",
+      "session": "34d559f0",
+      "start": "2026-09-21T07:20:30Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-20T03:30:37Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-20T06:08:52Z",
+      "auditors": 4,
+      "kinds": [
+        "contract-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-20T16:49:53Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-20T17:07:16Z",
+      "auditors": 4,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 4,
+      "input_tokens": 33788846,
+      "cache_read_tokens": 32768326,
+      "output_tokens": 201275,
+      "wall_s": 1698
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-21T04:48:38Z",
+      "auditors": 1,
+      "kinds": [
+        "reviewer"
+      ],
+      "linked": 1,
+      "input_tokens": 3471902,
+      "cache_read_tokens": 3331144,
+      "output_tokens": 29961,
+      "wall_s": 674
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-21T10:51:57Z",
+      "auditors": 2,
+      "kinds": [
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-23T11:34:14Z",
+      "auditors": 2,
+      "kinds": [
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 2,
+      "input_tokens": 21067741,
+      "cache_read_tokens": 20571022,
+      "output_tokens": 99493,
+      "wall_s": 967
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-23T18:07:32Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-24T10:00:08Z",
+      "auditors": 5,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "reviewer",
+        "security-auditor"
+      ],
+      "linked": 5,
+      "input_tokens": 32086592,
+      "cache_read_tokens": 31079710,
+      "output_tokens": 178938,
+      "wall_s": 758
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-24T16:18:19Z",
+      "auditors": 3,
+      "kinds": [
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-08-27T09:00:50Z",
+      "auditors": 2,
+      "kinds": [
+        "db-reviewer",
+        "reviewer"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-05T17:12:30Z",
+      "auditors": 6,
+      "kinds": [
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-07T00:52:38Z",
+      "auditors": 6,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-08T08:57:38Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-10T08:49:30Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-10T21:52:05Z",
+      "auditors": 7,
+      "kinds": [
+        "contract-reviewer",
+        "db-reviewer",
+        "observability-reviewer",
+        "perf-reviewer",
+        "reviewer",
+        "security-auditor",
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-11T02:06:44Z",
+      "auditors": 1,
+      "kinds": [
+        "test-runner"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "va-ms",
+      "session": "d2ef3c19",
+      "start": "2026-09-11T02:39:53Z",
+      "auditors": 1,
+      "kinds": [
+        "security-auditor"
+      ],
+      "linked": 0,
+      "input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null,
+      "wall_s": null
+    },
+    {
+      "project": "wallet-ms",
+      "session": "f05b274c",
+      "start": "2026-09-08T08:02:50Z",
+      "auditors": 3,
+      "kinds": [
+        "observability-reviewer",
+        "reviewer",
+        "test-runner"
+      ],
+      "linked": 3,
+      "input_tokens": 6602380,
+      "cache_read_tokens": 6167965,
+      "output_tokens": 62102,
+      "wall_s": 538
+    }
+  ]
+}

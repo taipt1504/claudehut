@@ -1,0 +1,3 @@
+{"desc":"JPA entity + Flyway migration → db","route":"full","mode":"commit",
+ "lanes":["reviewer","test","db"],"skipped":["security","contract"],
+ "reasons":{"db":["path:db/migration/ src/main/resources/db/migration/V2__add_order_note.sql","path:.sql src/main/resources/db/migration/V2__add_order_note.sql","hunk:@Entity Order.java","hunk:@Table Order.java"]}}

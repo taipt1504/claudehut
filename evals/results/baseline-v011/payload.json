@@ -1,0 +1,49 @@
+{
+  "measured_at": "2026-09-29T07:03:07Z",
+  "head": "0128b37",
+  "live_hooks": {
+    "plugin_version": "0.11.0",
+    "digest_bytes": 4331,
+    "prompt": "cần thêm filter support cho display name ở api dynamic va view",
+    "fixtures": [
+      {
+        "fixture": "empty",
+        "learnings_entries": 0,
+        "summer_kb": false,
+        "session_start_bytes": 4668,
+        "user_prompt_submit_first_bytes": 561,
+        "user_prompt_submit_repeat_bytes": 125,
+        "user_prompt_submit_machine_turn_bytes": 125
+      },
+      {
+        "fixture": "realistic:va-ms",
+        "learnings_entries": 93,
+        "summer_kb": true,
+        "session_start_bytes": 8813,
+        "user_prompt_submit_first_bytes": 2114,
+        "user_prompt_submit_repeat_bytes": 1895,
+        "user_prompt_submit_machine_turn_bytes": 1908
+      }
+    ]
+  },
+  "transcripts": {
+    "transcripts": 23,
+    "session_start": {
+      "n": 67,
+      "median_raw_bytes": 8999,
+      "mean_raw_bytes": 7803.9,
+      "min": 2349,
+      "max": 9494,
+      "persisted_previews": 9,
+      "resolved_n": 64,
+      "resolved_unavailable": 3,
+      "median_resolved_bytes": 9005.0
+    },
+    "user_prompt_submit": {
+      "n": 3721,
+      "total_raw_bytes": 1545491,
+      "median_raw_bytes": 121,
+      "note": "all plugins' UserPromptSubmit context, informational"
+    }
+  }
+}

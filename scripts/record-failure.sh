@@ -8,11 +8,13 @@
 # decides what is a genuine, reusable lesson. Non-blocking (the tool already failed); always exit 0.
 #
 # Staging file: .claude/claudehut/state/<sid>.failures.jsonl  (under state/ = gitignored/ephemeral).
-set -uo pipefail
-
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-in="$(cat || true)"
-command -v jq >/dev/null 2>&1 || exit 0
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+. "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
+hc_init
+hc_plane_or_exit          # no plane → exit 0 and create nothing (K7)
+in="$HC_IN"
+trap - ERR                # this body predates the lib and relies on non-errexit semantics (a grep miss is
+                          # a normal negative); the EXIT trap still guarantees exit 0 and a silent stdout
 
 # W0-B (v0.11): every field this script reads except .tool_input.command comes back EMPTY in production —
 # measured 682/682 records with empty type+exit+stderr across the real repos. The field paths below were
@@ -26,7 +28,7 @@ if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
     && printf '%s\n' "$in" >> "$_dbg/payload-debug.PostToolUseFailure.jsonl" 2>/dev/null || true
 fi
 
-sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
+sid="$HC_SID"   # validated by hc_safe_id (empty when unsafe), so a '../' session_id cannot leave state/
 tool="$(jq -r '.tool_name // empty' <<<"$in" 2>/dev/null || true)"
 [ -n "$sid" ] && [ "$tool" = "Bash" ] || exit 0
 
@@ -58,6 +60,49 @@ err="$(printf '%s' "$raw_err" | sed '1{/^Exit code [0-9]/d;}' | tail -c 600)"
 DIR="$PROJECT_DIR/.claude/claudehut/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.failures.jsonl"
+
+# The hook runs async, so identical failures arrive concurrently: the read-bump-rewrite below and the 20-line
+# cap are one critical section. A short mkdir-lock serializes them, with a stale-lock breaker for a killed holder.
+# The wait is fail-open and bounded twice, whichever comes first: 200 waits of 0.01 s (~2 s on an idle machine) and
+# a 5 s deadline on bash's whole-second SECONDS clock (so 4-5 s of wall time). A loaded scheduler stretches the
+# 200 waits, and the deadline keeps the give-up well under the 10 s stale age: a waiter stops before a lock that a
+# live holder took at the start of its wait can age into one it would steal as stale.
+# Released on every path by the EXIT trap below.
+# The staged file is an advisory signal for Learn, so fail-open after the cap is accepted: its worst case is one
+# lost .hits bump or record, never a hang.
+L="$F.lock"; _held=""; _me="$$.${RANDOM:-0}"
+# GNU stat first: on Linux `stat -f` is --file-system, so `-f %m` prints a multi-line report AND fails, and the
+# old BSD-first order captured that report — the stale test then never fired (HC2-1). Non-numeric → 0 (no steal).
+_lm() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=0
+        case "$m" in ''|*[!0-9]*) m=0 ;; esac; printf '%s' "$m"; }
+_old() { local m; m="$(_lm "$1")"; [ "${m:-0}" -gt 0 ] && [ $(( $(date +%s) - m )) -ge 10 ]; }
+# Every REMOVAL of the lock runs under a second, short-lived token dir ($L.steal) and re-checks, under it, that the
+# lock is still the one it means to remove. A steal decided from one earlier observation is otherwise
+# check-then-act: another waiter could break the stale lock and a new writer take a fresh one before this `rmdir`
+# ran, which then deleted that fresh lock (V3-C1). For a STEAL the age re-check under the token is the real guard —
+# a lock taken in the meantime is fresh, so it is left alone. The nonce is only a secondary check there: it is read
+# after the stale observation, so it names whichever lock is present by then, not the one that was judged stale.
+# For a RELEASE the nonce is the whole guard: a holder paused past the stale age, whose lock was stolen and retaken,
+# finds another owner's nonce and removes nothing.
+_rm_lock() { # $1 = owner nonce the caller expects  $2 = steal|release
+  local k
+  for k in 1 2 3 4 5 6 7 8 9 10; do
+    mkdir "$L.steal" 2>/dev/null && break
+    _old "$L.steal" && rmdir "$L.steal" 2>/dev/null   # a token left by a killed waiter
+    [ "$k" = 10 ] && return 0
+    sleep 0.01 2>/dev/null || true
+  done
+  if [ "$(cat "$L/o" 2>/dev/null)" = "$1" ] && { [ "$2" = release ] || _old "$L"; }; then rm -rf "$L" 2>/dev/null; fi
+  rmdir "$L.steal" 2>/dev/null
+}
+_dl=$((SECONDS + 5))
+for _i in $(seq 1 200); do
+  [ "$SECONDS" -lt "$_dl" ] || break
+  if mkdir "$L" 2>/dev/null; then _held=1; printf '%s' "$_me" > "$L/o" 2>/dev/null; break; fi
+  if _old "$L"; then _rm_lock "$(cat "$L/o" 2>/dev/null)" steal; continue; fi
+  sleep 0.01 2>/dev/null || true
+done
+trap '_rc=$?; [ -z "$_held" ] || _rm_lock "$_me" release; (exit "$_rc"); hc_exit' EXIT
 
 # dedup: an immediately-repeated identical failure BUMPS the previous record's hit count instead of being
 # dropped. Dropping it was silently fighting the harvest: harvest-candidates.sh calls a signature a pitfall

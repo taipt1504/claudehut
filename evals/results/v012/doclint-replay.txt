@@ -1,0 +1,34 @@
+# doclint replay (read-only) — <ewallet-workspace>
+613 artifacts in 207 task dirs (of 244 task dirs) · templates: spec=skills plan=skills brainstorm=skills plan-review=skills task=skills context=skills
+
+| Kind | Files | p50 words | p90 words | Budget | Over budget (L4) | Errors |
+|---|---|---|---|---|---|---|
+| spec | 200 | 900 | 2342 | 1200 | 87 | 0 |
+| plan | 203 | 921 | 3870 | 1500 | 66 | 0 |
+| brainstorm | 92 | 655 | 1864 | 600 | 56 | 0 |
+| plan-review | 118 | 611 | 1910 | 400 | 101 | 0 |
+
+Files with >=1 hit, rule × kind (b = blocking, a = advisory):
+
+| Rule | spec | plan | brainstorm | plan-review |
+|---|---|---|---|---|
+| L2 allowlist (b) | 200 | 203 | 92 | 114 |
+| L2 amend (b) | 1 | 5 | 2 | 24 |
+| L2 duplicate (b) | 0 | 0 | 0 | 2 |
+| L2 missing (b) | 200 | 203 | 73 | 113 |
+| L2 table (a) | 0 | 0 | 29 | 0 |
+| L2 table (b) | 0 | 5 | 0 | 0 |
+| L4 (a) | 87 | 66 | 56 | 101 |
+| L5 (b) | 13 | 103 | 3 | 8 |
+| L6 (a) | 0 | 115 | 0 | 1 |
+| L8 (b) | 6 | 0 | 0 | 0 |
+| L10 (a) | 0 | 5 | 0 | 0 |
+| L10 (b) | 0 | 198 | 0 | 0 |
+| L11 (b) | 0 | 0 | 0 | 90 |
+
+Acceptance targets (06 §12 AC-1):
+- [x] va-ms 0008 plan → L4 total over budget — total 16911/1500 (budget total.full)
+- [x] va-ms 0024 brainstorm → L2 AMENDMENT heading — 3 hit(s), first: forbidden heading "AMENDMENT after adversarial critique (`design-critique.md`, Verdict: RE
+- [x] party-ms 0002 plan → L6 Test first cell 2,685 chars — cell Test first — 2709c/60c (budget) · 2685 chars [line 47]
+
+REPLAY: PASS — all three targets caught

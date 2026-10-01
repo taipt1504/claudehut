@@ -1,0 +1,109 @@
+== review-pack replay (22 ewallet tasks, read-only)
+  0007-dynamic-va-display-name-search-filter [medium/full · core-ledger-ms cbf2bb9..7d466b6, 9 files/158 lines]
+    v0.11 dispatched 6 (test-runner,reviewer,db-reviewer,perf-reviewer,contract-reviewer,security-auditor)
+    selector signals: 3 [reviewer,test,db] · +enf(18 items): 3 [reviewer,test,db] · max pack 458 lines
+    MED+: DEFER-2=out-of-diff
+  0001-va-payment-guarantee-posting [large/full · payment-orchestrator-ms db7faa2..4f24331, 36 files/2703 lines, LARGE→ask]
+    v0.11 dispatched 6 (test-runner,reviewer,security-auditor,perf-reviewer,observability-reviewer,contract-reviewer)
+    selector signals: 4 [reviewer,test,db,contract] · +enf(18 items): 4 [reviewer,test,db,contract] · max pack 1472 lines
+    MED+: 1=escalate 2=floor 4=floor HIGH-1=escalate HIGH-2=floor MED-2=floor contract-MED=escalate
+  0008-va-payment-flow [large/full · va-ms e15e50f..92dd920, 23 files/1902 lines, LARGE→ask]
+    v0.11 dispatched 2 (reviewer,security-auditor)
+    selector signals: 5 [reviewer,test,security,db,contract] · +enf(11 items): 5 [reviewer,test,security,db,contract] · max pack 1458 lines
+    MED+: MED-deferral-1=floor truncate-dup=floor
+  0020-va-master-account-producer-resolve [large/full · va-ms 3f6f302..0ecc9dc, 40 files/1546 lines, LARGE→ask]
+    v0.11 dispatched 6 (reviewer,db-reviewer,observability-reviewer,perf-reviewer,security-auditor,test-runner)
+    selector signals: 4 [reviewer,test,db,contract] · +enf(31 items): 4 [reviewer,test,db,contract] · max pack 1476 lines
+    MED+: D-1=floor F-1=floor F-2=floor F-4=escalate F-5=lane F-6=floor F-7=lane F-8=escalate
+  0013-pg-tgtt-report-datasource-swap [large/full · report-service-ms 4f97c6e..14fe91b, 148 files/9550 lines, LARGE→ask]
+    v0.11 dispatched 6 (reviewer,test-runner,perf-reviewer,security-auditor,db-reviewer,observability-reviewer)
+    selector signals: 5 [reviewer,test,security,db,contract] · +enf(11 items): 5 [reviewer,test,security,db,contract] · max pack 1499 lines
+    MED+: 1=lane 2=lane 3=lane 4=floor 5=floor 6=floor 7=lane 8=lane 9=escalate 10=floor 11=floor 12=floor 13=floor 14=floor 15=escalate 16=escalate 17=lane
+  0005-dynamic-va-master-data [medium/full · core-ledger-ms 4832c1e..ae51805, 10 files/476 lines]
+    v0.11 dispatched 3 (reviewer,db-reviewer,security-auditor)
+    selector signals: 3 [reviewer,test,db] · +enf(34 items): 3 [reviewer,test,db] · max pack 724 lines
+    MED+: SEC-1=escalate SEC-2=out-of-diff
+  0006-dynamic-va-display-name-ops-guarantee-name [medium/full · core-ledger-ms 977700e..4ea04fb, 23 files/349 lines]
+    v0.11 dispatched 6 (reviewer,test-runner,security-auditor,db-reviewer,perf-reviewer,contract-reviewer)
+    selector signals: 3 [reviewer,test,db] · +enf(11 items): 3 [reviewer,test,db] · max pack 925 lines
+    MED+: FIX-1=lane FIX-2=floor DEFER-1=escalate
+  0008-dynamic-va-master-account-ledger-id-fix [medium/full · core-ledger-ms 7d466b6..885b035, 4 files/197 lines]
+    v0.11 dispatched 3 (test-runner,reviewer,db-reviewer)
+    selector signals: 3 [reviewer,test,db] · +enf(12 items): 3 [reviewer,test,db] · max pack 423 lines
+    MED+: FIX-1=escalate FIX-2=floor
+  0009-dynamic-va-search-trim-whitespace [medium/full · core-ledger-ms 885b035..0a57497, 4 files/166 lines]
+    v0.11 dispatched 3 (test-runner,perf-reviewer,reviewer)
+    selector signals: 3 [reviewer,test,db] · +enf(10 items): 3 [reviewer,test,db] · max pack 318 lines
+    MED+: FIX-1=floor
+  0094-settlement-item-payment-channel [medium/full · payment-gateway-ms 075c3f8..ee64c12, 26 files/617 lines]
+    v0.11 dispatched 5 (reviewer,db-reviewer,contract-reviewer,perf-reviewer,security-auditor)
+    selector signals: 3 [reviewer,test,db] · +enf(24 items): 3 [reviewer,test,db] · max pack 1362 lines
+    MED+: HIGH-1=floor HIGH-2=floor MED-3=floor TDD=floor
+  0095-transaction-keyword-ft-id [medium/full · payment-gateway-ms 9b7be2b..02a0dc2, 9 files/271 lines]
+    v0.11 dispatched 3 (reviewer,db-reviewer,security-auditor)
+    selector signals: 3 [reviewer,test,db] · +enf(16 items): 3 [reviewer,test,db] · max pack 506 lines
+    MED+: 
+  0100-release-recreatable-before-collect [medium/full · payment-gateway-ms ebfe73f..def1b00, 7 files/509 lines]
+    v0.11 dispatched 4 (test-runner,reviewer,db-reviewer,perf-reviewer)
+    selector signals: 3 [reviewer,test,db] · +enf(26 items): 3 [reviewer,test,db] · max pack 845 lines
+    MED+: 7=floor 1=lane 2=escalate 3=escalate 4=floor 5=floor 6=floor DUP=floor PRE-1=out-of-diff PRE-2=out-of-diff
+  0004-va-refund-bank-two-phase [medium/full · payment-orchestrator-ms 514f952..e52c727, 27 files/1087 lines]
+    v0.11 dispatched 6 (test-runner,reviewer,contract-reviewer,perf-reviewer,observability-reviewer,security-auditor)
+    selector signals: 3 [reviewer,test,contract] · +enf(15 items): 3 [reviewer,test,contract] · max pack 1467 lines
+    MED+: CON-9=lane SEC-M8=floor OBS-1/2=escalate OBS-3=escalate OBS-4=escalate CON-3=escalate GEN-F2=escalate GEN-F3=floor F-1=floor F-4a=out-of-diff
+  0009-va-client-error-mapping [medium/full · wallet-ms 617a40b..d346ea7, 5 files/167 lines]
+    v0.11 dispatched 3 (reviewer,test-runner,observability-reviewer)
+    selector signals: 2 [reviewer,test] · +enf(0 items): 2 [reviewer,test] · max pack 371 lines
+    MED+: F-1=floor F-2=floor D-1=out-of-diff D-2=out-of-diff
+  0031-dynamic-va-owner-inquiry-webhook-retry [large/full · va-ms 68044d4..a56d6d8, 88 files/7681 lines, LARGE→ask]
+    v0.11 dispatched 5 (test-runner,reviewer,security-auditor,db-reviewer,contract-reviewer)
+    selector signals: 5 [reviewer,test,security,db,contract] · +enf(24 items): 5 [reviewer,test,security,db,contract] · max pack 1489 lines
+    MED+: V26-LOCK=lane V26-VER=lane DUP=floor IDX-1=lane IDX-2=lane PACT=out-of-diff
+  0028-kafka-consumer-onerrorcontinue-fix [medium/full · payment-gateway-ms ef8e416..8fd28e7, 5 files/166 lines]
+    v0.11 dispatched 3 (test-runner,reviewer,perf-reviewer)
+    selector signals: 3 [reviewer,test,db] · +enf(0 items): 3 [reviewer,test,db] · max pack 337 lines
+    MED+: 
+  0033-internal-detail-legal-rep [small/full · party-ms 407737ad..4c28d5ed, 3 files/142 lines]
+    v0.11 dispatched 5 (test-runner,reviewer,perf-reviewer,security-auditor,contract-reviewer)
+    selector signals: 2 [reviewer,test] · +enf(0 items): 2 [reviewer,test] · max pack 348 lines
+    MED+: PRE-HIGH=out-of-diff
+  0021-fix-aml-case-monitor-onboarding-id-overflow [medium/light · party-ms 8e3b572b..a051ec6d, 5 files/371 lines]
+    v0.11 dispatched 2 (reviewer,perf-reviewer)
+    selector signals: 2 [reviewer,db] · +enf(0 items): 2 [reviewer,db] · max pack 585 lines
+    MED+: IDX=escalate DOC=floor ARMS=floor
+  0016-fix-merchant-identity-displayname-source [medium/light · party-ms 786b3fff..080567a5, 4 files/155 lines]
+    v0.11 dispatched 0 ()
+    selector signals: 2 [reviewer,db] · +enf(0 items): 2 [reviewer,db] · max pack 279 lines
+    MED+: 
+  0033-e2e-honor-skip-tests [small/light · va-ms 3117acf..666547d, 1 files/2 lines]
+    v0.11 dispatched 0 ()
+    selector signals: 1 [reviewer] · +enf(2 items): 1 [reviewer] · max pack 104 lines
+    MED+: 
+  0018-auth-cookie-name-prefix [medium/full · auth-ms 20e4ed3..a2a05ee, 9 files/317 lines]
+    v0.11 dispatched 3 (security-auditor,reviewer,test-runner)
+    selector signals: 3 [reviewer,test,security] · +enf(0 items): 3 [reviewer,test,security] · max pack 665 lines
+    MED+: 
+  0020-fix-screening-aml-merchant [medium/full · party-ms a26e396a..592a9d25, 4 files/353 lines]
+    v0.11 dispatched 1 (reviewer)
+    selector signals: 2 [reviewer,test] · +enf(0 items): 2 [reviewer,test] · max pack 525 lines
+    MED+: 
+  fan-out, all waves: v0.11 81 dispatches, 10/22 ≥4 (45.5%) → selector +enf 67, 5/22 ≥4 (22.7%) · signals-only 67, 5/22 ≥4 (22.7%)
+    small: v0.11 5 dispatches, 1/2 ≥4 (50%) → selector +enf 3, 0/2 ≥4 (0%) · signals-only 3, 0/2 ≥4 (0%)
+      recall +enf: lane 0 · floor 0 · escalate 0 of 0 MED+
+    medium: v0.11 51 dispatches, 5/15 ≥4 (33.3%) → selector +enf 41, 0/15 ≥4 (0%) · signals-only 41, 0/15 ≥4 (0%)
+      recall +enf: lane 3 · floor 19 · escalate 11 of 33 MED+
+    large: v0.11 25 dispatches, 4/5 ≥4 (80%) → selector +enf 23, 5/5 ≥4 (100%) · signals-only 23, 5/5 ≥4 (100%)
+      recall +enf: lane 12 · floor 19 · escalate 8 of 39 MED+
+    route light: v0.11 2 dispatches, 0/3 ≥4 (0%) → selector +enf 5, 0/3 ≥4 (0%) · signals-only 5, 0/3 ≥4 (0%)
+    route full: v0.11 79 dispatches, 10/19 ≥4 (52.6%) → selector +enf 62, 5/19 ≥4 (26.3%) · signals-only 62, 5/19 ≥4 (26.3%)
+    (secondary) excluding large full-route: v0.11 56 dispatches, 6/17 ≥4 (35.3%) → selector +enf 44, 0/17 ≥4 (0%) · signals-only 44, 0/17 ≥4 (0%)
+  recall +enf (diff scope, 72 MED+): lane 15 · floor 38 · escalate-only 19 → lane|floor 73.6% · incl. escalate 100% (100% by construction, not a measurement)
+  recall signals-only: lane|floor 73.6% · incl. escalate 100% (by construction)
+  out-of-diff (pre-existing, not in the denominator): 9 · not-in-diff (file outside the range, not in the denominator): 0 [] · lane with no file named (unlocated): 1
+  escalate-only findings (each needs a fixture `covers`): 0001-va-payment-guarantee-posting#1 HIGH contract (contract-reviewer); 0001-va-payment-guarantee-posting#HIGH-1 HIGH contract (general-reviewer); 0001-va-payment-guarantee-posting#contract-MED MED contract (contract-reviewer); 0020-va-master-account-producer-resolve#F-4 MED perf (perf-reviewer); 0020-va-master-account-producer-resolve#F-8 MED security (security-auditor); 0013-pg-tgtt-report-datasource-swap#9 MED observability (observability-reviewer); 0013-pg-tgtt-report-datasource-swap#15 MED observability (observability-reviewer); 0013-pg-tgtt-report-datasource-swap#16 MED observability (observability-reviewer); 0005-dynamic-va-master-data#SEC-1 MED security (security-auditor); 0006-dynamic-va-display-name-ops-guarantee-name#DEFER-1 MED security (security-auditor); 0008-dynamic-va-master-account-ledger-id-fix#FIX-1 MED contract (reviewer); 0100-release-recreatable-before-collect#2 MED db (db-reviewer); 0100-release-recreatable-before-collect#3 MED perf (perf-reviewer); 0004-va-refund-bank-two-phase#OBS-1/2 HIGH observability (observability-reviewer); 0004-va-refund-bank-two-phase#OBS-3 HIGH observability (observability-reviewer); 0004-va-refund-bank-two-phase#OBS-4 HIGH contract (observability-reviewer); 0004-va-refund-bank-two-phase#CON-3 MED contract (contract-reviewer); 0004-va-refund-bank-two-phase#GEN-F2 MED observability (reviewer); 0021-fix-aml-case-monitor-onboarding-id-overflow#IDX HIGH perf (perf-reviewer)
+  escalate-only without a fixture (AC10 needs none): none
+  max pack lines: 1499 · degraded runs: false · repos written: none
+
+== fan-out projected on the 52-wave frame (40 round-1 waves; v0.11 28/52 ≥4)
+  large-diff waves: round 1 11/52 (21.2%, lower bound) · all 17/52 (32.7%, upper bound)
+  proxy check vs manifest task ranges: 12/13 agree; disagree: payment-orchestrator-ms 2026-08-21T08:36:03Z proxy 1f/6l, task large=true

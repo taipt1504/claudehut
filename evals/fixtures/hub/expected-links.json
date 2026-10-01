@@ -1,0 +1,80 @@
+{
+  "edges": [
+    {
+      "confidence": "high",
+      "evidence": [
+        "a-ms/src/main/resources/application.yml:17",
+        "a-ms/src/main/java/com/acme/a/client/BClient.java:9"
+      ],
+      "from": "a-ms",
+      "to": "b-ms",
+      "type": "http",
+      "via": "B_SERVICE_URL"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "a-ms/src/main/resources/application.yml:20"
+      ],
+      "from": "a-ms",
+      "to": "external:api.partner.example.com",
+      "type": "http",
+      "via": "PARTNER_BASE_URL"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "a-ms/src/main/java/com/acme/a/kafka/XProducer.java:16",
+        "c-ms/src/main/java/com/acme/c/kafka/XConsumer.java:11",
+        "c-ms/src/main/resources/application.yml:11",
+        "c-ms/src/main/java/com/acme/c/kafka/XReactiveConsumer.java:15",
+        "c-ms/src/main/resources/application.yml:14"
+      ],
+      "from": "a-ms",
+      "to": "c-ms",
+      "type": "kafka",
+      "via": "x.v1"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        "a-ms/build.gradle:7"
+      ],
+      "from": "a-ms",
+      "to": "java-common-ms",
+      "type": "lib",
+      "via": "io.f8a.summer:*"
+    },
+    {
+      "confidence": "medium",
+      "evidence": [
+        "b-ms/src/main/resources/application.yml:5",
+        "c-ms/src/main/resources/application.yml:5"
+      ],
+      "from": "b-ms",
+      "to": "c-ms",
+      "type": "db",
+      "via": "shared_db"
+    }
+  ],
+  "unresolved": [
+    {
+      "at": "a-ms/src/main/resources/application.yml:22",
+      "env": "MYSTERY_URL",
+      "kind": "http_client",
+      "svc": "a-ms"
+    },
+    {
+      "at": "c-ms/src/main/java/com/acme/c/kafka/XConsumer.java:14",
+      "kind": "kafka_consume",
+      "svc": "c-ms",
+      "topic": "orphan.v1"
+    },
+    {
+      "at": "c-ms/src/main/resources/application.yml:18",
+      "kind": "kafka_produce",
+      "prefix": "c.",
+      "svc": "c-ms"
+    }
+  ]
+}

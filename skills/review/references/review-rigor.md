@@ -1,39 +1,48 @@
 # Review rigor contract
 
-The single source for the rules that bind every CODE-REVIEW auditor (`claudehut-reviewer`,
-`claudehut-security-auditor`, `claudehut-perf-reviewer`, `claudehut-db-reviewer`,
-`claudehut-contract-reviewer`, `claudehut-observability-reviewer`). `claudehut:review`
-**cats this file verbatim into each auditor's dispatch prompt**; the auditor bodies do NOT restate it.
-(`claudehut-test-runner` is exempt — it returns raw test output, not a coverage table.)
+The rules every code-review lane follows: `claudehut-reviewer`, `claudehut-security-auditor`,
+`claudehut-db-reviewer` (persistence + performance) and `claudehut-contract-reviewer` (contracts +
+observability). `scripts/review-pack.sh` copies this file verbatim into the `## Rigor` section of each lane's
+pack, so the agent bodies do not restate it. `claudehut-test-runner` returns raw test output and is exempt.
 
-1. **Think first.** Your prompt carries `ultrathink` — the only deep-reasoning token Claude Code honors.
-   Reason about the change before judging.
-2. **Refute, don't confirm — on TWO axes.** You are a senior Java/Spring engineer whose sign-off decides
-   whether this ships. Treat the change as **unproven until you cite evidence**. Judge code + diff + rules
-   only — no author / commit-message / "quick fix" framing. Report gaps on BOTH (a pass on one never excuses
-   the other):
-   - **(a) Spec/Enforcement** — correctness, requirements, rules, performance, enforcement-set items.
-   - **(b) Standards** — semantic convention + code health: fully-qualified names where the project imports
-     the type · the same helper/converter duplicated across files in the diff · naming drift vs `vocabulary.md`
-     · dead code introduced. (`format-java.sh` owns ONLY whitespace/import-order — semantic convention is a
-     real finding, never "just a nit".)
-   - Do **not** manufacture findings ("find ≥N" is banned — it produces false positives).
-3. **Evidence per claim, both directions.** Every finding AND every "satisfied" attestation cites `file:line`
-   and quotes the deciding code. A behavioral claim ("uses @EntityGraph", "input is validated") needs a source
-   citation — **never inferred from a name**. A bare "looks good / PASS" is a disqualified non-answer.
-4. **Coverage table — the output contract.** One row per enforcement-set item AND per defect-class-floor item,
-   each → `✓ satisfied | ✗ violated | n-a` + evidence (`file:line` + quote, or `n-a: <reason>`). The floor
-   always includes the **Standards-axis rows** (FQN-in-declaration, cross-file duplication, naming-vs-vocabulary)
-   even when the enforcement set is thin. **An item with no row = incomplete review (bounced back). PASS only
-   when every row is `✓` or `n-a`, each with evidence.**
-5. **Severity (drives blocking):**
+1. **Read the pack, then the code.** The pack header pins `base_sha` and `reviewed_tree`; `## Diff` holds the
+   hunks of your lane's files. A file listed past the pack cap: `git diff <base_sha> <reviewed_tree> -- <file>`. Do not run a
+   whole-scope `git diff`. Bash is read-only: `git show`, `git log`, `git diff -- <file>`.
+2. **Refute, don't confirm — on two axes.** Treat the change as unproven until you cite evidence. Judge code,
+   diff and rules only, not the author's summary or commit message.
+   - **(a) Spec/Enforcement** — correctness, requirements, the pack's `## Enforcement` items for your lane,
+     `## Known pitfalls`. Every lane.
+   - **(b) Standards** — reviewer lane only: fully-qualified names where the project imports the type, the
+     same helper/converter duplicated across files in the diff, naming drift against `## Vocabulary`, dead
+     code the change introduced. `format-java.sh` owns only whitespace and import order; semantic convention
+     is a real finding.
+   - Do not manufacture findings. If you are not certain an issue is real, do not flag it: put it under
+     Suspected with the check that settles it.
+3. **Evidence per claim, both directions.** Every finding and every `✓` cites `file:line` and quotes the
+   deciding code. A behavioral claim ("uses @EntityGraph", "input is validated") needs a cited line, not a
+   name. A bare "looks good" is not an answer.
+4. **Output, in this order:**
+   1. **Findings** — `✗` only: `SEVERITY | file:line | quote | reason`. At most 5 LOW; count the rest.
+   2. **Suspected** — at most 3, each with one concrete read-only check (a SELECT, a `git show`, a grep). The
+      main thread runs live DB/MCP queries; you do not.
+   3. **Coverage** — one row per `## Enforcement` item in your pack: `item | ✓/✗ | file:line + quote`. No
+      `n-a` rows for items outside your lane. The reviewer adds the five floor rows (Correctness,
+      Conventions, Duplication, Dead code, Minimalism) and is the only lane that writes Standards rows.
+   4. **escalate** — reviewer only: `escalate: <lane> — File.java:NN <why>` for a concern owned by a lane not
+      in the run list, instead of reviewing it yourself. Otherwise `none`.
+   5. **Tests** — only when the pack has a `## Test command` section: the command and pass/fail counts from
+      this turn.
+   6. **Verdict** — `PASS` or `OUTSTANDING (n)`.
+5. **Pre-existing** is a verdict, not a filter: mark a finding `pre-existing` only when
+   `git show <base_sha>:<path>` shows the same defect. A guard the diff removes or loosens (`@PreAuthorize`,
+   a filter-chain rule) is a finding of this change.
+6. **Severity (drives blocking):**
 
    | Severity | Meaning | Gate |
    |---|---|---|
    | **CRITICAL** | correctness / security / data-integrity defect | blocks |
    | **HIGH** | rule violation, real bug, perf regression on a hot path | blocks |
-   | **MED** | should-fix; risk or smell | blocks unless explicitly justified + deferred in `review.md` |
+   | **MED** | should-fix; risk or smell | blocks unless justified and deferred in `review.md` |
    | **LOW** | advisory polish | non-blocking |
 
-   Confidence is not severity: an unproven-but-plausible N+1 on a request path is **HIGH**, not LOW. Outstanding
-   = every `✗` at MED+ not yet justified-and-deferred.
+   Confidence is not severity: a proven N+1 on a request path is HIGH, not LOW. An unproven one is Suspected.

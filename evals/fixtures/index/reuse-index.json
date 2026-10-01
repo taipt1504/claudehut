@@ -1,0 +1,10 @@
+{
+  "project": "shop-ms",
+  "updated": "2026-01-01",
+  "components": [
+    {"id": "pricing", "kind": "service", "path": "src/main/java/com/acme/shop/service/PricingService.java",
+     "purpose": "Legacy note: computes list prices for a sku.", "tags": ["pricing", "tariff"]},
+    {"id": "gone", "kind": "service", "path": "src/main/java/com/acme/shop/service/GoneService.java",
+     "purpose": "Points at a file that no longer exists.", "tags": ["ghosttag"]}
+  ]
+}

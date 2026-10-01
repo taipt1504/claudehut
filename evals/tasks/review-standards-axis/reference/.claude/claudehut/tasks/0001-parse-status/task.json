@@ -1,0 +1,1 @@
+{"schema": 2, "id": "0001-parse-status", "route": "full", "profile": "feature", "phase": "learn", "plan_approved": true, "review": "pass", "plan_review_round": 0, "scope": ["src/main/*", "*/src/main/*"], "enforcement_set": [], "status": "done", "session": "s-0001", "review_evidence": ".claude/claudehut/tasks/0001-parse-status/review.md"}

@@ -332,6 +332,15 @@ out_dep="$(adj dep.md)"; rc_dep=$?
   || bad "W6: a [P] task ran alongside its own declared dependency (rc=$rc_dep)"
 case "$out_dep" in *"T-002 depends on T-001"*) ok "W6: the offending pair is named" ;;
   *) bad "W6: exit 2 without naming which tasks collide" ;; esac
+# M3 plan v2 drops "Minimal change": Depends moves to $7 and $8 becomes Req. A fixed $8 read AC IDs as the
+# dependency cell and let this exact case through at exit 0 — the cell is found by its header now.
+V2HDR='| ID | Goal | Files | Test first | Verify | Depends | Req |
+|---|---|---|---|---|---|---|'
+printf '### Phase 1 — a\n%s\n| T-001 [P] | a | src/a/A.java | t | v | — | AC-001 |\n| T-002 [P] | b | src/b/B.java | t | v | T-001 | AC-002 |\n' "$V2HDR" > "$AW/depv2.md"
+out_depv2="$(adj depv2.md)"; rc_depv2=$?
+[ $rc_depv2 -eq 2 ] && case "$out_depv2" in *"T-002 depends on T-001"*) ok "W6/M3: the v2 Depends column (7th cell) is read, not Req" ;;
+  *) bad "W6/M3: exit 2 without the pair on a v2 plan" ;; esac \
+  || bad "W6/M3: a v2 plan's same-phase [P] dependency passed (Depends read from the Req column, rc=$rc_depv2)"
 # Control 1 — the narrowing that matters most. A dependency on a same-phase NON-[P] task is untouched: the
 # predicate must read "[P] sibling", not "any same-phase dependency". Nothing else catches an over-fire here.
 printf '### Phase 1 — a\n%s\n| T-001 | seq | src/a/A.java | t | c | v | — | F1 |\n| T-002 [P] | b | src/b/B.java | t | c | v | T-001 | F2 |\n| T-003 [P] | c | src/c/C.java | t | c | v | T-001 | F3 |\n' "$AHDR" > "$AW/depnp.md"

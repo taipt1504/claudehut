@@ -1,0 +1,2 @@
+{"desc":"a literal secret in application.yml → security","route":"full","mode":"commit",
+ "lanes":["reviewer","test","security"],"skipped":["db","contract"],"reasons":{"security":["hunk:secret application.yml"]}}

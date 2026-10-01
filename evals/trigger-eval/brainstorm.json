@@ -1,6 +1,6 @@
 {
   "skill": "brainstorm",
-  "description": "Use to generate and weigh solution approaches for a problem, after discovery has grounded the context. Produces two or more genuinely distinct options scored on trade-offs, recommends one, and (for code tasks) assembles the enforcement set the rest of the workflow audits against. General-purpose ideation — works for any problem type; not tied to a specific stack.",
+  "description": "Use when a ClaudeHut full-route task has unclear intent or two or more materially different approaches - scores distinct options on trade-offs, recommends one, and assembles the enforcement set Review audits against.",
   "should_trigger": [
     "what are my options for making this consumer idempotent",
     "weigh a few approaches for the payout retry design",

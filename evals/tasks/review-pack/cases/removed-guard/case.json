@@ -1,0 +1,2 @@
+{"desc":"a removed @PreAuthorize (a '-' line) still enables security","route":"full","mode":"commit",
+ "lanes":["reviewer","test","security","contract"],"skipped":["db"],"reasons":{"security":["hunk:@PreAuthorize OrderController.java"]}}

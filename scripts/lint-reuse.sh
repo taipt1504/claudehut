@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
 # PostToolUse hook (matcher: Write|Edit) — reuse/duplication ADVISORY linter (v0.7, Issue 5).
 #
-# The write gate is structural (artifact + skill-rail), so it cannot see "you just duplicated a helper"
+# The recorded phases are structural (artifacts), so they cannot see "you just duplicated a helper"
 # or "you re-implemented StringUtils.isBlank". This linter does — heuristically, AFTER the write — and
 # stages a "reuse-suspect" the Review phase must clear. It is ADVISORY: it never blocks (PostToolUse
 # can't), never errors the tool, exits 0 always. Enforcement is routed to Review (which loops until clean),
 # matching the gate's fail-open philosophy — a heuristic false-positive must not wedge the user.
 #
-# Staging file: .claude/claudehut/state/<sid>.suspects.jsonl  (under state/ = gitignored/ephemeral),
+# Staging file: .claude/claudehut/state/<task-id>.suspects.jsonl  (per task, 05 §4 #7; under state/ = gitignored),
 # read by claudehut:review and pasted into the reviewer prompt as "Known reuse suspects".
-set -uo pipefail
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+. "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
+hc_init
+hc_plane_or_exit          # no plane → exit 0 and create nothing (K7)
+in="$HC_IN"
+trap - ERR                # this body predates the lib and relies on non-errexit semantics (a grep miss is
+                          # a normal negative); the EXIT trap still guarantees exit 0 and a silent stdout
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-in="$(cat || true)"
-command -v jq >/dev/null 2>&1 || exit 0
-
-sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
+sid="$HC_SID"   # validated by hc_safe_id (empty when unsafe), so a '../' session_id cannot leave state/
 fp="$(jq -r '.tool_input.file_path // empty' <<<"$in" 2>/dev/null || true)"
 [ -n "$sid" ] && [ -n "$fp" ] || exit 0
 
@@ -26,8 +28,11 @@ case "$fp" in
   *) exit 0 ;;
 esac
 [ -f "$fp" ] || exit 0
+# P-task (05 §3): only inside an active schema-2 task, and only for paths in its scope.
+hc_active_task || exit 0
+{ hc_rel "$fp" && hc_in_scope "$HC_REL"; } || exit 0
 
-DIR="$PROJECT_DIR/.claude/claudehut/state"; F="$DIR/$sid.suspects.jsonl"
+DIR="$PROJECT_DIR/.claude/claudehut/state"; F="$DIR/$HC_TASK_ID.suspects.jsonl"   # per task, not per session
 mkdir -p "$DIR" 2>/dev/null || exit 0
 rel="${fp#"$PROJECT_DIR"/}"
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
@@ -60,7 +65,9 @@ while IFS= read -r m; do
   others="$(grep -rlE "static[[:space:]]+[A-Za-z0-9_<>,. ]+[[:space:]]${m}[[:space:]]*\(" "$SRC" --include='*.java' 2>/dev/null \
     | grep -vF "$fp" | grep -vE '(Test|IT)\.java$' | head -3)"
   if [ -n "$others" ]; then
-    where="$(printf '%s' "$others" | sed "s#^${PROJECT_DIR}/##" | tr '\n' ',' | sed 's/,$//')"
+    # Shell expansion, not a sed regex: a '#', '&', '.' or '*' in the project path broke or bent the pattern (V3-C3).
+    where=""
+    while IFS= read -r o; do where="$where${where:+,}${o#"$PROJECT_DIR"/}"; done <<<"$others"
     emit "duplicate" "static ${m}() also declared in: ${where} — extract ONE shared util instead of copies"
     n_emitted=$((n_emitted+1))
   fi

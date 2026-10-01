@@ -1,0 +1,52 @@
+# One probe per signal rule of scripts/review-pack.sh (08 §3.2). kind<TAB>label<TAB>path-or-item<TAB>added line
+# path/hunk/secret probes are files added in one commit; enf probes are enforcement_set items of one task.
+# Expected reason: path → "path:<label> <path>" · hunk|mainhunk|secret → "hunk:<label> <basename>" · enf → "enf:<item>".
+path	security/	src/main/java/p/security/PSec.java	class PSec {}
+path	auth/	src/main/java/p/auth/PAuth.java	class PAuth {}
+path	SecurityConfig	src/main/java/p/cfg/WebSecurityConfigurer.java	class WebSecurityConfigurer {}
+path	Filter.java	src/main/java/p/web/TraceFilter.java	class TraceFilter {}
+hunk	@PreAuthorize	src/main/java/p/h/HPreAuthorize.java	@PreAuthorize("x") void a() {}
+hunk	@Secured	src/main/java/p/h/HSecured.java	@Secured("x") void a() {}
+hunk	SecurityFilterChain	src/main/java/p/h/HChain.java	SecurityFilterChain c;
+hunk	permitAll	src/main/java/p/h/HPermit.java	http.anyRequest().permitAll();
+hunk	JwtDecoder	src/main/java/p/h/HJwt.java	JwtDecoder d;
+hunk	PasswordEncoder	src/main/java/p/h/HPwd.java	PasswordEncoder e;
+hunk	activateDefaultTyping	src/main/java/p/h/HTyping.java	mapper.activateDefaultTyping(v);
+hunk	ObjectInputStream	src/main/java/p/h/HOis.java	new ObjectInputStream(in);
+secret	secret	src/main/resources/application-probe.yml	api-key: abcdef123
+path	db/migration/	src/main/resources/db/migration/V9__probe.txt	x
+path	.sql	src/main/resources/probe.sql	select 1;
+path	Repository	src/main/java/p/r/OrderRepositoryImpl.java	class OrderRepositoryImpl {}
+hunk	@Entity	src/main/java/p/h/HEntity.java	@Entity class E {}
+hunk	@Table	src/main/java/p/h/HTable.java	@Table(name="t") class T {}
+hunk	@Query	src/main/java/p/h/HQuery.java	@Query("select 1") void q();
+hunk	DatabaseClient	src/main/java/p/h/HDbc.java	DatabaseClient c;
+hunk	JdbcTemplate	src/main/java/p/h/HJdbc.java	JdbcTemplate t;
+hunk	@Transactional	src/main/java/p/h/HTx.java	@Transactional void t() {}
+hunk	TransactionalOperator	src/main/java/p/h/HTxOp.java	TransactionalOperator o;
+hunk	@Cacheable	src/main/java/p/h/HCache.java	@Cacheable("c") void c() {}
+mainhunk	.block(	src/main/java/p/h/HBlock.java	mono.block();
+mainhunk	Thread.sleep	src/main/java/p/h/HSleep.java	Thread.sleep(10);
+path	.avsc	src/main/avro/probe.avsc	{"type":"record","name":"P","fields":[]}
+path	.proto	src/main/proto/probe.proto	syntax = "proto3";
+path	openapi	src/main/resources/openapi-probe.yaml	openapi: 3.0.0
+path	asyncapi	src/main/resources/asyncapi.yaml	asyncapi: 2.6.0
+path	kafka-config	src/main/java/p/kafka/config/PConsumerConfig.java	class PConsumerConfig {}
+hunk	@KafkaListener	src/main/java/p/h/HKafkaL.java	@KafkaListener(topics="t") void l() {}
+hunk	KafkaTemplate	src/main/java/p/h/HKafkaT.java	KafkaTemplate<String,String> t;
+hunk	@RabbitListener	src/main/java/p/h/HRabbit.java	@RabbitListener(queues="q") void l() {}
+hunk	@*Mapping	src/main/java/p/h/HMapping.java	@PostMapping("/x") void m() {}
+hunk	WebClient	src/main/java/p/h/HWebClient.java	WebClient w;
+hunk	RestClient	src/main/java/p/h/HRestClient.java	RestClient r;
+hunk	@FeignClient	src/main/java/p/h/HFeign.java	@FeignClient("f") interface F {}
+hunk	@Scheduled	src/main/java/p/h/HSched.java	@Scheduled(fixedDelay=1) void s() {}
+hunk	MeterRegistry	src/main/java/p/h/HMeter.java	MeterRegistry m;
+hunk	@Timed	src/main/java/p/h/HTimed.java	@Timed("t") void t() {}
+hunk	@Observed	src/main/java/p/h/HObserved.java	@Observed(name="o") void o() {}
+enf	security/*	security/authn.md	-
+enf	performance/*	performance/n-plus-one.md	-
+enf	framework/jpa|r2dbc|flyway|migration|lombok-jpa	.claude/rules/framework/r2dbc.md	-
+enf	framework/contract*	framework/contract-compat.md	-
+enf	framework/kafka*	framework/kafka-consumer.md	-
+enf	observability/*	observability/metrics.md	-
+enf	coding/logging-mdc	coding/logging-mdc.md	-

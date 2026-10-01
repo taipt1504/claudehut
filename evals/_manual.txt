@@ -17,6 +17,10 @@ playbook-read-probe.sh: in README's live list but deliberately off the checklist
 rule-glob-probe.sh: one-off discriminator that answered why path-scoped rules scored 0/6; the question is closed and re-running costs tokens.
 rule-load-probe.sh: live token-costing A/B against Claude Code's native rules mechanism, not against this plugin — no change here can regress it.
 rule-tiebreak-probe.sh: one-off tie-breaker between two contradictory probe results; the finding is recorded and a re-run proves nothing new.
+review-cost.sh: M0 baseline instrument over machine-local ~/.claude transcripts — it reports numbers, not a pass line (its --self-test is for editing it).
+doclint-replay.sh: replays doclint over the local ewallet corpus (244 task dirs), which CI does not have; doclint-tests.sh is the gated suite (M3, 10-rollout-eval).
+review-replay.sh: M4 lane-selection replay over the local ewallet repos (read-only), which CI does not have; review-pack-tests.sh is the gated suite.
+router-eval.sh: M0 dry-run harness for the router cases; the router it measures lands in M2, which wires it as a gate.
 
 # NOT listed, and deliberately: run.sh, score.sh and llm-judge.sh are executed by conformance.sh (:839,
 # :832, :822), which ci.yml runs — reference-check.sh treats "executed by a covered suite" as covered and

@@ -1,43 +1,88 @@
 #!/usr/bin/env bash
-# claudehut-state — the SOLE writer of the per-session phase-state file.
-# Hooks only READ state; this command is the only thing that writes it.
-# Path: ${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/<session_id>.json   (01 §4, §4.1)
-# Writes atomically (temp file + rename) so concurrent hook reads never see a torn file.
+# claudehut-state — the SOLE writer of ClaudeHut task state (schema 2; 04-routing-harness.md §3, ADR-R2).
+# Hooks only READ state; this command is the only thing that writes it. Writes are atomic (temp + rename)
+# and serialized by one advisory lock per plane.
 #
-# Usage:
-#   claudehut-state --session <id> <subcommand> [args]
+#   state/<sid>.json        {"schema":2,"active_task":"<id>"|null}      — a pointer, nothing else
+#   tasks/<id>/task.json    {"schema":2,"id","route","profile","phase","plan_approved","review",
+#                            "plan_review_round","doc_schema","base":{repo:sha},"pre_dirty":{repo:[files]},
+#                            "scope":[],"enforcement_set":[],"status","created",…artifact paths}
+# A state or task file without "schema":2 (every v0.11 file, including the bypass=true ones) is NO task.
+# A session that never runs `start` writes no state at all (the `direct` route).
 #
-# Subcommands (schema: 01 §4):
-#   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--task T] [--spec P] [--plan P]
-#   set-reuse-scan [--artifact PATH]    # gate: table must carry Fit/Impact cols + a reuse DECISION (WS-4)
-#   set-enforcement --skills a,b,c --rules x.md,y.md
-#   set-brainstorm <path>         # gate: ≥2 scored options + Premortem + Recommendation (WS-3)
-#   set-spec  <path>              # gate: ## sections + Decision + AC-xxx; full tier requires a brainstorm (WS-3/4)
-#   set-plan  <path>              # gate: T-xxx rows; full tier requires Impl-Flow + Sketch + (smart) plan APPROVE (WS-2/4)
-#   set-plan-review <APPROVE|REVISE> [--evidence tasks/NNNN-slug/plan-review.md]   # plan-reviewer verdict (WS-2)
-#   set-review <pass|pending|capped> [--evidence PATH]   # pass REQUIRES --evidence review.md (coverage table + test evidence)
-#   set-outstanding <json-array>  # e.g. '["controller.md unsatisfied","N+1 in OrderRepo"]'
-#   set-bypass <true|false> [--reason "<why>"]   # --reason REQUIRED when enabling
-#   set-complexity <trivial|small|full>   # complexity tier; default full = no phase-skipping
-#   set-profile <feature|bugfix|audit|migration|investigation>   # task SHAPE (WS-7); required before set-phase implement
-#   set-findings <path>           # record an audit/investigation's findings deliverable (WS-7); the done gate checks it
-#   cost-report [--session <id>] [--count]   # READ-ONLY (F6). Walks the F5 dispatch ledger and reports
-#                                 # (task x agent_type x model x effort x count x wall duration),
-#                                 # un-collapsed and without dollars. --session is optional; --count
-#                                 # prints only the paired dispatch count (what the Stop gate reads).
-#   mark-skill <name>             # Issue-1 skill rail: records a Skill-tool invocation (written by
-#                                 # record-skill.sh, the PreToolUse(Skill) recorder hook). implement →
-#                                 # implement_skill_ok=true; discover|brainstorm → reset to false (new task).
+# Usage:  claudehut-state [--session <sid>] <verb> [args]
+#   --session defaults to $CLAUDEHUT_SESSION_ID (exported by the SessionStart hook through CLAUDE_ENV_FILE).
+#
+#   start --route light|full --slug <s> [--profile <p>] [--repo <path>]…   allocates the next NNNN under the
+#                                     plane lock and creates tasks/NNNN-<s>/task.json; an open task of THIS
+#                                     session becomes superseded (closed as done if it had finished). Prints the
+#                                     task id (line 1) and its dir (line 2). One --repo per service: base and
+#                                     pre_dirty per repo; ≥2 git toplevels → cross_service:true. The workspace/
+#                                     hub plane is for cross-service tasks only (a notice, never a refusal).
+#   set-route light|full              change the route
+#   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--spec P] [--plan P]
+#   set-reuse-scan --artifact P       (reuse-scan table must carry Fit/Impact + a decision)
+#   set-brainstorm P | set-spec P     doclint gate (M3, 06 §4): a STRUCTURAL violation refuses (exit 1, nothing
+#                                     written, one violation per line); budgets are printed, never enforced. The
+#                                     same gate runs on set-plan, set-plan-review and set-phase --spec/--plan.
+#   set-plan-review APPROVE|REVISE [--evidence P] [--user-decision "<text>"]
+#                                     evidence defaults to tasks/<id>/plan-review.md; its one Verdict: line must match.
+#                                     plan_review_round counts reviews, cap 2: after two rounds with the last one
+#                                     REVISE, a third is refused until the user decides (AskUserQuestion) and it is
+#                                     re-run with --user-decision — the text is stored and the round resets to 0.
+#   set-plan P                        records the plan and sets plan_approved=true. Light route: P may be task.md.
+#                                     Full route: a plan with ≥5 T-rows, a sensitive path in a T-row's Files cell,
+#                                     or profile=migration needs a fresh plan-review APPROVE of the same bytes
+#   set-review pass|pending|capped [--evidence P]   pass requires review.md evidence
+#   set-enforcement --skills a,b --rules x.md,y.md | set-outstanding <json-array> | set-findings P
+#   end --status done|abandoned       close the task; active_task=null
+#   resume <id>                       attach an existing task to this session (new session or fork); the task is
+#                                     then that session's: the previous owner's pointer is cleared, and every verb of
+#                                     another session treats it as no task (a notice, nothing written, exit 0)
+#   set-profile <p>                   set the open task's profile (feature|bugfix|audit|migration|investigation)
+#   set-complexity trivial|small|full deprecated: set the open task's route (trivial/small → light, full → full)
+#   status                            one-line JSON (read-only): the task's route, profile, phase, gates,
+#                                     scope, enforcement_set and artifact paths — task.json is the only store
+#   cost-report [--count]             read-only dispatch-ledger report (F6)
+#
+# Legacy verbs — M2 decision. 04-routing-harness.md §3 lists all of these as removed; each is kept, for this reason:
+#   set-profile     a LIVE verb, no deprecation notice: skills/claudehut-workflow/SKILL.md tells the model to run it
+#                   for a mid-flow shape change; `start --profile` covers only a new task.
+#   set-complexity  deprecated: maps onto the route with a notice. No skill or agent runs it any more.
+#   set-bypass, mark-skill, pause, rename, route
+#                   removed in v0.12: accepted as no-ops with a one-line notice. No skill or agent runs them.
+# None is deleted outright: an unknown verb exits 1, so deleting one would turn v0.11 skill text that is still
+# installed (migrated planes, cached plugin copies) into hard errors mid-workflow. They are candidates for deletion
+# with the 0.12.0 migration (M7), once no v0.11 text can reach them.
+# With no active task, every verb except start and resume records nothing, prints a notice and exits 0
+# (set-complexity, set-profile and set-phase discover included). Only `start` creates a task; nothing ever
+# guesses one from the tasks/ listing. On a FINISHED open task (review pass / learn / findings), a new request's
+# verbs (set-phase discover…, set-reuse-scan, set-spec, set-plan, a shape change via set-profile/set-route/
+# set-complexity, and on a done task its review verbs) are the same no-op + notice; `start` opens the new task.
 set -euo pipefail
 
 err() { echo "claudehut-state: $*" >&2; exit 1; }
+note() { echo "claudehut-state: $*" >&2; }
 command -v jq >/dev/null 2>&1 || err "jq is required but not found on PATH"
+
+VERBS=" start set-route set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review \
+set-enforcement set-outstanding set-findings end resume status cost-report \
+set-bypass set-complexity set-profile mark-skill pause rename route "
+is_verb() { case "$VERBS" in *" $1 "*) return 0 ;; esac; return 1; }
 
 SESSION=""
 args=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --session) SESSION="${2:-}"; shift 2 ;;
+    --session)
+      # Skills write `--session ${CLAUDE_SESSION_ID}` unquoted, and that variable is EMPTY in Bash (B7). The
+      # empty word vanishes, so argv arrives as `--session set-phase discover`: consuming the next token would
+      # make the verb the session id. A value that is empty, a verb, or another flag is "no value given".
+      # A QUOTED empty value (`--session "$CLAUDE_SESSION_ID"`) does arrive as '' — consume it with the flag.
+      v="${2-}"
+      if [ $# -ge 2 ] && [ -z "$v" ]; then shift 2
+      elif [ -z "$v" ] || is_verb "$v" || [ "${v#--}" != "$v" ]; then shift
+      else SESSION="$v"; shift 2; fi ;;
     *) args+=("$1"); shift ;;
   esac
 done
@@ -91,21 +136,32 @@ if [ "${#args[@]}" -ge 1 ] && [ "${args[0]}" = "cost-report" ]; then
   # task~ is DERIVED, never observed: no hook payload names a task dir. It is resolved from the session's
   # state file, which (a) is gitignored + age-swept while the ledger is never swept, and (b) is rewritten by
   # every claudehut-state call, so it names the session's CURRENT task rather than a history — a session
-  # that worked 0001 then 0002 attributes both to 0002. `(unresolved)` therefore means "no state file for
-  # that session", and is expected to be common, not an edge case. The footer says all of this.
+  # that worked 0001 then 0002 attributes both to 0002. `(unresolved)` means "neither a pointer nor a task.json
+  # of that session survives", and is expected to be common, not an edge case. The footer says all of this.
   _taskmap='{}'
+  # Fallback once for all sessions: every schema-2 task.json records the session that owns it (.session), so a
+  # session whose task already ENDED (pointer active_task=null — the normal state after `end --status done`)
+  # still resolves, to its most recently created task (R2-2).
+  # Parsed one FILE at a time: jq reads several files as one stream and stops at the first corrupt one, so a
+  # single bad task.json would unresolve every session. Here it costs only itself (the file's own jq fails).
+  _bysess="$(for _tf in "$_P"/.claude/claudehut/tasks/*/task.json; do
+      [ -f "$_tf" ] && jq -c 'select(type=="object" and .schema==2 and (.session // "") != "" and (.id // "") != "")
+                             | {session, id, created}' "$_tf" 2>/dev/null
+    done | jq -sc 'sort_by(.created // "") | map({(.session): .id}) | add // {}' 2>/dev/null || true)"
+  [ -n "$_bysess" ] || _bysess='{}'
   while IFS= read -r _sid; do
     [ -n "$_sid" ] || continue
     _sf="$_P/.claude/claudehut/state/$_sid.json"
     _t=""
     if [ -f "$_sf" ]; then
-      _t="$(jq -r '.task // empty' "$_sf" 2>/dev/null || true)"
+      _t="$(jq -r '.active_task // .task // empty' "$_sf" 2>/dev/null || true)"   # schema 2 pointer, v0.11 field
       if [ -z "$_t" ]; then
         _ap="$(jq -r '[.reuse_scan_artifact,.plan_path,.spec_path,.findings_path,.brainstorm_path]
                       | map(select(type=="string" and . != "")) | .[0] // empty' "$_sf" 2>/dev/null || true)"
         case "$_ap" in */tasks/*) _t="${_ap#*/tasks/}"; _t="${_t%%/*}" ;; esac
       fi
     fi
+    [ -n "$_t" ] || _t="$(jq -r --arg k "$_sid" '.[$k] // empty' <<<"$_bysess" 2>/dev/null || true)"
     [ -n "$_t" ] && _taskmap="$(jq -c --arg k "$_sid" --arg v "$_t" '.[$k]=$v' <<<"$_taskmap")"
   done < <(jq -r '.[]' <<<"$_sessions" 2>/dev/null || true)
 
@@ -173,8 +229,8 @@ if [ "${#args[@]}" -ge 1 ] && [ "${args[0]}" = "cost-report" ]; then
   model~  from agents/<name>.md frontmatter. CLAUDE_CODE_SUBAGENT_MODEL outranks frontmatter at runtime and
           leaves no trace in any hook payload, so this column CAN BE WRONG. `-` = no frontmatter resolved
           (a built-in agent, or an agent this plugin does not ship).
-  task~   from the session's state file, which is ephemeral and names that session's CURRENT task, not a
-          history. `(unresolved)` = no state file survives for that session.
+  task~   from the session's state pointer (its CURRENT task, not a history); after `end`, from the task.json
+          whose .session is that session (its latest). `(unresolved)` = neither survives for that session.
   effort, count, wall_s and max_s are observed from the ledger. Unmatched stops are discarded, not counted.
 
 This report CANNOT price a dispatch: no hook event carries usage, token or cost data. For money, run
@@ -187,30 +243,122 @@ EOF
 fi
 # ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
-[ -n "$SESSION" ] || err "--session <id> is required"
-[ "${#args[@]}" -ge 1 ] || err "a subcommand is required"
+[ "${#args[@]}" -ge 1 ] || err "a verb is required (start, set-phase, end, status, …)"
+sub="${args[0]}"
+shift_args=()
+[ "${#args[@]}" -gt 1 ] && shift_args=("${args[@]:1}")
+
+# ── Removed verbs: accepted, no state change, one line on stderr, exit 0 (M1 compatibility shims) ─────────
+case "$sub" in
+  set-bypass)     note "set-bypass was removed in v0.12 and did nothing: hooks are advisory; the one remaining refusal (set-plan on a sensitive or ≥5-task full-route plan) is cleared by a plan-reviewer APPROVE or by claudehut-state set-route light."; exit 0 ;;
+  mark-skill)     note "mark-skill was removed in v0.12 and did nothing: there is no skill rail."; exit 0 ;;
+  pause|rename|route) note "$sub was removed in v0.12 and did nothing."; exit 0 ;;
+  # set-complexity (deprecated) and set-profile (live) are real verbs below; see "Legacy verbs" in the header.
+esac
+is_verb "$sub" || err "unknown verb: $sub"
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-STATE_DIR="$PROJECT_DIR/.claude/claudehut/state"
-FILE="$STATE_DIR/$SESSION.json"
-mkdir -p "$STATE_DIR"
+PLANE="$PROJECT_DIR/.claude/claudehut"
+STATE_DIR="$PLANE/state"
+TASKS_DIR="$PLANE/tasks"
 
-# ── ADVISORY LOCK. Everything from the read below to the atomic write at the end of this file is ONE
-#    read-modify-write. The `mv -f` protects READERS from a torn file; it does not serialize WRITERS, and this
-#    tool is invoked concurrently from hooks (record-skill.sh, record-skill-expansion.sh, gate-*.sh) as well as
-#    from skills. Measured before this lock: two orthogonal updates raced 15 times lost the first write 15/15 —
-#    the field silently reverted to its default. Same failure the learnings store already fixed (commit
-#    963cee8); the fix was never generalized to the file every gate reads, because the prior art is invisible
-#    to grep (a stray NUL byte makes scripts/merge-learnings.sh binary — see item 12).
-#    Portable: flock when available (a real blocking wait), else an atomic mkdir-lock with a stale-lock breaker
-#    so a crashed writer cannot wedge the workflow. Bounded by WALL CLOCK, then proceeds — fail-open, never hang.
-LOCK="$FILE.lock"
-_lock_mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+SESSION="${SESSION:-${CLAUDEHUT_SESSION_ID:-}}"
+if [ -z "$SESSION" ]; then
+  # Only schema-2 pointers are sessions: <sid>.injected.json, <sid>.learn-receipt.json … are sidecars of one.
+  recent=""; _n=0
+  while IFS= read -r _f; do
+    _b="${_f##*/}"; _b="${_b%.json}"
+    case "$_b" in *.*|'') continue ;; esac
+    jq -e 'type=="object" and .schema==2 and has("active_task")' "$_f" >/dev/null 2>&1 || continue
+    recent="$recent$_b "; _n=$((_n+1)); [ "$_n" -lt 5 ] || break
+  done < <(ls -t "$STATE_DIR"/*.json 2>/dev/null || true)
+  err "no session id: pass --session <sid> or export CLAUDEHUT_SESSION_ID (SessionStart writes it; the context line 'Session id:' carries it too).${recent:+ Recent sessions: $recent}"
+fi
+# No '.': a pointer state/<sid>.json must never share a name with a <sid>.<kind>.json sidecar (real ids are UUIDs).
+case "$SESSION" in *.*|*[!A-Za-z0-9_-]*) err "invalid session id: $SESSION" ;; esac
+FILE="$STATE_DIR/$SESSION.json"
+TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# ── Read side. load() runs once unlocked (status, and the no-task decision, which must create nothing), and
+#    again after acquire_lock, so a writer always patches the task as it is AFTER the previous writer.
+# A task another session resumed (fork / new session) belongs to that session: for this session it is NO task
+# (FOREIGN names it), so a stale pointer can never write into it — only `resume` takes it back.
+load() {
+  ACTIVE=""; TASK=""; TFILE=""; LEGACY=false; FOREIGN=""; FOREIGN_OWNER=""
+  if [ -f "$FILE" ]; then
+    if jq -e 'type=="object" and .schema==2' "$FILE" >/dev/null 2>&1; then
+      ACTIVE="$(jq -r '.active_task // empty' "$FILE" 2>/dev/null || true)"
+    else
+      LEGACY=true   # v0.11 state (or corrupt): not a task
+    fi
+  fi
+  case "$ACTIVE" in .*|*[!A-Za-z0-9._-]*) ACTIVE="" ;; esac
+  if [ -n "$ACTIVE" ]; then
+    TFILE="$TASKS_DIR/$ACTIVE/task.json"
+    TASK="$(jq -c 'if type=="object" and .schema==2 and ((.status // "active")=="active") then . else empty end' "$TFILE" 2>/dev/null || true)"
+    [ -n "$TASK" ] || { ACTIVE=""; TFILE=""; }
+    if [ -n "$TASK" ]; then
+      FOREIGN_OWNER="$(jq -r '.session // empty' <<<"$TASK")"
+      if [ -n "$FOREIGN_OWNER" ] && [ "$FOREIGN_OWNER" != "$SESSION" ]; then
+        FOREIGN="$ACTIVE"; ACTIVE=""; TASK=""; TFILE=""
+      else
+        FOREIGN_OWNER=""
+      fi
+    fi
+  fi
+  return 0
+}
+load
+
+if [ "$sub" = "status" ]; then
+  jq -nc --arg s "$SESSION" --arg a "$ACTIVE" --argjson legacy "$LEGACY" --argjson t "${TASK:-null}" \
+    --arg f "$FOREIGN" --arg o "$FOREIGN_OWNER" '
+    {schema:2, session:$s, active_task:(if $a=="" then null else $a end),
+     task:(if $t==null then null else ($t | {id, route, profile, phase, plan_approved, review, plan_review_round, doc_schema, status, scope,
+                   enforcement_set: (.enforcement_set // []), outstanding, reuse_scan_artifact, brainstorm_path,
+                   spec_path, plan_path, plan_review_evidence, plan_review_user_decision, review_evidence, findings_path}) end)}
+    + (if $legacy then {legacy_state_ignored:true} else {} end)
+    + (if $f=="" then {} else {resumed_elsewhere:{task:$f, session:$o}} end)'
+  exit 0
+fi
+
+# Task verbs need an open task. Without one they are a no-op, not an error: in v0.12 a session without
+# `start` is the direct route, and v0.11 skill text still calls set-* from that route until M2.
+# Exempt: start and resume, the only verbs that open a task. The check runs before anything is created, so a
+# session that never runs start (a triage-only set-complexity/set-profile included) leaves no state/<sid>.json.
+needs_task() {
+  case "$sub" in start|resume) return 1 ;; *) return 0 ;; esac
+}
+no_task_note() {
+  if [ -n "$FOREIGN" ]; then
+    note "task $FOREIGN is owned by session $FOREIGN_OWNER (it was resumed there) — '$sub' recorded nothing for session $SESSION (to continue it here: claudehut-state resume $FOREIGN; a new request: claudehut-state start)."
+  else
+    note "no active task for session $SESSION — '$sub' recorded nothing${1:- (open the task first: claudehut-state start --route light|full --profile <p> --slug <s>)}."
+  fi
+}
+# `end` on a task another session took over still lets go of it: this session's pointer is cleared (below).
+if [ -z "$TASK" ] && needs_task && ! { [ "$sub" = end ] && [ -n "$FOREIGN" ]; }; then
+  no_task_note
+  exit 0
+fi
+
+mkdir -p "$STATE_DIR"
+# ── ADVISORY LOCK (kept from 0128b37). One lock per PLANE, not per session file: `start` numbers tasks from
+#    the tasks/ listing and `resume` can hand one task.json to a second session, so writers of different
+#    sessions must serialize too. flock when available, else an atomic mkdir-lock with a stale-lock breaker,
+#    bounded by wall clock and then proceeding (fail-open, never hang).
+LOCK="$STATE_DIR/.state.lock"
+# GNU stat first (on Linux `stat -f` is --file-system: a multi-line report + exit 1); non-numeric → 0 (never steal).
+_lock_mtime() { local m; m="$(stat -c %Y "$1" 2>/dev/null)" || m="$(stat -f %m "$1" 2>/dev/null)" || m=0
+                case "$m" in ''|*[!0-9]*) m=0 ;; esac; printf '%s' "$m"; }
 _lock_held=""
 release_lock() {
   case "$_lock_held" in
     mkdir) rm -rf "$LOCK" 2>/dev/null ;;
-    flock) { exec 9>&-; } 2>/dev/null; rm -f "$LOCK.flock" 2>/dev/null ;;  # closing the fd releases the flock
+    # Closing the fd releases the flock. The file is NEVER unlinked (R2-3): a waiter that already opened it would
+    # then hold a lock on a dead inode while a newcomer locks a fresh file — two holders at once. It stays, empty,
+    # at state/.state.lock.flock (maintain.sh's sweep skips it: it is neither a pointer nor a sidecar).
+    flock) { exec 9>&-; } 2>/dev/null ;;
   esac
   _lock_held=""
 }
@@ -266,43 +414,22 @@ acquire_lock() {
   done
   _lock_held="mkdir"; trap 'release_lock' EXIT INT TERM
 }
+
 acquire_lock
+load
 
-# Load current state, or the documented default skeleton.
-if [ -f "$FILE" ]; then
-  STATE="$(cat "$FILE")"
-else
-  STATE="$(jq -n --arg s "$SESSION" '{
-    session:$s, task:null, phase:"discover",
-    reuse_scan:false, reuse_scan_artifact:null,
-    enforcement_set:{skills:[],rules:[]},
-    brainstorm_path:null, spec_path:null, plan_path:null,
-    plan_review:null, plan_review_evidence:null, plan_review_plan_hash:null, findings_path:null,
-    review:"pending", outstanding:[], bypass:false, complexity:"full", profile:null,
-    implement_skill_ok:false,
-    updated_by:"claudehut-state", ts:null
-  }')"
-fi
-
-TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-sub="${args[0]}"; shift_args=("${args[@]:1}")
-
-# helper: read a flag value from the remaining args
-flag() { # flag --name -> echoes value or empty
-  local name="$1"; local i
+# ── helpers ──────────────────────────────────────────────────────────────────────────────────────────────
+flag() { # flag --name -> value or empty
+  local name="$1" i
   for ((i=0; i<${#shift_args[@]}; i++)); do
     if [ "${shift_args[$i]}" = "$name" ]; then echo "${shift_args[$((i+1))]:-}"; return; fi
   done
 }
-# Reject non-canonical artifact paths (opt #2): every workflow artifact MUST live under .claude/claudehut/
-# so the gate, @import memory, and cross-session learning can find it. This already rejects the 0011 failure
-# mode (artifacts under .claude/prompt/). The stricter tasks/NNNN-<slug>/ SHAPE is a P1 hardening (it would
-# break the flat-path eval fixtures; deferred with their migration).
-# Resolve "." / ".." before testing, so `.claude/claudehut/../../src/main/java/Evil.md` cannot satisfy the
-# store test while naming a file in the production tree (the write gate's exists_canon does the same).
+# Artifact paths must live under .claude/claudehut/, resolved before the test so
+# `.claude/claudehut/../../src/main/java/Evil.md` cannot pass as a store path.
 canon_path_state() {
   local p="$1" out="" seg rest
-  case "$p" in /*) : ;; *) p="${CLAUDE_PROJECT_DIR:-$PWD}/$p" ;; esac
+  case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
   rest="$p"
   while [ -n "$rest" ]; do
     seg="${rest%%/*}"
@@ -316,281 +443,421 @@ canon_path_state() {
   printf '%s' "${out:-/}"
 }
 canon() { case "$(canon_path_state "$1")" in */.claude/claudehut/*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
-# Template-structure validation (live-measured: with soft instructions alone, freeform specs/plans slip
-# through — smoke run produced a plan with zero T-xxx rows). Structure is only checkable when the file
-# already exists; existence itself stays the write gate's job (exists_canon), so absent files pass here.
+# Structure checks of the artifacts doclint does not cover (reuse-scan, findings). Only checkable when the file exists.
 tmpl() { # $1 path  $2 grep -E pattern  $3 error
-  local p="$1"; case "$p" in /*) : ;; *) p="${CLAUDE_PROJECT_DIR:-$PWD}/$p" ;; esac
+  local p="$1"; case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
   [ -f "$p" ] || return 0
   grep -qE "$2" "$p" || err "$3"
 }
-# Content hash of a file (portable, fail-open: empty string if no hasher). Used for plan-review freshness —
-# a content hash beats an mtime compare (immune to same-second edits and equal-mtime clobbers; WS-2 M1/M2).
-plan_hash() { shasum "$1" 2>/dev/null | awk '{print $1}' || cksum "$1" 2>/dev/null | awk '{print $1"-"$2}' || echo ""; }
-
-# P2-2: inter-phase transition guard — maps phase names to ordinal positions.
-# Defined here (before the dispatch case) so set-phase can call it.
-phase_order() {
-  case "$1" in
-    discover) echo 1 ;; brainstorm) echo 2 ;; spec) echo 3 ;;
-    plan) echo 4 ;; implement) echo 5 ;; review) echo 6 ;; learn) echo 7 ;;
-    *) echo 0 ;;
+abspath() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s' "$PROJECT_DIR/$1" ;; esac; }
+# ── doclint gate (M3; 06 §4, ADR-D1). The schema lives in the templates; this CLI only runs the engine and acts on
+#    its exit code: 0 pass (advisory budget lines are printed), 1 structural violation → refuse, nothing written.
+#    Any other exit (engine missing, template missing, usage error) is not a pass either. There is no legacy branch
+#    (06 §6: no L0): doc_schema:2 is stamped at start as a record of the artifact schema, not as a switch.
+DOCLINT="${CLAUDEHUT_DOCLINT:-$(cd "$(dirname "$0")/.." && pwd)/scripts/doclint.sh}"
+doclint_gate() { # $1 kind (spec|plan|task|brainstorm|plan-review)  $2 artifact path
+  local kind="$1" p out rc route profile sp
+  local -a a
+  p="$(abspath "$2")"
+  [ -f "$p" ] || err "$kind rejected: $2 does not exist — write it from the $kind template first, then re-run $sub."
+  route="$(jq -r '.route // empty' <<<"$TASK")"; profile="$(jq -r '.profile // empty' <<<"$TASK")"
+  # language (×1.4 word budgets for vi) is resolved by the engine itself: topology.json → hub.json → en (07 §4.1).
+  a=(--kind "$kind")
+  [ -z "$route" ] || a+=(--route "$route")
+  [ -z "$profile" ] || a+=(--profile "$profile")
+  # a plan is checked against the RECORDED spec (L10: coverage + spec-rev), not only a sibling spec.md
+  if [ "$kind" = plan ]; then sp="$(jq -r '.spec_path // empty' <<<"$TASK")"; [ -z "$sp" ] || a+=(--spec "$(abspath "$sp")"); fi
+  if [ -f "$DOCLINT" ]; then out="$(bash "$DOCLINT" "${a[@]}" "$p" 2>&1)" && rc=0 || rc=$?
+  else out=""; rc=127; fi
+  [ -z "$out" ] || printf '%s\n' "$out" >&2
+  case "$rc" in
+    0) return 0 ;;
+    1) err "$kind rejected: $2 has structural violation(s) — the 'blocking' lines above. Fix them in place and re-run $sub (budget lines are advisory and never block)." ;;
+    *) err "$kind: doclint could not check $2 (exit $rc$([ "$rc" = 127 ] && echo ", no engine at $DOCLINT")) — the structural gate must run before $sub records it." ;;
   esac
 }
+# set-spec: a note (exit 0, no state flag) when the plan pins an older spec-rev (06 §7 SpecRevN → PlanStale);
+# set-plan refuses the stale pin itself (L10). The plan is the recorded plan_path, else the sibling plan.md.
+hdr_num() { # $1 file  $2 key → the number after "<key>:" on the first "> " header line (key not part of a longer key)
+  sed -n '/^>/{p;q;}' "$1" 2>/dev/null | grep -oE "(^|[^[:alnum:]-])$2:[[:space:]]*[0-9]+" | head -1 | grep -oE '[0-9]+$' || true
+}
+spec_rev_note() { # $1 spec path (as recorded)
+  local sf pl pf pr sr
+  sf="$(abspath "$1")"; pl="$(jq -r '.plan_path // empty' <<<"$TASK")"
+  if [ -n "$pl" ]; then pf="$(abspath "$pl")"; else pf="$(dirname "$sf")/plan.md"; pl="${1%/*}/plan.md"; fi
+  [ -f "$pf" ] || return 0
+  pr="$(hdr_num "$pf" spec-rev)"; sr="$(hdr_num "$sf" rev)"
+  [ -n "$pr" ] && [ -n "$sr" ] && [ "$pr" != "$sr" ] || return 0
+  echo "note: plan $pl pins spec-rev $pr, spec is now rev $sr — re-plan (set-plan will refuse via L10)." >&2
+}
+# set-plan / set-phase --plan: the light route's one artifact is task.md (06 §2, §10); the full route records plan.md.
+plan_kind() { # $1 path → task|plan
+  case "${1##*/}" in
+    task.md) [ "$(jq -r '.route' <<<"$TASK")" = light ] || err "$sub: task.md is the light-route artifact; the full route records plan.md (or: claudehut-state set-route light)."
+             echo task ;;
+    *) echo plan ;;
+  esac
+}
+# Content hash (portable; empty when no hasher) — plan-review freshness by bytes, not mtime.
+plan_hash() { shasum "$1" 2>/dev/null | awk '{print $1}' || cksum "$1" 2>/dev/null | awk '{print $1"-"$2}' || echo ""; }
+tset() { TASK="$(jq -c "$@" <<<"$TASK")"; }   # mutate the loaded task: tset --arg v x '.field=$v'
+write_atomic() { # $1 file  $2 json
+  local tmp; tmp="$(mktemp "$(dirname "$1")/.state.XXXXXX")"
+  printf '%s\n' "$2" >"$tmp"
+  mv -f "$tmp" "$1"
+}
+set_pointer() { # $1 task id or empty
+  write_atomic "$FILE" "$(jq -nc --arg a "$1" '{schema:2, active_task:(if $a=="" then null else $a end)}')"
+}
+# load() already dropped a task another session resumed (FOREIGN), so TASK is always this session's own here.
+supersede_active() { # $1 = the task taking over
+  [ -n "$TASK" ] || return 0
+  # A task that already finished (review pass / learn / findings) was completed, not replaced: it closes as done.
+  local st=superseded; [ -z "$(finished_kind)" ] || st="done"
+  write_atomic "$TFILE" "$(jq -c --arg by "$1" --arg ts "$TS" --arg st "$st" '.status=$st | .superseded_by=$by | .ended=$ts' <<<"$TASK")"
+  note "task $ACTIVE $([ "$st" = "done" ] && echo 'closed as done (it had finished) and ')superseded by $1"
+}
+# Allocate and claim tasks/NNNN-<slug>/ ($1 = slug): one above the highest task number, claimed with an
+# exclusive mkdir (no -p). The plane lock already serializes writers; the exclusive mkdir keeps the claim
+# unique even when the lock failed open, so two sessions can never share one dir. Never adopts an existing dir.
+claim_id() {
+  local last n id
+  # Any number of digits, compared numerically: past 9999 a 4-digit pattern stopped seeing 10000-*, so every
+  # later start recomputed 10000 and two tasks shared one number (V3-2). %04d pads, it never truncates.
+  last="$(ls -1 "$TASKS_DIR" 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)-.*/\1/p' | sort -n | tail -1 || true)"
+  n=$(( 10#${last:-0} + 1 ))
+  while :; do
+    id="$(printf '%04d-%s' "$n" "$1")"
+    if mkdir "$TASKS_DIR/$id" 2>/dev/null; then printf '%s' "$id"; return 0; fi
+    [ -d "$TASKS_DIR/$id" ] || err "start: cannot create $TASKS_DIR/$id"
+    n=$((n+1))
+  done
+}
+# Changed files of a repo at start, as a JSON array. -z + quotePath=false: real paths (spaces, UTF-8 names),
+# not git's C-quoted spellings; a rename/copy record is followed by its origin path, which is skipped.
+dirty_json() {
+  local rec
+  { git -C "$1" -c core.quotePath=false status --porcelain=v1 -z --untracked-files=all 2>/dev/null || true; } \
+  | while IFS= read -r -d '' rec; do
+      case "${rec:0:2}" in R?|C?|?R|?C) IFS= read -r -d '' _ || true ;; esac
+      case "${rec:3}" in .claude/claudehut/*|'') continue ;; esac
+      printf '%s\0' "${rec:3}"
+    done | jq -Rsc 'split("\u0000") | map(select(length>0))' 2>/dev/null || echo '[]'
+}
+new_task() { # $1 id  $2 route  $3 profile ; repos[] set by the caller. Writes task.json, moves the pointer.
+  local id="$1" r rabs pabs key sha files base='{}' dirty='{}'
+  pabs="$(cd "$PROJECT_DIR" && pwd -P)"
+  # base + pre_dirty per repo, keyed by the repo path relative to the project ('.' = the project itself), so
+  # two repos with the same basename never collapse into one key. Review diffs against base and excludes the
+  # files that were already dirty (343 files in core-ledger 2e70d1d8 no longer count as the task's change).
+  for r in "${repos[@]}"; do
+    case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
+    [ -d "$r" ] || err "start: --repo $r is not a directory"
+    rabs="$(cd "$r" && pwd -P)"
+    case "$rabs" in "$pabs") key="." ;; "$pabs"/*) key="${rabs#"$pabs"/}" ;; *) key="$rabs" ;; esac
+    sha="$(git -C "$rabs" rev-parse --short HEAD 2>/dev/null || true)"
+    files="$(dirty_json "$rabs")"; [ -n "$files" ] || files='[]'
+    base="$(jq -c --arg k "$key" --arg v "$sha" '.[$k]=(if $v=="" then null else $v end)' <<<"$base")"
+    dirty="$(jq -c --arg k "$key" --argjson f "$files" '.[$k]=$f' <<<"$dirty")"
+  done
+  write_atomic "$TASKS_DIR/$id/task.json" "$(jq -nc --arg id "$id" --arg r "$2" --arg p "$3" --arg ts "$TS" --arg s "$SESSION" \
+    --argjson base "$base" --argjson dirty "$dirty" --argjson cross "${CROSS:-false}" '{
+      schema:2, id:$id, route:$r, profile:(if $p=="" then null else $p end), phase:"discover",
+      plan_approved:false, review:"pending", plan_review_round:0, doc_schema:2,
+      base:$base, pre_dirty:$dirty, scope:["src/main/*","*/src/main/*"], enforcement_set:[],
+      status:"active", session:$s, created:$ts } + (if $cross then {cross_service:true} else {} end)')"
+  supersede_active "$id"
+  set_pointer "$id"
+}
+valid_phase() { case "$1" in discover|brainstorm|spec|plan|implement|review|learn) return 0 ;; esac; return 1; }
+# A FINISHED task never takes a new request's records (R2-1, R2-C1, R3-C2, V3-6). "done": an earned review pass or
+# phase learn; "findings": an audit/investigation that recorded findings.md. v0.11 skill text (no end, no start)
+# runs the next request's verbs straight onto the open task, so on a finished task those verbs are a no-op + notice.
+# One rule for both kinds: the profile and route are fixed at `start` (04 §3), so a SHAPE CHANGE after the task
+# finished (set-profile, set-route, set-complexity) is a new request too — `start --profile <new>` opens its task.
+#   done     → only what closes it records: set-phase learn, set-findings, end, and set-review pass whose evidence
+#              is this task's own review (tasks/<id>/…). A new request's set-phase review, set-outstanding or
+#              set-review would otherwise overwrite the old task's review_evidence / outstanding / phase.
+#   findings → the review OF the findings still records (set-phase review|learn, set-outstanding, set-review with
+#              its own evidence, set-findings, end); discovery re-entry, planning and shape changes do not.
+own_evidence() { # 0 when --evidence lies inside this task's dir
+  local ev; ev="$(flag --evidence)"; [ -n "$ev" ] || return 1
+  case "$(canon_path_state "$ev")" in "$(canon_path_state "$TASKS_DIR/$ACTIVE")"/*) return 0 ;; esac
+  return 1
+}
+finished_kind() {
+  if jq -e '.phase=="learn" or .review=="pass"' <<<"$TASK" >/dev/null 2>&1; then echo "done"
+  elif jq -e '(.findings_path // "") != ""' <<<"$TASK" >/dev/null 2>&1; then echo findings; fi
+}
+new_request_verb() { # $1 finished kind → 0 when $sub (with its phase argument) belongs to a new request
+  local ph="${shift_args[0]:-}"
+  case "$sub" in
+    set-reuse-scan|set-brainstorm|set-spec|set-plan|set-plan-review|set-enforcement|set-complexity|set-profile|set-route) return 0 ;;
+    set-phase) case "$ph" in learn) return 1 ;; review) [ "$1" = done ] && return 0; return 1 ;; esac; return 0 ;;
+    set-outstanding) [ "$1" = done ] && return 0 ;;
+    set-review) [ "$ph" = pass ] && own_evidence && return 1; [ "$1" = done ] && return 0; [ "$ph" = pass ] && return 0 ;;
+  esac
+  return 1
+}
+
+# Re-checked under the lock: the task may have closed, or been resumed by another session, while we waited.
+if [ -z "$TASK" ] && needs_task; then
+  if [ "$sub" = end ] && [ -n "$FOREIGN" ]; then
+    set_pointer ""
+    note "end: task $FOREIGN is owned by session $FOREIGN_OWNER; only this session's pointer was cleared"
+    exit 0
+  fi
+  no_task_note " (the task closed or moved to another session while waiting for the lock)"
+  exit 0
+fi
+
+if [ -n "$TASK" ]; then
+  fk="$(finished_kind)"
+  if [ -n "$fk" ] && new_request_verb "$fk"; then
+    note "task $ACTIVE is already finished (phase $(jq -r .phase <<<"$TASK"), review $(jq -r .review <<<"$TASK")$([ "$fk" = findings ] && echo ', findings recorded')) — '$sub${shift_args[0]:+ ${shift_args[0]}}' recorded nothing. A new request, or a change of profile/route, gets its own task: claudehut-state start --route light|full --profile <p> --slug <s> (it closes this one as done)."
+    exit 0
+  fi
+fi
 
 case "$sub" in
+  start)
+    route="$(flag --route)"; slug="$(flag --slug)"; profile="$(flag --profile)"
+    case "$route" in light|full) ;; *) err "start needs --route light|full (the direct route opens no task)" ;; esac
+    [ -n "$slug" ] || err "start needs --slug <short-name> (it names tasks/NNNN-<slug>/)"
+    slug="$(printf '%s' "$slug" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-48)"
+    [ -n "$slug" ] || err "start: --slug has no usable characters (a-z, 0-9, -)"
+    case "$profile" in ''|feature|bugfix|audit|migration|investigation) ;; *) err "start: --profile must be feature|bugfix|audit|migration|investigation (got: $profile)" ;; esac
+    repos=()
+    for ((i=0; i<${#shift_args[@]}; i++)); do
+      [ "${shift_args[$i]}" = "--repo" ] && repos+=("${shift_args[$((i+1))]:-}")
+    done
+    [ "${#repos[@]}" -gt 0 ] || repos=("$PROJECT_DIR")
+    for r in "${repos[@]}"; do   # validate before claiming, so a bad --repo leaves no empty task dir behind
+      case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
+      [ -d "$r" ] || err "start: --repo $r is not a directory"
+    done
+    # Plane placement (README decision #3, 10 §6 q3): the workspace/hub plane holds only tasks that span services;
+    # a one-service task belongs to that service's plane. task.json stays in this session's plane either way (the
+    # hooks and review-pack read it there) — the rule is stated, never enforced. Services = distinct git toplevels.
+    tops=""; n_top=0
+    for r in "${repos[@]}"; do
+      case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
+      t="$(git -C "$r" rev-parse --show-toplevel 2>/dev/null || (cd "$r" && pwd -P))"
+      t="$(cd "$t" 2>/dev/null && pwd -P || printf '%s' "$t")"
+      case "$tops" in *"|$t|"*) : ;; *) tops="$tops|$t|"; n_top=$((n_top+1)) ;; esac
+    done
+    cross=false; [ "$n_top" -ge 2 ] && cross=true
+    ws_plane=false
+    { [ -d "$PLANE/hub" ] || ! git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; } && ws_plane=true
+    if $ws_plane && ! $cross; then
+      note "placement: this is the workspace/hub plane, which holds only cross-service tasks — a task in one service belongs to that service's session (open Claude Code in the service repo and start it there); for a cross-service task pass one --repo per service"
+    elif ! $ws_plane && $cross; then
+      note "placement: cross-service task ($n_top repos) recorded in this service's plane with a base per repo; a session at the workspace/hub is where cross-service tasks normally live"
+    fi
+    mkdir -p "$TASKS_DIR"
+    id="$(claim_id "$slug")"
+    CROSS="$cross" new_task "$id" "$route" "$profile"
+    note "start -> $TASKS_DIR/$id/task.json ($route${profile:+, $profile}); write every artifact of this task into that dir"
+    echo "$id"
+    echo ".claude/claudehut/tasks/$id/"
+    exit 0
+    ;;
+  resume)
+    id="${shift_args[0]:-}"
+    case "$id" in ''|.*|*[!A-Za-z0-9._-]*) err "resume needs a task id (tasks/<id>/)" ;; esac
+    rf="$TASKS_DIR/$id/task.json"
+    rt="$(jq -c 'if type=="object" and .schema==2 then . else empty end' "$rf" 2>/dev/null || true)"
+    [ -n "$rt" ] || err "resume: $rf is missing or not a schema-2 task (v0.11 tasks cannot be resumed; start a new one and link the old artifacts)"
+    st="$(jq -r '.status // "active"' <<<"$rt")"
+    case "$st" in done|abandoned) err "resume: task $id is $st; start a new task instead" ;; esac
+    if [ -n "$TASK" ] && [ "$ACTIVE" != "$id" ]; then supersede_active "$id"; fi
+    write_atomic "$rf" "$(jq -c --arg s "$SESSION" '.status="active" | .session=$s | del(.superseded_by, .ended)' <<<"$rt")"
+    set_pointer "$id"
+    # The previous owner lets go: its pointer stops naming this task, so its hooks stop reading it as theirs.
+    po="$(jq -r '.session // empty' <<<"$rt")"
+    case "$po" in ''|"$SESSION"|*.*|*[!A-Za-z0-9_-]*) : ;; *)
+      pf="$STATE_DIR/$po.json"
+      if [ "$(jq -r 'if type=="object" and .schema==2 then (.active_task // empty) else empty end' "$pf" 2>/dev/null || true)" = "$id" ]; then
+        write_atomic "$pf" '{"schema":2,"active_task":null}'
+      fi ;;
+    esac
+    note "resume -> $rf"
+    exit 0
+    ;;
+  end)
+    es="$(flag --status)"
+    case "$es" in done|abandoned) ;; *) err "end needs --status done|abandoned" ;; esac
+    tset --arg v "$es" --arg ts "$TS" '.status=$v | .ended=$ts'
+    write_atomic "$TFILE" "$TASK"
+    set_pointer ""
+    note "end -> $TFILE ($es)"
+    exit 0
+    ;;
+  set-route)
+    r="${shift_args[0]:-}"
+    case "$r" in light|full) ;; *) err "set-route needs light|full" ;; esac
+    tset --arg v "$r" '.route=$v'
+    ;;
   set-phase)
     phase="${shift_args[0]:-}"
-    case "$phase" in discover|brainstorm|spec|plan|implement|review|learn) ;; *) err "invalid phase: $phase" ;; esac
-
-    # P2-2 FIX: block backward phase transitions unless bypass=true or restarting via discover.
-    # discover is always valid as an explicit new-task entry point (no minimum ordinal).
-    # bypass=true in state is the intentional escape hatch for recovery and non-standard flows.
-    if [ "$phase" != "discover" ]; then
-      current_phase="$(jq -r '.phase // "discover"' <<<"$STATE")"
-      bypass_flag="$(jq -r '.bypass // false' <<<"$STATE")"
-      if [ "$bypass_flag" != "true" ]; then
-        cur_ord="$(phase_order "$current_phase")"
-        new_ord="$(phase_order "$phase")"
-        if [ "$new_ord" -lt "$cur_ord" ]; then
-          err "backward phase transition rejected: cannot go from '$current_phase' (ord $cur_ord) to '$phase' (ord $new_ord). Use 'set-phase discover' to start a new task. (A human can override with set-bypass true --reason '<why>'; do not do this on your own initiative.)"
-        fi
-      fi
-    fi
-
-    # WS-7 (Issue 6): classifying the task SHAPE is mandatory before implementing — the profile drives the
-    # deliverable rail (audit→findings, not code) + which auditors are mandatory. The model proposes the
-    # profile in Phase 0; this gate makes it non-optional before code. bypass=true is the escape hatch.
-    if [ "$phase" = "implement" ] && [ "$(jq -r '.bypass // false' <<<"$STATE")" != "true" ]; then
-      prof="$(jq -r '.profile // empty' <<<"$STATE")"
-      { [ -n "$prof" ] && [ "$prof" != null ]; } || err "set-phase implement: classify the task SHAPE first — claudehut-state set-profile <feature|bugfix|audit|migration|investigation>. The profile decides the deliverable + the mandatory auditors (agentic routing). (Recovery/headless: set-bypass true.)"
-    fi
-
-    STATE="$(jq --arg p "$phase" '.phase=$p' <<<"$STATE")"
-    # Issue-1 skill rail: entering discover/brainstorm is the per-TASK boundary — reset the
-    # implement-skill proof so EVERY task requires its own Skill(claudehut:implement) invocation.
-    # (Measured pre-fix: one session invoked the skill for task 1 only, then wrote 9 more tasks without it.)
-    # WS-2/WS-7 (M1): also reset the per-task plan-review + findings deliverable proofs so a PRIOR task's
-    # APPROVE / findings.md cannot satisfy a new task's gate.
-    case "$phase" in discover|brainstorm) STATE="$(jq '.implement_skill_ok=false | .plan_review=null | .plan_review_evidence=null | .plan_review_plan_hash=null | .findings_path=null' <<<"$STATE")" ;; esac
-    t="$(flag --task)";  [ -n "$t" ] && STATE="$(jq --arg v "$t" '.task=$v' <<<"$STATE")" || true
-    sp="$(flag --spec)"; [ -n "$sp" ] && { canon "$sp"; tmpl "$sp" '^## ' "spec rejected: no '## ' template sections in $sp — use claudehut:write-spec (spec-template.md)."; STATE="$(jq --arg v "$sp" '.spec_path=$v' <<<"$STATE")"; } || true
-    pl="$(flag --plan)"; [ -n "$pl" ] && { canon "$pl"; tmpl "$pl" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows in $pl — use claudehut:write-plan (plan-template.md)."; STATE="$(jq --arg v "$pl" '.plan_path=$v' <<<"$STATE")"; } || true
+    valid_phase "$phase" || err "invalid phase: $phase"
+    # A phase is a record on the open task; it never opens, adopts or switches a task. v0.11's `--task <id>`
+    # is not honoured: attaching another task is `resume <id>`.
+    t="$(flag --task)"; [ -z "$t" ] || [ "$t" = "$ACTIVE" ] || note "set-phase: --task $t ignored; the phase is recorded on the open task $ACTIVE (to switch tasks: claudehut-state resume $t)"
+    # No backward-transition guard (v0.11 P2-2): v0.12 has no hard phase gate (ADR-R2); a phase is a record.
+    tset --arg p "$phase" '.phase=$p'
+    # The same doclint gate as set-spec / set-plan: set-phase is not a way around it (06 §4).
+    sp="$(flag --spec)"; if [ -n "$sp" ]; then canon "$sp"; doclint_gate spec "$sp"; tset --arg v "$sp" '.spec_path=$v'; fi
+    pl="$(flag --plan)"; if [ -n "$pl" ]; then canon "$pl"; pk="$(plan_kind "$pl")"; doclint_gate "$pk" "$pl"; tset --arg v "$pl" '.plan_path=$v'; fi
     ;;
   set-reuse-scan)
     a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/tasks/NNNN-slug/>"
     canon "$a"
-    # WS-4: content gate — the scan must use the v0.7 table with the Fit + Impact columns (the legacy
-    # 4-col format slips a single-pass scan that never reasoned about fit). The header carries them in order.
     tmpl "$a" '^\|.*[Ff]it.*[Ii]mpact' "reuse-scan rejected: missing the Fit/Impact columns in $a (legacy format?). Use skills/discover/references/reuse-scan-template.md — | Dimension | Existing asset | Decision | Fit | Impact | Effort | — and re-run set-reuse-scan."
     tmpl "$a" 'adopt|extend|reuse|framework|drop|[Nn]ew' "reuse-scan rejected: no reuse DECISION token in $a (adopt/extend/reuse/framework/drop/new). State the decision per the template and re-run."
-    STATE="$(jq '.reuse_scan=true' <<<"$STATE")"
-    STATE="$(jq --arg v "$a" '.reuse_scan_artifact=$v' <<<"$STATE")"
+    tset --arg v "$a" '.reuse_scan=true | .reuse_scan_artifact=$v'
     ;;
   set-brainstorm)
-    # WS-3: the persisted deliberation (brainstorm.md) gains a content gate. Written by the MAIN THREAD
-    # from skills/brainstorm/references/brainstorm-template.md (the brainstormer returns data; law #7).
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-brainstorm needs <path>"
     canon "$p"
-    pp="$p"; case "$pp" in /*) : ;; *) pp="$PROJECT_DIR/$pp" ;; esac
-    if [ -f "$pp" ]; then
-      # ≥2 scored options: count table rows (exclude the markdown separator row). header + ≥2 options = ≥3.
-      nopt="$(grep -E '^[[:space:]]*\|' "$pp" 2>/dev/null | grep -vE '^[[:space:]]*\|[ :|-]+\|?[[:space:]]*$' | grep -cE '\|.*\|.*\|' || true)"
-      [ "${nopt:-0}" -ge 3 ] || err "brainstorm rejected: fewer than 2 scored options in the table in $p (need a header row + ≥2 distinct approaches incl. option 0 = adopt/extend). brainstorm-template.md."
-    fi
-    tmpl "$p" '^#+.*[Pp]remortem' "brainstorm rejected: no Premortem section in $p — premortem BOTH finalists under a '## Premortem' heading (the runner-up's premortem often exposes the winner's fatal flaw). brainstorm-template.md."
-    tmpl "$p" '^#+.*[Rr]ecommend' "brainstorm rejected: no Recommendation section in $p — a '## Recommendation' heading naming the chosen option tied to the FRAME criteria. brainstorm-template.md."
-    STATE="$(jq --arg v "$p" '.brainstorm_path=$v' <<<"$STATE")"
+    doclint_gate brainstorm "$p"
+    tset --arg v "$p" '.brainstorm_path=$v'
+    ;;
+  set-complexity)
+    c="${shift_args[0]:-}"
+    case "$c" in trivial|small) nr=light ;; full) nr=full ;; *) note "set-complexity: expected trivial|small|full, recorded nothing"; exit 0 ;; esac
+    note "set-complexity is deprecated (v0.12 route): $c → set-route $nr on the open task $ACTIVE"
+    tset --arg v "$nr" '.route=$v'
+    ;;
+  set-profile)
+    pf="${shift_args[0]:-}"
+    case "$pf" in feature|bugfix|audit|migration|investigation) ;; *) err "set-profile needs feature|bugfix|audit|migration|investigation (got: $pf)" ;; esac
+    tset --arg v "$pf" '.profile=$v'
     ;;
   set-enforcement)
     skills="$(flag --skills)"; rules="$(flag --rules)"
-    STATE="$(jq --arg sk "$skills" --arg ru "$rules" '
-      .enforcement_set.skills = (($sk|split(","))|map(select(length>0)))
-      | .enforcement_set.rules = (($ru|split(","))|map(select(length>0)))' <<<"$STATE")"
+    tset --arg sk "$skills" --arg ru "$rules" '.enforcement_set = ((($sk|split(",")) + ($ru|split(","))) | map(select(length>0)))'
     ;;
   set-spec)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-spec needs <path>"
     canon "$p"
-    tmpl "$p" '^## ' "spec rejected: no '## ' template sections found in $p. Write it with claudehut:write-spec from skills/write-spec/references/spec-template.md (Problem & Context, Decision Record, Acceptance Criteria, …) and re-run set-spec."
-    tmpl "$p" 'Decision' "spec rejected: no Decision Record found in $p. Every spec carries the MADR-lite decision (template §9) — chosen option + why. Add it and re-run set-spec."
-    # WS-4: acceptance criteria are the machine-checkable contract Review audits — required for every type.
-    tmpl "$p" 'AC-[0-9]' "spec rejected: no acceptance criteria (AC-001 …) in $p. Every spec carries Given/When/Then acceptance criteria with observable outcomes (template §5). Add them and re-run set-spec."
-    # (P1: couple set-spec to a recorded brainstorm on full tier so the `> brainstorm:` link can't dangle.
-    #  Deferred — it cascades into the gate-test fixtures; the set-brainstorm content gate stands alone for now.)
-    STATE="$(jq --arg v "$p" '.spec_path=$v' <<<"$STATE")"
+    doclint_gate spec "$p"
+    tset --arg v "$p" '.spec_path=$v'
+    spec_rev_note "$p"
     ;;
   set-plan)
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-plan needs <path>"
     canon "$p"
-    tmpl "$p" '^\| *T-[0-9]' "plan rejected: no T-xxx task rows found in $p. The plan's breakdown table (id, files, test-first, verify, depends-on) is the executable contract; write it with claudehut:write-plan from skills/write-plan/references/plan-template.md and re-run set-plan."
-    pp="$p"; case "$pp" in /*) : ;; *) pp="$PROJECT_DIR/$pp" ;; esac
-    tier="$(jq -r '.complexity // "full"' <<<"$STATE")"
-    if [ "$tier" = "full" ]; then
-      # WS-4: a full-tier plan must trace the change (Implementation Flow) and carry per-task Sketches —
-      # the "HOW" the 0011 plan omitted while still passing. (Structural check; the conformance auditor
-      # judges sketch realism — necessary, not sufficient.)
-      tmpl "$p" '^#+.*[Ii]mplementation [Ff]low' "plan rejected: no 'Implementation Flow' section in $p (full tier). Trace the change end-to-end before the task table (plan-template §3). Add it and re-run set-plan."
-      tmpl "$p" '[Ss]ketch' "plan rejected: no per-task Sketch in $p (full tier). Each behavior task carries a Sketch (key signature / control flow / data shape) so the implementer doesn't re-decide design — the no-placeholder rule (plan-template). Add sketches and re-run."
-      # WS-2 smart-gate: a full-tier plan that is SUBSTANTIAL (≥5 tasks) OR touches a sensitive surface
-      # requires a fresh plan-reviewer APPROVE before the write gate opens. Simpler full-tier plans pass on
-      # the structural gates above (no auditor round-trip → no latency tax). The model proposes; the gate
-      # bounds. bypass=true is the documented escape hatch (headless / recovery) — honored here like set-phase.
-      bypass_flag="$(jq -r '.bypass // false' <<<"$STATE")"
-      if [ -f "$pp" ] && [ "$bypass_flag" != "true" ]; then
-        nrows="$(grep -cE '^\| *T-[0-9]' "$pp" 2>/dev/null || true)"; nrows="${nrows:-0}"
-        sensitive=no; grep -qiE 'security|/auth|migration|flyway|liquibase|password|secret|owasp|permitall|deserial' "$pp" 2>/dev/null && sensitive=yes
-        if [ "$nrows" -ge 5 ] || [ "$sensitive" = yes ]; then
-          pr="$(jq -r '.plan_review // empty' <<<"$STATE")"
-          [ "$pr" = "APPROVE" ] || err "set-plan: full-tier plan ($nrows tasks$([ "$sensitive" = yes ] && echo ', sensitive surface')) requires a plan-reviewer APPROVE first. Dispatch claudehut:claudehut-plan-reviewer (it judges coverage / no-placeholder / sketch / reuse vs the spec and WRITES its verdict to tasks/NNNN-<slug>/plan-review.md), then: claudehut-state set-plan-review APPROVE --evidence <that path>. (Headless with no Agent budget: claudehut-state set-bypass true — this unblocks set-plan AND the write gate.)"
-          # Freshness by CONTENT HASH (not mtime): the plan recorded now must be byte-identical to the plan
-          # that was reviewed. Catches a different plan (M1) AND a same-second post-review edit (M2). The hash
-          # was captured at set-plan-review time. Fail-open only if no hasher was available at record time.
-          sh="$(jq -r '.plan_review_plan_hash // empty' <<<"$STATE")"
-          if [ -n "$sh" ] && [ "$sh" != null ]; then
-            ch="$(plan_hash "$pp")"
-            [ -z "$ch" ] || [ "$ch" = "$sh" ] || err "set-plan: $p differs from the plan that was reviewed (content hash mismatch) — it changed after the plan-reviewer's APPROVE. Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE before set-plan."
-          fi
+    pk="$(plan_kind "$p")"   # an assignment, so err inside the substitution stops the script (set -e)
+    doclint_gate "$pk" "$p"
+    pp="$(abspath "$p")"
+    if [ "$(jq -r '.route' <<<"$TASK")" = "full" ]; then
+      # Smart gate (06 §8, AC12): a substantial (≥5 T-rows), sensitive (a T-row's Files cell — the 3rd column — names
+      # a sensitive path) or migration-profile full-route plan needs a fresh plan-review APPROVE of these exact bytes.
+      # Prose is not scanned: "migration" in a section of text does not trigger it. The way out is set-route light.
+      nrows="$(grep -cE '^\| *T-[0-9]' "$pp" 2>/dev/null || true)"; nrows="${nrows:-0}"
+      sensitive=no
+      awk -F'|' '$2 ~ /^[[:space:]]*T-[0-9]/ {print $4}' "$pp" 2>/dev/null \
+        | grep -qiE 'security|/auth|auth/|migration|flyway|liquibase|changelog|password|secret|credential|owasp|permitall|deserial' && sensitive=yes
+      mig=no; [ "$(jq -r '.profile // empty' <<<"$TASK")" = migration ] && mig=yes
+      if [ "$nrows" -ge 5 ] || [ "$sensitive" = yes ] || [ "$mig" = yes ]; then
+        pr="$(jq -r '.plan_review // empty' <<<"$TASK")"
+        [ "$pr" = "APPROVE" ] || err "set-plan: this full-route plan ($nrows tasks$([ "$sensitive" = yes ] && echo ', sensitive path in Files')$([ "$mig" = yes ] && echo ', profile migration')) needs a plan-reviewer APPROVE first: dispatch claudehut:claudehut-plan-reviewer (it writes tasks/NNNN-<slug>/plan-review.md), then claudehut-state set-plan-review APPROVE --evidence <that path>. If this task does not need the full route: claudehut-state set-route light."
+        sh="$(jq -r '.plan_review_plan_hash // empty' <<<"$TASK")"
+        if [ -n "$sh" ]; then
+          ch="$(plan_hash "$pp")"
+          [ -z "$ch" ] || [ "$ch" = "$sh" ] || err "set-plan: $p differs from the plan that was reviewed (content hash mismatch). Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE before set-plan."
         fi
       fi
     fi
-    STATE="$(jq --arg v "$p" '.plan_path=$v' <<<"$STATE")"
+    tset --arg v "$p" '.plan_path=$v | .plan_approved=true'
     ;;
   set-plan-review)
-    # WS-2: the plan-reviewer verdict gate. The MAIN THREAD writes plan-review.md from the reviewer's
-    # returned coverage table + verdict (law #7), then records it here. APPROVE is what set-plan checks.
     v="${shift_args[0]:-}"
     case "$v" in APPROVE|REVISE) ;; *) err "set-plan-review needs APPROVE|REVISE" ;; esac
-    if [ "$v" = "APPROVE" ]; then
-      ev="$(flag --evidence)"
-      [ -n "$ev" ] || err "set-plan-review APPROVE requires --evidence <tasks/NNNN-slug/plan-review.md> (the reviewer's coverage table + verdict)."
-      canon "$ev"
-      evp="$ev"; case "$evp" in /*) : ;; *) evp="$PROJECT_DIR/$evp" ;; esac
-      [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — write the reviewer's verdict to plan-review.md (coverage table + APPROVE) before recording."
-      grep -qiE '^[[:space:]]*\|.*(✓|✗|covered|uncovered|placeholder|satisfied)' "$evp" \
-        || err "set-plan-review: $ev has no coverage table — expected the plan-reviewer's rows like '| AC-001 covered | ✓ | T-002 |'. Capture its output contract, not a one-line verdict."
-      STATE="$(jq --arg e "$ev" '.plan_review_evidence=$e' <<<"$STATE")"
-      # Capture the reviewed plan's content hash (sibling plan.md) so set-plan can verify the recorded plan
-      # is byte-identical to what was reviewed (WS-2 freshness — M1/M2). Empty if no plan.md / no hasher.
-      planf="$(dirname "$evp")/plan.md"
-      if [ -f "$planf" ]; then STATE="$(jq --arg h "$(plan_hash "$planf")" '.plan_review_plan_hash=$h' <<<"$STATE")"; fi
+    ud="$(flag --user-decision)"
+    rnd="$(jq -r '.plan_review_round // 0 | tostring' <<<"$TASK")"; case "$rnd" in ''|*[!0-9]*) rnd=0 ;; esac
+    last="$(jq -r '.plan_review // empty' <<<"$TASK")"
+    capped=no; [ "$rnd" -ge 2 ] && [ "$last" = REVISE ] && capped=yes
+    # Cap 2 (06 §8, ADR-D5): checked first, so a capped task records nothing until the user has decided.
+    [ "$capped" = no ] || [ -n "$ud" ] || err "set-plan-review: capped — plan review has run $rnd rounds and the last verdict was REVISE (cap 2). Ask the user how to proceed (AskUserQuestion), then record their answer: claudehut-state set-plan-review APPROVE|REVISE --user-decision \"<the user's decision>\"."
+    [ -z "$ud" ] || [ "$capped" = yes ] || { note "set-plan-review: --user-decision ignored — the review is not capped (round $rnd)"; ud=""; }
+    # The reviewer's file is the evidence for BOTH verdicts; its one Verdict: line must match the argument (L11).
+    ev="$(flag --evidence)"; [ -n "$ev" ] || ev=".claude/claudehut/tasks/$ACTIVE/plan-review.md"
+    canon "$ev"
+    evp="$(abspath "$ev")"
+    [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — the plan-reviewer writes its verdict to plan-review.md before this is recorded."
+    doclint_gate plan-review "$ev"
+    # Same line shape as the engine's L11 (a bold **Verdict:** included).
+    fv="$(grep -m1 -E '^[[:space:]]*[*]*[[:space:]]*Verdict[[:space:]]*[*]*[[:space:]]*:' "$evp" \
+          | sed -E 's/^[[:space:]]*[*]*[[:space:]]*Verdict[[:space:]]*[*]*[[:space:]]*:[[:space:]]*//' | tr -d '*`' | awk '{print toupper($1)}' || true)"
+    if [ "$fv" != "$v" ]; then
+      [ -n "$ud" ] || err "set-plan-review: $ev says 'Verdict: ${fv:-<none>}' but $v was given — record the reviewer's verdict as written (only the plan-reviewer writes plan-review.md)."
+      note "set-plan-review: recording $v over the file's Verdict ${fv:-<none>} on the user's decision"
     fi
-    STATE="$(jq --arg v "$v" '.plan_review=$v' <<<"$STATE")"
+    tset --arg e "$ev" '.plan_review_evidence=$e'
+    if [ "$v" = "APPROVE" ]; then
+      planf="$(dirname "$evp")/plan.md"
+      if [ -f "$planf" ]; then tset --arg h "$(plan_hash "$planf")" '.plan_review_plan_hash=$h'; fi
+    fi
+    if [ -n "$ud" ]; then
+      # The user's decision takes the place of a review round: the text is kept, the count starts over.
+      tset --arg v "$v" --arg d "$ud" --arg ts "$TS" '.plan_review=$v | .plan_review_user_decision=$d | .plan_review_user_decision_at=$ts | .plan_review_round=0'
+    else
+      tset --arg v "$v" '.plan_review=$v | .plan_review_round=((.plan_review_round // 0) + 1)'
+      [ "$v" = APPROVE ] || [ "$((rnd+1))" -lt 2 ] || note "set-plan-review: round $((rnd+1)) of 2 ended REVISE — the cap is reached. Ask the user how to proceed (AskUserQuestion); the next set-plan-review needs --user-decision \"<their decision>\"."
+    fi
     ;;
   set-review)
     r="${shift_args[0]:-}"
     case "$r" in pass|pending|capped) ;; *) err "set-review needs pass|pending|capped" ;; esac
-    # Earned pass (review-rigor v0.5): `pass` requires an --evidence review.md that actually carries a
-    # coverage table + test evidence. Mirrors the tmpl() guard on spec/plan — a flag the model can flip
-    # for free is not enforcement. pending/capped need no evidence.
+    # Earned pass: `pass` requires a review.md that carries a coverage table, test evidence and a locus per ✓.
     if [ "$r" = "pass" ]; then
       ev="$(flag --evidence)"
       [ -n "$ev" ] || err "set-review pass requires --evidence <tasks/NNNN-slug/review.md> (the review artifact with the coverage table + test summary)."
       canon "$ev"
-      evp="$ev"; case "$evp" in /*) : ;; *) evp="$PROJECT_DIR/$evp" ;; esac
+      evp="$(abspath "$ev")"
       [ -f "$evp" ] || err "set-review pass: evidence file not found at $ev — write review.md (merged coverage table + test evidence) before passing."
-      # Coverage table = a MARKDOWN TABLE ROW (line starts with `|`) carrying a status token — not the
-      # word "satisfied" loose in prose (that one-sentence-review bypass was a review finding).
       grep -qiE '^[[:space:]]*\|.*(✓|✗|satisfied|violated|n-?/?a)' "$evp" \
-        || err "set-review pass: $ev has no coverage table — expected markdown rows like '| <item> | ✓ satisfied | file:line |'. Each enforcement-set item + defect class needs a row with evidence (claudehut:review)."
-      # Test evidence = a build command OR a counted result ("12 passed", "Tests run: 12") — not the bare
-      # word "passing" in prose.
+        || err "set-review pass: $ev has no coverage table — expected markdown rows like '| <item> | ✓ satisfied | file:line |'."
       grep -qiE '(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|build success|[0-9]+ +(passed|passing|tests?))' "$evp" \
-        || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed'). Review requires green evidence, not an assertion."
-      # WS-8a: every SATISFIED coverage row must cite a real locus — a source FILENAME (optionally :line),
-      # a Test class, or Class#method. A bare "✓ satisfied" is the gameable rubber-stamp the auditor found.
-      # NOTE necessary-not-sufficient: a fabricated filename still passes (no FS check) — the P1 conformance
-      # auditor (WS-8b) is the realism backstop. We do NOT accept a bare ':N' (it forges as 'section 4:9').
-      # Rows marked ✗/n-a are exempt. (grep WITHOUT -n: line-number prefixes would themselves forge loci.)
+        || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed')."
       if grep -iE '^[[:space:]]*\|.*(✓|satisfied)' "$evp" \
            | grep -qvE '\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|sql|md|yaml|yml|xml|gradle|sh|properties)\b|[A-Za-z0-9_]+Test\b|[A-Za-z0-9_]+#[A-Za-z0-9_]+'; then
-        err "set-review pass: a '✓ satisfied' coverage row in $ev has no evidence locus. Cite WHERE each item is satisfied (a source filename like Foo.java:42, a Test class, or Class#method) — an uncited ✓ is not review."
+        err "set-review pass: a '✓ satisfied' coverage row in $ev has no evidence locus. Cite WHERE each item is satisfied (Foo.java:42, a Test class, or Class#method)."
       fi
-      # v0.7 reuse-suspect loop gate (R5 AC4 — advisory→gate): the lint-reuse PostToolUse hook stages
-      # duplication / reinvented-stdlib suspects this session. set-review pass REFUSES unless review.md
-      # ADDRESSED each — the suspect's file must appear in review.md (a Standards-axis coverage row
-      # confirming ✗ or clearing n-a). Closes the loop that was prose-only (the reviewer could ignore the
-      # staged suspects with no consequence). Fails open if jq is missing.
-      SUS="$STATE_DIR/$SESSION.suspects.jsonl"
-      if [ -f "$SUS" ] && [ -s "$SUS" ] && command -v jq >/dev/null 2>&1; then
+      # reuse-suspect loop gate: every suspect lint-reuse staged for THIS task needs a resolution token.
+      SUS="$STATE_DIR/$ACTIVE.suspects.jsonl"
+      if [ -f "$SUS" ] && [ -s "$SUS" ]; then
         miss=""
         while IFS= read -r sfile; do
           [ -n "$sfile" ] || continue
-          # WS-5: the suspect must not merely APPEAR (grep -qF was satisfiable by naming the file) — its
-          # row must carry a RESOLUTION token: it was fixed, or cleared as a false-positive WITH a reason.
           if grep -F "$sfile" "$evp" 2>/dev/null | grep -qiE 'resolved|extracted|adopted|reused|de-?dup|false[ -]?positive|n-?/?a *[:-] *[^ ]'; then
-            : # addressed
+            :
           else
             miss="$miss $sfile"
           fi
         done < <(jq -r '.file // empty' "$SUS" 2>/dev/null | sort -u)
-        [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) [$miss ] not RESOLVED in $ev — each suspect's coverage row must carry a resolution token (resolved | extracted-util | adopted-commons | reused | false-positive:<reason>), not just mention the file."
+        [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) [$miss ] not RESOLVED in $ev — each suspect's coverage row must carry a resolution token (resolved | extracted-util | adopted-commons | reused | false-positive:<reason>)."
       fi
-      STATE="$(jq --arg v "$ev" '.review_evidence=$v' <<<"$STATE")"
+      tset --arg v "$ev" '.review_evidence=$v'
     fi
-    STATE="$(jq --arg v "$r" '.review=$v' <<<"$STATE")"
+    tset --arg v "$r" '.review=$v'
     ;;
   set-outstanding)
     j="${shift_args[0]:-[]}"
-    echo "$j" | jq empty 2>/dev/null || err "set-outstanding needs a JSON array"
-    STATE="$(jq --argjson v "$j" '.outstanding=$v' <<<"$STATE")"
-    ;;
-  set-bypass)
-    # PLUMB-F-07: bypass disables the plan gate AND the write gate. It was a bare boolean, so the one
-    # command that switches enforcement off left no record of who turned it off or why. Turning it ON now
-    # requires --reason, and the reason is persisted next to the flag; turning it OFF stays free.
-    b="${shift_args[0]:-}"
-    case "$b" in true|false) ;; *) err "set-bypass needs true|false" ;; esac
-    reason=""
-    for _i in "${!shift_args[@]}"; do
-      [ "${shift_args[$_i]}" = "--reason" ] && reason="${shift_args[$((_i+1))]:-}"
-    done
-    if [ "$b" = "true" ] && [ -z "$reason" ]; then
-      err "set-bypass true requires --reason '<why>' — bypass disables both the plan gate and the write gate, and an unexplained bypass is indistinguishable from a mistake"
-    fi
-    STATE="$(jq --argjson v "$b" --arg r "$reason" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      'if $v then (.bypass=$v | .bypass_reason=$r | .bypass_ts=$ts)
-       else (.bypass=$v | .bypass_reason=null | .bypass_ts=null) end' <<<"$STATE")"
-    ;;
-  set-complexity)
-    c="${shift_args[0]:-}"
-    case "$c" in trivial|small|full) ;; *) err "set-complexity needs trivial|small|full" ;; esac
-    STATE="$(jq --arg v "$c" '.complexity=$v' <<<"$STATE")"
-    ;;
-  set-profile)
-    # WS-7: the task SHAPE axis, orthogonal to the complexity tier. Decides the deliverable rail + which
-    # auditors are mandatory (the profile×tier matrix in claudehut:claudehut-workflow).
-    pf="${shift_args[0]:-}"
-    case "$pf" in feature|bugfix|audit|migration|investigation) ;; *) err "set-profile needs feature|bugfix|audit|migration|investigation" ;; esac
-    STATE="$(jq --arg v "$pf" '.profile=$v' <<<"$STATE")"
+    jq -e 'type=="array"' >/dev/null 2>&1 <<<"$j" || err "set-outstanding needs a JSON array"
+    tset --argjson v "$j" '.outstanding=$v'
     ;;
   set-findings)
-    # WS-7 (M1): record THIS task's findings deliverable (audit/investigation). Mirrors set-spec/set-plan —
-    # the completion gate checks the RECORDED path exists, not a glob that any prior task's findings satisfies.
     p="${shift_args[0]:-}"; [ -n "$p" ] || err "set-findings needs <path>"
     canon "$p"
-    tmpl "$p" '^#' "findings rejected: $p has no headings — write the audit's conclusions + file:line evidence as a structured findings report, then re-run set-findings."
-    STATE="$(jq --arg v "$p" '.findings_path=$v' <<<"$STATE")"
+    tmpl "$p" '^#' "findings rejected: $p has no headings — write the conclusions + file:line evidence as a structured findings report, then re-run set-findings."
+    tset --arg v "$p" '.findings_path=$v'
     ;;
-  mark-skill)
-    # Issue-1 skill rail. Written by record-skill.sh on every Skill-tool call (PreToolUse, matcher: Skill).
-    # Only the implement skill opens the rail; the phase-entry skills close it (new-task boundary, in case
-    # the agent starts a new task via Skill(discover) without a set-phase call). Other skills are no-ops.
-    sk="${shift_args[0]:-}"
-    [ -n "$sk" ] || err "mark-skill needs <skill-name>"
-    sk="${sk##*:}"   # tolerate qualified names (claudehut:implement)
-    case "$sk" in
-      implement)           STATE="$(jq '.implement_skill_ok=true'  <<<"$STATE")" ;;
-      discover|brainstorm) STATE="$(jq '.implement_skill_ok=false' <<<"$STATE")" ;;
-      *) : ;;  # unrelated (or malformed) skill name — record nothing
-    esac
-    ;;
-  *) err "unknown subcommand: $sub" ;;
+  *) err "unknown verb: $sub" ;;
 esac
 
-STATE="$(jq --arg ts "$TS" '.ts=$ts | .updated_by="claudehut-state"' <<<"$STATE")"
-
-# Atomic write: temp file on the same filesystem, then rename.
-TMP="$(mktemp "$STATE_DIR/.state.$SESSION.XXXXXX")"
-printf '%s\n' "$STATE" >"$TMP"
-mv -f "$TMP" "$FILE"
-echo "claudehut-state: $sub -> $FILE" >&2
+tset --arg ts "$TS" '.updated=$ts'
+write_atomic "$TFILE" "$TASK"
+note "$sub -> $TFILE"

@@ -1,0 +1,4 @@
+{"desc":"auth filter + SecurityFilterChain → security (deep)","route":"full","mode":"commit",
+ "lanes":["reviewer","test","security"],"skipped":["db","contract"],
+ "reasons":{"security":["path:Filter.java src/main/java/com/x/security/JwtAuthFilter.java","path:security/ src/main/java/com/x/security/JwtAuthFilter.java","hunk:SecurityFilterChain SecurityConfig.java"]},
+ "depth":{"security":"deep"}}

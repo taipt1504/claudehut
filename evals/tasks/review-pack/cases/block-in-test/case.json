@@ -1,0 +1,2 @@
+{"desc":".block()/Thread.sleep in a test source is not a db signal; the same call in src/main is (see probes)","route":"full","mode":"commit",
+ "lanes":["reviewer","test"],"skipped":["security","db","contract"]}

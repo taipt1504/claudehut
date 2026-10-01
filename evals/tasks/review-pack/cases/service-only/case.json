@@ -1,0 +1,2 @@
+{"desc":"AC1: plain service edit, route full","route":"full","mode":"commit",
+ "lanes":["reviewer","test"],"skipped":["security","db","contract"],"files":1}

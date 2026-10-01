@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: b-ms
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/shared_db}
+b:
+  internal:
+    consumer:
+      topics: ${B_INTERNAL_TOPICS:b.internal.v1}

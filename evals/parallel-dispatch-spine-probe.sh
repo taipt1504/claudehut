@@ -17,44 +17,82 @@ ST="$SAN/bin/claudehut-state"
 
 mkfx() {
   local w="$1" sid="$2"; mkdir -p "$w"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$w/" 2>/dev/null || mkdir -p "$w/src"
-  local d="$w/.claude/claudehut/tasks/0001-spine"; mkdir -p "$d"   # creates .claude/ too
+  mkdir -p "$w/.claude/claudehut"
+  # v0.12: a task dir is the one `start` prints (it never adopts a pre-created dir). The artifacts are staged
+  # outside the repo and moved into that dir once the task is open (after the git setup, so base = the fixture HEAD).
+  local d; d="$(mktemp -d)"
   printf '{\n  "worktree": { "baseRef": "head" }\n}\n' > "$w/.claude/settings.json"
   # HARD GUARD: if baseRef=head isn't actually set, the run tests the WRONG (default) base — abort.
   [ "$(jq -r '.worktree.baseRef // empty' "$w/.claude/settings.json" 2>/dev/null)" = "head" ] \
     || { echo "FATAL: settings.json baseRef!=head — fixture setup failed, aborting probe" >&2; exit 3; }
   printf '# PROJECT\nBuild: grep/file verify for this demo (do NOT run Gradle). Base package com.x.\n' > "$w/.claude/claudehut/PROJECT.md"
-  printf '# Spec\n## 1. Problem\nA shared base processor, then two handlers that extend it.\n## 5. Acceptance Criteria\n- AC-001 GIVEN valid input WHEN a handler runs THEN BaseProcessor.process drives it.\n## 9. Decision\nBaseProcessor first, then OrderHandler + PaymentHandler build on it.\n' > "$d/spec.md"
+  cat > "$d/spec.md" <<'S'
+# Spec: spine + dependent handlers
+> id: 0001-spine · profile: feature · route: full · rev: 1 · status: approved · date: 2026-06-09
+
+## 1. Context
+A shared base processor, then two handlers that extend it. The reuse scan decided `new`.
+
+## 3. Requirements
+| ID | Requirement (EARS) | Acceptance (GWT) |
+|---|---|---|
+| AC-001 | THE SYSTEM SHALL drive every handler through BaseProcessor.process | GIVEN valid input WHEN a handler runs THEN BaseProcessor.process drives it |
+| AC-002 | WHEN an order is handled THE SYSTEM SHALL validate it | GIVEN invalid order input WHEN OrderHandler runs THEN it is rejected |
+| AC-003 | WHEN a payment is handled THE SYSTEM SHALL validate it | GIVEN invalid payment input WHEN PaymentHandler runs THEN it is rejected |
+
+## 4. Flow
+```mermaid
+sequenceDiagram
+  Caller->>BaseProcessor: process(in)
+  BaseProcessor->>OrderHandler: handle(in)
+```
+
+## 5. Contracts
+none
+
+## 6. Decisions
+| ID | Decision (Y-statement) | Rejected options | Confirmation | Status |
+|---|---|---|---|---|
+| D-1 | In the context of the handlers, facing shared processing steps, we decided for a BaseProcessor template method that each handler extends to achieve one processing path, accepting a base class | Copy the steps into each handler | AC-001 test | accepted |
+S
   printf '%s\n' '# Reuse scan' '| Dimension | Existing asset | Decision | Fit | Impact | Effort |' '|---|---|---|---|---|---|' '| processor/handler | none | new | 1 | low | M |' > "$d/reuse-scan.md"
   cat > "$d/plan.md" <<'PL'
 # Plan: spine + dependent handlers
+> id: 0001-spine · spec-rev: 1 · route: full · rev: 1 · status: approved
 
-> spec: tasks/0001-spine/spec.md · date: 2026-06-09 · status: approved
-> approval: approved via AskUserQuestion
-> REQUIRED SUB-SKILL: claudehut:implement
+## 1. Approach
+Implements D-1: BaseProcessor (Phase A, committed) → two handlers that EXTEND BaseProcessor (Phase B,
+parallel). Build: grep/file verify (do NOT run Gradle).
 
-## 1. Decision & Approach
-BaseProcessor (Phase A, committed) → two handlers that EXTEND BaseProcessor (Phase B, parallel).
+## 2. Design
+```mermaid
+sequenceDiagram
+  Caller->>OrderHandler: process(in)
+  OrderHandler->>OrderHandler: handle(in) via BaseProcessor template method
+```
+BaseProcessor.process() is the template method (Phase A); each handler overrides handle() (Phase B).
 
-## 2. Technical Context
-Java 17. Build: grep/file verify (do NOT run Gradle).
+## 3. Interfaces & Data
+| Element | Change | Contract | Req |
+|---|---|---|---|
+| `BaseProcessor` | new (done) | `BaseProcessor#process(in: String): String`, abstract `handle(in: String): String` | AC-001 |
+| `OrderHandler` | new | `class OrderHandler extends BaseProcessor` overriding handle(), plus OrderValidator real checks | AC-002 |
+| `PaymentHandler` | new | `class PaymentHandler extends BaseProcessor` overriding handle(), plus PaymentValidator real checks | AC-003 |
 
-## 3. Implementation Flow
-BaseProcessor.process() template method (Phase A) → OrderHandler/PaymentHandler each extend it and override handle() (Phase B).
-**T-002 sketch**: class OrderHandler extends BaseProcessor { handle() } + OrderValidator real checks.
-**T-003 sketch**: class PaymentHandler extends BaseProcessor { handle() } + PaymentValidator real checks.
-
-## 4. Task Breakdown
-
+## 4. Tasks
 ### Phase A — foundation  (DONE — already committed on the feature branch)
-| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
-|----|------|-------|------------|----------------|--------|------------|-----|
-| T-001 | BaseProcessor abstract base (process + template method) | src/main/java/com/x/proc/BaseProcessor.java | n/a (done) | n/a (done) | `test -f src/main/java/com/x/proc/BaseProcessor.java` | — | FR-1 |
+| ID | Goal | Files | Test first | Verify | Depends | Req |
+|---|---|---|---|---|---|---|
+| T-001 | BaseProcessor abstract base (process + template method) | src/main/java/com/x/proc/BaseProcessor.java | n/a (done) | `test -f src/main/java/com/x/proc/BaseProcessor.java` | — | AC-001 |
 
 ### Phase B — handlers  (parallel — each EXTENDS BaseProcessor from Phase A; multi-file, dispatch-worthy)
-| ID | Goal | Files | Test first | Minimal change | Verify | Depends on | Req |
-|----|------|-------|------------|----------------|--------|------------|-----|
-| T-002 [P] | OrderHandler: extends BaseProcessor + validator + test | src/main/java/com/x/proc/OrderHandler.java, src/main/java/com/x/proc/OrderValidator.java, src/test/java/com/x/proc/OrderHandlerTest.java | OrderHandlerTest covering handle + invalid input | `class OrderHandler extends BaseProcessor` overriding handle(), an OrderValidator with real checks, and the test | `grep -q 'extends BaseProcessor' src/main/java/com/x/proc/OrderHandler.java && test -f src/main/java/com/x/proc/OrderValidator.java` | T-001 | FR-2 |
-| T-003 [P] | PaymentHandler: extends BaseProcessor + validator + test | src/main/java/com/x/proc/PaymentHandler.java, src/main/java/com/x/proc/PaymentValidator.java, src/test/java/com/x/proc/PaymentHandlerTest.java | PaymentHandlerTest covering handle + invalid input | `class PaymentHandler extends BaseProcessor` overriding handle(), a PaymentValidator with real checks, and the test | `grep -q 'extends BaseProcessor' src/main/java/com/x/proc/PaymentHandler.java && test -f src/main/java/com/x/proc/PaymentValidator.java` | T-001 | FR-3 |
+| ID | Goal | Files | Test first | Verify | Depends | Req |
+|---|---|---|---|---|---|---|
+| T-002 [P] | OrderHandler: extends BaseProcessor + validator + test | src/main/java/com/x/proc/OrderHandler.java, src/main/java/com/x/proc/OrderValidator.java, src/test/java/com/x/proc/OrderHandlerTest.java | OrderHandlerTest#handleAndInvalidInput | `grep -q 'extends BaseProcessor' src/main/java/com/x/proc/OrderHandler.java && test -f src/main/java/com/x/proc/OrderValidator.java` | T-001 | AC-002 |
+| T-003 [P] | PaymentHandler: extends BaseProcessor + validator + test | src/main/java/com/x/proc/PaymentHandler.java, src/main/java/com/x/proc/PaymentValidator.java, src/test/java/com/x/proc/PaymentHandlerTest.java | PaymentHandlerTest#handleAndInvalidInput | `grep -q 'extends BaseProcessor' src/main/java/com/x/proc/PaymentHandler.java && test -f src/main/java/com/x/proc/PaymentValidator.java` | T-001 | AC-003 |
+
+## 5. Risks & Rollback
+- Demo fixture only; rollback: revert the commit.
 PL
   ( cd "$w" && git init -q && git config user.email t@t && git config user.name t && git add -A && git commit -qm base ) >/dev/null 2>&1
   # bare origin at the BASE commit (so the 'fresh' default would NOT carry Phase A)
@@ -73,20 +111,25 @@ public abstract class BaseProcessor {
 }
 J
     git add -A && git commit -qm "T-001 — BaseProcessor (spine, local only)" ) >/dev/null 2>&1
-  ( cd "$w" && CLAUDE_PROJECT_DIR="$w" \
-      "$ST" --session "$sid" set-complexity full >/dev/null 2>&1
+  local id; id="$( cd "$w" && CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" start --route full --profile feature --slug spine 2>/dev/null | sed -n 1p )"
+  [ "$id" = 0001-spine ] || { echo "FATAL: start opened '$id', not 0001-spine (the prompt names 0001-spine) — fixture setup failed, aborting probe" >&2; exit 3; }
+  mv "$d"/* "$w/.claude/claudehut/tasks/$id/" && rmdir "$d"
+  ( cd "$w"
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-reuse-scan --artifact .claude/claudehut/tasks/0001-spine/reuse-scan.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-spec .claude/claudehut/tasks/0001-spine/spec.md >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-plan .claude/claudehut/tasks/0001-spine/plan.md >/dev/null 2>&1
-    CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-profile feature >/dev/null 2>&1
     CLAUDE_PROJECT_DIR="$w" "$ST" --session "$sid" set-phase implement >/dev/null 2>&1 )
+  # v0.12 M3: set-spec/set-plan run doclint, so a fixture the gate refuses would leave plan_approved=false and the
+  # probe would measure a run that started in the wrong phase. Fail loudly instead of silently.
+  jq -e '.plan_approved==true and .phase=="implement"' "$w/.claude/claudehut/tasks/$id/task.json" >/dev/null 2>&1 \
+    || { echo "FATAL: the pre-state did not record the plan (doclint refused a fixture?) — aborting probe" >&2; exit 3; }
   ( cd "$w" && echo "ahead/behind origin/HEAD: $(git rev-list --left-right --count origin/HEAD...HEAD 2>/dev/null)" ) >&2
 }
 
 read -r -d '' PROMPT <<'PR'
 You are operating under ClaudeHut, RESUMING at the Implement phase. Phase A (T-001 — BaseProcessor) is
 ALREADY implemented and COMMITTED on the current feature branch. The reuse-scan, spec, and plan for task
-0001-spine are recorded and approved; the write gate is OPEN. Execute the remaining Phase B (T-002, T-003)
+0001-spine are recorded and approved (plan_approved=true). Execute the remaining Phase B (T-002, T-003)
 by following the claudehut:implement skill exactly. Each handler must `extends BaseProcessor` (the committed
 Phase-A class). Use each row's grep Verify command literally (do NOT run Gradle). Report what you did.
 PR

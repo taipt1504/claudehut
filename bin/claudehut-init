@@ -6,16 +6,38 @@
 # "TBD — refine" stubs (best-effort, non-critical). Idempotent + non-interactive: skips existing
 # plugin-owned files (regenerate with --refresh), and NEVER clobbers learnings.jsonl.
 #
-# Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect]
+# Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect] [--language vi|en] [--mode mono|microservice]
+#                       [--git-hooks yes|no] [--hub DIR] [--no-extras]
 #   PROJECT_DIR  default ${CLAUDE_PROJECT_DIR:-$PWD}
 #   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl)
 #   --detect     print detected stack values as JSON and exit (no writes) — used by the eval harness
+#   --language   reply/artifact language → topology.json .language (ADR-R7). The skill asks; headless and
+#                unset keep the recorded value, else en
+#   --mode       mono | microservice. microservice needs a hub (--hub, a recorded one, or CLAUDEHUT_HUB); without
+#                one it is recorded as requested_mode and mode stays mono. --mode mono drops a recorded hub
+#   --hub DIR    hub root (07 §4.3); implies microservice. Created + `git init` (local, no remote) when absent;
+#                writes <hub>/.claude/claudehut/hub/{hub.json,aliases.json,services.json} (merge, never clobber)
+#   --git-hooks  yes → claudehut-index install-git-hooks (opt-in, 07 §7); no → uninstall-git-hooks
+#   --no-extras  never ADD .worktreeinclude or the extraKnownMarketplaces entry (existing ones are left as they are).
+#                Used by claudehut-migrate on repos the user already owns; the unattended --refresh-rules behaves the same
 set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 TPL="$PLUGIN_ROOT/templates"
 REFRESH=false; RULES_REFRESH=false; RETIRE=false; DETECT=false; MIGRATE_MEM=false; AUDIT=false; PROJ=""; RETIRED_LIST=""
-for a in "$@"; do case "$a" in
+LANG_SEL=""; MODE_SEL=""; HOOKS_SEL=""; HUB_SEL=""; NO_EXTRAS=false
+# Valued flags take the next argument (or --flag=value); a bare value must never be read as PROJECT_DIR.
+_args=(); _want=""
+for a in "$@"; do
+  if [ -n "$_want" ]; then _args+=("$_want=$a"); _want=""; continue; fi
+  case "$a" in --language|--mode|--git-hooks|--hub) _want="$a" ;; *) _args+=("$a") ;; esac
+done
+[ -z "$_want" ] || { echo "claudehut-init: $_want needs a value" >&2; exit 2; }
+for a in ${_args[@]+"${_args[@]}"}; do case "$a" in
+  --language=*) LANG_SEL="${a#*=}"; case "$LANG_SEL" in vi|en) : ;; *) echo "claudehut-init: --language takes vi|en" >&2; exit 2 ;; esac ;;
+  --mode=*) MODE_SEL="${a#*=}"; case "$MODE_SEL" in mono|microservice) : ;; *) echo "claudehut-init: --mode takes mono|microservice" >&2; exit 2 ;; esac ;;
+  --hub=*) HUB_SEL="${a#*=}"; [ -n "$HUB_SEL" ] || { echo "claudehut-init: --hub needs a directory" >&2; exit 2; } ;;
+  --git-hooks=*) HOOKS_SEL="${a#*=}"; case "$HOOKS_SEL" in yes|no) : ;; *) echo "claudehut-init: --git-hooks takes yes|no" >&2; exit 2 ;; esac ;;
   --refresh) REFRESH=true; RULES_REFRESH=true ;;
   --refresh-rules) RULES_REFRESH=true ;;   # rule tree only — never re-renders MEMORY/PROJECT/LANGUAGE (user-edited)
   # Deleting a rule a previous version emitted is DESTRUCTIVE and must be asked for by name. --refresh-rules
@@ -32,11 +54,19 @@ for a in "$@"; do case "$a" in
   # --audit reaches an already-stamped repo without needing a version change and writes nothing.
   --audit)   AUDIT=true ;;
   --detect)  DETECT=true ;;
+  --no-extras) NO_EXTRAS=true ;;
   -*) echo "claudehut-init: unknown flag $a" >&2; exit 2 ;;
   *) PROJ="$a" ;;
 esac; done
 PROJ="${PROJ:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+# The unattended --refresh-rules (maintain.sh, every plugin version bump) never ADDS the extras either: a repo
+# migrated with --no-extras must not gain them on the next upgrade (10 §4, M7).
+$RULES_REFRESH && ! $REFRESH && NO_EXTRAS=true
+case "$HUB_SEL" in ''|/*) : ;; *) HUB_SEL="$PWD/$HUB_SEL" ;; esac   # a relative --hub is relative to the caller's cwd
 cd "$PROJ" 2>/dev/null || { echo "claudehut-init: cannot cd '$PROJ'" >&2; exit 1; }
+# A plane init generated, as opposed to a bare .claude/claudehut/ (hooks create state/ in it). Decided BEFORE
+# any write: an unattended --refresh-rules on a bare plane touches .claude/rules only (10 §M1 deferral).
+INITIALIZED=false; [ -f .claude/claudehut/PROJECT.md ] && INITIALIZED=true
 
 # ---------------- detection (grep/sed on build files) ----------------
 # Root build files PLUS submodule ones: a multi-module Spring project declares its dependencies in module
@@ -159,8 +189,40 @@ if [ "$ARCH" = none ] && ! $DETECT && ! $AUDIT; then
 fi
 
 if $DETECT; then
-  printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s"}\n' \
-    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$TEST" "$ARCH" "$PROJECT_NAME" "$BASE_PACKAGE"
+  # siblings / parent_is_git feed the skill's mono-vs-microservice question (07 §4.1): ≥2 sibling git repos
+  # suggest microservice. Read-only, one directory level.
+  SIBLINGS=0
+  for _s in ../*/; do
+    [ "$(cd "$_s" 2>/dev/null && pwd -P)" = "$(pwd -P)" ] && continue
+    [ -e "$_s/.git" ] && SIBLINGS=$((SIBLINGS+1))
+  done
+  PARENT_GIT=false; [ -e ../.git ] && PARENT_GIT=true
+  d_json="$(printf '{"build_tool":"%s","verify":"%s","java":"%s","web":"%s","orm":"%s","db":"%s","messaging":"%s","cache":"%s","mapper":"%s","test":"%s","arch":"%s","project":"%s","base_package":"%s","siblings":%s,"parent_is_git":%s}' \
+    "$BUILD_TOOL" "$VERIFY" "$JAVA_VERSION" "$WEB" "$ORM" "$DB" "$MSG" "$CACHE" "$MAPPER" "$TEST" "$ARCH" "$PROJECT_NAME" "$BASE_PACKAGE" "$SIBLINGS" "$PARENT_GIT")"
+  # Hub facts for the skill's questions (07 §4.1): the recorded hub and its language (asked once per hub), the
+  # default location <workspace>/<name>-knowledge, and sibling repos without a plane (the hub-scan offer).
+  if command -v jq >/dev/null 2>&1; then
+    d_par="$(cd .. 2>/dev/null && pwd -P)"; d_base="${d_par##*/}"; d_base="${d_base%-workspace}"
+    d_hub="$(jq -r 'if .mode=="microservice" then (.hub // empty | strings) else empty end' .claude/claudehut/topology.json 2>/dev/null)"
+    d_hub="${d_hub%/}"; d_hub="${d_hub%/.claude/claudehut/hub}"; d_hl=""; d_habs=""
+    if [ -n "$d_hub" ]; then
+      case "$d_hub" in /*) d_habs="$d_hub" ;; *) d_habs="$PWD/$d_hub" ;; esac
+      d_habs="$(cd "$d_habs" 2>/dev/null && pwd -P)" || d_habs="$d_hub"
+      d_hl="$(jq -r '.language // empty | strings' "$d_habs/.claude/claudehut/hub/hub.json" 2>/dev/null)"
+    fi
+    d_np=()
+    for _s in ../*/; do
+      _p="$(cd "$_s" 2>/dev/null && pwd -P)"
+      [ "$_p" = "$(pwd -P)" ] || [ "$_p" = "$d_habs" ] || [ -d "$_s/.claude/claudehut/hub" ] && continue
+      [ -e "$_s/.git" ] && [ ! -f "$_s/.claude/claudehut/topology.json" ] && { _n="${_s%/}"; d_np+=("${_n##*/}"); }
+    done
+    jq -c --arg h "$d_habs" --arg hl "$d_hl" --arg dh "$d_par/${d_base:-workspace}-knowledge" \
+      '. + {hub:(if $h=="" then null else $h end), hub_language:(if $hl=="" then null else $hl end),
+            default_hub:$dh, siblings_without_plane:($ARGS.positional)}' --args ${d_np[@]+"${d_np[@]}"} <<<"$d_json" \
+      || printf '%s\n' "$d_json"
+  else
+    printf '%s\n' "$d_json"
+  fi
   exit 0
 fi
 
@@ -207,7 +269,9 @@ if $AUDIT; then
         case " $ACTIVE " in *" $one "*) hit=true; break ;; esac
       done
     fi
-    if $hit && [ ! -e "$dest" ]; then
+    if $hit && [ ! -e "$dest" ] && grep -qxF "$rel" "$A_CHD/rules-emitted.txt" 2>/dev/null; then
+      echo "  deleted: $rel (removed by hand, kept deleted; --refresh restores it)"
+    elif $hit && [ ! -e "$dest" ]; then
       echo "  missing: $rel${tag:+ (tag '$tag' IS active)}"; a_missing=$((a_missing+1))
     elif ! $hit && [ -e "$dest" ]; then
       echo "  stale:   $rel (stack tag '$tag' not active — remove with --retire-inactive)"; a_stale=$((a_stale+1))
@@ -225,7 +289,33 @@ if $AUDIT; then
 fi
 
 CHD=".claude/claudehut"; RULES=".claude/rules"
-mkdir -p "$CHD/state" "$CHD/tasks" "$RULES"   # tasks/: one dir per task (NNNN-<slug>/ holds reuse-scan, spec, plan, review)
+
+# ---------------- MEM-1: move per-task history out of the always-loaded index ----------------
+# CLAUDE.md @imports MEMORY.md WHOLE, so every byte is re-read every turn. claudehut-learner appended a
+# "## Reuse additions (task-NNNN, date)" / "## Topics (task-NNNN)" block per completed task, unbounded:
+# party-ms reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
+#
+# One migration path (07 §8.1): this delegates to `claudehut-index memory` (scripts/index/memory.py), the same
+# code maintain.sh runs. It MOVES, never truncates: only template/learner headings go to MEMORY-history.md
+# (appended; re-running is a no-op), a hand-written section stays verbatim, the generated block is (re)written.
+migrate_memory() {
+  [ -f "$CHD/MEMORY.md" ] || return 0
+  local r act
+  r="$("$PLUGIN_ROOT/bin/claudehut-index" memory --json --plane "$PWD/$CHD" 2>/dev/null)" || r=""
+  act="$(printf '%s' "$r" | sed -n 's/.*"action": *"\([a-z_]*\)".*/\1/p' | head -1)"
+  case "$act" in
+    migrate|refresh|unchanged|create)
+      case "$r" in
+        *'"sections_moved"'*) echo "  migrated: $(printf '%s' "$r" | sed -n 's/.*"sections_moved": *\([0-9]*\).*/\1/p') block(s) → $CHD/MEMORY-history.md" ;;
+        *) echo "  keep (nothing to migrate): $CHD/MEMORY.md" ;;
+      esac ;;
+    *) # RES-X1: never report success for a migration that did not happen
+      echo "  WARN: MEMORY.md migration failed (claudehut-index memory: ${r:-no output})" >&2; return 1 ;;
+  esac
+}
+
+# --refresh-rules on a plane init never generated: the rule tree only (below), then exit before the tail.
+RULES_ONLY=false; $RULES_REFRESH && ! $REFRESH && ! $INITIALIZED && RULES_ONLY=true
 
 # write a plugin-owned file from a template, honoring idempotency (skip if present unless --refresh)
 render() { # $1 template, $2 dest
@@ -246,48 +336,33 @@ render() { # $1 template, $2 dest
 }
 
 echo "claudehut-init: project=$PROJECT_NAME stack[web=$WEB orm=$ORM db=$DB msg=$MSG cache=$CACHE mapper=$MAPPER] base=$BASE_PACKAGE"
+if ! $RULES_ONLY; then
+mkdir -p "$CHD/state" "$CHD/tasks"   # tasks/: one dir per task (NNNN-<slug>/ holds reuse-scan, spec, plan, review)
 render MEMORY.md.tmpl        "$CHD/MEMORY.md"
 render PROJECT.md.tmpl       "$CHD/PROJECT.md"
 render LANGUAGE.md.tmpl      "$CHD/LANGUAGE.md"
 render architecture.md.tmpl  "$CHD/architecture.md"
 render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
-
-# ---------------- MEM-1: move per-task history out of the always-loaded index ----------------
-# CLAUDE.md @imports MEMORY.md WHOLE, so every byte is re-read every turn. claudehut-learner appends a
-# "## Reuse additions (task-NNNN, date)" / "## Topics (task-NNNN)" block per completed task, unbounded:
-# party-ms reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
-#
-# This MOVES, it never truncates. The template calls the file "safe to edit" and there is no marker
-# separating generated content from hand-written content, so the rule is inverted: only blocks whose
-# heading matches the learner's own machine-written form are moved, and ANYTHING ELSE STAYS PUT. A
-# hand-written "## Our team conventions" is preserved because it does not match, not because it was
-# detected. The bare "## Topics" section from the template has no "(task-...)" suffix and stays too.
-if $MIGRATE_MEM && [ -f "$CHD/MEMORY.md" ]; then
-  HIST="$CHD/MEMORY-history.md"
-  _mi="$(mktemp)"; _mh="$(mktemp)"
-  awk -v idx="$_mi" -v hist="$_mh" '
-    /^## (Reuse additions|Topics) \(/ { inh=1; print > hist; next }
-    /^## /                           { inh=0 }
-    { if (inh) print > hist; else print > idx }
-  ' "$CHD/MEMORY.md"
-  if [ -s "$_mh" ]; then
-    _moved="$(grep -c '^## ' "$_mh" 2>/dev/null || echo 0)"
-    cat "$_mh" >> "$HIST"                       # append: a second run must not clobber earlier history
-    # RES-X1: if this rename fails the history has ALREADY been appended, so a silent failure would
-    # duplicate every block on the next run. Fail loudly and leave MEMORY.md untouched.
-    if ! mv -f "$_mi" "$CHD/MEMORY.md" 2>/dev/null; then
-      echo "  WARN: migration wrote $HIST but could not rewrite MEMORY.md — do NOT re-run --migrate-memory until this is fixed" >&2
-      rm -f "$_mi" "$_mh" 2>/dev/null; return 0 2>/dev/null || exit 1
-    fi
-    # Pointer, added once. NOT added to the @import set below — that is the whole point of the move.
-    grep -q 'MEMORY-history.md' "$CHD/MEMORY.md" 2>/dev/null || printf '\n- `MEMORY-history.md` — per-task reuse/topic blocks, moved out of this index. Read on demand; never @import-ed.\n' >> "$CHD/MEMORY.md"
-    echo "  migrated: $_moved block(s) → $HIST"
-  else
-    echo "  keep (nothing to migrate): $CHD/MEMORY.md"
-  fi
-  rm -f "$_mi" "$_mh" 2>/dev/null || true
 fi
+$MIGRATE_MEM && { migrate_memory || exit 1; }
+mkdir -p "$RULES"
+
+# ---------------- rules a user deleted stay deleted ----------------
+# rules-emitted.txt lists every plugin-owned rule this plane has received. One that is listed but absent was removed
+# by hand, so neither a re-init nor the unattended --refresh-rules (maintain.sh, every version bump) brings it back;
+# an explicit --refresh restores it. A plane initialized before the list existed is seeded once: every version since
+# v0.2.0 emitted the two always-on rules, so a missing one there was deleted by hand (va-ms dropped vocabulary.md).
+# GONE is decided before any rule write; the record is rebuilt from disk after the loop (the loop is a subshell).
+EMITTED="$CHD/rules-emitted.txt"; GONE="|"; RETIRED_F="$(mktemp)"; trap 'rm -f "$RETIRED_F"' EXIT
+if ! $REFRESH && ! $RULES_ONLY; then
+  if [ -f "$EMITTED" ]; then
+    while IFS= read -r r; do [ -n "$r" ] && [ ! -e "$RULES/$r" ] && GONE="$GONE$r|"; done < "$EMITTED"
+  elif $INITIALIZED; then
+    for r in project-structure.md vocabulary.md; do [ -e "$RULES/$r" ] || GONE="$GONE$r|"; done
+  fi
+fi
+gone() { case "$GONE" in *"|$1|"*) echo "  keep deleted: $RULES/$1 (removed by hand; --refresh restores it)"; return 0 ;; esac; return 1; }
 
 # ---------------- rule tree (stack-gated) ----------------
 # Architecture style is DECLARED, never guessed. ddd / hexagonal / cqrs are mutually exclusive, and all three
@@ -296,8 +371,8 @@ fi
 # silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
 # always-on project-identity rules (substituted)
-render rules/project-structure.md "$RULES/project-structure.md"
-render rules/vocabulary.md        "$RULES/vocabulary.md"
+gone project-structure.md || render rules/project-structure.md "$RULES/project-structure.md"
+gone vocabulary.md        || render rules/vocabulary.md        "$RULES/vocabulary.md"
 # domain rules: copy untagged always; copy stack-tagged only when the tag is active
 find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
@@ -328,7 +403,7 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
           elif grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
             echo "  kept: $rel (no longer active, but holds learned pitfalls — remove by hand if unwanted)"
           elif [ -f "$dest" ] && [ ! -L "$dest" ]; then
-            rm -f "$dest" && echo "  retired: $rel (stack tag '$tag' not active)"
+            rm -f "$dest" && echo "$rel" >> "$RETIRED_F" && echo "  retired: $rel (stack tag '$tag' not active)"
           else
             # a symlink or a directory where a rule file was expected: never remove it blindly, and never
             # stay silent about it either — the `&&` above used to swallow the case entirely
@@ -338,6 +413,7 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
         continue ;;
     esac
   fi
+  gone "$rel" && continue
   if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
   mkdir -p "$(dirname "$dest")"
   # A refresh must NOT clobber learner-promoted pitfalls (07 §5.4) — carry the section over.
@@ -349,6 +425,166 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   fi
 done
 echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
+if ! $RULES_ONLY; then   # a bare plane gets nothing outside .claude/rules
+  { cat "$EMITTED" 2>/dev/null; printf '%s\n' "$GONE" | tr '|' '\n'
+    for r in project-structure.md vocabulary.md; do [ -e "$RULES/$r" ] && echo "$r"; done
+    find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do r="${f#$TPL/rules/}"; [ -e "$RULES/$r" ] && echo "$r"; done
+  } | sed '/^$/d' | { grep -vxF -f "$RETIRED_F" || :; } | LC_ALL=C sort -u > "$RETIRED_F.new"
+  cmp -s "$RETIRED_F.new" "$EMITTED" || { chmod 644 "$RETIRED_F.new"; mv -f "$RETIRED_F.new" "$EMITTED"; }
+  rm -f "$RETIRED_F.new"
+fi
+if $RULES_ONLY; then
+  echo "claudehut-init: rules refreshed under $RULES/ (no plane generated here yet — run claudehut-init to create one)"
+  exit 0
+fi
+
+# ---------------- topology.json: mode, language, git hooks (07 §4, ADR-R7) ----------------
+# Written by an explicit init (or --refresh), never by the unattended --refresh-rules of maintain.sh. A re-run
+# keeps the recorded choices; a flag overrides one. No flag and no record → mono / en / no hooks: the headless
+# default (07 §4.1), since only the skill can ask. `shared` stays false until the user takes the patch (§8.3).
+IDX_CLI="$PLUGIN_ROOT/bin/claudehut-index"
+TOPO="$CHD/topology.json"
+relpath() { # $1 target  $2 base — relative path (python3), else the absolute target
+  python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "$1" "$2" 2>/dev/null || printf '%s\n' "$1"
+}
+jwrite() { # $1 file  $2 json — tmp + mv; 0644 like every other hub file (mktemp creates 0600)
+  local tmp; tmp="$(mktemp "$(dirname "$1")/.init.XXXXXX")" || return 1
+  printf '%s\n' "$2" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$1" && return 0
+  rm -f "$tmp"; return 1
+}
+# Hub skeleton (07 §4.3): <hub>/.claude/claudehut/hub/. Only this service's entry in services.json and absent
+# files are written; hub-sync owns the rest. Sets T_HUB_ABS, t_hlang (the hub's language), t_hnew (hub.json had none).
+hub_setup() {
+  local h="${1%/}" hd hj sj aj created=false rel remote l cur
+  h="${h%/.claude/claudehut/hub}"   # the inner hub dir (init prints it for the dashboard) names the same hub
+  if [ ! -e "$h" ]; then
+    mkdir -p "$h" 2>/dev/null || { echo "  WARN: cannot create hub $h — mode stays mono" >&2; return 1; }
+    created=true
+  fi
+  [ -d "$h" ] || { echo "  WARN: hub $h is not a directory — mode stays mono" >&2; return 1; }
+  T_HUB_ABS="$(cd "$h" && pwd -P)"
+  [ "$T_HUB_ABS" != "$(pwd -P)" ] || { echo "  WARN: the hub must be its own directory, not this repo — mode stays mono" >&2; return 1; }
+  # A dedicated knowledge repo is created with a local git and no remote; an existing directory (a workspace root
+  # without git, a knowledge repo someone cloned) is used as it is.
+  if $created; then
+    if command -v git >/dev/null 2>&1 && git -C "$T_HUB_ABS" init -q 2>/dev/null; then
+      echo "  hub: created $T_HUB_ABS (git init, local only — no remote)"
+    else
+      echo "  hub: created $T_HUB_ABS (no git)"
+    fi
+  fi
+  hd="$T_HUB_ABS/.claude/claudehut/hub"
+  mkdir -p "$hd" 2>/dev/null || { echo "  WARN: cannot create $hd — mode stays mono" >&2; return 1; }
+  hj="$hd/hub.json"; t_hnew=false
+  t_hlang="$(jq -r '.language // empty | select(.=="vi" or .=="en")' "$hj" 2>/dev/null)"
+  if [ -z "$t_hlang" ]; then
+    # Asked once per hub: --language, else the language this plane already recorded, else en.
+    l="$LANG_SEL"; [ -n "$l" ] || l="$(jq -r '.language // empty | select(.=="vi" or .=="en")' <<<"$t_old" 2>/dev/null)"
+    t_hlang="${l:-en}"; t_hnew=true
+    cur="$(jq -c 'if type=="object" then . else {} end' "$hj" 2>/dev/null)" || cur=""
+    [ -n "$cur" ] || cur='{}'
+    jwrite "$hj" "$(jq -c --arg l "$t_hlang" '. + {schema:1, language:$l}' <<<"$cur")" && echo "  wrote: $hj (language $t_hlang)"
+  fi
+  aj="$hd/aliases.json"
+  [ -f "$aj" ] || { jwrite "$aj" '{"env":{},"topic_owner":{},"db_owner":{}}' && echo "  wrote: $aj (edit to pin env/topic/db owners)"; }
+  [ -f "$hd/.gitignore" ] || printf 'links/\nservice-links.json\n.understand-anything/\n.lock/\naliases.suggested.json\n.aliases.sha1\n' > "$hd/.gitignore" 2>/dev/null || :
+  sj="$hd/services.json"
+  rel="$(relpath "$(pwd -P)" "$T_HUB_ABS")"
+  # Credentials in an https remote (user:token@) never reach the hub.
+  remote="$(git config --get remote.origin.url 2>/dev/null | sed -E 's#://[^/@]*@#://#')" || remote=""
+  cur="$(jq -c 'if type=="object" then . else {} end' "$sj" 2>/dev/null)" || cur=""
+  [ -n "$cur" ] || cur='{}'
+  jwrite "$sj" "$(jq --arg s "$T_SVC" --arg p "$rel" --arg r "$remote" \
+    '.[$s] = ((.[$s] // {}) + {path:$p, has_plane:true} + (if $r != "" then {remote:$r} else {} end))' <<<"$cur")" \
+    && echo "  hub: registered $T_SVC in $sj (path $rel)"
+  return 0
+}
+if ! $RULES_REFRESH || $REFRESH; then
+  if command -v jq >/dev/null 2>&1; then
+    t_old='{}'
+    if [ -f "$TOPO" ]; then
+      if jq -e 'type=="object"' "$TOPO" >/dev/null 2>&1; then t_old="$(cat "$TOPO")"
+      else echo "  WARN: $TOPO is not a JSON object — rewriting it from defaults" >&2; fi
+    fi
+    # Microservice (07 §4.3): a hub root from --hub, else the recorded one, else CLAUDEHUT_HUB (the headless rule).
+    # --mode mono drops the hub; --mode microservice with no hub anywhere records requested_mode, mode stays mono.
+    t_req=""; t_hub=""; t_hlang=""; t_hnew=false
+    T_SVC="$(jq -r '.service // empty | strings' <<<"$t_old" 2>/dev/null)"; T_SVC="${T_SVC:-$PROJECT_NAME}"
+    t_rec="$(jq -r 'if .mode=="microservice" then (.hub // empty | strings) else empty end' <<<"$t_old" 2>/dev/null)"
+    t_rec="${t_rec%/}"; t_rec="${t_rec%/.claude/claudehut/hub}"
+    t_wasms=false; [ -n "$t_rec" ] && t_wasms=true
+    if [ "$MODE_SEL" != mono ]; then
+      if [ -n "$HUB_SEL" ]; then t_hub="$HUB_SEL"
+      elif [ -n "$t_rec" ]; then case "$t_rec" in /*) t_hub="$t_rec" ;; *) t_hub="$PWD/$t_rec" ;; esac
+      elif [ -n "${CLAUDEHUT_HUB:-}" ]; then t_hub="$CLAUDEHUT_HUB"
+      fi
+      if [ -z "$t_hub" ] && [ "$MODE_SEL" = microservice ]; then
+        t_req=microservice
+        echo "  mode: microservice needs a hub — pass --hub <dir> (default <workspace>/<name>-knowledge); recorded as requested_mode, mode stays mono"
+      fi
+    fi
+    if [ -n "$t_hub" ]; then
+      hub_setup "$t_hub" || { t_hub=""; t_req=microservice; }
+    fi
+    # git hooks: the CLI installs or declines (core.hooksPath / husky / lefthook → it only prints the block);
+    # the recorded value is what is actually on disk afterwards, whoever wrote it.
+    if [ -n "$HOOKS_SEL" ]; then
+      if [ -x "$IDX_CLI" ]; then
+        if [ "$HOOKS_SEL" = yes ]; then "$IDX_CLI" install-git-hooks --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /'
+        else "$IDX_CLI" uninstall-git-hooks --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /'; fi
+      else
+        echo "  git hooks: claudehut-index is missing from $PLUGIN_ROOT/bin — nothing installed" >&2
+      fi
+    fi
+    t_hooks=false
+    grep -qs '# >>> claudehut-index >>>' .git/hooks/post-merge .git/hooks/post-rewrite .git/hooks/post-checkout && t_hooks=true
+    # Language (ADR-R7). mono: the plane records it (default en). microservice: hub.json holds the default and the
+    # service records a language only as an override — a --language that differs from the hub's, or an override
+    # recorded by an earlier microservice init. A mono plane converting to microservice inherits the hub.
+    t_rel=""; t_ovr=""
+    if [ -n "$t_hub" ]; then
+      t_rel="$(relpath "$T_HUB_ABS" "$(pwd -P)")"
+      if [ -n "$LANG_SEL" ]; then
+        if $t_hnew || [ "$LANG_SEL" = "$t_hlang" ]; then t_ovr=""; else t_ovr="$LANG_SEL"; fi
+      elif $t_wasms; then
+        t_ovr="$(jq -r '.language // empty | select(.=="vi" or .=="en")' <<<"$t_old" 2>/dev/null)"
+        [ "$t_ovr" != "$t_hlang" ] || t_ovr=""
+      fi
+      t_req=""
+    fi
+    # Leaving microservice for mono keeps the language the service was inheriting from the hub.
+    t_hl0=""
+    if [ -z "$t_hub" ] && [ -n "$t_rec" ]; then
+      case "$t_rec" in /*) t_hl0="$t_rec" ;; *) t_hl0="$PWD/$t_rec" ;; esac
+      t_hl0="$(jq -r '.language // empty | select(.=="vi" or .=="en")' "$t_hl0/.claude/claudehut/hub/hub.json" 2>/dev/null)" || t_hl0=""
+    fi
+    t_new="$(jq --arg lang "$LANG_SEL" --arg svc "$PROJECT_NAME" --arg req "$t_req" --argjson hooks "$t_hooks" \
+      --arg hub "$t_rel" --arg ovr "$t_ovr" --arg hl0 "$t_hl0" '
+      ($hub != "") as $ms
+      | {schema:1,
+       mode:(if $ms then "microservice" else "mono" end),
+       service:(.service // $svc),
+       hub:(if $ms then $hub else null end)}
+      + (if $ms then (if $ovr != "" then {language:$ovr} else {} end)
+         else {language:(if $lang != "" then $lang elif (.language == "vi" or .language == "en") then .language elif $hl0 != "" then $hl0 else "en" end)} end)
+      + {shared:(.shared // false),
+       git_hooks:$hooks}
+      + (if $ms then {} elif $req != "" then {requested_mode:$req} elif .requested_mode then {requested_mode:.requested_mode} else {} end)' \
+      <<<"$t_old" 2>/dev/null)"
+    if [ -n "$t_new" ] && [ "$t_new" != "$(jq . "$TOPO" 2>/dev/null)" ]; then
+      tmp="$(mktemp)"
+      if printf '%s\n' "$t_new" > "$tmp" && mv -f "$tmp" "$TOPO" 2>/dev/null; then echo "  wrote: $TOPO"
+      else rm -f "$tmp"; echo "  WARN: could not write $TOPO" >&2; fi
+    else
+      echo "  keep (unchanged): $TOPO"
+    fi
+    echo "  topology: $(jq -r --arg hl "$t_hlang" '"mode=\(.mode)\(if .hub then " hub=\(.hub)" else "" end) language=\(.language // "\($hl) (hub)") git_hooks=\(.git_hooks) shared=\(.shared)"' "$TOPO" 2>/dev/null)"
+    jq -e '.git_hooks' "$TOPO" >/dev/null 2>&1 \
+      || echo "  git hooks: not installed (opt-in; refresh the index right after pull/rebase/checkout: claudehut-init --git-hooks yes)"
+  else
+    echo "  NOTE: jq missing — $TOPO not written (hooks default to mono / en)" >&2
+  fi
+fi
 
 # ---------------- worktree base: fork agent worktrees from current HEAD (idempotent) ----------------
 # ClaudeHut's parallel implementers run in `isolation: worktree`. The native default (`fresh`) branches
@@ -381,21 +617,24 @@ if command -v jq >/dev/null 2>&1; then
     # project that already has baseRef=head — i.e. every existing install and every re-run — so the
     # marketplace entry would reach nobody while a fresh-init assertion stayed green. Same failure the
     # ledger/ gitignore block below documents; asserted by init-tests' pre-seeded-baseRef upgrade case.
+    # --no-extras: the marketplace entry is never added, so an absent one does not force the merge either.
+    $NO_EXTRAS && [ -z "$have_mkt" ] && have_mkt="skip"
     if [ "$have_ref" = "head" ] && [ -n "$have_mkt" ]; then
       echo "  worktree.baseRef=head and marketplace $MKT_NAME already set in $SETTINGS"
     else
       tmp="$(mktemp)"
-      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
+      if jq --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" --argjson nx "$NO_EXTRAS" \
            '.worktree = (.worktree // {}) | .worktree.baseRef = "head"
             | .env = (.env // {}) | .env.OTEL_RESOURCE_ATTRIBUTES = ((.env.OTEL_RESOURCE_ATTRIBUTES) // $svc)
-            | .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
-            | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}})' \
+            | if $nx then . else
+                .extraKnownMarketplaces = (.extraKnownMarketplaces // {})
+                | .extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m]) // {source:{source:"github",repo:$repo}}) end' \
            "$SETTINGS" > "$tmp" 2>/dev/null; then
         # RES-X1: same untested rename — announcing the setting when the move failed is worse than silence,
         # because worktrees then fork from the wrong ref with no sign anything went wrong.
         if mv -f "$tmp" "$SETTINGS" 2>/dev/null; then
           echo "  set worktree.baseRef=head in $SETTINGS (agent worktrees fork from current HEAD)"
-          MKT_ANNOUNCE=1
+          $NO_EXTRAS || MKT_ANNOUNCE=1
         else
           rm -f "$tmp" 2>/dev/null
           echo "  WARN: could not write $SETTINGS — worktree.baseRef NOT set; dependent phases will fork from origin" >&2
@@ -410,10 +649,10 @@ if command -v jq >/dev/null 2>&1; then
     # question the team is asking. ONLY the resource attribute is written here. OTEL_EXPORTER_OTLP_HEADERS
     # carries a bearer token and must never enter a committed settings file; the endpoint and headers stay
     # in the user's own environment.
-    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" \
-         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc},
-           extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}}' > "$SETTINGS" 2>/dev/null; then
-      MKT_ANNOUNCE=1
+    if jq -n --arg svc "service.name=$PROJECT_NAME" --arg m "$MKT_NAME" --arg repo "$MKT_REPO" --argjson nx "$NO_EXTRAS" \
+         '{worktree:{baseRef:"head"}, env:{OTEL_RESOURCE_ATTRIBUTES:$svc}}
+          + (if $nx then {} else {extraKnownMarketplaces:{($m):{source:{source:"github",repo:$repo}}}} end)' > "$SETTINGS" 2>/dev/null; then
+      $NO_EXTRAS || MKT_ANNOUNCE=1
     else
       # Degraded path: jq itself failed. Keep the fallback to the one setting that breaks the fan-out if
       # it is missing; the marketplace entry is an update convenience and is not worth hand-rolled JSON.
@@ -439,7 +678,9 @@ fi
 # so we let the platform do it instead of hand-copying. Seed if absent (user-editable; never clobbered,
 # like CLAUDE.md). Only gitignored matches are copied; tracked files are never duplicated.
 WTI=".worktreeinclude"
-if [ ! -f "$WTI" ]; then
+if [ ! -f "$WTI" ] && $NO_EXTRAS; then
+  echo "  .worktreeinclude absent — not created (--no-extras)"
+elif [ ! -f "$WTI" ]; then
   { printf '# ClaudeHut: copied into agent worktrees (subagent `isolation: worktree`) so parallel\n'
     printf '# implementers see your gitignored local config. .gitignore syntax; ONLY gitignored\n'
     printf '# matching files are copied (tracked files are never duplicated). Edit freely.\n'
@@ -459,33 +700,27 @@ else
   echo "  @import slice already present in $CM"
 fi
 
-# ---------------- state/ is ephemeral: ignore it, rather than only SAYING so ----------------
-# The plane is meant to be committed except for state/, which holds per-session sidecars — ten kinds now
-# (phase state, snapshots, injected-learning ids, dispatch and rule-load ledgers, failures, suspects,
-# receipts) that accumulate for the life of a session and mean nothing to anyone else. Printing that advice
-# at the end of init left the work to the reader; write the rule instead. Idempotent.
-GI="$PROJ/.gitignore"
-if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/state/?$' "$GI" 2>/dev/null; then
-  : # already ignored
-else
-  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
-  { printf '# ClaudeHut per-session state (ephemeral; safe to delete)\n.claude/claudehut/state/\n' >> "$GI"; } 2>/dev/null \
-    && echo "  gitignored: .claude/claudehut/state/"
-fi
-
-# ---------------- ledger/ is local telemetry: ignore it too (F5, v0.12) ----------------
-# The dispatch ledger moved out of state/ so it stops being age-swept, but it is still per-machine
-# observation data, not shared project config — it must not land in anyone's diff.
-# Its guard is DELIBERATELY INDEPENDENT of the state/ block above. Folding the ledger line into that
-# block's else-branch would mean every project that already has state/ ignored — i.e. every existing
-# install — skips the branch and never gets ledger/ ignored, so the ledger would show up in real users'
-# git status while a fresh-init test stayed green. Two rules, two guards. Idempotent.
-if [ -f "$GI" ] && grep -qE '^\.claude/claudehut/ledger/?$' "$GI" 2>/dev/null; then
-  : # already ignored
-else
-  { [ -f "$GI" ] && [ -n "$(tail -c1 "$GI" 2>/dev/null)" ] && printf '\n' >> "$GI"; } 2>/dev/null || true
-  { printf '# ClaudeHut dispatch ledger (local observation data; safe to delete)\n.claude/claudehut/ledger/\n' >> "$GI"; } 2>/dev/null \
-    && echo "  gitignored: .claude/claudehut/ledger/"
+# ---------------- state/ and ledger/ stay out of git; the project .gitignore is never edited (07 §8.3) -------
+# state/ holds per-session sidecars and ledger/ per-machine dispatch telemetry: neither may land in anyone's
+# diff. Each gets its own `*` .gitignore (the index/.gitignore pattern), so fresh AND existing installs are
+# covered without touching the project's .gitignore. maintain.sh's state sweep skips the file (not *.json*).
+for d in state ledger; do
+  mkdir -p "$CHD/$d" 2>/dev/null
+  [ "$(cat "$CHD/$d/.gitignore" 2>/dev/null)" = "*" ] || { printf '*\n' > "$CHD/$d/.gitignore"; } 2>/dev/null || :
+done
+# Sharing (topology.json shared): init only reports and prints the patch; applying it is the user's call.
+if { ! $RULES_REFRESH || $REFRESH; } && git rev-parse --git-dir >/dev/null 2>&1; then
+  gi_hit="$(git check-ignore -v "$CHD/MEMORY.md" 2>/dev/null)" || gi_hit=""
+  echo
+  if [ -n "$gi_hit" ]; then
+    echo "  gitignore: $CHD/ is ignored ($gi_hit) — the plane stays local (shared:false)."
+  else
+    echo "  gitignore: $CHD/ is not ignored — topology.json says shared:false; nothing is staged or committed for you."
+  fi
+  echo "  to share the plane with the team, edit .gitignore yourself (a '.claude/' line cannot be re-included by '!'):"
+  printf '    %s\n' '.claude/*' '!.claude/claudehut/' '!.claude/rules/' '.claude/claudehut/state/' '.claude/claudehut/ledger/' \
+    '.claude/claudehut/index/' '.claude/claudehut/tasks/' 
+  echo "    then set \"shared\": true in $CHD/topology.json."
 fi
 
 # ---------------- F7: the telemetry recipe this script's own comment promises ----------------
@@ -513,4 +748,28 @@ echo "    plugins appear verbatim in agent.name; other user-defined names are re
 echo "    claudehut ships from a personal marketplace, so all 14 of its agents report as \"custom\" and"
 echo "    plugin.name reports \"third-party\". No collector at all? Run /usage inside Claude Code."
 
-echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . Commit .claude/ (except state/)."
+# ---------------- codebase index: first build + generated MEMORY part (07 §5, §8.1) ----------------
+# Deterministic extraction (the LLM never writes the index). Only in a git repo: the index is stamped with a
+# commit. Same condition as topology.json: never from the unattended --refresh-rules.
+if { ! $RULES_REFRESH || $REFRESH; } && [ -x "$IDX_CLI" ] && [ -d .git ]; then
+  echo
+  # microservice: the same update also syncs this service's contracts into the hub (links, service-links, HUB.md,
+  # the service-level graph). The hub-sync writer is claudehut-index; init only asks for it.
+  i_sync=(); [ "$(jq -r '.mode // empty' "$CHD/topology.json" 2>/dev/null)" = microservice ] && i_sync=(--hub-sync)
+  "$IDX_CLI" update ${i_sync[@]+"${i_sync[@]}"} --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || echo "  index: update failed — the next session start retries it"
+  "$IDX_CLI" memory --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || :
+  "$IDX_CLI" status --plane "$PWD/$CHD" 2>&1 | sed 's/^/  /' || :
+fi
+if [ -n "${T_HUB_ABS:-}" ] && [ "$(jq -r '.mode // empty' "$CHD/topology.json" 2>/dev/null)" = microservice ]; then
+  echo
+  echo "  hub: $T_HUB_ABS/.claude/claudehut/hub (language $(jq -r '.language // "en"' "$T_HUB_ABS/.claude/claudehut/hub/hub.json" 2>/dev/null))"
+  echo "    cross-service lookups: $IDX_CLI svc <service> | links [--service S] [--type http|kafka|lib|db]"
+  [ -f "$T_HUB_ABS/.claude/claudehut/hub/.understand-anything/knowledge-graph.json" ] \
+    && echo "    service graph: /understand-anything:understand-dashboard $T_HUB_ABS/.claude/claudehut/hub"
+fi
+
+if [ "$(jq -r '.shared // false' "$CHD/topology.json" 2>/dev/null)" = true ]; then
+  echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . shared:true — commit the plane except state/, ledger/, index/, tasks/."
+else
+  echo "claudehut-init: done. Plane under $CHD/ ; rules under $RULES/ . shared:false — the plane is local only."
+fi

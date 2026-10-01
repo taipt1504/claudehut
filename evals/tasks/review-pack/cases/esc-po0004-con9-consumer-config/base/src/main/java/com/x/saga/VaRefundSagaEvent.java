@@ -1,0 +1,2 @@
+record VaRefundSagaEvent(String sagaId) {
+}

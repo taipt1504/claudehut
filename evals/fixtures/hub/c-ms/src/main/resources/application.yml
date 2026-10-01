@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: c-ms
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/shared_db}
+  flyway:
+    url: ${SPRING_FLYWAY_URL:jdbc:postgresql://localhost:5432/shared_db}
+c:
+  x:
+    consumer:
+      topics: ${C_X_TOPICS:x.v1}
+  reactive:
+    consumer:
+      topic: ${C_REACTIVE_TOPIC:x.v1}
+f8a:
+  outbox:
+    publisher:
+      topic-prefix: "c."
+      cdc:
+        offset-storage-topic: "c.outbox.offsets"
+        schema-history-topic: "c.schema.history"

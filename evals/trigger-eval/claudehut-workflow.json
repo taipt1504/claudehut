@@ -1,15 +1,16 @@
 {
   "skill": "claudehut-workflow",
-  "description": "Use at the start of every session and whenever beginning a coding task in a Java/Spring backend - establishes the ClaudeHut 7-phase agentic workflow, the complexity-tier routing that lets small tasks skip deliberation phases, and the laws that govern which skills and rules must fire. Injected at session start; also re-anchor mid-session with /claudehut:claudehut-workflow.",
+  "description": "Use when a Java/Spring change needs a planned multi-step task - deciding between the direct, light and full routes, opening, resuming or closing a ClaudeHut task, or checking which phase skill comes next. Re-anchor mid-session with /claudehut:claudehut-workflow.",
   "should_trigger": [
     "how does this plugin's workflow work",
     "which phase am I in",
     "start a new coding task in this Spring service",
-    "what tier should this task be",
+    "should this task be direct, light or full",
     "re-anchor me on the claudehut process",
-    "why is my write being denied by the gate",
-    "what are the seven phases",
-    "do I need a spec for a one-line change"
+    "which phase skill comes next for this task",
+    "close the current ClaudeHut task",
+    "do I need a spec for a one-line change",
+    "add a Flyway migration"
   ],
   "should_not_trigger": [
     "find the settlement handler",
@@ -17,7 +18,7 @@
     "implement the change",
     "review my diff",
     "what is SQLSTATE 40001",
-    "add a Flyway migration",
+    "what does the V12 Flyway migration change",
     "list the reusable utils in this repo",
     "explain Spring transaction propagation"
   ]

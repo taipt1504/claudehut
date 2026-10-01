@@ -1,0 +1,3 @@
+class PgServiceClient {
+    WebClient web;
+}

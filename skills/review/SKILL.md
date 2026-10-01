@@ -1,160 +1,160 @@
 ---
 name: review
-description: Use in the Review phase before claiming any Java/Spring task is complete, fixed, or passing. Spawns the auditor subagents that check the implementation against every applicable skill, rule, and memory item, runs the test suite for fresh evidence, and re-spawns for at most two fix rounds before reporting what survives. Runs inline on the main thread because it owns the set-review state write.
+description: Use when a ClaudeHut light- or full-route task is implemented and about to be called done - dispatches the applicable ClaudeHut auditors, gets fresh test evidence, allows at most two fix rounds, and records the verdict. Not for reviewing an arbitrary PR or diff.
 ---
 
 # Review (phase 6 of 7)
 
-Prove the change is done — against the enforcement set, the project rules, and fresh test evidence — before
-any completion claim. Runs **inline on the main thread** — Law 7: it owns the `set-review pass` state write.
-
-## Iron Law
-
-```
-NO COMPLETION CLAIM WHILE ANY APPLICABLE SKILL, RULE, OR MEMORY ITEM IS UNSATISFIED — AND NONE WITHOUT FRESH REVIEW EVIDENCE
-```
-
-If you have not re-run the auditors **this turn**, you cannot say it passes — paraphrases included ("should
-pass", "looks compliant"). The `Stop` gate blocks turn-end until `review=pass`, and `set-review pass` **requires
-the `review.md` evidence file**.
-
-## The rigor contract
-
-The rules binding the four code-review auditors live in **`references/review-rigor.md`** (think-first · refute
-on the Spec/Enforcement + Standards axes · evidence per claim · coverage-table output · severity scale). **Cat
-that file verbatim into each code-review auditor's dispatch prompt** — it is the single source; the auditor
-bodies do not restate it. `claudehut-test-runner` is exempt (raw test output, no coverage table). (Forgetting
-to cat it is caught downstream: `set-review pass` refuses any `review.md` whose `✓` rows lack a cited locus, so
-an uninstructed auditor cannot produce a passing-but-empty review — the cat-instruction is prose, but the gate
-makes it safe.)
+Prove the change is done against the enforcement set, the project rules and fresh test evidence. Runs on the
+main thread: it picks the lanes, verifies findings and owns the `set-review` write. A pass needs auditors that
+ran this turn and a `review.md` on disk; "should pass" is not evidence.
 
 ## Flow
 
 ```mermaid
 flowchart TB
-    start([Review phase]) --> lock["SELECT auditor set — criteria before dispatch<br/>(enforcement set + git diff → which reviewers + defect floor)"]
-    lock --> fan["FAN-OUT — dispatch SELECTED auditors in ONE message<br/>(each carries review-rigor.md verbatim; test-runner ALWAYS, reviewer ALWAYS)"]
-    fan --> crit["VALIDATE/REFUTE — assume each table is wrong:<br/>open every ✓ cited locus; attack each CRITICAL/HIGH at file:line"]
-    crit --> complete{"every table complete?<br/>(row per enforcement item, ✓ rows cited, test-runner showed cmd+counts)"}
-    complete -- "no — empty/uncited table" --> redis["re-dispatch the incomplete auditor only<br/>('cite the source line or mark ✗')"]
-    redis --> crit
-    complete -- "yes" --> merge["merge surviving ✗ at MED+ → set-outstanding<br/>(+ resolve each reuse-suspect: confirm ✗ or clear n-a)"]
-    merge --> conv{"outstanding == [] AND test evidence green<br/>AND every reuse-suspect RESOLVED?"}
-    conv -- "no" --> fix["fix → claudehut:implement → re-spawn SELECTED → re-validate"]
-    fix --> fan
-    conv -- "yes" --> rec["write review.md (coverage table + cited ✓ rows + test summary)"]
-    rec --> pass(["set-review pass --evidence review.md<br/>REQUIRED NEXT: claudehut:capture-learnings"])
-    conv -. "stop_hook_active cap" .-> capped(["set-review capped + surface remaining items"])
+  s(["Review"]) --> pk["review-pack.sh --json<br/>lanes.json + one SHA-pinned pack per lane"]
+  pk --> big{"ask_user?"}
+  big -- yes --> ask[/"AskUserQuestion with ask_reason"/]
+  big -- no --> sel["accept or override lanes<br/>one reason line per change"]
+  ask --> sel
+  sel --> fan["ONE message: dispatch lanes in parallel<br/>prompt = pack path + depth"]
+  fan --> esc{"reviewer escalates a lane not run?"}
+  esc -- yes --> add["dispatch that lane once"] --> ded
+  esc -- no --> ded["dedup: file, ±3 lines, defect class"]
+  ded --> ver["open file:line of each CRITICAL/HIGH<br/>run read-only checks for Suspected"]
+  ver --> ok{"outstanding empty and tests green?"}
+  ok -- "no, round 1" --> fix["write review.md r1 → fix via claudehut:implement<br/>→ review-pack.sh --round 2 --prev review.md"] --> fan
+  ok -- "no, round 2" --> cap(["set-review capped"])
+  ok -- yes --> rec["review.md"] --> pass(["set-review pass"])
 ```
 
-## The loop
+## 1. Build the packs
 
-1. **Select the reviewers this change needs, then spawn them in ONE message.** Spawning a specialist with
-   nothing to review wastes tokens (db-reviewer on a no-DB change). Decide from two signals: the **enforcement
-   set** (Brainstorm — its rules map to reviewers) and the **changed files**. Fast-lane tiers have NO
-   enforcement set — select from changed files alone. **Profile branch — read `.profile` from the same `jq` call as the enforcement set below: on `audit`/`investigation` the deliverable is `findings.md`, not code, so review THAT with `claudehut-reviewer` + the security-auditor, and skip the test-runner UNLESS the diff below still names production files (`src/main/**`) — an audit that incidentally changed code is still tested.** Get the diff (base: upstream → remote default → `HEAD~1` only as a last resort — `HEAD~1` alone shows just the last commit of a multi-commit task):
+Read the task first; the profile picks the branch below:
 
-   ```
-   git diff --name-only $(git merge-base HEAD @{u} 2>/dev/null || git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)..HEAD; git status --porcelain
-   ```
+```
+{ claudehut-state --session ${CLAUDE_SESSION_ID} status 2>/dev/null || echo '{}'; } | jq -c '.task // {} | {profile, enforcement_set}'
+```
 
-   | Reviewer | Spawn when |
-   |---|---|
-   | `claudehut:claudehut-test-runner` | always (full tier) — evidence is non-negotiable |
-   | `claudehut:claudehut-reviewer` | always — correctness/conventions apply to any change |
-   | `claudehut:claudehut-security-auditor` | enforcement has `security/*` OR diff touches controllers/auth/security/deserialization/secrets. **Full tier: when in doubt, run it** (a false-skip ships a vuln). trivial/small: skip by default (the fast-lane bound already denied any security/auth path) |
-   | `claudehut:claudehut-perf-reviewer` | enforcement has `performance/*` OR diff touches ANY repository/`@Query`/entity/`Mono`/`Flux`/`@Cacheable`. **Full tier: default ON** — N+1 / EAGER / `.block()` hide in "pure logic" diffs. trivial/small: skip (the reviewer's fast-lane fallback table carries the same N+1/EAGER/`.block()` floor) |
-   | `claudehut:claudehut-db-reviewer` | enforcement has `framework/jpa`·`flyway`·`migration` OR diff touches `@Entity`/repository/migration files. trivial/small: skip — the fast-lane bound already denied any migration path, and the reviewer's fallback table covers `@Entity` LAZY/Lombok |
-   | `claudehut:claudehut-observability-reviewer` | enforcement has `observability/*` OR diff adds/changes an HTTP endpoint, `@KafkaListener`/message handler, `@Scheduled` job, or outbound client. **Full tier: default ON** — a new operation that ships with no metric/trace is undiagnosable in prod. trivial/small: skip |
-   | `claudehut:claudehut-contract-reviewer` | enforcement has `framework/contract*`·`kafka*` OR diff touches an event schema (`*.avsc`/`*.proto`/Avro/JSON schema), a `@KafkaListener`/producer, or a public REST/OpenAPI/gRPC endpoint. **Run whenever a schema or public contract changes** — a removed/renamed required field breaks downstream consumers silently. trivial/small: only when a schema/public contract file is actually in the diff |
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-pack.sh" --json [--route light|full] [--task <id>]
+```
 
-   **Fast-lane fold (trivial/small):** do NOT spawn a separate test-runner — fold the test run into
-   `claudehut-reviewer` (its prompt adds "run the cheapest test that proves the behavior; include the exact
-   command + real pass/fail counts"). Full tier keeps the dedicated test-runner.
+The script computes the diff base (active task: `task.base[repo]` minus `pre_dirty`; no task: merge-base),
+snapshots the tree without touching the index or worktree, and writes `lanes.json` plus one pack per lane
+(≤1,500 lines) under `tasks/<id>/review/`, or a temp dir outside a workflow. Each pack's `## Rigor` section is
+`references/review-rigor.md` copied verbatim; the pack also carries the lane's enforcement items, known
+pitfalls, `## Summer KB` when the diff touches Summer wiring, and for the reviewer the vocabulary, reuse
+suspects and (light route) the test command.
 
-   Dispatch by **qualified type** (`claudehut:claudehut-…`) — unqualified names can fail to resolve. State
-   which reviewers you selected and why (one line each) so any skip is auditable. **`$ARGUMENTS` NARROWS, never widens:** when the operator names aspects (`security`, `perf`, `db`, `contract`, `observability`, `tests`), select only those plus the always-on `claudehut-reviewer`; **with no argument the rule-driven selection above is unchanged.**
+`lanes.json`: `{base, head_tree, lanes:[{lane, agent, reasons, depth, pack, lines}], skipped:[{lane, reason}], hints, ask_user, ask_reason}`.
 
-   **Every code-review dispatch prompt MUST carry** (none of this is auto-present in the isolated subagent):
-   - **The diff itself** — paste `git diff` hunks (not just names) for the files that auditor owns. Each subagent
-     starts cold: without the hunks they all re-Read the same files, once per auditor.
-   - **`references/review-rigor.md`** verbatim + the auditor's defect-class floor. (test-runner: only "run the
-     suite fresh this turn; report the exact command + real pass/fail counts".)
-   - **Enforcement set, verbatim** — `jq -c '{profile, enforcement_set}' "${CLAUDE_PROJECT_DIR}/.claude/claudehut/state/${CLAUDE_SESSION_ID}.json"`.
-     Paste the `enforcement_set` value only (the `profile` selects the branch in step 1, it is not pasted); one coverage row per item. (Fast-lane: empty set — say so; the auditor falls back to its defect floor.)
-   - **Project pitfalls** — `"${CLAUDE_PLUGIN_ROOT}/scripts/inject-learnings.sh" --filter "<changed files + enforcement keywords>" --top 8 --max-len 200`,
-     pasted under `## Known pitfalls (check against these)`. The auditor adds a row for each. Keep `--max-len`:
-     this block is pasted into every selected auditor and re-paid each round, so it is the one caller where an
-     uncapped entry is multiplied — the session-start and per-prompt callers already cap at 200.
-   - **Vocabulary** — if `${CLAUDE_PROJECT_DIR}/.claude/claudehut/LANGUAGE.md` exists, paste it under
-     `## Project Vocabulary`. If absent, omit.
-   - **Known reuse suspects** — if `.claude/claudehut/state/${CLAUDE_SESSION_ID}.suspects.jsonl` exists, paste
-     its rows (`jq -c .`) under `## Known reuse suspects (confirm or clear each)`. The reviewer adds a row per
-     suspect — **confirm** (a real `✗`) or **clear** (`n-a: <reason>`). **`set-review pass` REFUSES until each
-     suspect's row carries a resolution token** — so this is gated, not advisory.
-   - **Summer KB compliance** — when the project has `.claude/summer-kb/` AND (enforcement has `summer-kb` OR the
-     diff touches Summer wiring: `io.f8a.summer` deps, `f8a.*`/`summer.*` properties, `Ufid`/`Txid` annotations,
-     Summer Kafka contracts, Summer types), paste under `## Summer KB compliance (verify each)` the KB
-     citations from the spec/plan. The auditor adds one coverage row per Summer touchpoint: open the cited
-     `.claude/summer-kb/<module>.md` and verify the implementation's property names, gate defaults, coordinates,
-     and contract shapes against its `Activate`/`Config keys`/`Public API`/`Gotchas` sections — a mismatch or
-     an invented name is a real `✗`. Uncited Summer touchpoints in the diff get flagged as missing citations.
+Lane defaults by route: **light** → reviewer (tests folded in); **full** → reviewer + test; security, db
+(incl. perf) and contract (incl. observability) only when a path or hunk signals them; enforcement items only ride in packs and `hints`.
+**direct** → no review unless the user asks; then run it as an out-of-workflow review (below).
 
-   Auditors with a DB/Kafka MCP **degrade gracefully** when none is connected: review statically and say so.
+If the script is missing or prints no JSON, dispatch the reviewer (plus test-runner on full) with the changed
+files from `git diff --name-only $(git merge-base HEAD @{u} 2>/dev/null || git merge-base HEAD origin/HEAD 2>/dev/null || git merge-base HEAD origin/main 2>/dev/null || echo HEAD~1)`,
+and note `degraded` in `review.md`; likewise per lane on `degraded: true` or `pack: ""` (fallback file list, no pack).
 
-2. **Validate the reports before trusting them (refute pass).** Mostly on the main thread, cheaply — the one escalation below is bounded:
-   - **Reject incomplete tables:** any code-review auditor missing a row for an enforcement-set item, or whose
-     `✓` rows lack a `file:line`+quote, or that returned bare "PASS" → **re-dispatch** it ("cite the source line
-     or mark it ✗"). (Validate the test-runner separately: it must show the command it ran this turn + real
-     counts, not an assertion.)
-   - **Refute blocking findings:** for each CRITICAL/HIGH, open the cited `file:line` and confirm the defect is
-     real before it enters outstanding.
-   **Escalated refute pass** — ONE fresh `claudehut:claudehut-reviewer` told to attack the other auditors'
-   findings + passes, **only when the diff touches security/auth/migration OR ≥2 auditors returned a CRITICAL. It counts against the 2-round cap** below.
-3. **Merge surviving outstanding** (every `✗` at MED+ not justified-and-deferred):
+**Profile branch:** on `audit`/`investigation` the deliverable is `findings.md`: dispatch the reviewer and the
+security-auditor with the pack path plus the `findings.md` path, and skip the test lane unless the pack's files
+include production code (`src/main/**`).
 
-   ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-outstanding '["framework/jpa.md: N+1 in OrderService — OrderService.java:42", "…"]'
-   ```
+## 2. Select and dispatch
 
-4. **Persist the evidence** to `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/review.md`: the merged
-   coverage table (every item + defect row → status + `file:line`), the test evidence (exact command + pass
-   count), any MED deferrals with written justification, the verdict.
-5. **Earned pass.** When outstanding == [] AND evidence is green:
+- Accept `lanes[]` as the default. Adding or dropping a lane is allowed; write one reason line per change.
+- **`$ARGUMENTS` NARROWS, never widens:** named aspects (`security`, `db`, `contract`, `tests`; aliases
+  `perf`→db, `observability`→contract) keep only those lanes plus the reviewer; with no argument the rule-driven selection above is unchanged.
+- `ask_user: true` → AskUserQuestion once with `ask_reason` (typical options: split by paths | all lanes |
+  reviewer + security). Also ask for a CRITICAL `pre-existing` finding (fix in this task or record
+  separately) and for an `uncovered` file that an external plugin could review at real cost.
+- Dispatch every selected lane in ONE message by qualified type (`claudehut:<agent>`), no `model` parameter.
+  The prompt is the pack path, `depth: standard|deep` (deep when the lane carries an enforcement item or
+  security touches auth) and the session's language line verbatim. Do not paste the diff; the pack holds it.
+- **One test source per route:** full → the test lane (`claudehut-test-runner`), and the reviewer prompt adds
+  "Do not run build/test". Light → no test-runner; the reviewer runs the pack's `## Test command`.
+- **External lane (opt-in):** only for `uncovered` files or on user request, dispatch another plugin's
+  agent/skill by its namespaced name; its findings enter the table as lane `ext:<name>` and go through the
+  same dedup and verification.
+- An auditor output without a Verdict (for example maxTurns reached) → mark the lane `incomplete`; do not
+  re-dispatch it. Bounce only an output missing a Coverage row for an enforcement item of its own lane.
+- A reviewer line `escalate: <lane> — File:NN` for a lane not run, or `partial` on a file in its `uncovered`
+  (`lanes.json`) → dispatch that lane's agent once, the reviewer's pack path and escalate line as its focus.
+
+## 3. Dedup and verify
+
+1. **Dedup** on (file, ±3 lines, defect class); keep the highest severity and count reporters.
+2. **Verify** on the main thread: open `file:line` for every CRITICAL/HIGH and confirm it before it enters
+   outstanding.
+3. **Pre-existing** is a verdict: tag it only when `git show <base>:<path>` has the same defect. A guard the diff
+   removes or loosens stays a finding. Pre-existing does not block.
+4. **Suspected:** run the read-only check yourself when the session has a matching MCP (DB, Kafka); otherwise
+   record the item as inferred.
+5. **Tie-break** only when you cannot decide: one `claudehut:claudehut-reviewer` with `mode: verify` and the
+   whole candidate list, once. It counts against the 2-round cap.
+6. **Reuse suspects:** each suspect in the reviewer's pack needs a resolution in its Coverage row (confirm as
+   `✗`, or `resolved` / `false-positive: <reason>`); `set-review pass` refuses an unresolved one.
+7. Merge surviving outstanding (every `✗` at MED+ not justified-and-deferred):
 
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence .claude/claudehut/tasks/NNNN-<slug>/review.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-outstanding '["framework/jpa.md: N+1 in OrderService — OrderService.java:42"]'
    ```
 
-   `set-review pass` refuses unless the file exists under `.claude/claudehut/`, carries a coverage table (each
-   `✓` row cited), a test-run summary, and a resolution for each staged reuse-suspect. `pass` is not a free flag.
+## 4. review.md
 
-## Test evidence (the test-runner enforces this)
+Write `.claude/claudehut/tasks/NNNN-<slug>/review.md` with these sections:
 
-Pick the **cheapest test that proves the behavior**, and reject a test that proves less than it claims:
-Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last resort, and never
-`Thread.sleep` for async (Awaitility / `StepVerifier`).
-**`references/test-matrix.md` is the ladder — read it before judging a test choice, and read the SLICE, not the whole file:** `references/test-matrix.md#web-slice-mvc`, `references/test-matrix.md#web-slice-webflux`, `references/test-matrix.md#async-without-sleep`.
+- **Header line** — `round: N · base: <sha> · head_tree: <sha>` from `lanes.json`.
+- **Lanes** — `| Lane | Agent | Run | Result | Reason |`; Run ∈ `ran | skipped | added | dropped | incomplete`,
+  Result ∈ `PASS | OUTSTANDING (n) | —`. `review-pack.sh --prev` reads this table: lanes with
+  `OUTSTANDING` carry into round 2. Write words here, not `✓`.
+- **Findings** — `| Severity | file:line | Quote | Lane | Reporters | Status |`.
+- **Coverage** — the merged rows: `| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |`. Every `✓` row
+  names a locus; the reviewer's floor rows keep this section non-empty on every route.
+- **Pre-existing** · **Tests** (exact command and counts, e.g. `./gradlew test — 42 passed`) ·
+  **Deferrals** (each MED with its justification) · **Verdict**.
+
+## 5. Round 2 and exit
+
+- Round 1 not clean: write `review.md` for round 1, fix through `claudehut:implement`, then
+  `review-pack.sh --json --round 2 --prev <review.md> --base <round-1 head_tree>`. Its lanes are the lanes
+  still `OUTSTANDING` plus the lanes the fix diff triggers (including new untracked `src` files); the test lane
+  re-runs when the fix touches source. Dispatch those and rewrite `review.md` as round 2. Judge `pre-existing`
+  against the round-1 header `base:`; a round-1 finding that still reproduces stays open.
+- **Round cap — 2 rounds.** No third round: `set-review capped`, surface the surviving items and what was tried.
 
 ## Exit
 
-`outstanding == []` + evidence green → `set-review pass`. **OR** the consecutive-`Stop` cap
-(`stop_hook_active`) reached → `set-review capped` + surface the remaining items, rather than loop forever.
+`outstanding == []` and tests green →
 
-**Round cap — 2 fix→re-spawn rounds.** Each round re-pays every dispatch from a cold context, so an uncapped
-loop is the workflow's most expensive failure mode. On round 3: `set-review capped` + surface the surviving
-items and what you tried. Within a round, re-dispatch **only the auditors owning a surviving `✗`**, scoped to
-those items.
+```
+claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence .claude/claudehut/tasks/NNNN-<slug>/review.md
+```
+
+`set-review pass` refuses a `review.md` without a coverage table, a test line with counts, a locus on each `✓`
+row, or a resolution for each reuse suspect. A task that skips Learn (a light task with nothing novel, or an
+audit/investigation stopping at `set-findings`) ends here: `claudehut-state --session ${CLAUDE_SESSION_ID} end --status done`.
+
+**Out-of-workflow review** (no active task, or a direct-route request the user asked to review): run
+`review-pack.sh --json` without `--task`, dispatch as above, and return the findings in chat. No `review.md`,
+no `set-review`.
+
+## Test evidence
+
+Judge the test choice against the **cheapest test that proves the behavior**, and reject a test that proves less
+than it claims: Testcontainers rather than an embedded fake, `@SpringBootTest` only as a last resort, and no
+`Thread.sleep` for async (Awaitility / `StepVerifier`).
+**`references/test-matrix.md` is the ladder — read it before judging a test choice, and read the SLICE, not the whole file:** `references/test-matrix.md#web-slice-mvc`, `references/test-matrix.md#web-slice-webflux`, `references/test-matrix.md#async-without-sleep`.
 
 **Java symbol lookups:** use the LSP tool (`findReferences`, `goToDefinition`), not grep — it finds the *symbol*, so it catches an implementation reached through an interface and ignores the name in a comment. Diagnostics are off here: build and tests stay the only signal for type errors.
 
-## Red flags — STOP
+## Red flags
 
-- "should pass" / "looks compliant" before the auditors re-ran this turn
-- Done with a non-empty outstanding set
-- A `✓ satisfied` row without a `file:line`+quote, or a missing row (silence ≠ pass)
-- A behavioral claim inferred from a name instead of a cited line
-- `set-review pass` without a `review.md` carrying the coverage table + test evidence
-- Downgrading a plausible correctness/perf defect to LOW to avoid blocking (confidence ≠ severity)
+- A completion claim before the lanes ran this turn, or with a non-empty outstanding set
+- A `✓` row without a `file:line` and quote, a missing in-lane row, or a claim inferred from a name
+- The diff pasted into a dispatch prompt, or two test sources on the full route
+- Downgrading a plausible correctness or perf defect to LOW to avoid blocking
 
-**REQUIRED NEXT:** `claudehut:capture-learnings`.
+**Next:** `claudehut:capture-learnings` — unless the task ended at *Exit*.

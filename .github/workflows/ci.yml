@@ -68,8 +68,13 @@ jobs:
       - name: conformance.sh (structural/wiring)
         run: bash evals/conformance.sh
 
-      - name: gate-tests.sh (write/done gate matrix)
-        run: bash evals/gate-tests.sh
+      - name: hook-tests.sh (v0.12 advisory hook contract + state schema 2, then evals/regress/*)
+        run: bash evals/hook-tests.sh
+
+      # AC12 latency is a BENCHMARK: a report on this runner, never a gate here (wall time on a shared runner
+      # says more about the runner than about the hooks). HOOK_BENCH_STRICT=1 gates it on a calibrated machine.
+      - name: hook-bench.sh (AC12 latency report, non-gating)
+        run: bash evals/hook-bench.sh
 
       - name: init-tests.sh (detect + plane generation)
         run: bash evals/init-tests.sh
@@ -85,6 +90,9 @@ jobs:
 
       - name: worktree-tests.sh (parallel-implementer worktree lifecycle)
         run: bash evals/worktree-tests.sh
+
+      - name: migrate-tests.sh (claudehut-migrate on a generated v0.11 workspace)
+        run: bash evals/migrate-tests.sh
 
       # Must stay AFTER every suite above: it reads their $EVAL_COUNT_DIR/*.count files to check the
       # README's advertised numbers. Moved earlier it still passes, by falling back to re-running each

@@ -1,28 +1,77 @@
 # ClaudeHut
 
-> **v0.11.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.12.0** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
-ClaudeHut turns a single task description into a disciplined, seven-phase engineering loop — and **enforces**
-it with native Claude Code mechanisms (hooks, skills, subagents, path-scoped rules) rather than relying on
-the model to remember:
+ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
+path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
+review, learn). Since v0.12 it no longer forces every request through all seven phases:
 
+- **Router.** Each request takes one of three routes. `direct` answers or makes a small change with no task.
+  `light` opens a task with a short `task.md`. `full` runs the phases with spec and plan approval. The rubric
+  is a 2,400 B digest injected at session start; saying "skip workflow" is honored for that request.
+- **Advisory hooks.** All 13 hook handlers only add context: no hook denies a tool call, blocks a turn from
+  ending or rewrites input. Task state is a per-task `task.json` (schema 2) written only by `claudehut-state`.
+- **Index and hub.** `claudehut-index` builds a deterministic index (components, HTTP/Kafka contracts, DB,
+  libraries) stamped with the indexed commit, and keeps it fresh after pull through optional git hooks. In a
+  microservice workspace, a knowledge hub repo links the services (`svc`, `links`, `find --svc`) and holds
+  fleet-wide learnings.
+- **Review from the diff.** `review-pack.sh` picks the review lanes (security, db, contract, tests) from the
+  changed paths and hunks; the reviewer always runs and escalates any lane that did not.
+- **Bounded artifacts and memory.** `doclint` checks spec/plan/brainstorm structure and word budgets (advisory)
+  at `set-spec`/`set-plan`; MEMORY.md has a generated part of at most 2 KB; artifacts follow the language you
+  choose at init (Tiếng Việt or English).
+
+`/claudehut:claudehut-init` sets a repo up once (stack detection, plane, rules, index). The design for v0.12
+lives in [`.claude/docs/v0.12/`](.claude/docs/v0.12/README.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+## Upgrading from v0.11
+
+What changes once the plugin is updated:
+
+- Nothing blocks any more: the write gate, the `Stop` completion gate, out-of-workflow denies and the
+  "Untriaged" notices are gone from the first session.
+- v0.11 task state (files without `schema: 2`) counts as no task. Unfinished tasks cannot be resumed; start a
+  new one with `claudehut-state start --route … --slug …` and link the old `tasks/NNNN-*` artifacts, which are
+  kept as reference.
+- `set-bypass`, `mark-skill`, `pause`, `rename` and `route` are accepted as no-ops with a notice;
+  `set-complexity` maps onto the route. `perf-reviewer` and `observability-reviewer` were folded into the db and
+  contract lanes; `db-reviewer`, `test-runner` and `reviewer` keep their names.
+- `.claude/rules/` refreshes itself when `.plugin-version` changes. The unattended refresh never adds
+  `.worktreeinclude` or the marketplace entry to a repo that does not have them.
+
+A microservice workspace migrates in one command. It backs every repo up first, and it never edits
+`.gitignore`, commits or pushes:
+
+```bash
+bin/claudehut-migrate --workspace ~/ws --hub ~/ws/<name>-knowledge --language vi --git-hooks safe --dry-run
+bin/claudehut-migrate --workspace ~/ws --hub ~/ws/<name>-knowledge --language vi --git-hooks safe --apply
+bin/claudehut-migrate --restore ~/ws/.claudehut-backup-<ts>     # puts every backed-up file back exactly
 ```
-            ┌────────────────────────────────────────────────────────────────────┐
-  init  →   │  Discover → Brainstorm → Spec → Plan → Implement → Review → Learn    │
-(pre-index) └────────────────────────────────────────────────────────────────────┘
-             reuse-first  ideation              test-first   evidence-first  reinforced
-```
 
-A **complexity triage** (Phase 0) routes each task: `trivial`/`small` tasks skip the deliberation phases
-(Brainstorm/Spec/Plan) through a **gate-verified fast lane** (≤2 files, no security/auth/migration paths —
-checked deterministically, not by model judgment); the safety rails (reuse-scan, test-first, Review) are
-never skipped in any tier.
+`--dry-run` runs the migration on a copy in a temp dir and prints, for each repo, the files it would create or
+modify (with byte sizes) and the backup it would take. `--apply` runs these steps for each repo that has
+`.claude/claudehut`:
 
-`/claudehut:claudehut-init` **pre-indexes** the codebase once (stack, structure, memory, rules) — indexing is a
-prerequisite, not a phase. After that, you describe a task and the workflow drives every phase
-automatically, gating progress so you can't skip reuse, skip tests, or claim "done" without a clean review.
+1. MEMORY.md is migrated (per-task blocks move to `MEMORY-history.md`).
+2. `merge-learnings.sh --repair` moves empty learnings to `learnings.rejected.jsonl`.
+3. The index is built.
+4. `claudehut-init --mode microservice --hub … --no-extras` runs, and the service inherits the hub language.
+5. Git hooks are installed only where no husky, lefthook or `core.hooksPath` manages them (a `core.hooksPath`
+   naming the repo's own `.git/hooks` counts as unmanaged). The hooks call a shim in the plugin's data dir
+   (`--plugin-data`, derived when run from the installed plugin), which every later index update re-points at
+   the current install, so a plugin upgrade does not leave them dead.
 
-The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md).
+Run it from the installed plugin, with every Claude session in the workspace closed. `--apply` refuses while a
+claudehut install that covers the workspace (user scope, or a project scope at or under it) is another version:
+an older plugin's hooks rewrite a migrated plane. Update those installs first (`claude plugin update`).
+A rule you deleted from `.claude/rules/` stays deleted (`rules-emitted.txt` records what init emitted); an
+explicit `claudehut-init --refresh` brings it back.
+
+After the repos, repos without a plane are hub-scanned read-only, and the workspace root's learnings move to
+the hub's `fleet-learnings.jsonl`. The old file is kept as `.migrated`, and the root `CLAUDE.md` then imports
+only `PROJECT.md` and the hub's `HUB.md`.
+
+For a single repo, `claudehut-init` (or the skill) is enough.
 
 ---
 
@@ -37,7 +86,8 @@ The full design lives in [`.claude/docs/design/`](.claude/docs/design/README.md)
   every new endpoint, listener, job, and outbound client (rule: `observability/instrumentation.md`).
 - **`claudehut-contract-reviewer`** — a Review-phase auditor for Kafka/Avro/Protobuf schema compatibility,
   consumer-driven contract tests, and REST/gRPC backward-compat (rule: `framework/contract-compat.md`).
-- **Deterministic completion gate** — `gate-done.sh` is the single authority. (v0.9.1 also ran an advisory
+- **Completion check** — *(v0.12: the `Stop` gate `gate-done.sh` was removed; the earned-evidence check in
+  `claudehut-state set-review pass` remains.)* v0.11: `gate-done.sh` was the single authority. (v0.9.1 also ran an advisory
   `agent` hook on every `Stop`; v0.9.2 removed it — its two checks were already enforced by
   `claudehut-state set-review pass`, so it paid for a model call per turn to re-derive a settled decision.)
 - **Eval self-checks** — a mermaid ultra-flow coverage guard in `conformance.sh`, per-task reference solutions
@@ -127,15 +177,18 @@ reuse-scan/spec/plan/review, per-session state, learnings) and
 
 ## How enforcement works
 
+> **v0.12 (M1):** hooks are advisory — the write gate and the completion gate below are v0.11 behavior and were
+> removed. `advise-write.sh` gives a once-per-task note on the full route before `set-plan`; nothing is denied.
+
 - **Write gate** (`PreToolUse`, tier-aware): no new production code until a reuse-scan artifact exists
   (**every tier**) plus a spec **and** plan (**full tier**). Fast lanes (`trivial`/`small`) skip spec/plan but
   only within a **deterministically checked bound** (≤2 changed files, no security/auth/migration paths) —
   exceed it and the gate denies and forces escalation to full. Test paths (`*Test.java`, `*IT.java`,
   `*/test/*`) are always allowed so the RED test can come first. The gate also verifies the named artifacts
   actually exist at canonical paths — a flag alone won't unlock it.
-- **Completion gate** (`Stop`, tier-aware): you can't claim "done" until Review reports zero outstanding
-  items and — in full/small tiers — the Learn pass has run (trivial legitimately ends at review-pass; honors
-  the native consecutive-Stop cap). Sessions that never engaged the workflow aren't blocked.
+- **Completion** *(v0.12: the `Stop` completion gate was removed)*: "done" is `set-review pass` with its
+  earned `review.md` evidence (or `set-findings` for audit/investigation), then `claudehut-state end --status
+  done`. No hook blocks a turn from ending.
 - **Iron-Law skills** order actions within a turn — reuse-first **+ the minimalism decision ladder**
   (Discover: _need-to-exist? → stdlib → Spring/dep → reuse → minimal new_), test-first (`implement`'s
   "no production code without a failing test"), evidence-first (Review). The safety floor (validation,
@@ -159,8 +212,8 @@ The tech-stack standards live on two surfaces, split by **measured** Claude Code
 
 ```bash
 # the state CLI is the SOLE writer of session state (hooks only read it):
-"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-bypass true   # disable gates this session
-"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-complexity trivial  # fast-lane a trivial task (gate still verifies the bound)
+"${CLAUDE_PLUGIN_ROOT}/bin/claudehut-state" --session "$CLAUDE_SESSION_ID" set-route light   # v0.12: the route replaces the tier (set-complexity maps onto it)
+# set-bypass was removed in v0.12 (no gate left to bypass); it is accepted as a no-op
 ```
 
 The gates also fail **open** (allow) on a missing/stale state file, and you can disable all hooks via Claude
@@ -170,13 +223,13 @@ Code's `disableAllHooks` setting.
 
 ## Components
 
-- **Agents** (`agents/`) — 14 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
+- **Agents** (`agents/`) — 12 specialists: `claudehut-explorer`, `claudehut-brainstormer`,
   `claudehut-reuse-scanner`, `claudehut-planner`, `claudehut-plan-reviewer`, `claudehut-implementer`,
-  `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-perf-reviewer`,
-  `claudehut-db-reviewer`, `claudehut-observability-reviewer`, `claudehut-contract-reviewer`,
-  `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
+  `claudehut-test-runner`, `claudehut-reviewer`, `claudehut-security-auditor`, `claudehut-db-reviewer`
+  (incl. perf), `claudehut-contract-reviewer` (incl. observability), `claudehut-learner`. The implementer runs in an isolated worktree (forked from the **current branch HEAD**
   via `worktree.baseRef=head`, which `claudehut-init` sets — so a later phase's implementer sees the
-  committed work of earlier phases); the reviewers are dispatched by `review`.
+  committed work of earlier phases); the reviewers are dispatched by `review`, one lane per
+  SHA-pinned pack that `scripts/review-pack.sh` builds from the diff (v0.12).
 - **Skills** (`skills/`) — 9 total: orchestrator (`claudehut-workflow`, with the Phase-0 complexity triage) +
   indexer (`claudehut-init`) + one per phase (`discover`, `brainstorm`, `write-spec`, `write-plan`,
   `implement`, `review`, `capture-learnings`). The `implement` skill carries the TDD Iron Law and the
@@ -186,9 +239,10 @@ Code's `disableAllHooks` setting.
   organized by domain (architecture / coding / framework / performance / security / testing) plus
   `project-structure.md` and `vocabulary.md`. Stack-gated at init — only the rules matching your detected
   stack (web / reactive / orm / messaging / cache / mapper) are emitted.
-- **Hooks** (`hooks/hooks.json` + `scripts/`) — `SessionStart` bootstrap + phase/learnings injection,
-  `UserPromptExpansion` slash skill-rail recorder, `PreToolUse`/`Stop` gates, `PostToolUse` Java formatting,
-  `PostToolUseFailure` failure capture, `SubagentStop` verification, `PreCompact` state persistence.
+- **Hooks** (`hooks/hooks.json` + `scripts/`, all advisory, always exit 0) — `SessionStart` bootstrap + async
+  maintenance, `UserPromptSubmit` learnings injection, `PreToolUse` write advisory + Agent-dispatch recorder,
+  `PostToolUse` Java formatting + reuse lint, `PostToolUseFailure` failure capture, `SubagentStart`/`SubagentStop`
+  dispatch ledger, `InstructionsLoaded` rule-load recorder.
 - **CLI tools** (`bin/`) — `claudehut-init` (deterministic stack-detect + project-plane generator),
   `claudehut-state` (the sole writer of per-session phase state), `claudehut-worktree` (parallel-implementer worktree lifecycle: check-disjoint / reconcile / sweep), and `kafka-mcp` (an optional, documented
   **stub**).
@@ -439,17 +493,22 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 754 assertions, all green on the release commit
-evals/conformance.sh              # 287  structural + behavioural wiring checks
-evals/gate-tests.sh               # 174  write/done enforcement gates
-evals/init-tests.sh               # 115  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    #  54  learnings merge, prune, injection, federation
-evals/reference-check.sh          #  24  reference oracles, MCP inventory, doc anchors, NUL bytes,
+# deterministic (free, no Claude needed) — 1555 assertions, all green on the release commit
+evals/conformance.sh              # 294  structural + behavioural wiring checks
+evals/hook-tests.sh               # 844  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
+                                  #       index-tests counts 97 there (mutants + ewallet off), 127 alone with mutants and the va-ms part;
+                                  #       hub-tests counts 51 there (ewallet, dashboard and UA validator off), 62 alone with all three
+evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
+evals/init-tests.sh               # 148  claudehut-init: detection, plane generation, migrations
+evals/merge-learnings-tests.sh    # 107  learnings merge, prune, injection, federation
+evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
-evals/worktree-tests.sh           #  53  parallel-implementer worktree lifecycle
+evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
+evals/migrate-tests.sh            #  38  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI

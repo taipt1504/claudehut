@@ -1,0 +1,2 @@
+{"desc":"${ENV} and ${ENV:default} placeholders are not secrets → security skipped","route":"full","mode":"commit",
+ "lanes":["reviewer","test"],"skipped":["security","db","contract"]}

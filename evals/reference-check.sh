@@ -267,12 +267,13 @@ while IFS= read -r script; do
   fi
 done <<'PAIRS'
 conformance.sh
-gate-tests.sh
+hook-tests.sh
 init-tests.sh
 merge-learnings-tests.sh
 worktree-tests.sh
 artifact-oracle-tests.sh
 ranker-tests.sh
+migrate-tests.sh
 PAIRS
 # The TOTAL was unchecked, which is the same drift the per-suite rows guard against one level up: every
 # row could be individually correct while the headline number stayed at a figure from two releases ago.
@@ -322,6 +323,7 @@ w18_all=""; w18_n=0
 while IFS= read -r rel; do
   case "$rel" in evals/*/*) continue ;; esac      # top-level only; lib/ and tasks/ are libraries, not suites
   case "$rel" in *.sh) ;; *) continue ;; esac
+  [ -f "$ROOT/$rel" ] || continue                 # tracked but deleted in the working tree (retired suite)
   w18_n=$((w18_n+1)); w18_all="$w18_all $(basename "$rel")"
 done < <(cd "$ROOT" && git ls-files evals/ 2>/dev/null)
 

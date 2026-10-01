@@ -25,7 +25,7 @@ chk "review.md engaged the observability axis (metric/trace/SLO/instrumentation 
   '[ -n "$rv" ] && grep -qiE "observab|metric|micrometer|trac(e|ing)|SLO|@Timed|@Observed|instrument" "$rv" 2>/dev/null'
 
 # Workflow reached an earned pass with recorded evidence.
-st=$(ls -t "$chd"/state/*.json 2>/dev/null | head -1)
+st=$(resolve_task_json "$chd")   # schema 2: follow the state pointer to tasks/<id>/task.json
 chk "review reached pass with recorded evidence" \
   '[ -n "$st" ] && jq -e ".review==\"pass\" and (.review_evidence|type==\"string\")" "$st" >/dev/null 2>&1'
 

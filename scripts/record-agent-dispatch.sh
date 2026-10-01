@@ -1,34 +1,27 @@
 #!/usr/bin/env bash
-# PreToolUse(Agent) — dispatch IDENTITY recorder (PLUMB-F-02 / PLUMB-F-06).
+# PreToolUse(Agent), SYNC (timeout 5 s) — dispatch identity recorder (PLUMB-F-02/F-06, F-1, ADR-R4).
 #
-# SubagentStart tells us a subagent started; it does not carry the requested `subagent_type`, so
-# record-dispatch.sh could log that *something* was dispatched but not *what*. The Agent tool call itself
-# does carry it, in `tool_input.subagent_type`, along with a `tool_use_id` that both sides share. This hook
-# records the identity half; the join key is the tool_use_id.
+# SubagentStart does not carry the requested subagent_type, and for a teammate dispatch (the Agent call has
+# `name`) it reports the chosen name as agent_type. The Agent call carries both, plus the tool_use_id. This
+# records name ↔ subagent_type so lib/resolve-agent.sh can join a teammate back to its real type.
 #
-# NEVER BLOCKS. This runs on PreToolUse, which is the one event that can deny a tool call, and it sits in
-# front of every fan-out in the workflow. A recorder that can return a deny decision is a new way to break
-# parallel dispatch, so this exits 0 on every path and emits no JSON at all.
-set -uo pipefail
+# SYNC on purpose (HC2-3, 05 §4 note ³): it is the only writer of the ledger that record-dispatch reads on
+# SubagentStart. An async PreToolUse does not hold the Agent tool, so the subagent could start (and resolve its
+# name) before this row lands. Never a decision: it emits nothing. The append is one short printf so concurrent dispatches
+# of a fan-out cannot interleave (fields are capped to keep the record inside one buffered write).
+# Sidecar: .claude/claudehut/state/<sid>.agent-dispatch.jsonl
 
-PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-in="$(cat || true)"
-command -v jq >/dev/null 2>&1 || exit 0
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+. "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
+hc_init
+hc_plane_or_exit
+[ -n "$HC_SID" ] || exit 0
 
-sid="$(jq -r '.session_id // empty' <<<"$in" 2>/dev/null || true)"
-[ -n "$sid" ] || exit 0
-sub="$(jq -r '.tool_input.subagent_type // empty' <<<"$in" 2>/dev/null || true)"
-tuid="$(jq -r '.tool_use_id // empty' <<<"$in" 2>/dev/null || true)"
-[ -n "$sub" ] || exit 0
-
-DIR="$PROJECT_DIR/.claude/claudehut/state"
-mkdir -p "$DIR" 2>/dev/null || exit 0
-
-# Capped for the same reason record-dispatch.sh caps: the append must stay inside one buffered write so
-# concurrent dispatches — the normal case here — cannot interleave. No lock on a pre-dispatch hook.
-sub="${sub:0:128}"; tuid="${tuid:0:128}"
-line="$(jq -nc --arg a "$sub" --arg u "$tuid" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '{ts:$t, subagent_type:$a, tool_use_id:$u}' 2>/dev/null || true)"
-[ -n "$line" ] && printf '%s\n' "$line" >> "$DIR/$sid.agent-dispatch.jsonl" 2>/dev/null
-
+line="$(jq -c --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+  select((.tool_input.subagent_type // "") != "")
+  | {ts: $t,
+     subagent_type: ((.tool_input.subagent_type | tostring)[0:128]),
+     name:          (((.tool_input.name // "") | tostring)[0:128]),
+     tool_use_id:   (((.tool_use_id // "") | tostring)[0:128])}' <<<"$HC_IN")"
+[ -n "$line" ] && printf '%s\n' "$line" >> "$PLANE/state/$HC_SID.agent-dispatch.jsonl"
 exit 0

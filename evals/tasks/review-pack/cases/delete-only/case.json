@@ -1,0 +1,3 @@
+{"desc":"a deleted file is listed by name, its hunks are not inlined","route":"light","mode":"commit","delete":["src/main/java/com/x/service/LegacyService.java"],
+ "lanes":["reviewer"],"skipped":["test","security","db","contract"],
+ "pack_contains":{"reviewer":["LegacyService.java (deletion only"]},"pack_lacks":{"reviewer":["-public class LegacyService"]}}

@@ -1,0 +1,1123 @@
+{
+ "_doc": "Replay set for evals/review-replay.sh (08-review.md AC10, 10-rollout-eval.md §5 'Recall review'). Each task: the ewallet repo, the diff range the v0.11 auditors reviewed (base..head, from the review.md scope line or the task's commits), the v0.11 dispatch count read from review.md, and every MED+ finding of that review.md with its reporter and defect class; locus is only what review.md cites (null when it cites none). class → lane: security→security · db|perf→db · contract|observability→contract · correctness|conventions|comments|duplication|dead-code|test-quality→reviewer (the reviewer floor). scope=out-of-diff marks a pre-existing finding outside the diff (reported apart, not in the diff-scope recall). v011_tier is the tier the v0.11 run used (route: small|trivial|main-thread → light, full → full). historical.source names the review-cost.sh wave (session + start) when the task falls in the transcript window, else the review.md line. Selection method and strata: header of evals/review-replay.sh. `file` (2026-10-01, file-level recall): the changed file a finding lives in, set by hand from review.md where `locus` is null or names a cited file outside the diff; review-replay.sh matches `file`, else `locus`, against the diff's files and the selector's `partial[].uncovered`.",
+ "tasks": [
+  {
+   "repo": "core-ledger-ms",
+   "task": "0007-dynamic-va-display-name-search-filter",
+   "route": "full",
+   "base": "cbf2bb9",
+   "head": "7d466b6",
+   "range_source": "task commit 7d466b6 (feat(dynamic-va): match display_name in free-text search), parent cbf2bb9",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "db-reviewer",
+     "perf-reviewer",
+     "contract-reviewer",
+     "security-auditor"
+    ],
+    "source": "review.md header 'auditors round 1'; review-cost.sh wave 2e70d1d8 2026-09-16T07:22:15Z (6) agrees"
+   },
+   "findings": [
+    {
+     "id": "DEFER-2",
+     "severity": "CRITICAL",
+     "reporter": "security-auditor",
+     "class": "security",
+     "scope": "out-of-diff",
+     "what": "AccountController state-changing endpoints behind permitAll with no @PreAuthorize (pre-existing)",
+     "locus": "SecurityConfig.java"
+    }
+   ],
+   "v011_tier": "full"
+  },
+  {
+   "repo": "payment-orchestrator-ms",
+   "task": "0001-va-payment-guarantee-posting",
+   "route": "full",
+   "base": "db7faa2",
+   "head": "4f24331",
+   "range_source": "review.md 'base main @ db7faa2'; head = parent of the first review fix ac31869",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "security-auditor",
+     "perf-reviewer",
+     "observability-reviewer",
+     "contract-reviewer"
+    ],
+    "source": "review-cost.sh wave 62d1c4c6 2026-08-21T08:36:03Z (6, incl. test-runner); review.md 'Auditors dispatched' lists 5 — transcript wins"
+   },
+   "findings": [
+    {
+     "id": "1",
+     "severity": "HIGH",
+     "reporter": "contract-reviewer",
+     "class": "contract",
+     "what": "intent paymentType stamped uniform TOPUP",
+     "locus": "VaPaymentIntentEventEmitter.java"
+    },
+    {
+     "id": "2",
+     "severity": "HIGH",
+     "reporter": "security-auditor",
+     "class": "correctness",
+     "what": "admit() checks currency presence only; non-VND posts 100x over-credit",
+     "locus": "VaLedgerCommandRouter.java"
+    },
+    {
+     "id": "4",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "comments",
+     "what": "10-line javadoc narrative over a 4-line method",
+     "locus": "VaPaymentIntentEventEmitter.java"
+    },
+    {
+     "id": "HIGH-1",
+     "severity": "HIGH",
+     "reporter": "general-reviewer",
+     "class": "contract",
+     "what": "accountId = credit leg breaks the sibling emitter convention (wallet-ms consumer)",
+     "locus": "VaPaymentIntentEventEmitter.java"
+    },
+    {
+     "id": "HIGH-2",
+     "severity": "HIGH",
+     "reporter": "general-reviewer",
+     "class": "correctness",
+     "what": "refund leg of a double payment dead-letters",
+     "locus": "VaRefundCommand (cited class)"
+    },
+    {
+     "id": "MED-2",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "dead-code",
+     "what": "CUSTOMER x STATIC route unreachable",
+     "locus": "VaLedgerCommandRouterTest.java + ProducerIds.VA_WALLET_CREDIT (cited)"
+    },
+    {
+     "id": "contract-MED",
+     "severity": "MED",
+     "reporter": "contract-reviewer",
+     "class": "contract",
+     "what": "payment-gateway-ms hardcodes channel=WINMONEY_WALLET, now reachable",
+     "locus": "VaPaymentIntentEventEmitter.java"
+    }
+   ],
+   "v011_tier": "full"
+  },
+  {
+   "repo": "va-ms",
+   "task": "0008-va-payment-flow",
+   "route": "full",
+   "base": "e15e50f",
+   "head": "92dd920",
+   "range_source": "review.md 'Scope: e15e50f..92dd920' (Phase 7)",
+   "historical": {
+    "round1_dispatches": 2,
+    "kinds": [
+     "reviewer",
+     "security-auditor"
+    ],
+    "source": "review.md: both dispatched, both died; rows verified inline"
+   },
+   "findings": [
+    {
+     "id": "MED-deferral-1",
+     "severity": "MED",
+     "reporter": "main",
+     "class": "conventions",
+     "what": "service returns a controller DTO (architecture/package-layout.md)",
+     "locus": "VaRefundBackofficeService.java"
+    },
+    {
+     "id": "truncate-dup",
+     "severity": "MED",
+     "reporter": "main",
+     "class": "duplication",
+     "what": "truncate duplicated (fixed in 92dd920)",
+     "locus": "VaRefundBackofficeService.java"
+    }
+   ],
+   "v011_tier": "full"
+  },
+  {
+   "repo": "va-ms",
+   "task": "0020-va-master-account-producer-resolve",
+   "route": "full",
+   "base": "3f6f302",
+   "head": "0ecc9dc",
+   "range_source": "task commit 0ecc9dc (feat(va): resolve TCB master account from the producer registry), parent 3f6f302",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "reviewer",
+     "db-reviewer",
+     "observability-reviewer",
+     "perf-reviewer",
+     "security-auditor",
+     "test-runner"
+    ],
+    "source": "review.md teammates rev0020-{general,db,observability,perf,security} + claudehut-test-runner; review-cost.sh wave d2ef3c19 2026-09-05T17:12:30Z (6) agrees"
+   },
+   "findings": [
+    {
+     "id": "D-1",
+     "severity": "MED",
+     "reporter": "main",
+     "class": "test-quality",
+     "what": "AC-004 test asserts the number only",
+     "locus": "VaServiceCreateMasterAccountTest.java"
+    },
+    {
+     "id": "F-1",
+     "severity": "HIGH",
+     "reporter": "general-reviewer",
+     "class": "correctness",
+     "what": "doOnError after onErrorMap swallows the root cause on the money path",
+     "locus": "CoreLedgerClient.java"
+    },
+    {
+     "id": "F-2",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "class": "comments",
+     "what": "stale javadoc names a deleted config source",
+     "locus": "VaRefundSubmitter.java"
+    },
+    {
+     "id": "F-4",
+     "severity": "MED",
+     "reporter": "perf-reviewer",
+     "class": "perf",
+     "what": "producerIdFor throws synchronously inside a reactive method (framework/webflux.md)",
+     "locus": null,
+     "file": "VaService.java"
+    },
+    {
+     "id": "F-5",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "observability",
+     "what": "WebClient without clientName → metric tag collides as localhost",
+     "locus": "CoreLedgerClient.java"
+    },
+    {
+     "id": "F-6",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "duplication",
+     "what": "forbidden process comment + 11-line mock stanza copied into 5 files",
+     "locus": "MasterAccountStubs.java"
+    },
+    {
+     "id": "F-7",
+     "severity": "MED",
+     "reporter": "security-auditor",
+     "class": "db",
+     "what": "column width mismatch with core-ledger ops_accounts turns the column into a validator",
+     "locus": "core-ledger V21__reorganize_ops_accounts.sql:27-28 (cited) vs the va-ms column",
+     "file": "V23__pin_master_account_on_dynamic_va.sql"
+    },
+    {
+     "id": "F-8",
+     "severity": "MED",
+     "reporter": "security-auditor",
+     "class": "security",
+     "what": "production TCB master account number in a test fixture",
+     "locus": "VaServiceCreateMasterAccountTest.java"
+    }
+   ],
+   "v011_tier": "full"
+  },
+  {
+   "repo": "report-service-ms",
+   "task": "0013-pg-tgtt-report-datasource-swap",
+   "route": "full",
+   "base": "4f97c6e",
+   "head": "14fe91b",
+   "range_source": "task commit 14fe91b (feat(report): read PG/TGTT report data from the cluster schemas), parent 4f97c6e; review fixes 400eab3..323c3b5 follow",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "reviewer",
+     "test-runner",
+     "perf-reviewer",
+     "security-auditor",
+     "db-reviewer",
+     "observability-reviewer"
+    ],
+    "source": "review.md 'Round 1 dispatched' (rounds 2–3 re-dispatched 4 more)"
+   },
+   "findings": [
+    {
+     "id": "1",
+     "severity": "CRITICAL",
+     "reporter": "db-reviewer",
+     "class": "db",
+     "what": "transaction_type <> 'REFUND' admits SETTLEMENT (double count)",
+     "locus": "payment-gateway-ms V62 CHECK (cited); the 02-TT/03-TT query",
+     "file": "Bc02TtTransactionStatsQuery.java"
+    },
+    {
+     "id": "2",
+     "severity": "CRITICAL",
+     "reporter": "db-reviewer",
+     "class": "db",
+     "what": "NULL <> 'REFUND' drops un-typed rows",
+     "locus": "V55:32 (cited)",
+     "file": "Bc02TtTransactionStatsQuery.java"
+    },
+    {
+     "id": "3",
+     "severity": "HIGH",
+     "reporter": "db-reviewer",
+     "class": "db",
+     "what": "aggregate includes the settlement leg",
+     "locus": "Bc06TtFraudAggregateQuery.java"
+    },
+    {
+     "id": "4",
+     "severity": "HIGH",
+     "reporter": "general-reviewer",
+     "class": "correctness",
+     "what": "blank datasource URL crashes the context (contradicts boots-degraded)",
+     "locus": "ForeignDatabaseClients.java"
+    },
+    {
+     "id": "5",
+     "severity": "HIGH",
+     "reporter": "general-reviewer",
+     "class": "correctness",
+     "what": ".cache() replays a terminal error forever",
+     "locus": "BankCodeCatalog.java"
+    },
+    {
+     "id": "6",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "correctness",
+     "what": "quocTich lost its ISO-3 normalisation",
+     "locus": "PgBc01Collector.java"
+    },
+    {
+     "id": "7",
+     "severity": "MED",
+     "reporter": "perf-reviewer",
+     "class": "perf",
+     "what": "foreign pools without acquire/create timeout or validation query",
+     "locus": "ForeignDatabaseClients.java"
+    },
+    {
+     "id": "8",
+     "severity": "MED",
+     "reporter": "perf-reviewer",
+     "class": "perf",
+     "what": "quadratic legal-rep merge",
+     "locus": "MerchantEnrichmentQuery.java"
+    },
+    {
+     "id": "9",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "class": "observability",
+     "what": "records = 1 hardcoded",
+     "locus": "AbstractTgttCollector.java"
+    },
+    {
+     "id": "10",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "duplication",
+     "what": "divide-by-10^6 implemented twice",
+     "locus": "ForeignQueryDefaults.java"
+    },
+    {
+     "id": "11",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "conventions",
+     "what": "Vietnamese identifiers in new code",
+     "locus": "SuspiciousStatusMapper.java"
+    },
+    {
+     "id": "12",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "conventions",
+     "what": "fully-qualified names where the type is importable",
+     "locus": "PgBc01Collector.java"
+    },
+    {
+     "id": "13",
+     "severity": "MED",
+     "reporter": "general-reviewer",
+     "class": "conventions",
+     "what": "Query/Catalog/Resolver missing from the vocabulary lock",
+     "locus": "LANGUAGE.md"
+    },
+    {
+     "id": "14",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "class": "test-quality",
+     "what": "fixture table not partitioned; pruning predicate untestable",
+     "locus": "payment_gateway.sql"
+    },
+    {
+     "id": "15",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "class": "observability",
+     "what": "nine query ports log nothing on success",
+     "locus": "ForeignQueryLog.java"
+    },
+    {
+     "id": "16",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "class": "observability",
+     "what": "no runtime signal for a degraded source",
+     "locus": "ForeignDatasourceHealthIndicator.java"
+    },
+    {
+     "id": "17",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "class": "observability",
+     "what": "pool saturation indistinguishable from a slow query",
+     "locus": "ForeignDatabaseClients.java"
+    }
+   ],
+   "v011_tier": "full"
+  },
+  {
+   "repo": "core-ledger-ms",
+   "task": "0005-dynamic-va-master-data",
+   "route": "full",
+   "base": "4832c1e",
+   "head": "ae51805",
+   "range_source": "single task commit ae51805 (feat(dynamic-va): project VA master data), parent 4832c1e; committed after the review (includes round-1 fix)",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "reviewer",
+     "db-reviewer",
+     "security-auditor"
+    ],
+    "source": "review-cost.sh wave 2e70d1d8 2026-09-07T02:45:36Z (3); matches review.md header (test-runner hit HTTP 429, not dispatched)"
+   },
+   "findings": [
+    {
+     "id": "SEC-1",
+     "severity": "MED",
+     "reporter": "security-auditor",
+     "what": "@Data toString() renders raw masterAccountNo",
+     "locus": "DynamicVaView.java",
+     "class": "security"
+    },
+    {
+     "id": "SEC-2",
+     "severity": "HIGH",
+     "reporter": "security-auditor",
+     "what": "secrets in local.core.yml / dev.env (pre-existing)",
+     "locus": "local.core.yml",
+     "class": "security",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "core-ledger-ms",
+   "task": "0006-dynamic-va-display-name-ops-guarantee-name",
+   "route": "full",
+   "base": "977700e",
+   "head": "4ea04fb",
+   "range_source": "six task commits 7139756..4ea04fb (same day, feat(dynamic-va|ops-account)); head = parent of the first review fix 35b1e8b",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "reviewer",
+     "test-runner",
+     "security-auditor",
+     "db-reviewer",
+     "perf-reviewer",
+     "contract-reviewer"
+    ],
+    "source": "review-cost.sh wave 2e70d1d8 2026-09-15T05:23:25Z (6); round 2 = 05:38:32Z (2)"
+   },
+   "findings": [
+    {
+     "id": "FIX-1",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "what": "no-index regression guard regex never gained display_name",
+     "locus": "DynamicVaSearchRepositoryIT.java",
+     "class": "db"
+    },
+    {
+     "id": "FIX-2",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "upsertOpsAccount overwrites guaranteeBankAccountName with null on re-seed",
+     "locus": "OpsAccountService.java",
+     "class": "correctness"
+    },
+    {
+     "id": "DEFER-1",
+     "severity": "MED",
+     "reporter": "security-auditor",
+     "what": "new field flows to a permitAll internal endpoint",
+     "locus": "OpsAccountQueryService.java",
+     "class": "security"
+    }
+   ]
+  },
+  {
+   "repo": "core-ledger-ms",
+   "task": "0008-dynamic-va-master-account-ledger-id-fix",
+   "route": "full",
+   "base": "7d466b6",
+   "head": "885b035",
+   "range_source": "single task commit 885b035 (fix(dynamic-va): resolve ledgerAccountId), parent 7d466b6; committed after the review (includes round-1 fixes)",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "db-reviewer"
+    ],
+    "source": "review-cost.sh wave 2e70d1d8 2026-09-16T09:13:28Z (3); round 2 = 09:24:44Z (1)"
+   },
+   "findings": [
+    {
+     "id": "FIX-1",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "@Schema OpenAPI description described the pre-fix defect",
+     "locus": "DynamicVaDetailResponse.java",
+     "class": "contract"
+    },
+    {
+     "id": "FIX-2",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "stale field Javadoc on JOIN_CLAUSE",
+     "locus": "DynamicVaSearchRepository.java",
+     "class": "comments"
+    }
+   ]
+  },
+  {
+   "repo": "core-ledger-ms",
+   "task": "0009-dynamic-va-search-trim-whitespace",
+   "route": "full",
+   "base": "885b035",
+   "head": "0a57497",
+   "range_source": "single task commit 0a57497 (fix(dynamic-va): match display_name/account_name ...), parent 885b035; committed after the review",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "test-runner",
+     "perf-reviewer",
+     "reviewer"
+    ],
+    "source": "review-cost.sh wave 2e70d1d8 2026-09-18T10:10:46Z (3)"
+   },
+   "findings": [
+    {
+     "id": "FIX-1",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "banned AC-00N process-metadata prefix in test comments",
+     "locus": "DynamicVaSearchRepositoryIT.java",
+     "class": "comments"
+    }
+   ]
+  },
+  {
+   "repo": "payment-gateway-ms",
+   "task": "0094-settlement-item-payment-channel",
+   "route": "full",
+   "base": "075c3f8",
+   "head": "ee64c12",
+   "range_source": "commit ee64c12 = the reviewed uncommitted diff (review.md: 26 files +494/-123, identical shortstat)",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 5,
+    "kinds": [
+     "reviewer",
+     "db-reviewer",
+     "contract-reviewer",
+     "perf-reviewer",
+     "security-auditor"
+    ],
+    "source": "review-cost.sh wave 6eed6ca3 2026-09-08T07:09:41Z (5)"
+   },
+   "findings": [
+    {
+     "id": "HIGH-1",
+     "severity": "HIGH",
+     "reporter": "reviewer",
+     "what": "streamForExport javadoc asserts a guarantee the code does not enforce",
+     "locus": "SettlementItemRepository.java",
+     "class": "comments"
+    },
+    {
+     "id": "HIGH-2",
+     "severity": "HIGH",
+     "reporter": "reviewer",
+     "what": "SettlementExportRow class javadoc false",
+     "locus": "SettlementExportRow.java",
+     "class": "comments"
+    },
+    {
+     "id": "MED-3",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "test javadoc miscounts assertions; fixture does not pin the claim",
+     "locus": "SettlementItemRepositoryDataTest.java",
+     "class": "test-quality"
+    },
+    {
+     "id": "TDD",
+     "severity": "MED",
+     "reporter": "main",
+     "what": "production written before tests (self-reported)",
+     "locus": null,
+     "class": "test-quality"
+    }
+   ]
+  },
+  {
+   "repo": "payment-gateway-ms",
+   "task": "0095-transaction-keyword-ft-id",
+   "route": "full",
+   "base": "9b7be2b",
+   "head": "02a0dc2",
+   "range_source": "commit 02a0dc2 (feat(transaction): match ft_id ...), parent 9b7be2b; review.md reviewed it uncommitted (8 files +190/-12; commit is 9 files, includes the LOW fixes)",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "reviewer",
+     "db-reviewer",
+     "security-auditor"
+    ],
+    "source": "review-cost.sh wave 6eed6ca3 2026-09-15T02:16:44Z (3)"
+   },
+   "findings": []
+  },
+  {
+   "repo": "payment-gateway-ms",
+   "task": "0100-release-recreatable-before-collect",
+   "route": "full",
+   "base": "ebfe73f",
+   "head": "def1b00",
+   "range_source": "commit def1b00 (fix(settlement): release a cycle's re-creatable items), parent ebfe73f; reviewed uncommitted, committed after the fixes",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 4,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "db-reviewer",
+     "perf-reviewer"
+    ],
+    "source": "review-cost.sh wave 3f12a4f2 2026-09-17T07:01:59Z (4)"
+   },
+   "findings": [
+    {
+     "id": "7",
+     "severity": "CRITICAL",
+     "reporter": "reviewer",
+     "what": "uncompensated release outlives the batch; settled twice",
+     "locus": "SettlementBatchService.java",
+     "class": "correctness"
+    },
+    {
+     "id": "1",
+     "severity": "HIGH",
+     "reporter": "db-reviewer",
+     "what": "release of a transaction co-held by a COMPLETED item (NOT EXISTS guard)",
+     "locus": "SettlementTransactionRepository.java",
+     "class": "db"
+    },
+    {
+     "id": "2",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "what": "links with NULL txn_created_at dropped silently in SQL",
+     "locus": "SettlementBatchService.java",
+     "class": "db"
+    },
+    {
+     "id": "3",
+     "severity": "MED",
+     "reporter": "perf-reviewer",
+     "what": "no limitRate before collectList",
+     "locus": "SettlementBatchService.java",
+     "class": "perf"
+    },
+    {
+     "id": "4",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "findReleasableRefs javadoc narrates rationale",
+     "locus": "SettlementTransactionRepository.java",
+     "class": "comments"
+    },
+    {
+     "id": "5",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "no end-to-end regression test",
+     "locus": null,
+     "class": "test-quality"
+    },
+    {
+     "id": "6",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "four IT cases assert the pre-f02069b contract, red at HEAD",
+     "locus": "SettlementBatchServiceIT.java",
+     "class": "test-quality"
+    },
+    {
+     "id": "DUP",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "releaseRefs repeats releaseAndCancel",
+     "locus": "SettlementBatchService.java",
+     "class": "duplication"
+    },
+    {
+     "id": "PRE-1",
+     "severity": "HIGH",
+     "reporter": "reviewer",
+     "what": "untracked V95 migration without @Version field (pre-existing)",
+     "locus": "V95__settlement_item_version.sql",
+     "class": "db",
+     "scope": "out-of-diff"
+    },
+    {
+     "id": "PRE-2",
+     "severity": "HIGH",
+     "reporter": "perf-reviewer",
+     "what": "PENDING in ALLOW_STATUS_RECREATE rewrites every item per re-run (from f02069b)",
+     "locus": "SettlementBatchService.java",
+     "class": "perf",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "payment-orchestrator-ms",
+   "task": "0004-va-refund-bank-two-phase",
+   "route": "full",
+   "base": "514f952",
+   "head": "e52c727",
+   "range_source": "review.md '514f952..HEAD (6 commits + review-round fixes)'; the 6 commits were squashed into e52c727 (parent 514f952), which carries the fixes",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 6,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "contract-reviewer",
+     "perf-reviewer",
+     "observability-reviewer",
+     "security-auditor"
+    ],
+    "source": "review-cost.sh wave 62d1c4c6 2026-09-16T18:03:34Z (6)"
+   },
+   "findings": [
+    {
+     "id": "CON-9",
+     "severity": "CRITICAL",
+     "reporter": "contract-reviewer",
+     "what": "documented deploy order captures a refund on the old consumer",
+     "locus": "spec.md",
+     "file": "VaLedgerCommandConsumerConfig.java",
+     "class": "contract"
+    },
+    {
+     "id": "SEC-M8",
+     "severity": "HIGH",
+     "reporter": "security-auditor",
+     "what": "confirm() cannot tell a deduped BankRefundConfirmed from an advanced one",
+     "locus": "PaymentSagaOrchestrator.java",
+     "class": "correctness"
+    },
+    {
+     "id": "OBS-1/2",
+     "severity": "HIGH",
+     "reporter": "observability-reviewer",
+     "what": "null-phase-at-gate branch has no log, falls through to a false message",
+     "locus": null,
+     "file": "VaRefundSagaOrchestrator.java",
+     "class": "observability"
+    },
+    {
+     "id": "OBS-3",
+     "severity": "HIGH",
+     "reporter": "observability-reviewer",
+     "what": "ignoreLateFailure logs WARN for a stranded hold",
+     "locus": null,
+     "file": "VaRefundSagaOrchestrator.java",
+     "class": "observability"
+    },
+    {
+     "id": "OBS-4",
+     "severity": "HIGH",
+     "reporter": "observability-reviewer",
+     "what": "failureCode() falls back to bank free text republished on payment.intent.event.v1",
+     "locus": null,
+     "file": "VaRefundSagaEvent.java",
+     "class": "contract"
+    },
+    {
+     "id": "CON-3",
+     "severity": "MED",
+     "reporter": "contract-reviewer",
+     "what": "VaRefundPhase javadoc promise contradicts the null-at-gate guard",
+     "locus": "VaRefundPhase.java",
+     "file": "VaRefundSagaOrchestrator.java",
+     "class": "contract"
+    },
+    {
+     "id": "GEN-F2",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "new guard WARNs on every successful refund",
+     "locus": null,
+     "file": "VaRefundSagaOrchestrator.java",
+     "class": "observability"
+    },
+    {
+     "id": "GEN-F3",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "FAILED branch calls router.admit that requires debitAccountId + amount",
+     "locus": null,
+     "class": "correctness"
+    },
+    {
+     "id": "F-1",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "AWAIT_BANK_REFUND_CONFIRM has no sweeper (deferred)",
+     "locus": null,
+     "class": "correctness"
+    },
+    {
+     "id": "F-4a",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "5 @Disabled tests in summer-payment-sdk (java-common-ms, merged before the task)",
+     "locus": null,
+     "class": "test-quality",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "wallet-ms",
+   "task": "0009-va-client-error-mapping",
+   "route": "full",
+   "base": "617a40b",
+   "head": "d346ea7",
+   "range_source": "single task commit d346ea7 (feat: add validate va), parent 617a40b; committed after the review",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "reviewer",
+     "test-runner",
+     "observability-reviewer"
+    ],
+    "source": "review-cost.sh wave f05b274c 2026-09-08T08:02:50Z (3)"
+   },
+   "findings": [
+    {
+     "id": "F-1",
+     "severity": "HIGH",
+     "reporter": "reviewer",
+     "what": "every unmapped downstream 4xx mapped to EXTERNAL_SERVICE_ERROR (regression)",
+     "locus": "VaClient.java",
+     "class": "correctness"
+    },
+    {
+     "id": "F-2",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "second downstream-error policy beside DownstreamErrorMapper",
+     "locus": "VaClient.java",
+     "class": "duplication"
+    },
+    {
+     "id": "D-1",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "what": "outbound failures metrically indistinguishable (Summer filter order)",
+     "locus": "WebClientBuilderFactory.java",
+     "class": "observability",
+     "scope": "out-of-diff"
+    },
+    {
+     "id": "D-2",
+     "severity": "MED",
+     "reporter": "observability-reviewer",
+     "what": "uri tag cardinality (Summer regex)",
+     "locus": null,
+     "class": "observability",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "va-ms",
+   "task": "0031-dynamic-va-owner-inquiry-webhook-retry",
+   "route": "full",
+   "base": "68044d4",
+   "head": "a56d6d8",
+   "range_source": "review.md scope '68044d4..a56d6d8' (the round-1 working-tree fixes and the core-ledger V54 part are not in the range)",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 5,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "security-auditor",
+     "db-reviewer",
+     "contract-reviewer"
+    ],
+    "source": "review-cost.sh wave 09a5aa8a 2026-09-25T01:56:49Z (5, stalled); round 2 = 02:33:50Z (4)"
+   },
+   "findings": [
+    {
+     "id": "V26-LOCK",
+     "severity": "HIGH",
+     "reporter": "db-reviewer",
+     "what": "ALTER COLUMN TYPE before CREATE INDEX in one Flyway tx",
+     "locus": "V26",
+     "file": "V26__dynamic_va_owner_id_and_webhook_delivery.sql",
+     "class": "db"
+    },
+    {
+     "id": "V26-VER",
+     "severity": "HIGH",
+     "reporter": "db-reviewer",
+     "what": "V26 version reused from a removed migration",
+     "locus": null,
+     "file": "V26__dynamic_va_owner_id_and_webhook_delivery.sql",
+     "class": "db"
+    },
+    {
+     "id": "DUP",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "callerRequired() 5th copy",
+     "locus": null,
+     "class": "duplication"
+    },
+    {
+     "id": "IDX-1",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "what": "retention deletes filter delivered_at/updated_at without index",
+     "locus": "WebhookDeliveryRepository.java",
+     "class": "perf"
+    },
+    {
+     "id": "IDX-2",
+     "severity": "MED",
+     "reporter": "db-reviewer",
+     "what": "BO list filters/sort not index-served",
+     "locus": null,
+     "file": "WebhookDeliveryRepository.java",
+     "class": "perf"
+    },
+    {
+     "id": "PACT",
+     "severity": "MED",
+     "reporter": "contract-reviewer",
+     "what": "no consumer-driven contract tooling (pre-existing, repo-wide)",
+     "locus": null,
+     "class": "contract",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "payment-gateway-ms",
+   "task": "0028-kafka-consumer-onerrorcontinue-fix",
+   "route": "full",
+   "base": "ef8e416",
+   "head": "8fd28e7",
+   "range_source": "single commit 8fd28e7 (feat(kafka): update config kafka) = the onErrorContinue→onErrorResume change, parent ef8e416",
+   "v011_tier": "full (fast-lane escalated)",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "perf-reviewer"
+    ],
+    "source": "review.md header (pre-transcript window)"
+   },
+   "findings": []
+  },
+  {
+   "repo": "party-ms",
+   "task": "0033-internal-detail-legal-rep",
+   "route": "full",
+   "base": "407737ad",
+   "head": "4c28d5ed",
+   "range_source": "single task commit 4c28d5ed (feat(internal): return legal-representative ...), parent 407737ad; 3 files = review.md's 3",
+   "v011_tier": "full (escalated from small)",
+   "historical": {
+    "round1_dispatches": 5,
+    "kinds": [
+     "test-runner",
+     "reviewer",
+     "perf-reviewer",
+     "security-auditor",
+     "contract-reviewer"
+    ],
+    "source": "review.md auditors table (pre-transcript window)"
+   },
+   "findings": [
+    {
+     "id": "PRE-HIGH",
+     "severity": "HIGH",
+     "reporter": "security-auditor",
+     "what": "pre-existing HIGH, out of scope",
+     "locus": null,
+     "class": "security",
+     "scope": "out-of-diff"
+    }
+   ]
+  },
+  {
+   "repo": "party-ms",
+   "task": "0021-fix-aml-case-monitor-onboarding-id-overflow",
+   "route": "light",
+   "base": "8e3b572b",
+   "head": "a051ec6d",
+   "range_source": "single task commit a051ec6d (fix(aml): resolve merchant case-monitor ...), parent 8e3b572b; includes V103 added during the review",
+   "v011_tier": "small",
+   "historical": {
+    "round1_dispatches": 2,
+    "kinds": [
+     "reviewer",
+     "perf-reviewer"
+    ],
+    "source": "review.md header (pre-transcript window)"
+   },
+   "findings": [
+    {
+     "id": "IDX",
+     "severity": "HIGH",
+     "reporter": "perf-reviewer",
+     "what": "missing index on merchant_onboarding_application(merchant_id)",
+     "locus": "V103",
+     "file": "MerchantAmlCaseMonitorHandler.java",
+     "class": "perf"
+    },
+    {
+     "id": "DOC",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "AmlCaseResolution javadoc claims CHECK includes PENDING",
+     "locus": "AmlCaseResolution.java",
+     "class": "comments"
+    },
+    {
+     "id": "ARMS",
+     "severity": "MED",
+     "reporter": "reviewer",
+     "what": "unreachable PENDING switch arms (justified n-a)",
+     "locus": "MerchantAmlCaseMonitorHandler.java",
+     "class": "dead-code"
+    }
+   ]
+  },
+  {
+   "repo": "party-ms",
+   "task": "0016-fix-merchant-identity-displayname-source",
+   "route": "light",
+   "base": "786b3fff",
+   "head": "080567a5",
+   "range_source": "single task commit 080567a5 (fix(merchant-identity): source list displayName ...), parent 786b3fff",
+   "v011_tier": "fast lane (main-thread review)",
+   "historical": {
+    "round1_dispatches": 0,
+    "kinds": [],
+    "source": "review.md: main-thread review, no auditor dispatched"
+   },
+   "findings": []
+  },
+  {
+   "repo": "va-ms",
+   "task": "0033-e2e-honor-skip-tests",
+   "route": "light",
+   "base": "3117acf",
+   "head": "666547d",
+   "range_source": "single commit 666547d (build(va): skip e2eTest when SKIP_TESTS is set), parent 3117acf; build.gradle only, as review.md states",
+   "v011_tier": "small (build-only)",
+   "historical": {
+    "round1_dispatches": 0,
+    "kinds": [],
+    "source": "review.md: owner review, no auditor; no review-cost wave on 2026-09-25 after 03:54Z"
+   },
+   "findings": []
+  },
+  {
+   "repo": "auth-ms",
+   "task": "0018-auth-cookie-name-prefix",
+   "route": "full",
+   "base": "20e4ed3",
+   "head": "a2a05ee",
+   "range_source": "single commit a2a05ee (feat(cookie): update key-value cookie multi portal), parent 20e4ed3; every changed file is named in review.md",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 3,
+    "kinds": [
+     "security-auditor",
+     "reviewer",
+     "test-runner"
+    ],
+    "source": "review.md header (pre-transcript window)"
+   },
+   "findings": []
+  },
+  {
+   "repo": "party-ms",
+   "task": "0020-fix-screening-aml-merchant",
+   "route": "full",
+   "base": "a26e396a",
+   "head": "592a9d25",
+   "range_source": "single task commit 592a9d25 (fix(aml): build merchant screening request ...), parent a26e396a; 4 files, all named in review.md",
+   "v011_tier": "full",
+   "historical": {
+    "round1_dispatches": 1,
+    "kinds": [
+     "reviewer"
+    ],
+    "source": "review.md coverage table (independent claudehut-reviewer; pre-transcript window)"
+   },
+   "findings": []
+  }
+ ]
+}

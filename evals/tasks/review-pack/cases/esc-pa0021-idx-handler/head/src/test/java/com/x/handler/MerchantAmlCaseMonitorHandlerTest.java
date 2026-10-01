@@ -1,0 +1,3 @@
+class MerchantAmlCaseMonitorHandlerTest {
+    TransactionalOperator tx;
+}

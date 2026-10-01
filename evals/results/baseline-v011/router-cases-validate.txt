@@ -1,0 +1,16 @@
+$ evals/router-eval.sh --validate
+  cases: 22 · direct 7 · light 6 · full 7 · ask 2
+  validate: ok
+exit=0
+
+$ evals/router-eval.sh --self-test
+  ok - valid file passes
+  ok - bad route fails
+  ok - missing rationale fails
+  ok - duplicate id fails
+  ok - ask without candidates fails
+  ok - unredacted path/credential fails
+  ok - scorer: a model that always answers direct breaks the full->direct invariant
+  ok - shipped router-cases.jsonl validates
+  self-test: 8 passed, 0 failed
+exit=0

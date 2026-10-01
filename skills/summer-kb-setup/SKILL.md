@@ -1,6 +1,6 @@
 ---
 name: summer-kb-setup
-description: Install or refresh a service-scoped Summer Framework (io.f8a.summer) knowledge base in the current consumer service's .claude/summer-kb/. Use when a service that depends on Summer needs its local KB, when onboarding a new ewallet service, when asked to "set up / install / refresh the Summer KB", or when Summer was upgraded and the local KB is stale. Detects which summer-* modules the service uses and installs only those docs plus an always-on pointer rule.
+description: Use when a service that depends on Summer Framework (io.f8a.summer) needs its local .claude/summer-kb/ installed or refreshed - onboarding an ewallet service, a request to "set up / install / refresh the Summer KB", or a Summer upgrade that left the KB stale. Installs only the docs for the summer-* modules the service uses.
 allowed-tools: Read Write Grep Glob Bash
 ---
 

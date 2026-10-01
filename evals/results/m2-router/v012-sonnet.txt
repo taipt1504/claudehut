@@ -1,0 +1,47 @@
+== router-eval: digest skills/claudehut-workflow/references/digest.md · model sonnet · 22 cases ==
+  ok   rc-01 expected direct got direct
+        first action: none
+  ok   rc-02 expected direct got direct
+        first action: none
+  ok   rc-03 expected direct got direct
+        first action: Grep pattern="businessKey" path=/private/var/folders/94/k58qvbc5081gc84tx3lskw9w0000gn/T/tmp.HKBu9N1Zp6
+  ok   rc-04 expected direct got direct · skip-workflow: no start, no bypass, no ask
+        first action: Grep for `BigDecimal` amount fields in VA (virtual account) response models, e.g. Grep pattern `BigDecimal\s+amount` with glob `**/*.java`
+  ok   rc-05 expected direct got direct
+        first action: Grep pattern `ops-account\.required|OPS_ACCOUNT_REQUIRED` across the project, to find the enum and the messages*.properties files where sibling error codes defi
+  ok   rc-06 expected direct got direct
+        first action: Grep(pattern="inquireByOrder", path="/private/var/folders/94/k58qvbc5081gc84tx3lskw9w0000gn/T/tmp.HKBu9N1Zp6")
+  ok   rc-07 expected direct got direct
+        first action: Grep(pattern="\\brenew\\b|VaService", path="/private/var/folders/94/k58qvbc5081gc84tx3lskw9w0000gn/T/tmp.HKBu9N1Zp6", glob="*.java") to find the VaService.renew
+  ok   rc-08 expected light got light
+        first action: claudehut start --route light --slug tcb-token-service-cleanup --profile feature
+  ok   rc-09 expected light got light
+        first action: claudehut start --route light --slug fold-accents-vietnamese --profile feature
+  ok   rc-10 expected light got light
+        first action: claudehut start --route light --slug remove-observer-metrics --profile feature
+  ok   rc-11 expected light got light
+        first action: start --route light --slug refund-dispatch-outbox-deserialize-event --profile feature
+  ok   rc-12 expected light got light
+        first action: claudehut start --route light --slug fix-saga-tests --profile bugfix
+  MISS rc-13 expected light got direct
+        first action: Grep pattern `class VaCommandConsumer|recordProcessed` in /private/var/folders/94/k58qvbc5081gc84tx3lskw9w0000gn/T/tmp.HKBu9N1Zp6 (after checking for `.understa
+  ok   rc-14 expected full got full
+        first action: claudehut start --route full --slug dynamic-va-view-add-bank-master-columns --profile feature
+  ok   rc-15 expected full got full
+        first action: claudehut start --route full --slug settlement-cycle-per-merchant-enhance --profile feature
+  ok   rc-16 expected full got full
+        first action: claudehut start --route full --slug va-double-paid-refund-flow --profile feature
+  ok   rc-17 expected full got full
+        first action: claudehut start --route full --slug remove-optimistic-locking-version --profile migration
+  ok   rc-18 expected full got full
+        first action: start --route full --slug dynamic-va-enhancements --profile feature
+  MISS rc-19 expected full got light
+        first action: claudehut start --route light --slug vsic-category --profile feature
+  ok   rc-20 expected full got full
+        first action: claudehut start --route full --slug resolve-payment-method-from-channel-source --profile feature
+  MISS rc-21 expected ask got light
+        first action: start --route light --slug transaction-filter-ftid --profile feature
+  MISS rc-22 expected ask got light
+        first action: claudehut start --route light --slug tcb-token-service-cleanup --profile feature --session $CLAUDEHUT_SESSION_ID
+  accuracy 18/22 · full->direct 0 (invariant: 0) · direct/light->full 0 · skip-workflow violations 0
+exit 0
