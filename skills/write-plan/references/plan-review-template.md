@@ -16,7 +16,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 Findings | cells=Gap:30w,Fix:30w
 Notes    | req=-
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- Written only by claudehut-plan-reviewer, which overwrites the file on each pass; the pass number lives in
      task state. Copy from the "# Plan review" line down to tasks/NNNN-slug/plan-review.md. The header's round is
      1 or 2. Exactly one verdict line, APPROVE or REVISE: REVISE when any finding is CRIT or HIGH. -->

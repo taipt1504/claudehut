@@ -6,7 +6,7 @@ paths:
 severity: medium
 tags: [hikaricp, r2dbc-pool, performance]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/connection-pool.md by claudehut-init. Reused & enhanced from committed rules/performance/connection-pool.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/connection-pool.md by claudehut-init. -->
 
 
 # Connection Pool Sizing

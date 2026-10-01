@@ -53,7 +53,7 @@ stays on the main thread.
 `start` or `set-route` and tell the user in one line. Going down: ask first.
 
 **Verbal override.** "skip workflow" or "làm nhanh" means `direct` for the current request: no `start`, no
-bypass request, no confirmation; an open task gets `end --status abandoned`. "làm đủ quy trình" means `full`.
+confirmation; an open task gets `end --status abandoned`. "làm đủ quy trình" means `full`.
 An override covers the current request only.
 
 ## Phases by route

@@ -6,15 +6,15 @@ paths:
 severity: medium
 tags: [coverage, jacoco]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/coverage.md by claudehut-init. Reused & enhanced from committed rules/testing/coverage.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/coverage.md by claudehut-init. -->
 
 
 # Coverage Thresholds
 
 ## Defaults
 
-- **Line coverage:** ≥ 80% (configurable via `claudehut-config.json#coverage.line_threshold`).
-- **Branch coverage:** ≥ 70% (configurable via `coverage.branch_threshold`).
+- **Line coverage:** ≥ 80% (set in the build's JaCoCo verification rule).
+- **Branch coverage:** ≥ 70% (same rule, `BRANCH` counter).
 
 ## Per-class threshold
 
@@ -77,6 +77,7 @@ Don't game branch coverage by removing legitimate `if` checks just to pass.
 - Setting threshold to 100% — leads to game-the-metric tests.
 - Excluding too aggressively — defeats the purpose.
 
-## Gate enforcement
+## Enforcement
 
-Phase 5 verify gate runs `./gradlew jacocoTestCoverageVerification`. Fail blocks promotion to Learn.
+When the verify command in `.claude/claudehut/PROJECT.md` runs `jacocoTestCoverageVerification` (Gradle) or
+`jacoco:check` (Maven), a threshold miss is a failing test result in the evidence Review records.

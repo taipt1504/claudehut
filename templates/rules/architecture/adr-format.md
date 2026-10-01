@@ -70,7 +70,7 @@ Negative:
 
 Mitigations:
 - Pair programming sessions for first 2 sprints.
-- ClaudeHut `r2dbc` skill enforces conventions.
+- ClaudeHut `framework/r2dbc` rule carries the conventions.
 
 ## Links
 
@@ -105,4 +105,3 @@ Never delete an ADR. Mark deprecated; new ADR references it.
 ## Tooling
 
 - `adr-tools` CLI: `adr new "Use R2DBC over JPA"`.
-- Phase 2 Spec skill prompts user "Should we write an ADR?" when decision logged.

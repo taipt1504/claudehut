@@ -6,7 +6,7 @@ paths:
 severity: critical
 tags: [spring-security, auth, authorization]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/security/spring-security.md by claudehut-init. Reused & enhanced from committed rules/security/spring-security.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/security/spring-security.md by claudehut-init. -->
 
 
 # Spring Security Configuration

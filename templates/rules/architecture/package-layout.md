@@ -13,7 +13,8 @@ tags: [architecture, layout]
 
 # Package Layout Rule
 
-Choose ONE layout. Don't mix. Document the choice in `.claudehut/memory/conventions.md`.
+Choose one layout and don't mix them. Record the choice in `.claude/claudehut/architecture.md`; for ddd,
+hexagonal or cqrs also set `Architecture style:` in `.claude/claudehut/PROJECT.md`, which activates the matching rule.
 
 ## Option A — Feature-slice (recommended for most projects)
 
@@ -98,7 +99,7 @@ Only use for small services (< 20 endpoints) or porting legacy.
 
 ## Enforcement
 
-Add ArchUnit test enforcing the chosen layout. ClaudeHut Phase Loop reviewer-style runs this if configured.
+Add an ArchUnit test enforcing the chosen layout, so the build fails when a dependency crosses the wrong way.
 
 ```java
 @AnalyzeClasses(packages = "com.foo")

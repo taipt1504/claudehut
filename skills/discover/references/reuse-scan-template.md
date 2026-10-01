@@ -1,14 +1,10 @@
 # Reuse-scan template (copy per task → `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`)
 
-<!-- Summary-first (reviewers read top-down — Rust RFC / Stripe pattern): the table IS the artifact;
-     evidence sections exist only where the table alone can't justify the decision. Budget: ≤450 words
-     total. The measured anti-pattern this replaces: 7 dimensions × (Searched + FOUND + DECISION +
-     narrative paragraph) = 1,178 words of which ~60% repeated the table.
-
-     v0.7 (Issue 2): a reuse scan that only answers "does X exist?" is not enough — it must answer
-     "does adopting X actually FIT this task, and what does adopting it IMPACT?". The Fit + Impact columns
-     force that judgment (semantic, not signature-match). This is cognition, not grep: reason about whether
-     the existing asset's contract serves THIS task, and the blast-radius of coupling to it. -->
+<!-- Summary-first: the table is the artifact; an Evidence section exists only where the table alone
+     cannot justify the decision, and does not repeat the table. Budget: ≤450 words total.
+     The Fit and Impact columns record whether adopting an existing asset fits this task and what adopting
+     it touches: a semantic judgment about the asset's contract and the blast radius of coupling to it,
+     not a signature match. -->
 
 
 ```markdown

@@ -8,7 +8,7 @@ severity: medium
 stack: "cache=redis,caffeine"
 tags: [cache, redis, caffeine, spring-cache, two-level-cache]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/performance/caching.md by claudehut-init. Reused & enhanced from committed rules/performance/caching.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/performance/caching.md by claudehut-init. -->
 
 # Caching
 

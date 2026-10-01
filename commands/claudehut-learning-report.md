@@ -2,8 +2,8 @@
 description: Show the ClaudeHut learning scoreboard — measured memory health (store size, reinforcement, effectiveness/recurrence, quality) so you can tell whether the agent is actually getting smarter across sessions. One-shot, read-only.
 ---
 
-Run the deterministic scoreboard and render its output verbatim — do NOT compute or invent any numbers
-yourself (honesty boundary: every figure must come from the store):
+Run the deterministic scoreboard and render its output verbatim. Every figure comes from the store, so do not
+compute or add numbers of your own:
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/learning-score.sh" --top 5

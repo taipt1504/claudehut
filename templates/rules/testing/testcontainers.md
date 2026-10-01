@@ -9,7 +9,7 @@ severity: medium
 stack: "test=testcontainers"
 tags: [testcontainers, integration-test, spring-boot]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/testcontainers.md by claudehut-init. Reused & enhanced from committed rules/testing/testcontainers.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/testcontainers.md by claudehut-init. -->
 
 
 # Testcontainers Rules

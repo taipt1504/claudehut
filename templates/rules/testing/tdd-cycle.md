@@ -7,7 +7,7 @@ paths:
 severity: high
 tags: [tdd, testing, red-green-refactor]
 ---
-<!-- ClaudeHut rule template — generated into .claude/rules/testing/tdd-cycle.md by claudehut-init. Reused & enhanced from committed rules/testing/tdd-cycle.md. -->
+<!-- ClaudeHut rule template — generated into .claude/rules/testing/tdd-cycle.md by claudehut-init. -->
 
 
 # TDD Cycle — RED → GREEN → REFACTOR
@@ -32,7 +32,7 @@ tags: [tdd, testing, red-green-refactor]
 2. Improve naming, extract helpers, dedupe.
 3. Do NOT change behavior. Tests still pass identically.
 
-## Blocked anti-patterns
+## Anti-patterns and recovery
 
 | Anti-pattern | Recovery |
 |--------------|----------|
@@ -41,7 +41,6 @@ tags: [tdd, testing, red-green-refactor]
 | Using "reference code" while writing test | Delete; write test from contract |
 | Manual test "just this once" | Add automated test |
 | Skip fail-verification step | Restart from RED |
-| Rationalize: "just this once" | No exceptions |
 
 ## Behavioral signals
 
@@ -65,7 +64,7 @@ Tests: 12, Failures: 0, Errors: 1
 ## Coverage expectation
 
 - New code: 100% line coverage for the new test.
-- Aggregate: line ≥ 0.80, branch ≥ 0.70 (configurable in `claudehut-config.json#coverage`).
+- Aggregate: line ≥ 0.80, branch ≥ 0.70 (set in the build's JaCoCo verification rule; see `testing/coverage`).
 
 ## Stack-specific
 

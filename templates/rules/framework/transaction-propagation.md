@@ -124,4 +124,4 @@ public class OrderService {
 
 ## References
 
-- See `claudehut:implement` skill for outbox + saga patterns.
+- See `claudehut:implement` skill for the outbox pattern.

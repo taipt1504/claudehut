@@ -45,7 +45,7 @@ com.foo/
 | application | domain, port |
 | adapter | application, port, framework |
 
-Enforce with ArchUnit (see `arch-unit-check` skill).
+Enforce with an ArchUnit test (example in `package-layout.md` → Enforcement).
 
 ## Example
 

@@ -133,7 +133,7 @@ Spring Boot's auto-configured `SimpleAsyncTaskExecutor` already does the right t
 
 Every virtual thread gets its own `ThreadLocal` copy. At 100 k concurrent threads, `ThreadLocal` objects holding large state multiply memory by thread count.
 
-- Prefer `ScopedValue` (JDK 21 preview → standard in later releases) <!-- [uncertain: ScopedValue finalized JDK version — verify before use] --> for read-only context propagation.
+- Prefer `ScopedValue` for read-only context propagation (a preview API on JDK 21: it needs `--enable-preview` until your JDK ships it final).
 - Audit `ThreadLocal` bearers (MDC, security context, tenant ID) — Spring's `TaskDecorator` copies MDC automatically when using `SimpleAsyncTaskExecutor`.
 
 ## Anti-patterns

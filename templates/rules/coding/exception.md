@@ -90,11 +90,10 @@ public class GlobalExceptionHandler {
 ## Logging
 
 ```java
-// GOOD — log + throw, OR rethrow without log
+// GOOD — wrap a specific exception and rethrow without logging; the handler logs it once
 try { ... }
-catch (Exception e) {
-    log.error("operation X failed", e);
-    throw new DomainException("X failed", e);
+catch (IOException e) {
+    throw new ExternalServiceException("storage", "operation X failed", e);
 }
 
 // BAD — double logging

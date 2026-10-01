@@ -64,9 +64,9 @@ flowchart TB
 4. Map the packages/classes the task touches; note the layer each lives in (controller/handler, service,
    repository/entity, listener/producer, config, security).
 5. Return a structured map: **entry points**, **key types**, **existing related code**, and an explicit
-   **"Reuse candidates"** list (component + `file:line` + why it might be adoptable) that seeds
-   `claudehut-reuse-scanner`. For each candidate say in a few words *why it's relevant to THIS task* (so the
-   scanner can score Fit), not just that it exists.
+   **"Reuse candidates"** list (component + `file:line` + why it might be adoptable). The main thread appends
+   your map to `context.md`, which the later phases read. For each candidate say in a few words *why it's
+   relevant to THIS task*, not just that it exists.
 
 ## Constraints
 

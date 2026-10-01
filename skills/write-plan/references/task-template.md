@@ -17,7 +17,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 2. Tasks    | req=light | cells=Goal:12w,Test first:60c
 Changelog   | req=-
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- task.md = the light-route plan: one obvious approach, no spec. Copy from the "# Task" line down to
      tasks/NNNN-slug/task.md. Header keys: profile feature|bugfix|migration · status draft|approved.
      Revision: edit in place, rev +1, and add "## Changelog" last with one line per rev. -->

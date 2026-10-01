@@ -23,7 +23,6 @@ Words: tokens holding a letter or digit, ignoring table pipes, separator rows, m
 Rollback             | req=migration
 Changelog            | req=-
 -->
-<!-- ch:budgets final after evals/doclint-replay.sh on 613 v0.11 artifacts (2026-09-30, 06 §10); c caps are bytes, no vi factor -->
 <!-- Spec = WHAT/WHY seen from outside. Beans, transactions, DDL and entities belong in the plan. Copy from the
      "# Spec" line down to tasks/NNNN-slug/spec.md. Headings stay English; the body follows the project language.
      Header keys: profile feature|bugfix|migration · status draft|approved · add a line

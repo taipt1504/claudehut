@@ -1,8 +1,7 @@
 # Minimalism — the lazy-senior-dev decision ladder (Spring/Java) — best-practice playbook
-<!-- claudehut: preloaded via claudehut:implement; create-time guidance. Distilled from the ponytail
-     plugin's "best code is the code you never wrote" decision ladder, adapted to Spring Boot 3.x / Java 17+.
-     Pairs with the Discover necessity+framework-first scan — this file is the create-time "what the
-     framework already gives you" reference. Less code written = fewer defects + fewer tokens. -->
+<!-- claudehut: preloaded via claudehut:implement; create-time guidance for Spring Boot 3.x / Java 17+.
+     Pairs with the Discover reuse scan — this file is the create-time "what the framework already gives
+     you" reference. -->
 
 **When:** about to write ANY new production code — before the RED test, settle which rung you are on.
 
@@ -35,7 +34,7 @@ tempts you to cut one of these, you are on the wrong rung.
 | Hand-rolling… | Use instead (rung) | Note |
 |---|---|---|
 | retry loops / `Thread.sleep` backoff | **Spring Retry** `@Retryable`/`@Recover`, or **Resilience4j** `@Retry` (2) | Resilience4j also gives `@CircuitBreaker`, `@RateLimiter`, `@Bulkhead`, `@TimeLimiter` |
-| token-bucket / sliding-window rate limiter | **Resilience4j `@RateLimiter`** or **bucket4j** (2/3) | the measured miss — a rate-limit task hand-built what a dep provides |
+| token-bucket / sliding-window rate limiter | **Resilience4j `@RateLimiter`** or **bucket4j** (2/3) | Resilience4j for per-instance limits; bucket4j for per-key or distributed buckets |
 | `ConcurrentHashMap` as a cache | **Spring Cache** `@Cacheable`/`@CacheEvict` + Caffeine/Redis (2) | declarative, with TTL/eviction; don't reinvent expiry |
 | `ExecutorService`/`Timer`/`new Thread` for periodic work | **`@Scheduled`** / `TaskScheduler` (2) | fixed-rate/cron, lifecycle-managed |
 | manual thread pool for fire-and-forget | **`@Async`** + `CompletableFuture` (2) | servlet stacks only — never inside a reactive chain |

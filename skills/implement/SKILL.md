@@ -38,7 +38,7 @@ flowchart TB
     step --> red["RED — smallest failing test for ONE behavior"]
     red --> rr{"fails for the RIGHT reason?<br/>(ran it; not a compile/typo error)"}
     rr -- "no" --> red
-    rr -- "yes" --> beat["DESIGN-BEAT (≤30s) — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
+    rr -- "yes" --> beat["DESIGN-BEAT — refute rote code:<br/>reuse anchor? simplest sufficient shape? no dup?"]
     beat --> green["GREEN — minimal code to pass<br/>(.claude/rules/ auto-load on edit; READ playbook on CREATE)"]
     green --> ev{"ran THIS turn AND green<br/>for the right reason?"}
     ev -- "no" --> first{"production code written before its test?"}
@@ -56,8 +56,8 @@ flowchart TB
 **The main thread is the orchestrator. The default for a multi-task plan is to walk the plan phase by
 phase and fan out within each phase, not to hand the whole plan to one implementer.** A real plan is
 *phased and mixed* (a sequential setup phase, then a domain phase with several independent tasks, then an
-API phase…). Collapsing all of it onto a single implementer is the serial bottleneck this rule exists to
-kill: you get one opaque agent, no visible fan-out, and a frozen task list. Don't do it.
+API phase…). Handing all of it to a single implementer serializes the work: one opaque agent, no visible
+fan-out, and a frozen task list.
 
 The `light` route has no `plan.md` — implement **inline** from `task.md` (Approach + Tasks) and skip to
 *The cycle*. If the approach needs defending against a materially different one, the task was really
@@ -89,11 +89,11 @@ The key rules it expands, summarised here so they still apply if the file is not
 ## The cycle
 
 The Flow diagram above is the cycle; the one beat that stops rote code is before GREEN — think through the
-**design beat** (≤30s): (a) **reuse?** honor the plan's reuse anchor (§1 Approach), don't re-implement what the
+**design beat**: (a) **reuse?** honor the plan's reuse anchor (§1 Approach), don't re-implement what the
 project or an installed dep already ships; (b) **simplest sufficient shape** — minimal code, not a speculative
 abstraction nor the flimsier algorithm; (c) **don't duplicate** — repeating a sibling-file helper? extract ONE shared util. (For any NEW component, the design ladder is `references/minimalism.md`.)
 
-Work the plan's T-xxx tasks in dependency order, honoring the **enforcement set** recorded in Brainstorm — every listed skill and rule must end up satisfied (Review audits exactly this set).
+Work the plan's T-xxx tasks in dependency order, honoring the **enforcement set** recorded in Spec (`set-enforcement`) — every listed skill and rule must end up satisfied (Review audits exactly this set).
 
 | Rationalization | Reality |
 |--------|---------|
@@ -106,7 +106,7 @@ Work the plan's T-xxx tasks in dependency order, honoring the **enforcement set*
 
 Two surfaces:
 - **Path-scoped rules** in `.claude/rules/` auto-load when you **read/edit an existing** matching file — terse standards, reliable on edits.
-- **They do NOT fire when you CREATE a new file** (creation ≠ a read). **So when creating a new component, READ the matching playbook below FIRST** — these `references/*` playbooks carry the create-time standard the path-rule would otherwise supply. **Completion criterion (not optional):** a new file created *without* its playbook read is an unfinished task — the create-time miss is exactly where duplication and missing-security defects enter.
+- **Path-scoped rules do not load when you create a new file** (creation is not a read), so read the matching playbook below before creating a component — these `references/*` playbooks carry the create-time standard the path-rule would otherwise supply. **Completion criterion:** a new file is done only once its playbook was read, because the create-time miss is where duplication and missing-security defects enter.
 
 | Creating / editing… | READ this playbook (create-time) | Rule that auto-loads (edit-time) |
 |---|---|---|

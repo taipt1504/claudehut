@@ -247,9 +247,10 @@ Code's `disableAllHooks` setting.
   `claudehut-state` (the sole writer of per-session phase state), `claudehut-worktree` (parallel-implementer worktree lifecycle: check-disjoint / reconcile / sweep), and `kafka-mcp` (an optional, documented
   **stub**).
 - **MCP** — opt-in per project. ClaudeHut ships no active `.mcp.json`; `claudehut-init` reads
-  `templates/mcp-recommendations.md` and _suggests_ `claude mcp add` servers in three buckets (tech-stack:
-  postgres/mysql/redis/kafka/github · memory · research). The Review auditors degrade gracefully when none
-  is connected (they review statically).
+  `templates/mcp-recommendations.md` and _suggests_ `claude mcp add` servers in two buckets (tech-stack:
+  postgres/mysql/kafka/github · research). The Review auditors hold no MCP tools: the main thread runs the
+  read-only check behind a Suspected item when a matching server is connected, and records it as inferred
+  when none is.
 - **Summer KB** (`skills/summer-kb-setup/`) — service-scoped knowledge base for the Summer Framework
   (`io.f8a.summer`). The SessionStart hook auto-installs it into any consumer project (Summer deps
   detected, no `.claude/summer-kb/`), self-heals it when the plugin ships a newer bundle (`summerCommit`

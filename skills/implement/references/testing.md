@@ -307,7 +307,7 @@ static PostgreSQLContainer<?> db = new PostgreSQLContainer<>("postgres:16-alpine
 |---|---|
 | Spring Boot 3.1 | `@ServiceConnection` replaces `@DynamicPropertySource` for TC containers |
 | Spring Boot 3.4 | `MockMvcTester` (AssertJ-native) preferred over `MockMvc` for new tests |
-| Spring Boot 3.4 | `@MockBean` / `@SpyBean` deprecated → use `@MockitoBean` / `@SpyitoBean` |
+| Spring Boot 3.4 | `@MockBean` / `@SpyBean` deprecated → use `@MockitoBean` / `@MockitoSpyBean` |
 | Mockito 3+ | `STRICT_STUBS` is default; unused stubs throw `UnnecessaryStubbingException` |
 | Testcontainers 1.20+ | `withReuse(true)` requires `testcontainers.reuse.enable=true` in `~/.testcontainers.properties`; ignored in CI unless explicitly set |
 | JUnit 5.11+ | `@ParameterizedTest` constants moved to `ParameterizedInvocationConstants`; old ones deprecated |
