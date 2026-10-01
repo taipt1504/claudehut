@@ -228,6 +228,13 @@ sum1="$(tree_sum "$WS")"
 out2="$("$MIG" --workspace "$WS" --hub "$HUB" --language vi --git-hooks safe --plugin-data "$PD" --apply 2>&1)"; rc=$?
 d="$(diff <(printf '%s\n' "$sum1") <(tree_sum "$WS"))"
 [ "$rc" = 0 ] && [ -z "$d" ] && ok "re-apply: tree identical (only a new backup dir)" || bad "re-apply changed: rc=$rc $(printf '%s' "$d" | head -8)"
+# A dry-run on the migrated tree must plan nothing: the copy's temp path ends up inside generated files (hook shim
+# path, MEMORY.md hub path), so the plan compares content with that prefix stripped (ewallet: ~50 false 'modify').
+outd2="$("$MIG" --workspace "$WS" --hub "$HUB" --language vi --git-hooks safe --plugin-data "$PD" --dry-run 2>&1)"; rc=$?
+nplan="$(grep -cE '^    (create|modify|delete) ' <<<"$outd2")"
+[ "$rc" = 0 ] && [ "$nplan" = 0 ] && ok "dry-run after apply: 0 create/modify/delete lines" \
+  || bad "dry-run after apply planned $nplan changes (rc=$rc): $(grep -E '^    (create|modify|delete) ' <<<"$outd2" | head -6)"
+[ "$sum1" = "$(tree_sum "$WS")" ] || bad "dry-run after apply wrote into the workspace"
 
 echo "== 4. restore returns the pre-apply tree"
 out3="$("$MIG" --restore "$B1" 2>&1)"; rc=$?
