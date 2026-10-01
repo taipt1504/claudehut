@@ -1,0 +1,8 @@
+# rule	file	jq predicate — library-surface rules, probed on the library fixture evals/fixtures/hub/kit-lib (index-tests §1b)
+lib-module	c	any(.[]; .kind=="module" and .name=="kit-rest-autoconfigure" and .file=="rest/rest-autoconfigure/build.gradle" and .fqn=="io.acme.kit:kit-rest-autoconfigure")
+autoconfig-imports	c	any(.[]; .kind=="autoconfig" and .fqn=="io.acme.kit.rest.KitRestAutoConfiguration" and .line==2 and .module=="kit-rest-autoconfigure" and (.file|endswith("AutoConfiguration.imports")))
+spring-factories	c	any(.[]; .kind=="autoconfig" and .fqn=="io.acme.kit.kafka.KitKafkaDltAutoConfiguration" and .line==4 and (.file|endswith("META-INF/spring.factories")))
+lib-properties	c	any(.[]; .kind=="properties" and .props_prefix=="kit.rest" and .props==["kit.rest.enabled","kit.rest.read-timeout","kit.rest.retry.max-attempts","kit.rest.clients.*.base-url"])
+lib-annotation	c	any(.[]; .kind=="annotation" and .name=="Audited" and .module=="kit-core" and .purpose=="Marks a method whose calls are written to the audit trail.")
+lib-spi	c	any(.[]; .kind=="spi" and .name=="IdGenerator" and .module=="kit-core")
+lib-bean	c	any(.[]; .kind=="bean" and .name=="KitRestAutoConfiguration#idGenerator" and .type=="IdGenerator" and (.annotations|index("ConditionalOnMissingBean")) != null)

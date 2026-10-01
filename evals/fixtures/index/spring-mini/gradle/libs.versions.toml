@@ -1,0 +1,5 @@
+[versions]
+summer = "1.5.0"
+
+[libraries]
+summer-kafka = { module = "io.f8a.summer:summer-kafka", version.ref = "summer" }

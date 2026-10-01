@@ -4,8 +4,13 @@
 # The fixture repo is built in a temp dir from evals/fixtures/index/spring-mini (+ probes.tsv).
 #
 #   1. extraction       every rule probe holds; every file passes test -f and its line points at the source;
-#                       negatives (comment, DTO, src/test, nested record); deterministic bytes; no __pycache__
-#   2. rule removal     each `# rule:` line deleted from a copy of extract.py → its probe fails (INDEX_NO_MUTANTS=1 skips)
+#                       negatives (comment, DTO, src/test, nested record); deterministic bytes; no __pycache__;
+#                       dependency coords with explicit / property / ext / catalog versions and platform (BOM) flags
+#  1b. library surface  evals/fixtures/hub/kit-lib (3 modules + BOM, java-common-ms style settings.gradle) → module,
+#                       autoconfig (imports + spring.factories), properties (+ keys), annotation, spi, bean rows with
+#                       module + file:line (lib-probes.tsv); a service gets none of these kinds
+#   2. rule removal     each `# rule:` line deleted from a copy of extract.py → its probe fails, spring-mini probes and
+#                       library probes alike (INDEX_NO_MUTANTS=1 skips)
 #   3. read-only        status/brief/find/svc/links leave every mtime of the repo (incl. .git) unchanged, fresh and
 #                       stale (CLAUDEHUT_INDEX_NO_SPAWN=1); brief ≤ budget, stale banner, vi banner, --task terms
 #   4. freshness        2 commits × 3 java files → behind 2, incremental reextracted=3; no-op; delete / rename /
@@ -86,8 +91,8 @@ while IFS=$'\t' read -r rule file pred; do
   case "$rule" in ''|'#'*) continue ;; esac
   chk "probe $rule" 'probe "$R" "$file" "$pred"'
 done < "$FX/probes.tsv"
-chk "every rule tag of extract.py has a probe and vice versa" \
-  '[ "$(grep -oE "# rule:[a-z][a-z-]*$" "$ROOT/scripts/index/extract.py" | sed "s/# rule://" | sort)" = "$(grep -vE "^#|^$" "$FX/probes.tsv" | cut -f1 | sort)" ]'
+chk "every rule tag of extract.py has a probe (probes.tsv or lib-probes.tsv) and vice versa" \
+  '[ "$(grep -oE "# rule:[a-z][a-z-]*$" "$ROOT/scripts/index/extract.py" | sed "s/# rule://" | sort)" = "$(cat "$FX/probes.tsv" "$FX/lib-probes.tsv" | grep -vE "^#|^$" | cut -f1 | sort)" ]'
 chk "row shape: id kind name file line on every row; ids unique" \
   '[ "$(comps "$R" "[.[] | select((.id|type)==\"string\" and (.kind|type)==\"string\" and (.name|type)==\"string\" and (.file|type)==\"string\" and (.line|type)==\"number\")] | length")" = "$(comps "$R" length)" ] && [ "$(comps "$R" "[.[].id] | unique | length")" = "$(comps "$R" length)" ]'
 nbad=0; nrow=0
@@ -117,14 +122,54 @@ chk "contracts.json: http_exposed mirrors the endpoints (M6 hub-sync input)" \
 
 chk "a package named out/ (hexagonal adapter/out/persistence) is source, not build output" \
   'probe "$R" c "any(.[]; .name==\"OrderPersistenceAdapter\" and .kind==\"component\")"'
+chk "dependencies: a commented-out coord is ignored; one entry per declaration line" \
+  'probe "$R" k "(any(.libs[]; .coord==\"io.f8a.summer:summer-ghost\") | not) and ([.libs[] | .at] | length == (unique | length))"'
+chk "a service gets no library-surface rows (module / autoconfig / properties / annotation / spi / bean)" \
+  '[ "$(comps "$R" "[.[] | select(.kind|IN(\"module\",\"autoconfig\",\"properties\",\"annotation\",\"spi\",\"bean\"))] | length")" = 0 ] && [ "$(meta "$R" .library)" = null ]'
+
+# ---------------------------------------------------------------- 1b. library surface
+echo "== 1b. library surface (kit-lib) =="
+LFX="$ROOT/evals/fixtures/hub/kit-lib"
+build_lib() { rm -rf "$1"; git_init "$1"; cp -R "$LFX/." "$1/"; commit_all "$1" base; mkdir -p "$1/.claude/claudehut"; }
+RL="$W/lib1"; build_lib "$RL"
+ix "$RL" update
+chk "library update: exit 0; meta.library lists the 4 modules (artifact@dir)" \
+  '[ "$RC" = 0 ] && [ "$(meta "$RL" ".library | join(\",\")")" = "kit-core@core,kit-kafka@kafka,kit-platform@platform,kit-rest-autoconfigure@rest/rest-autoconfigure" ]'
+while IFS=$'\t' read -r rule file pred; do
+  case "$rule" in ''|'#'*) continue ;; esac
+  chk "probe $rule (library)" 'probe "$RL" "$file" "$pred"'
+done < "$FX/lib-probes.tsv"
+nbad=0; nrow=0
+while IFS=$'\t' read -r kind file line fqn; do
+  nrow=$((nrow+1))
+  [ -f "$RL/$file" ] || { nbad=$((nbad+1)); continue; }
+  txt="$(sed -n "${line}p" "$RL/$file")"
+  case "$kind" in
+    module) pat='plugins' ;; autoconfig) pat="${fqn//./\\.}" ;; bean) pat='@Bean' ;; *) pat='^@|@interface |class |interface |record ' ;;
+  esac
+  printf '%s' "$txt" | grep -qE "$pat" || { nbad=$((nbad+1)); echo "    bad line: $kind $file:$line → $txt"; }
+done < <(jq -r '[.kind,.file,(.line|tostring),(.fqn // "")] | @tsv' "$RL/.claude/claudehut/index/components.jsonl")
+chk "library: $nrow/$nrow rows pass test -f and point at their declaration / registration line" '[ "$nrow" -gt 10 ] && [ "$nbad" = 0 ]'
+chk "library: every row outside the root carries its module; module rows tag the BOM" \
+  '[ "$(comps "$RL" "[.[] | select(.module == null)] | length")" = 0 ] && probe "$RL" c "any(.[]; .kind==\"module\" and .name==\"kit-platform\" and .tags==[\"bom\"])"'
+chk "library negatives: package-private interface, a non-autoconfig spring.factories key, a static constant" \
+  'probe "$RL" c "(any(.[]; .name==\"Clock2\") | not) and (any(.[]; .fqn==\"io.acme.kit.kafka.NotAnAutoConfig\") | not) and (any(.[]; .kind==\"properties\" and any(.props[]; test(\"default-name\"))) | not)"'
+chk "library: a record @ConfigurationProperties lists its components as keys" \
+  'probe "$RL" c "any(.[]; .kind==\"properties\" and .props_prefix==\"kit.kafka\" and .props==[\"kit.kafka.group-id\",\"kit.kafka.max-concurrency\"])"'
+ix "$RL" find --kind properties retry.max
+chk "find matches a properties key and prints prefix + module" '[[ "$OUT" == "properties io.acme.kit.rest.KitRestProperties prefix=kit.rest (4 keys) [kit-rest-autoconfigure] "* ]]'
+printf '// touch\n' >> "$RL/core/src/main/java/io/acme/kit/core/IdGenerator.java"; commit_all "$RL" touch
+ix "$RL" update --json
+chk "library incremental update keeps one module row per module" \
+  'jq -e ".mode==\"incremental\"" <<<"$OUT" >/dev/null && [ "$(comps "$RL" "[.[] | select(.kind==\"module\")] | length")" = 4 ]'
 
 # ---------------------------------------------------------------- 2. rule removal
 echo "== 2. rule removal (mutants) =="
 if [ "${INDEX_NO_MUTANTS:-0}" = 1 ]; then
   echo "  (skipped: INDEX_NO_MUTANTS=1)"
 else
-  M="$W/mut"; mkdir -p "$M/scripts/index" "$M/bin"; cp "$CLI" "$M/bin/"; cp "$ROOT/scripts/index/claudehut_index.py" "$M/scripts/index/"
-  RM="$W/rm"; build "$RM"
+  M="$W/mut"; mkdir -p "$M/scripts/index" "$M/bin"; cp "$CLI" "$M/bin/"; cp "$ROOT/scripts/index/claudehut_index.py" "$ROOT/scripts/index/hub.py" "$ROOT/scripts/index/memory.py" "$M/scripts/index/"
+  RM="$W/rm"; build "$RM"; RML="$W/rml"; build_lib "$RML"
   while IFS=$'\t' read -r rule file pred; do
     case "$rule" in ''|'#'*) continue ;; esac
     grep -v -E "# rule:$rule\$" "$ROOT/scripts/index/extract.py" > "$M/scripts/index/extract.py"
@@ -132,6 +177,14 @@ else
     (cd "$RM" && "$M/bin/claudehut-index" update --full >/dev/null 2>&1)
     chk "mutant -$rule: its probe fails" '! probe "$RM" "$file" "$pred"'
   done < "$FX/probes.tsv"
+  while IFS=$'\t' read -r rule file pred; do
+    case "$rule" in ''|'#'*) continue ;; esac
+    grep -v -E "# rule:$rule\$" "$ROOT/scripts/index/extract.py" > "$M/scripts/index/extract.py"
+    rm -rf "$RML/.claude/claudehut/index"
+    (cd "$RML" && "$M/bin/claudehut-index" update --full >/dev/null 2>&1)
+    chk "mutant -$rule (library): its probe fails, the index still builds" \
+      '! probe "$RML" "$file" "$pred" && [ "$(meta "$RML" .counts.total)" -gt 0 ]'
+  done < "$FX/lib-probes.tsv"
 fi
 
 # ---------------------------------------------------------------- 3. read-only
