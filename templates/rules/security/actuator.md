@@ -30,7 +30,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info
         exclude: env,heapdump,threaddump,beans,configprops
       base-path: /actuator
   endpoint:

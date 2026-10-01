@@ -30,7 +30,8 @@ production cannot see its latency, errors, and traces. Instrumentation is a floo
   error-budget target → an error-rate meter.
 - On the error branch: increment an error counter/tag AND log at the correct level with context (ERROR + stack
   for unrecoverable, WARN for recoverable) per `coding/logging-mdc`.
-- Expose Actuator + the metrics endpoint (`management.endpoints.web.exposure.include=health,metrics,prometheus`).
+- Publish meters through Micrometer. Actuator web exposure follows `security/actuator`: `health,info` by default;
+  add `prometheus` only behind the actuator ADMIN chain or a network policy that limits it to the scraper.
 
 ## DON'T
 

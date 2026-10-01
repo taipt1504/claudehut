@@ -43,7 +43,7 @@ flowchart TB
 - **Transactions** — `@Transactional` on the service for writes; no lazy access outside the boundary; R2DBC uses
   `TransactionalOperator`.
 - **Migration safety** — expand-contract; no `ADD COLUMN NOT NULL` without a default; `CREATE INDEX
-  CONCURRENTLY` on hot tables; batched backfills; Flyway naming `V<ts>__snake.sql`.
+  CONCURRENTLY` on hot tables; batched backfills; Flyway naming per `flyway-naming.md` (one version format per project; `R__` for repeatables).
 - **N+1** — a finder inside a loop/stream, a lazy collection read per element.
 - **Indexes** — each new predicate/join/sort column: cite the index in a migration, or say none was found.
 - **Reactive** — `.block()`, blocking JDBC or `Thread.sleep` on a Reactor thread; unbounded buffers.
