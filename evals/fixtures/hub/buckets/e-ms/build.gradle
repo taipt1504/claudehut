@@ -1,0 +1,2 @@
+plugins { id 'java' }
+dependencies { implementation 'org.springframework.kafka:spring-kafka' }

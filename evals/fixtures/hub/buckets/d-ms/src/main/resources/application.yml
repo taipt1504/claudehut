@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: d-ms
+  kafka:
+    topics:
+      e-cmd: ${SPRING_KAFKA_TOPICS_E_CMD:e.cmd.v1}
+clients:
+  e-service:
+    base-url: ${E_SVC_URL:}
+  bank:
+    base-url: ${MOCK_BANK_URL:http://localhost:8883}
+  partner:
+    base-url: ${PARTNER_URL:https://sandbox.partner.example.com/v1}
+  ghost-service:
+    base-url: ${GHOST_SERVICE_URL:http://localhost:8002}
+  merchant-portal:
+    login-url: ${PORTAL_LOGIN_URL:}
+  compliance:
+    url: ${COMPLIANCE_URL:http://localhost:1124}
+report:
+  datasources:
+    e:
+      url: ${REPORT_DATASOURCES_E_URL:}
+d:
+  ops-topic: ${D_OPS_TOPIC:}
+f8a:
+  outbox:
+    publisher:
+      topic-prefix: "d."

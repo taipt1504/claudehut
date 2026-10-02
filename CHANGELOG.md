@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.12.4 — 2026-10-02
+
+Hub: `unresolved` now means only "the hub could not decide". Rows the hub can explain move to two new buckets,
+`ignored` and `dynamic`, and every row there carries a `reason`, so nothing disappears silently. On the ewallet
+hub, 60 unresolved rows go down to 3 (33 ignored, 18 dynamic). 46 edges are added and 4 removed: two
+report-ms datasource "http" edges became db edges, and two wrong targets were corrected.
+
+- **Deploy manifests.** `aliases.json` takes `"manifests": "<dir>"` (relative to the hub root). The hub reads
+  helm `values.yaml` (`env: {NAME: {value}}`) and k8s `env: [{name, value}]` read-only. It skips
+  `secrets*.yaml`, `*.enc.yaml` and secret-looking keys, and it keeps only hosts, schemas and topic names. An
+  env value there decides the target: a service by image basename, applicationName or `<name>.<namespace>`, or
+  `external:<app>` for an app that is deployed but not registered in the hub, or `external:<host>`. When every
+  manifest target is external (vendors stubbed in dev/uat), the public host of the yml default stays an edge too. A manifest
+  topic value overrides `${ENV:default}`. Another service's datasource URL becomes a `db` edge to the owner of
+  its deployed schema, instead of an http edge.
+- **Profiles and dead config.** A client key from a test or local profile never becomes an edge or matches an
+  alias. It goes to `ignored`, as a copy of its main-profile key or as test-only. A URL key that no `src/main`
+  code reads (a map-registry entry nobody looks up) goes to `ignored`, and so does a portal, login or deeplink key.
+- **Kafka from source.** Handler classes now count as consumers when their `getSupportedTopics()` / `topic()`
+  returns a `@ConfigurationProperties` getter or an `@Value` field. Publisher route tables and outbox
+  `saveEvent(…, topic)` calls now count as producers, as does `saveEvent(id, "type", payload)` with a topic
+  prefix. These sources are read straight from the repo, because planes are frozen. Send sites in DLT/replay
+  code, outbox publishers and wrappers that take the topic as a parameter go to `dynamic`. An empty topic
+  property that is set nowhere goes to `ignored`, and so does a topic prefix no other service consumes.
+- `aliases.env` values may be `external:<host>`. Any user edit, including `manifests`, makes `aliases.json`
+  user-owned. `links` and HUB.md show the three buckets, and `hub-sync` prints them as
+  `N unresolved, N ignored, N dynamic`.
+
 ## 0.12.3 — 2026-10-01
 
 Prompt audit of the v0.12.2 prompt surface (111 findings), and a hub brief fix.

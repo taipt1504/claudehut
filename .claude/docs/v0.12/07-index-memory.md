@@ -113,7 +113,7 @@ Mỗi service giữ plane như mono, chỉ khác `topology.json` trỏ tới hub
 <HUB>/.claude/claudehut/hub/
 ├── hub.json             {schema:1, language:"vi"|"en"}  mặc định cho mọi service
 ├── services.json        {"<svc>":{path, remote, indexed_commit, synced_at, has_plane}}
-├── aliases.json         {env:{}, topic_owner:{}, db_owner:{}}  người dùng sửa
+├── aliases.json         {env:{}, topic_owner:{}, db_owner:{}, manifests?}  người dùng sửa; env có thể là external:<host>
 ├── links/<svc>.json     contracts từng service; repo chưa có plane được hub-scan read-only
 ├── service-links.json   cạnh xuyên service
 ├── HUB.md               ≤3 KB, path tính từ gốc hub
@@ -138,14 +138,22 @@ Mỗi service giữ plane như mono, chỉ khác `topology.json` trỏ tới hub
     {"from": "b-ms", "to": "c-ms", "type": "db", "via": "shared_db",
      "evidence": ["b-ms/src/main/resources/application.yml:NN", "c-ms/src/main/resources/application.yml:NN"], "confidence": "medium"}
   ],
-  "unresolved": [{"svc": "c-ms", "kind": "kafka_produce", "prefix": "<topic-prefix>", "at": "c-ms/…:NN"}]
+  "unresolved": [{"svc": "c-ms", "kind": "kafka_consume", "topic": "orphan.v1", "at": "c-ms/…:NN"}],
+  "ignored": [{"svc": "…", "kind": "http_client", "env": "…", "at": "…", "reason": "test/local profile copy of …"}],
+  "dynamic": [{"svc": "c-ms", "kind": "kafka_produce", "prefix": "c.", "at": "c-ms/…:NN", "reason": "outbox topic-prefix: …"}]
 }
 ```
 
+`unresolved` nghĩa là hub không quyết được. `ignored` (bản test/local profile, config không code nào đọc, link
+portal/login, topic property rỗng) và `dynamic` (DLT/replay, outbox publisher, wrapper nhận topic qua tham số,
+prefix không ai consume) luôn kèm `reason` — không có gì biến mất im lặng. `aliases.manifests` trỏ tới thư mục
+deploy manifest (helm `env: {NAME: {value}}`, k8s `env: [{name, value}]`), đọc read-only: chỉ lấy host / schema /
+topic, bỏ qua `secrets*.yaml`, `*.enc.yaml` và key dạng password/secret/token.
+
 | Loại cạnh | Luật join | Confidence |
 |-----------|-----------|------------|
-| http | `client.env` → service; `aliases.env` thắng, nếu không thì bỏ `_SERVICE_URL\|_BASE_URL\|_URL`, `_MS`, đổi kebab | `<x>`/`<x>-ms`: high; chuỗi con duy nhất: medium; không khớp: `unresolved`; host ngoài: `external:<host>` |
-| kafka | `producer.topic == consumer.topic` | chính xác: high; prefix: medium; thiếu producer: `unresolved` |
+| http | `client.env` → service; bản test/local profile → `ignored`; `aliases.env` thắng; giá trị env trong deploy manifest → service (image / applicationName, `<name>.<namespace>`), app deploy ngoài hub → `external:<app>`; nếu không thì bỏ `_SERVICE_URL\|_BASE_URL\|_URL`, `_MS`, đổi kebab; datasource của service khác → cạnh db theo schema deploy | manifest / `<x>`/`<x>-ms`: high; chuỗi con duy nhất: medium; không khớp: `unresolved` (hoặc `ignored` nếu không code nào đọc key / là link UI); host ngoài: `external:<host>` |
+| kafka | `producer.topic == consumer.topic`; thêm handler `getSupportedTopics()`/`topic()`, route table của publisher, `saveEvent(…, topic)`; giá trị manifest thắng `${ENV:default}` | chính xác: high; prefix: medium; thiếu producer: `unresolved`; DLT/outbox/wrapper, prefix không ai consume: `dynamic` |
 | lib | `io.f8a.summer:*` → java-common-ms | high |
 | db | cùng DB ở ≥2 service → shared-db; owner theo `aliases.db_owner` hoặc service có migration | chỉ phản ánh default trong repo |
 

@@ -7,9 +7,10 @@ with GIT_OPTIONAL_LOCKS=0).
 Layout (<HUB> is the hub root, e.g. <workspace>/ewallet-knowledge; H = <HUB>/.claude/claudehut/hub):
   H/hub.json              {schema:1, language?}      init writes language; the hub only creates {schema:1}
   H/services.json         {"<svc>": {path, remote, indexed_commit, synced_at, has_plane}}  path relative to <HUB>
-  H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, _suggested:{…}}  user-owned
+  H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, manifests?, _suggested:{…}}  user-owned;
+                          an env value may be external:<host>; manifests = deploy-manifest dir(s) from <HUB>
   H/links/<svc>.json      per-service contracts (+ resolved kafka topics, compact components) — plane or hub-scan
-  H/service-links.json    {schema:1, edges:[{from,to,type,via,evidence[],confidence}], unresolved:[…]}  no timestamps
+  H/service-links.json    {schema:1, edges:[…], unresolved:[…], ignored:[…+reason], dynamic:[…+reason]}  no timestamps
   H/HUB.md                ≤3 KB, paths from <HUB>
   H/.understand-anything/knowledge-graph.json + meta.json   service-level graph in UA schema (GRAPH_DIR = H)
 
@@ -18,11 +19,19 @@ Join rules (07 §4.3 table):
          (high); env stripped of _SERVICE_URL|_BASE_URL|_URL|_URI and _MS, kebab == <x>|<x>-ms (high); a property
          key segment == <x>|<x>-ms (high); a unique substring match (medium); a dotted host → external:<host>;
          else unresolved. Only entries with an http(s) default or an env ending _URL/_URI count as HTTP clients.
+         Before those: a test/local-profile entry → ignored (never an edge); a deploy-manifest value of the env
+         (aliases.manifests) → the service it names (image / applicationName, <name>.<namespace>), a deployed app
+         the hub lacks → external:<app>, a public host → external:<host>. After them: a key no src/main code reads
+         → ignored (dead config); a portal/login/deeplink key → ignored. Another service's datasource URL
+         (…datasources.<x>.url) → a db edge to the owner of its deployed schema (aliases.db_owner wins).
   kafka  consumer topics come from @KafkaListener (literal, ${prop:default}, same-file constant, SpEL
          #{'${prop:default}'.split(',')}) resolved against application*.yml; producer topics from KafkaTemplate
          literals / @Value fields (high), from yml topic keys not under a consumer path and not consumed by the same
          service (medium), and outbox topic-prefix (prefix match, medium). Exact == high unless the producer side is
-         a yml heuristic; no producer → unresolved; a prefix no consumer matches → unresolved.
+         a yml heuristic; no producer → unresolved. Source scan adds handler consumers (getSupportedTopics() /
+         topic() → props getter / @Value) and publisher route tables / outbox saveEvent topics. A manifest ENV
+         value wins over ${ENV:default}. DLT/replay, outbox and wrapper (topic parameter) send sites → dynamic; an
+         empty unset topic property → ignored; a prefix no other service consumes → dynamic.
   lib    one edge per (service, library module): a dependency whose group a registered library publishes (a repo
          extract.library_info detects as a multi-module publisher), or aliases.lib_owner / a gradle `group=` only one
          service declares / io.f8a.summer → owner, high. The edge carries module, version and version_src (explicit,
@@ -50,7 +59,16 @@ LOCK_STALE_S = 120
 CONF_W = {"high": 1, "medium": 0.6, "low": 0.3}
 DEFAULT_LIB_OWNER = {"io.f8a.summer": "java-common-ms"}
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal", ""}
-NON_HTTP_ENV = re.compile(r"(^|_)(R2DBC|FLYWAY|DATASOURCE|JDBC|REDIS|KAFKA|RABBITMQ|MONGODB?|LIQUIBASE)(_|$)")
+NON_HTTP_ENV = re.compile(r"(^|_)(R2DBC|FLYWAY|DATASOURCES?|JDBC|REDIS|KAFKA|RABBITMQ|MONGODB?|LIQUIBASE)(_|$)")
+DATASOURCE_RE = re.compile(r"(^|[._])datasources?([._]|$)", re.I)
+OWN_DS_ENV = re.compile(r"^SPRING_(R2DBC|DATASOURCE|FLYWAY|LIQUIBASE)_URL$")
+UI_LINK_RE = re.compile(r"(?i)(portal|login[-_.]?url|deep[-_.]?link|redirect[-_.]?ur[il]|frontend|web[-_.]?url)")
+FRAMEWORK_PROP = ("spring.", "management.", "server.", "logging.", "springdoc.", "resilience4j.", "eureka.", "otel.")
+SECRET_KEY = re.compile(r"(?i)(passw|secret|token|jaas|credential|private[-_]?key|api[-_]?key)")
+MANIFEST_SKIP = re.compile(r"(?i)(^|/)(secrets?[^/]*|[^/]*\.enc\.ya?ml|\.?sops[^/]*)$")
+HELM_ENV_RE = re.compile(r"(?:^|\.)env\.([A-Za-z_][A-Za-z0-9_]*)\.value$")
+K8S_ENV_RE = re.compile(r"^[ \t]*-[ \t]*name:[ \t]*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?[ \t]*\n[ \t]*value:[ \t]*['\"]?([^'\"\n#]*)", re.M)
+TOPIC_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 NON_HTTP_SCHEME = re.compile(r"^(r2dbc|jdbc|redis|rediss|mongodb|amqp|amqps|kafka|tcp|file|classpath):", re.I)
 TOPIC_SKIP_LEAF = {"offset-storage-topic", "schema-history-topic", "topic-prefix"}
 ALIAS_KEYS = ("env", "topic_owner", "db_owner", "lib_owner")
@@ -252,9 +270,19 @@ def yml_files(repo, files=None):
     return out
 
 
-def placeholder_values(expr, flat):
+def yml_val(value, over=None):
+    """A yml scalar → its effective value: ${ENV:default} → the deploy manifest's ENV value when one is set (over),
+    else the default; a plain scalar is itself."""
+    inner = extract.YML_REF_RE.search(value or "")
+    if inner and over and inner.group(1) in over:
+        return ",".join(over[inner.group(1)])
+    return (inner.group(2) if inner else value) or ""
+
+
+def placeholder_values(expr, flat, over=None):
     """'${a.b:x,y}' / "#{'${a.b:x}'.split(',')}" / a literal → ([topics], yml_at|None). Placeholders resolve against
-    application*.yml (whose value may itself be ${ENV:default}); the in-code default is the fallback."""
+    application*.yml (whose value may itself be ${ENV:default}; a deploy-manifest ENV value wins over that default);
+    the in-code default is the fallback."""
     refs = extract.YML_REF_RE.findall(expr or "")
     if not refs:
         lit = (expr or "").strip()
@@ -264,11 +292,12 @@ def placeholder_values(expr, flat):
     vals, at = [], None
     for prop, dflt in refs:
         val = None
-        if not prop.isupper():
+        if prop.isupper() and over and prop in over:
+            val = ",".join(over[prop])
+        elif not prop.isupper():
             rel, e = extract.yml_lookup(flat, prop)
             if e:
-                inner = extract.YML_REF_RE.search(e["value"])
-                val = (inner.group(2) if inner else e["value"]) or None
+                val = yml_val(e["value"], over) or None
                 at = at or "%s:%d" % (rel, e["line"])
         val = val if val is not None else (dflt or None)
         if val:
@@ -303,9 +332,8 @@ def listener_exprs(repo, rel, line):
     return out
 
 
-def value_field_expr(repo, rel, ident):
-    """topic_expr `ident` of a producer → the @Value("${…}") or constant expression that defines it (same file)."""
-    text = read_rel(repo, rel)
+def field_expr(text, ident):
+    """topic_expr `ident` → the @Value("${…}") or constant expression that defines it in `text` (one source file)."""
     if text is None:
         return None
     ident = ident.split(".")[-1].strip("() ")
@@ -321,10 +349,196 @@ def value_field_expr(repo, rel, ident):
     return None
 
 
-def kafka_sides(repo, rows, contracts, flat):
-    """→ (consumes[{topic, at[], src}], produces[{topic|prefix, at[], conf}], unresolved[])."""
-    consumes, produces, unresolved = [], [], []
+def value_field_expr(repo, rel, ident):
+    """topic_expr `ident` of a producer → the @Value("${…}") or constant expression that defines it (same file)."""
+    return field_expr(read_rel(repo, rel), ident)
+
+
+# ---------------------------------------------------------------- source scan (read-only) ---------------------
+# Planes are frozen per service (components.jsonl), so every rule below reads the repo's src/main sources here.
+PROPS_CLASS_RE = re.compile(r'@ConfigurationProperties\s*\(\s*(?:(?:prefix|value)\s*=\s*)?"([^"]+)"[^)]*\)\s*'
+                            r'(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|final|abstract|open|data)\s+)*(?:class|record)\s+(\w+)')
+CLASS_RE = re.compile(r"\b(?:class|record|object)\s+(\w+)([^{;]*)\{")
+FIELD_RE = re.compile(r"\b([A-Z]\w*)(?:<[^;=(){}]*>)?\s+(\w+)\s*[;=),]")
+GETTER_CALL_RE = re.compile(r"\b([a-z]\w*)\s*\.\s*(get\w*Topics?)\s*\(\s*\)")
+TOPIC_METHOD_RE = re.compile(r"\b(getSupportedTopics|supportedTopics|getTopics|topics|getTopic|topic)\s*\(\s*\)"
+                             r"\s*(?::\s*[\w<>?, ]+)?\s*\{")
+
+
+def code_index(repo, files):
+    """src/main Java/Kotlin texts + what binds config: @ConfigurationProperties classes {Class: (prefix, rel)}, the
+    relaxed ${…} keys and string literals the code names, and the relaxed identifiers of config-shaped files."""
+    texts = {}
+    for p in files:
+        if p.endswith((".java", ".kt")) and "src/main/" in p and not extract.excluded(p):
+            t = read_rel(repo, p)
+            if t is not None:
+                texts[p] = t
+    props, lits, refs, idents = {}, set(), set(), set()
+    for rel, t in texts.items():
+        found = PROPS_CLASS_RE.findall(t)
+        for pre, cls in found:
+            props[cls] = (pre, rel)
+        if found or re.search(r"(Properties|Props|Config|Settings)\.(java|kt)$", rel):
+            idents.update(extract.relax(x) for x in re.findall(r"\b[a-z]\w*", t))
+        for s in re.findall(r'"([^"\\\n]{1,200})"', t):
+            lits.add(extract.relax(s))
+            refs.update(extract.relax(p) for p, _d in extract.YML_REF_RE.findall(s))
+    return {"texts": texts, "props": props, "lits": lits, "refs": refs, "idents": idents}
+
+
+def prop_bound(prop, code):
+    """False only when nothing in src/main can read `prop`: no ${prop} in code, no string literal naming its owning
+    segment (a map-style registry looks the entry up by that name), no config class field of that name. Framework
+    namespaces (spring., management., …) are bound by Spring itself."""
+    if not prop or not code or prop.startswith(FRAMEWORK_PROP):
+        return True
+    segs = prop.split(".")
+    if len(segs) < 2 or extract.relax(prop) in code["refs"]:
+        return True
+    seg = extract.relax(segs[-2])
+    return seg in code["lits"] or seg in code["idents"]
+
+
+def body_at(t, i):
+    """t[i] == '{' (or '(') → (inner text, index of the matching close)."""
+    o = t[i]
+    c = "}" if o == "{" else ")"
+    depth = 0
+    for j in range(i, len(t)):
+        if t[j] == o:
+            depth += 1
+        elif t[j] == c:
+            depth -= 1
+            if depth == 0:
+                return t[i + 1:j], j
+    return t[i + 1:], len(t)
+
+
+def getter_entry(code, cls, getter, flat):
+    """props.get<X>Topic() on a @ConfigurationProperties class → (yml rel, entry) of the key it reads: the constant
+    passed to its map lookup (getTopic(TOPIC_X_KEY) → <prefix>.….<key>), the field it returns, or the getter name
+    itself (Lombok). Test/local profiles are never the source."""
+    pre, rel = code["props"][cls]
+    t = code["texts"].get(rel, "")
+    cands = []
+    m = re.search(r"\b%s\s*\(\s*\)\s*(?::\s*\w+\s*)?\{([^{}]*)\}" % re.escape(getter), t)
+    if m:
+        consts = dict(extract.CONST_RE.findall(t))
+        c = re.search(r"\(\s*(?:\w+\.)?([A-Z][A-Z0-9_]*)\s*[,)]", m.group(1))
+        if c and c.group(1) in consts:
+            cands.append(consts[c.group(1)])
+        r = re.search(r"return\s+(?:this\.)?([a-z]\w*)\s*;", m.group(1))
+        if r:
+            cands.append(r.group(1))
+    else:
+        x = getter[3:]
+        cands += [x, re.sub(r"Topics?$", "", x)]
+    rp = extract.relax(pre) + "."
+    for want in [extract.relax(c) for c in cands if c]:
+        for frel in sorted((r for r in flat if ev_rank(r) < 2), key=lambda r: (ev_rank(r), r)):
+            for e in flat[frel]:
+                q = extract.relax(e["prop"])
+                if q.startswith(rp) and (q == rp + want or q.endswith("." + want)):
+                    return frel, e
+    return None, None
+
+
+def code_kafka(code, flat, over, prefixes):
+    """Source-level Kafka sides the component rows miss → (consumes, produces):
+    consume  a handler class (name/supertype Handler|Consumer|Listener|Subscriber) whose getSupportedTopics()/topic()
+             returns props.get<X>Topic(), an @Value field or a literal (summer AbstractKafkaMessageHandler & co.)
+    produce  props.get<X>Topic() in a publisher class (Publisher|Producer|Sender|Outbox — a custom outbox publisher's
+             route table); outbox saveEvent(id, type, payload, topic) → topic (high); saveEvent(id, "x", payload)
+             with a topic-prefix → prefix + "x" (medium). DLT classes never count."""
+    cons, prods = [], []
+    if not code:
+        return cons, prods
+    for rel, t in sorted(code["texts"].items()):
+        cm = CLASS_RE.search(t)
+        if not cm:
+            continue
+        cname, ext = cm.group(1), cm.group(2)
+        if re.search(r"Dlt|DeadLetter", cname):
+            continue
+        fields = {n: ty for ty, n in FIELD_RE.findall(t)}
+
+        def line(pos):
+            return t.count("\n", 0, pos) + 1
+
+        def topics_of(expr):
+            expr = (expr or "").strip()
+            lit = re.fullmatch(r'"([^"]*)"', expr)
+            if lit:
+                return [lit.group(1)] if TOPIC_RE.fullmatch(lit.group(1)) else [], None
+            g = GETTER_CALL_RE.fullmatch(expr)
+            if g:
+                cls = fields.get(g.group(1))
+                if cls in code["props"]:
+                    frel, e = getter_entry(code, cls, g.group(2), flat)
+                    if e:
+                        return [v.strip() for v in yml_val(e["value"], over).split(",")
+                                if TOPIC_RE.fullmatch(v.strip())], "%s:%d" % (frel, e["line"])
+                return [], None
+            if re.fullmatch(r"(?:this\.)?\w+", expr):
+                fe = field_expr(t, expr.replace("this.", ""))
+                if fe:
+                    return placeholder_values(fe, flat, over)
+            return [], None
+
+        spans = []
+        if re.search(r"Handler|Consumer|Listener|Subscriber", cname + ext):
+            for m in TOPIC_METHOD_RE.finditer(t):
+                body, end = body_at(t, m.end() - 1)
+                spans.append((m.start(), end))
+                exprs = [g.group(0) for g in GETTER_CALL_RE.finditer(body)]
+                exprs += re.findall(r"return\s+((?:this\.)?\w+)\s*;", body) + re.findall(r'"[^"]*"', body)
+                for x in exprs:
+                    ts, yat = topics_of(x)
+                    for tp in ts:
+                        cons.append({"topic": tp, "at": [a for a in ("%s:%d" % (rel, line(m.start())), yat) if a]})
+        if re.search(r"Publisher|Producer|Sender|Outbox", cname + ext):
+            for g in GETTER_CALL_RE.finditer(t):
+                if any(a <= g.start() <= b for a, b in spans):
+                    continue
+                ts, yat = topics_of(g.group(0))
+                for tp in ts:
+                    prods.append({"topic": tp, "at": [a for a in ("%s:%d" % (rel, line(g.start())), yat) if a],
+                                  "conf": "high"})
+        for m in re.finditer(r"\.\s*saveEvent\s*\(", t):
+            args = extract.split_top(body_at(t, m.end() - 1)[0])
+            at = "%s:%d" % (rel, line(m.start()))
+            if len(args) >= 4:
+                ts, yat = topics_of(args[3])
+                prods += [{"topic": tp, "at": [a for a in (at, yat) if a], "conf": "high"} for tp in ts]
+            elif len(args) == 3:
+                ts, _y = topics_of(args[1])
+                prods += [{"topic": p + tp, "at": [at], "conf": "medium"} for tp in ts for p in prefixes]
+    return cons, prods
+
+
+def producer_bucket(text, rel, fe, ts):
+    """An unresolved producer send site → (bucket, reason) when the hub can say why its topic is not static."""
+    text = text or ""
+    if re.search(r"(?i)dlt|dead.?letter|replay", rel) or re.search(r'DltPublishContract|DeadLetterPublishingRecoverer|"\.dlt"', text):
+        return "dynamic", "dead-letter/replay publisher: the topic comes from the failed record (<topic>.dlt or its origin)"
+    if re.search(r"implements\s+[\w.<>, ]*OutboxEventPublisher|class\s+\w*Outbox\w*Publisher", text):
+        return "dynamic", "outbox publisher: topic = the event's explicit topic, else topic-prefix + eventType"
+    if re.search(r"\(\s*[^()]*\bString\s+\w*[tT]opic\w*\s*[,)]", text):
+        return "dynamic", "producer wrapper: the topic is a method parameter; its callers name the topics"
+    refs = extract.YML_REF_RE.findall(fe or "")
+    if refs and not ts and all(not d for _p, d in refs):
+        return "ignored", "topic property %s is empty by default and set in no yml or manifest (publish disabled)" % refs[0][0]
+    return None, None
+
+
+def kafka_sides(repo, rows, contracts, flat, code=None, over=None):
+    """→ (consumes[{topic, at[], src}], produces[{topic|prefix, at[], conf}], buckets{unresolved, ignored, dynamic})."""
+    consumes, produces = [], []
+    bk = {"unresolved": [], "ignored": [], "dynamic": []}
     used_props = set()
+    prefixes = sorted({v.strip() for rel in flat for e in flat[rel] if e["prop"].split(".")[-1].lower() == "topic-prefix"
+                       for v in yml_val(e["value"], over).split(",") if TOPIC_RE.fullmatch(v.strip())})
     for r in rows:
         if r.get("kind") != "listener":
             continue
@@ -343,11 +557,17 @@ def kafka_sides(repo, rows, contracts, flat):
         for e in exprs:
             for prop, _d in extract.YML_REF_RE.findall(e):
                 used_props.add(extract.relax(prop))
-            ts, a = placeholder_values(e, flat)
+            ts, a = placeholder_values(e, flat, over)
             topics += ts
             yat = yat or a
         if not topics:
-            unresolved.append({"kind": "kafka_consume", "at": at, "expr": (exprs[0] if exprs else None)})
+            u = {"kind": "kafka_consume", "at": at, "expr": (exprs[0] if exprs else None)}
+            text = (code or {}).get("texts", {}).get(r["file"]) or read_rel(repo, r["file"]) or ""
+            if re.search(r"subscriptionTopics\s*\(|ReceiverOptions<[^>]*>\s+\w+\s*[,)]", text):
+                bk["dynamic"].append(dict(u, reason="consumer wrapper: topics come from the injected ReceiverOptions "
+                                                    "(each bean's topic is resolved where it is built)"))
+            else:
+                bk["unresolved"].append(u)
             continue
         for t in dict.fromkeys(topics):
             consumes.append({"topic": t, "at": [x for x in (at, yat) if x]})
@@ -360,13 +580,17 @@ def kafka_sides(repo, rows, contracts, flat):
                 continue
             if not any(p in ("consumer", "consumers") for p in parts[:-1]) or any(p in ("dlt", "retry") for p in parts):
                 continue
-            inner = extract.YML_REF_RE.search(e["value"])
-            val = (inner.group(2) if inner else e["value"]) or ""
+            val = yml_val(e["value"], over)
             have = {c["topic"] for c in consumes}
-            for v in [t.strip() for t in val.split(",") if re.fullmatch(r"[A-Za-z0-9_.\-]+", t.strip())]:
+            for v in [t.strip() for t in val.split(",") if TOPIC_RE.fullmatch(t.strip())]:
                 if v not in have:
                     consumes.append({"topic": v, "at": ["%s:%d" % (rel, e["line"])], "conf": "medium"})
+    ccons, cprods = code_kafka(code, flat, over, prefixes)
+    for c in ccons:  # handler classes (getSupportedTopics & co.)
+        if c["topic"] not in {x["topic"] for x in consumes}:
+            consumes.append(c)
     consumed = {c["topic"] for c in consumes}
+    known = sorted({p["topic"] for p in cprods})
     for r in rows:
         if r.get("kind") != "producer":
             continue
@@ -375,17 +599,29 @@ def kafka_sides(repo, rows, contracts, flat):
             produces.append({"topic": r["topic"], "at": [at], "conf": "high"})
             continue
         expr = r.get("topic_expr")
-        ts, yat = [], None
+        ts, yat, fe = [], None, None
         if expr:
             fe = value_field_expr(repo, r["file"], expr) if not expr.startswith('"') else None
             if fe:
                 for prop, _d in extract.YML_REF_RE.findall(fe):
                     used_props.add(extract.relax(prop))
-                ts, yat = placeholder_values(fe, flat)
+                ts, yat = placeholder_values(fe, flat, over)
         for t in ts:
             produces.append({"topic": t, "at": [x for x in (at, yat) if x], "conf": "high"})
         if not ts and expr:
-            unresolved.append({"kind": "kafka_produce", "at": at, "expr": expr[:80]})
+            u = {"kind": "kafka_produce", "at": at, "expr": expr[:80]}
+            b, why = producer_bucket((code or {}).get("texts", {}).get(r["file"]) or read_rel(repo, r["file"]),
+                                     r["file"], fe, ts)
+            if b:
+                u["reason"] = why
+                if b == "dynamic" and known and not why.startswith("dead-letter"):
+                    u["topics"] = known[:12]  # the topics this service's call sites name
+            bk[b or "unresolved"].append(u)
+    have = {p["topic"] for p in produces}
+    for p in cprods:  # publisher route tables + outbox saveEvent topics
+        if p["topic"] not in have:
+            produces.append(p)
+            have.add(p["topic"])
     for rel in sorted(flat):
         for e in flat[rel]:
             parts = e["prop"].split(".")
@@ -393,9 +629,8 @@ def kafka_sides(repo, rows, contracts, flat):
             if "topic" not in leaf:
                 continue
             at = "%s:%d" % (rel, e["line"])
-            inner = extract.YML_REF_RE.search(e["value"])
-            val = (inner.group(2) if inner else e["value"]) or ""
-            vals = [t.strip() for t in val.split(",") if re.fullmatch(r"[A-Za-z0-9_.\-]+", t.strip())]
+            val = yml_val(e["value"], over)
+            vals = [t.strip() for t in val.split(",") if TOPIC_RE.fullmatch(t.strip())]
             if leaf == "topic-prefix":
                 for v in vals:
                     produces.append({"prefix": v, "at": [at], "conf": "medium"})
@@ -407,7 +642,7 @@ def kafka_sides(repo, rows, contracts, flat):
             for v in vals:
                 if v not in consumed:
                     produces.append({"topic": v, "at": [at], "conf": "medium"})
-    return consumes, produces, unresolved
+    return consumes, produces, bk
 
 
 def lib_group(repo, files):
@@ -420,7 +655,18 @@ def lib_group(repo, files):
     return None
 
 
-def build_link(repo, svc, hroot):
+def topic_over(man, svc):
+    """The deploy manifests' topic-like env values of svc → {ENV: [topics]} (they win over ${ENV:default})."""
+    out = {}
+    for k, vs in ((man or {}).get("env", {}).get(svc) or {}).items():
+        if "TOPIC" in k:
+            ts = [t.strip() for v, _ev in vs for t in v.split(",") if TOPIC_RE.fullmatch(t.strip())]
+            if ts:
+                out[k] = list(dict.fromkeys(ts))
+    return out
+
+
+def build_link(repo, svc, hroot, man=None):
     """One service → the links/<svc>.json document."""
     loaded = load_plane(repo)
     files = list_repo_files(repo)
@@ -432,7 +678,11 @@ def build_link(repo, svc, hroot):
         head = git(repo, "rev-parse", "--verify", "-q", "HEAD")
         source, commit = "scan", head.strip() if head else None
     flat = yml_files(repo, files)
-    consumes, produces, unres = kafka_sides(repo, rows, contracts, flat)
+    code = code_index(repo, files)
+    for hc in contracts.get("http_clients", []):  # a URL key no code reads is dead config, never "unresolved"
+        if not prop_bound(hc.get("prop"), code):
+            hc["unbound"] = True
+    consumes, produces, bk = kafka_sides(repo, rows, contracts, flat, code, topic_over(man, svc))
     props = {"%s:%d" % (rel, e["line"]): e["prop"] for rel in flat for e in flat[rel]}
     dbs = [d for d in contracts.get("db", [])  # a CDC / migration connector URL is not the service's database
            if not DB_SKIP_SEG.intersection(props.get(d.get("at"), "").lower().split("."))]
@@ -447,7 +697,107 @@ def build_link(repo, svc, hroot):
             "library": lib,
             "contracts": dict({k: contracts.get(k, []) for k in ("http_exposed", "http_clients", "client_targets",
                                                                 "libs")}, db=dbs),
-            "kafka": {"consumes": consumes, "produces": produces}, "unresolved": unres, "components": comp}
+            "kafka": {"consumes": consumes, "produces": produces}, "unresolved": bk["unresolved"],
+            "ignored": bk["ignored"], "dynamic": bk["dynamic"], "components": comp}
+
+
+# ---------------------------------------------------------------- deploy manifests (read-only) ----------------
+def manifest_dirs(h):
+    """aliases.json "manifests": a dir (or list) of deploy manifests, relative to the hub root — helm values.yaml
+    (env: {NAME: {value}}) and k8s Deployments (env: [{name, value}])."""
+    m = (read_json(os.path.join(h, "aliases.json"), {}) or {}).get("manifests") or []
+    m = [m] if isinstance(m, str) else [x for x in m if isinstance(x, str)]
+    root = hub_root(h)
+    return [os.path.normpath(x if os.path.isabs(x) else os.path.join(root, x)) for x in m]
+
+
+def keep_manifest_env(key, val):
+    """Only addresses and topic names are ever kept: a *_URL/_URI/_HOST value (its host / schema is all the hub
+    uses) or a TOPIC key; secret-looking keys, secrets*.yaml and *.enc.yaml are never read into the result."""
+    if not val or "${" in val:
+        return False
+    if re.search(r"_(URL|URI|HOST)$", key):
+        return True
+    return "TOPIC" in key and not SECRET_KEY.search(key)
+
+
+def app_base(name):
+    return re.sub(r"-(ms|service|svc)$", "", (name or "").lower())
+
+
+def load_manifests(h, names):
+    """→ {env: {svc: {ENV: [(value, evidence)]}}, apps: {deployed name: svc|None}, ns: {namespaces}}. A manifest
+    names its service by image repository basename, applicationName / nameOverride / metadata.name, or its dir."""
+    man = {"env": {}, "apps": {}, "ns": set()}
+    for d in manifest_dirs(h):
+        if not os.path.isdir(d):
+            continue
+        tag = os.path.basename(d.rstrip("/"))
+        for dp, ds, fs in os.walk(d):
+            ds[:] = sorted(x for x in ds if not x.startswith("."))
+            for f in sorted(fs):
+                rel = os.path.relpath(os.path.join(dp, f), d)
+                if not f.endswith((".yaml", ".yml")) or MANIFEST_SKIP.search(rel):
+                    continue
+                text = read_rel(d, rel) or ""
+                apps, imgs, envs = [], [], []
+                for e in extract.yml_flat(text):
+                    p, v = e["prop"], e["value"]
+                    leaf = p.split(".")[-1]
+                    if leaf in ("applicationName", "nameOverride", "fullnameOverride") or p == "metadata.name":
+                        apps.append(v)
+                    elif leaf in ("namespaceOverride", "namespace"):
+                        man["ns"].add(v)
+                    elif p.endswith("image.repository"):
+                        imgs.append(re.sub(r"[:@].*$", "", v.rsplit("/", 1)[-1]))
+                    m = HELM_ENV_RE.search(p)
+                    if m:
+                        envs.append((m.group(1), v, e["line"]))
+                imgs += [re.sub(r"[:@].*$", "", m.rsplit("/", 1)[-1])  # k8s container image: repo/name:tag
+                         for m in re.findall(r"(?m)^[ \t-]*image:[ \t]*['\"]?([^'\"\s#]+)", text)]
+                for m in K8S_ENV_RE.finditer(text):
+                    envs.append((m.group(1), m.group(2).strip(), text.count("\n", 0, m.start()) + 1))
+                svc = None
+                for x in imgs + apps + [os.path.basename(dp)]:
+                    s, c = match_name(x, names)
+                    if c != "high":  # aml-ms deployed, aml-service in the hub: one name minus -ms/-service/-svc
+                        hits = {k for n, k in names.items() if app_base(n) == app_base(x)}
+                        s, c = (hits.pop(), "high") if len(hits) == 1 else (None, None)
+                    if c == "high":
+                        svc = s
+                        break
+                for a in apps + imgs:
+                    if man["apps"].get(a) is None:
+                        man["apps"][a] = svc
+                if not svc:
+                    continue
+                for k, v, ln in envs:
+                    if keep_manifest_env(k, v):
+                        man["env"].setdefault(svc, {}).setdefault(k, []).append((v, "%s/%s:%d" % (tag, rel, ln)))
+    return man
+
+
+def deployed_target(val, man, names):
+    """A manifest URL value → a service, external:<deployed app> (deployed, not registered in the hub),
+    external:<public host>, or None (an IP, localhost, an unknown in-cluster name). In-cluster = a bare name,
+    <name>.<a manifest namespace>, <deployed app>.<ns> (a namespace set outside the values), or <name>.<ns>.svc[…]."""
+    v = (val or "").strip()
+    h = host_of(v if "://" in v else "http://" + v)
+    if not h or h in LOCAL_HOSTS or re.fullmatch(r"[\d.]+", h):
+        return None
+    lab = h.split(".")
+    if len(lab) == 1 or lab[1] in man["ns"] or "svc" in lab[1:3] or (len(lab) == 2 and lab[0] in man["apps"]):
+        a = lab[0]
+        if a in man["apps"]:
+            return man["apps"][a] or "external:" + a
+        s, c = match_name(a, names)
+        return s if c == "high" else None
+    return "external:" + h
+
+
+def schema_of(val):
+    m = re.search(r"[?&](?:currentSchema|search_path)=([\w\-]+)", val or "")
+    return m.group(1) if m else None
 
 
 # ---------------------------------------------------------------- aliases -------------------------------------
@@ -475,7 +825,8 @@ def aliases_pristine(h):
         d = json.loads(cur)
     except ValueError:
         return False
-    return isinstance(d, dict) and not any(v for k, v in d.items() if not k.startswith("_") and isinstance(v, dict))
+    return isinstance(d, dict) and not any(v for k, v in d.items() if not k.startswith("_")
+                                           and isinstance(v, (dict, list, str)))  # "manifests" is a user edit too
 
 
 def write_aliases(h, suggested):
@@ -577,9 +928,14 @@ def ev_rank(e):
     return 1 if re.match(r"application-.+\.ya?ml$", b) else 0
 
 
-def join(links, aliases):
+def join(links, aliases, man=None):
+    """→ (edges, buckets, suggestions). buckets: unresolved (the hub could not decide), ignored (test/local profile
+    copies, dead config, UI links, disabled topics) and dynamic (DLT/outbox/wrapper sites, prefixes no one
+    consumes) — each ignored/dynamic row carries its reason, so nothing disappears silently."""
+    man = man or {"env": {}, "apps": {}, "ns": set()}
     svcs = sorted(links)
     edges, unresolved, sugg = {}, [], {k: {} for k in ALIAS_KEYS}
+    ignored, dynamic = [], []
     dirs = {s: repo_dir(links[s], s) for s in svcs}
     names = dict({d: s for s, d in dirs.items()}, **{s: s for s in svcs})  # a key wins over another repo's dir
 
@@ -603,9 +959,36 @@ def join(links, aliases):
             if CONF_W[conf] > CONF_W[e["confidence"]]:
                 e["confidence"] = conf
 
+    # db owners by schema: the service whose own deployed datasource URL names that schema (unique)
+    by_schema = {}
+    for s2, envs in man["env"].items():
+        for k, vs in envs.items():
+            if OWN_DS_ENV.match(k):
+                for v, _e in vs:
+                    if schema_of(v):
+                        by_schema.setdefault(schema_of(v), set()).add(s2)
+    schema_owner = {sc: next(iter(o)) for sc, o in by_schema.items() if len(o) == 1}
     # http
     for s in svcs:
         c = links[s]["contracts"]
+        senv = man["env"].get(s) or {}
+        for h in c.get("http_clients", []):  # another service's datasource (report.datasources.aml.url) → db edge
+            env, prop = h.get("env") or "", h.get("prop") or ""
+            if not (DATASOURCE_RE.search(env) or DATASOURCE_RE.search(prop)) or prop.startswith("spring.") \
+                    or env.startswith("SPRING_") or ev_rank(h["at"]) == 2:
+                continue
+            hit = False
+            for v, mev in senv.get(env, []):
+                sc = schema_of(v)
+                o = aliases["db_owner"].get(sc) or schema_owner.get(sc) if sc else None
+                o = names.get(o, o)
+                if o and o != s:
+                    add(s, o, "db", sc, [ev(s, h["at"]), mev], "medium")
+                    hit = True
+            if not hit and not h.get("default_url") and re.search(r"_(URL|URI)$", env):
+                ignored.append({"svc": s, "kind": "http_client", "env": env, "at": ev(s, h["at"]),
+                                "reason": "datasource URL, not HTTP; no deployed value names a schema owner "
+                                          "(aliases.db_owner)"})
         entries = [h for h in c.get("http_clients", []) if is_http_client(h)]
         by_at = {h["at"]: h for h in entries}
         for ct in c.get("client_targets", []):  # a client class whose base URL property resolved (ADR-IDX-4)
@@ -615,15 +998,43 @@ def join(links, aliases):
             elif is_http_client(ct):
                 entries.append({"env": ct.get("env"), "default_url": ct.get("default_url"), "prop": ct.get("prop"),
                                 "at": ct["yml_at"], "_client_at": [ct["at"]]})
+        main_at = {}
         for h in entries:
-            t, conf, why = http_target(h, names, aliases, s)
-            via = h.get("env") or h.get("prop") or h.get("key")
+            if h.get("env") and ev_rank(h["at"]) < 2:
+                main_at.setdefault(h["env"], h["at"])
+        for h in entries:
+            env = h.get("env")
+            via = env or h.get("prop") or h.get("key")
             evid = [ev(s, h["at"])] + [ev(s, a) for a in h.get("_client_at", [])]
+            u = {"svc": s, "kind": "http_client", "env": env, "at": ev(s, h["at"])}
+            if ev_rank(h["at"]) == 2:  # test/local profile: never an edge, never alias-matched
+                ignored.append(dict(u, reason=("test/local profile copy of %s" % ev(s, main_at[env])) if env in main_at
+                                    else "test/local profile only: no main-profile key declares it"))
+                continue
+            deployed = []
+            if not (env and env in aliases["env"]):  # an alias still wins; else the deploy manifests decide
+                for v, mev in senv.get(env, []) if env else []:
+                    t = deployed_target(v, man, names)
+                    if t:
+                        deployed.append((t, mev))
+            if deployed:
+                for t, mev in deployed:
+                    add(s, t, "http", via, evid + [mev], "high")
+                if all(t.startswith("external:") for t, _m in deployed):  # stubs/vendors only in the manifests:
+                    t0, _c, w0 = http_target(h, names, aliases, s)       # the yml default's public host stays too
+                    if t0 and t0.startswith("external:") and w0 == "host":
+                        add(s, t0, "http", via, evid, "high")
+                continue
+            t, conf, why = http_target(h, names, aliases, s)
             if t is None:
-                u = {"svc": s, "kind": "http_client", "env": h.get("env"), "at": ev(s, h["at"])}
                 if host_of(h.get("default_url")) not in LOCAL_HOSTS:
                     u["host"] = host_of(h.get("default_url"))
-                unresolved.append(u)
+                if h.get("unbound"):
+                    ignored.append(dict(u, reason="unused config: no src/main code reads %s" % h.get("prop")))
+                elif UI_LINK_RE.search(h.get("prop") or env or ""):
+                    ignored.append(dict(u, reason="UI link (portal/login/deeplink) handed to users, not a service call"))
+                else:
+                    unresolved.append(u)
                 continue
             if t == s:
                 continue
@@ -664,6 +1075,7 @@ def join(links, aliases):
                 for ps, p in prods:
                     cf = min(p["conf"], cns.get("conf", "high"), key=lambda c: CONF_W[c])
                     add(ps, s, "kafka", t, [ev(ps, a) for a in p["at"]] + cev, cf)
+                    matched_prefix.update((ps, x["prefix"]) for xs, x in prefixes if xs == ps and t.startswith(x["prefix"]))
                 continue
             if any(ps == s for ps, _p in exact.get(t, [])):
                 continue  # produced and consumed by the same service
@@ -682,10 +1094,13 @@ def join(links, aliases):
             unresolved.append({"svc": s, "kind": "kafka_consume", "topic": t, "at": cev[0]})
     for ps, p in prefixes:
         if (ps, p["prefix"]) not in matched_prefix:
-            unresolved.append({"svc": ps, "kind": "kafka_produce", "prefix": p["prefix"], "at": ev(ps, p["at"][0])})
+            dynamic.append({"svc": ps, "kind": "kafka_produce", "prefix": p["prefix"], "at": ev(ps, p["at"][0]),
+                            "reason": "outbox topic-prefix: no other registered service consumes a %s* topic"
+                                      % p["prefix"]})
     for s in svcs:
-        for u in links[s].get("unresolved", []):
-            unresolved.append(dict(u, svc=s, at=ev(s, u["at"])))
+        for key, out in (("unresolved", unresolved), ("ignored", ignored), ("dynamic", dynamic)):
+            for u in links[s].get(key, []):
+                out.append(dict(u, svc=s, at=ev(s, u["at"])))
     # lib
     owners = {g: names.get(o, o) for g, o in DEFAULT_LIB_OWNER.items()}
     decl = {}
@@ -736,8 +1151,10 @@ def join(links, aliases):
     out = sorted(edges.values(), key=lambda e: (order[e["type"]], e["from"], e["to"], e["via"]))
     for e in out:
         e["evidence"] = sorted(e["evidence"], key=ev_rank)[:6]
-    unresolved.sort(key=lambda u: (u["svc"], u["kind"], u.get("at") or ""))
-    return out, unresolved, {k: dict(sorted(v.items())) for k, v in sugg.items() if v}
+    for b in (unresolved, ignored, dynamic):
+        b.sort(key=lambda u: (u["svc"], u["kind"], u.get("at") or ""))
+    return out, {"unresolved": unresolved, "ignored": ignored, "dynamic": dynamic}, \
+        {k: dict(sorted(v.items())) for k, v in sugg.items() if v}
 
 
 def lib_edges(s, links, owners):
@@ -832,7 +1249,8 @@ def lib_md_lines(edges, links=None):
     return L
 
 
-def hub_md(h, services, edges, unresolved, links=None):
+def hub_md(h, services, edges, buckets, links=None):
+    buckets = buckets if isinstance(buckets, dict) else {"unresolved": buckets}
     hroot = hub_root(h)
     L = ["# Hub — %d services, %d edges" % (len(services), len(edges)),
          "Service paths are relative to the hub root `%s`; evidence is `<repo dir>/<file>:<line>`. Full data: "
@@ -851,7 +1269,8 @@ def hub_md(h, services, edges, unresolved, links=None):
         if e["type"] == "lib" and libl:
             continue
         rest.append("- %s → %s · %s · %s · %s" % (e["from"], e["to"], e["type"], e["via"], e["confidence"]))
-    tail = ["", "Unresolved: %d (see service-links.json `unresolved`, fix with aliases.json)." % len(unresolved)]
+    tail = ["", "Unresolved: %d (fix with aliases.json) · ignored %d · dynamic %d (each with its reason in "
+            "service-links.json)." % tuple(len(buckets.get(k, [])) for k in ("unresolved", "ignored", "dynamic"))]
     text = "\n".join(L)
     used = len((text + "\n").encode("utf-8")) + len(("\n".join(tail) + "\n").encode("utf-8")) + 60
     kept = 0
@@ -1036,12 +1455,14 @@ def sync(h, add_repos=()):
             services[s] = ent
         dedupe_services(hroot, services)
         links, missing = {}, []
+        man = load_manifests(h, dict({os.path.basename((services[k].get("path") or k).rstrip("/")) or k: k
+                                      for k in services}, **{k: k for k in services}))
         for s in sorted(services):
             repo = os.path.normpath(os.path.join(hroot, services[s].get("path") or s))
             if not os.path.isdir(repo):
                 missing.append(s)
                 continue
-            lk_doc = build_link(repo, s, hroot)
+            lk_doc = build_link(repo, s, hroot, man)
             links[s] = lk_doc
             changed = write_if_changed(os.path.join(h, "links", s + ".json"), dumps(lk_doc))
             ent = services[s]
@@ -1055,12 +1476,12 @@ def sync(h, add_repos=()):
                 ent.setdefault("remote", None)
         prune_links(h, services)
         aliases = load_aliases(h)
-        edges, unresolved, sugg = join(links, aliases)
+        edges, buckets, sugg = join(links, aliases, man)
         write_aliases(h, sugg)
         write_if_changed(os.path.join(h, "services.json"), dumps(dict(other, **services)))
         write_if_changed(os.path.join(h, "service-links.json"),
-                         dumps({"schema": SCHEMA, "edges": edges, "unresolved": unresolved}))
-        write_if_changed(os.path.join(h, "HUB.md"), hub_md(h, {k: services[k] for k in links}, edges, unresolved, links))
+                         dumps(dict({"schema": SCHEMA, "edges": edges}, **buckets)))
+        write_if_changed(os.path.join(h, "HUB.md"), hub_md(h, {k: services[k] for k in links}, edges, buckets, links))
         dates = [d for d in (commit_date(os.path.join(hroot, services[s]["path"]), services[s].get("indexed_commit"))
                              for s in links) if d]
         analyzed = max(dates) if dates else "1970-01-01T00:00:00Z"
@@ -1074,7 +1495,8 @@ def sync(h, add_repos=()):
     for e in edges:
         counts[e["type"]] = counts.get(e["type"], 0) + 1
     return {"synced": True, "hub": h, "services": len(links), "missing": missing, "edges": len(edges),
-            "by_type": counts, "unresolved": len(unresolved), "elapsed_ms": int((time.time() - t0) * 1000)}
+            "by_type": counts, "unresolved": len(buckets["unresolved"]), "ignored": len(buckets["ignored"]),
+            "dynamic": len(buckets["dynamic"]), "elapsed_ms": int((time.time() - t0) * 1000)}
 
 
 def summary_line(r):
@@ -1082,8 +1504,9 @@ def summary_line(r):
         return "hub: sync skipped — %s" % r.get("reason")
     bt = ", ".join("%s %d" % (k, r["by_type"].get(k, 0)) for k in ("http", "kafka", "lib", "db"))
     miss = " · missing: %s" % ", ".join(r["missing"]) if r["missing"] else ""
-    return "hub: synced %d services, %d edges (%s), %d unresolved (%d ms) → %s%s" % (
-        r["services"], r["edges"], bt, r["unresolved"], r["elapsed_ms"], r["hub"], miss)
+    return "hub: synced %d services, %d edges (%s), %d unresolved, %d ignored, %d dynamic (%d ms) → %s%s" % (
+        r["services"], r["edges"], bt, r["unresolved"], r.get("ignored", 0), r.get("dynamic", 0), r["elapsed_ms"],
+        r["hub"], miss)
 
 
 # ---------------------------------------------------------------- read side (CLI) -----------------------------

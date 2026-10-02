@@ -1,0 +1,21 @@
+namespaceOverride: "shop"
+applicationName: "d-ms"
+deployment:
+  image:
+    repository: "registry.example.invalid/shop/backend/d-ms"
+    tag: "rev-1"
+  env:
+    E_SVC_URL:
+      value: "http://orders-app.shop"
+    MOCK_BANK_URL:
+      value: "http://stub-bank.shop:8883"
+    PARTNER_URL:
+      value: "https://api.partner.example.com/v1"
+    REPORT_DATASOURCES_E_URL:
+      value: r2dbc:postgresql://10.0.0.1:5432/shop?currentSchema=e_schema
+    SPRING_R2DBC_URL:
+      value: r2dbc:postgresql://10.0.0.1:5432/shop?currentSchema=d_schema
+    SPRING_KAFKA_PASSWORD:
+      value: "fake-pass-ABC123"
+    SOME_API_TOKEN:
+      value: "fake-token-QQQ777"

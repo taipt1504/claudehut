@@ -32,6 +32,13 @@
 #                       version.ref BOM 1.4.0, gradle.properties version, map notation): exact per-module lib edges with
 #                       version + version_src + evidence; svc <library> modules × consumers × versions with SKEW;
 #                       links --type lib; find --svc <library> on its surface; HUB.md "Shared libraries"; UA graph
+#  11. buckets          d-ms + e-ms (planes) + a workloads dir (aliases.manifests): helm/k8s env values resolve
+#                       env → service (image basename, <name>.<namespace>), a deployed app outside the hub →
+#                       external:<app>, a public host → external:<host>; another service's datasource → db edge by
+#                       deployed schema; a manifest topic env beats the yml default; handler getSupportedTopics(),
+#                       publisher route tables and outbox saveEvent topics join; test/local copies, dead config, UI
+#                       links and an empty topic property are `ignored`, DLT and wrapper send sites `dynamic`, each
+#                       with a reason; the one undecidable client stays `unresolved`; no manifest secret leaks
 #
 # Run: evals/regress/hub-tests.sh
 set -uo pipefail
@@ -85,8 +92,10 @@ c_before="$(snap "$W/c-ms")"
 ix "$W/hubrepo" hub-sync --hub . --repo ../a-ms --repo ../b-ms
 chk "hub-sync registers 2 planes" '[[ "$OUT" == "hub: synced 2 services"* ]]'
 ix "$W/hubrepo" hub-scan --hub . --repo "$W/c-ms"
-chk "hub-scan adds c-ms (no plane): 3 services, 6 edges (lib per module), 3 unresolved" \
-  '[[ "$OUT" == "hub: synced 3 services, 6 edges (http 2, kafka 1, lib 2, db 1), 3 unresolved"* ]]'
+chk "hub-scan adds c-ms (no plane): 3 services, 6 edges (lib per module), 2 unresolved, the unconsumed prefix dynamic" \
+  '[[ "$OUT" == "hub: synced 3 services, 6 edges (http 2, kafka 1, lib 2, db 1), 2 unresolved, 0 ignored, 1 dynamic"* ]]'
+chk "the c. prefix nobody consumes is dynamic with its reason, not unresolved" \
+  'jq -e "[.dynamic[] | select(.prefix==\"c.\" and (.reason|test(\"no other registered service consumes\")))] | length == 1" "$H/service-links.json" >/dev/null'
 chk "services.json: c-ms has_plane=false, a-ms/b-ms true, paths relative to the hub root" \
   '[ "$(jq -c "[.\"a-ms\".has_plane, .\"b-ms\".has_plane, .\"c-ms\".has_plane, .\"c-ms\".path]" "$H/services.json")" = "[true,true,false,\"../c-ms\"]" ]'
 GOT="$(jq -S '{edges: .edges, unresolved: .unresolved}' "$H/service-links.json")"; WANT="$(jq -S . "$FX/expected-links.json")"
@@ -450,6 +459,54 @@ cp "$W/sl.bak" "$SL"
 mv "$WS/kit-lib/.claude" "$W/kit-plane"; ix "$WS/kh" hub-sync --hub .
 chk "a hub-scanned library (no plane) yields the same surface and the same lib edges" \
   '[ "$(jq -c "[.edges[] | select(.type==\"lib\") | [.from, .to, .module, .version, .version_src, .bom_version, (.bom // false), (.scope // \"main\"), (.missing // false), .evidence]]" "$SL")" = "$WANT" ] && [ "$(jq "[.components[] | select(.kind==\"autoconfig\" or .kind==\"properties\" or .kind==\"bean\")] | length" "$KH/links/kit-lib.json")" = 6 ]'
+
+# ---------------------------------------------------------------- 11. buckets ------------------------------------
+echo "== 11. buckets: manifests, handler/publisher/outbox topics, ignored/dynamic with reasons =="
+BW="$W/bk"; mkdir -p "$BW"; BH="$BW/kh/.claude/claudehut/hub"
+for r in d-ms e-ms; do
+  cp -R "$FX/buckets/$r" "$BW/$r"; git -C "$BW/$r" init -q -b main; git -C "$BW/$r" config commit.gpgsign false
+  git -C "$BW/$r" add -A; git -C "$BW/$r" commit -qm base --no-verify
+  mkdir -p "$BW/$r/.claude/claudehut"; "$CLI" update --plane "$BW/$r/.claude/claudehut" >/dev/null
+done
+cp -R "$FX/buckets/workloads" "$BW/workloads"
+mkdir -p "$BH"; git -C "$BW/kh" init -q -b main
+printf '{"env":{"APP_SMS_URL":"e-ms"},"topic_owner":{},"db_owner":{},"manifests":"../workloads"}\n' > "$BH/aliases.json"
+al_before="$(sha "$BH/aliases.json")"
+ix "$BW/kh" hub-sync --hub . --repo ../d-ms --repo ../e-ms
+chk "2 planes: 1 unresolved, 5 ignored, 2 dynamic" '[[ "$OUT" == "hub: synced 2 services, "*", 1 unresolved, 5 ignored, 2 dynamic"* ]]'
+BL="$BH/service-links.json"
+edge() { jq -e --arg f "$1" --arg t "$2" --arg ty "$3" --arg v "$4" --arg c "$5" \
+  'any(.edges[]; .from==$f and .to==$t and .type==$ty and .via==$v and .confidence==$c)' "$BL" >/dev/null; }
+chk "helm env → in-cluster name.namespace → k8s Deployment image basename → e-ms (manifest line as evidence)" \
+  'edge d-ms e-ms http E_SVC_URL high && jq -e "any(.edges[]; .via==\"E_SVC_URL\" and any(.evidence[]; . == \"workloads/deploy/dev/d-ms/values.yaml:9\"))" "$BL" >/dev/null'
+chk "a deployed app the hub lacks → external:<app>; a public manifest host → external:<host>" \
+  'edge d-ms external:stub-bank http MOCK_BANK_URL high && edge d-ms external:api.partner.example.com http PARTNER_URL high'
+chk "manifest targets all external: the yml default's public host stays an edge; a localhost default adds none" \
+  'edge d-ms external:sandbox.partner.example.com http PARTNER_URL high && [ "$(jq "[.edges[] | select(.via==\"MOCK_BANK_URL\")] | length" "$BL")" = 1 ]'
+chk "another service's datasource URL → db edge to the owner of its deployed schema; no http edge" \
+  'edge d-ms e-ms db e_schema medium && ! jq -e "any(.edges[]; .via==\"REPORT_DATASOURCES_E_URL\")" "$BL" >/dev/null'
+chk "kafka: handler getSupportedTopics() ← publisher route table (props getter) e.cmd.v1 high; saveEvent explicit topic f.cmd.v1 high" \
+  'edge d-ms e-ms kafka e.cmd.v1 high && edge d-ms e-ms kafka f.cmd.v1 high'
+chk "manifest topic env beats the stale yml default; 3-arg saveEvent = topic-prefix + type; the prefix counts as consumed" \
+  'edge d-ms e-ms kafka d.link.notify medium && ! jq -e "any(.edges[]; .via==\"stale_link_topic\") or any(.unresolved[]; .topic==\"stale_link_topic\") or any(.dynamic[]; .prefix==\"d.\")" "$BL" >/dev/null'
+chk "unresolved = exactly the bound client with no deployed value and no counterpart" \
+  '[ "$(jq -c "[.unresolved[] | [.svc, .kind, .env]]" "$BL")" = "[[\"d-ms\",\"http_client\",\"COMPLIANCE_URL\"]]" ]'
+chk "ignored: test copy, test-only (its alias never applies), dead map entry, UI link, disabled topic — each with a reason" \
+  '[ "$(jq -c "[.ignored[] | [(.env // .expr), (.reason|split(\":\")[0]|split(\" \")[0:2]|join(\" \"))]] | sort" "$BL")" = "[[\"APP_SMS_URL\",\"test/local profile\"],[\"E_SVC_URL\",\"test/local profile\"],[\"GHOST_SERVICE_URL\",\"unused config\"],[\"PORTAL_LOGIN_URL\",\"UI link\"],[\"opsTopic\",\"topic property\"]]" ] && ! jq -e "any(.edges[]; .via==\"APP_SMS_URL\")" "$BL" >/dev/null'
+chk "the test copy names its main-profile key" 'jq -e "any(.ignored[]; .env==\"E_SVC_URL\" and .reason==\"test/local profile copy of d-ms/src/main/resources/application.yml:9\")" "$BL" >/dev/null'
+chk "dynamic: the DLT publisher and the topic-parameter wrapper (with the topics its callers name)" \
+  '[ "$(jq -c "[.dynamic[] | [(.at|split(\"/\")|last|split(\":\")[0]), (.reason|split(\":\")[0]), (.topics // [])]] | sort" "$BL")" = "[[\"DltPublisher.java\",\"dead-letter/replay publisher\",[]],[\"GenericProducer.java\",\"producer wrapper\",[\"d.link.notify\",\"e.cmd.v1\",\"f.cmd.v1\"]]]" ]'
+chk "no manifest secret value (helm env, *.enc.yaml) appears anywhere under the hub dir" \
+  '! grep -rqE "fake-pass-ABC123|fake-token-QQQ777|fake-secret-XYZ999" "$BH"'
+chk "aliases.json with manifests is user-owned: never rewritten" '[ "$al_before" = "$(sha "$BH/aliases.json")" ]'
+chk "HUB.md tail counts every bucket; ≤3072 B" \
+  'grep -qxF "Unresolved: 1 (fix with aliases.json) · ignored 5 · dynamic 2 (each with its reason in service-links.json)." "$BH/HUB.md" && [ "$(wc -c < "$BH/HUB.md")" -le 3072 ]'
+ix "$BW/kh" links --json
+chk "links --json carries ignored + dynamic" '[ "$(printf "%s" "$OUT" | jq -c "[(.unresolved|length), (.ignored|length), (.dynamic|length)]")" = "[1,5,2]" ]'
+ix "$BW/kh" links
+chk "links footer counts the buckets" 'printf "%s\n" "$OUT" | tail -1 | grep -q " 1 unresolved, 5 ignored, 2 dynamic (links --json)$"'
+b1="$(sha "$BL")"; ix "$BW/kh" hub-sync
+chk "re-sync byte-identical" '[ "$b1" = "$(sha "$BL")" ]'
 
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__ 2>/dev/null)" ]'
 echo "hub-tests: $PASS passed, $FAIL failed"

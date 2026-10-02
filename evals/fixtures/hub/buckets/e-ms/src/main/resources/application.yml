@@ -1,0 +1,9 @@
+spring:
+  application:
+    name: e-ms
+  kafka:
+    topics:
+      e-cmd: ${SPRING_KAFKA_TOPICS_E_CMD:e.cmd.v1}
+app:
+  link:
+    topic: ${KAFKA_TOPIC_LINK:stale_link_topic}

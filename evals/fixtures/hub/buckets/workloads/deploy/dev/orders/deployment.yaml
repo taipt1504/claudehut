@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-app
+  namespace: shop
+spec:
+  template:
+    spec:
+      containers:
+        - name: orders-app
+          image: registry.example.invalid/shop/backend/e-ms:1.2.0
+          env:
+            - name: SPRING_R2DBC_URL
+              value: r2dbc:postgresql://10.0.0.1:5432/shop?currentSchema=e_schema
+            - name: KAFKA_TOPIC_LINK
+              value: d.link.notify
