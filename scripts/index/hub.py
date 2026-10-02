@@ -7,8 +7,10 @@ with GIT_OPTIONAL_LOCKS=0).
 Layout (<HUB> is the hub root, e.g. <workspace>/ewallet-knowledge; H = <HUB>/.claude/claudehut/hub):
   H/hub.json              {schema:1, language?}      init writes language; the hub only creates {schema:1}
   H/services.json         {"<svc>": {path, remote, indexed_commit, synced_at, has_plane}}  path relative to <HUB>
-  H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, manifests?, _suggested:{…}}  user-owned;
-                          an env value may be external:<host>; manifests = deploy-manifest dir(s) from <HUB>
+  H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, ignore:{}, manifests?, _suggested:{…}}
+                          user-owned; an env value may be external:<host>; manifests = deploy-manifest dir(s) from <HUB>;
+                          ignore = {"<ENV>|<topic>|<svc>:<ENV|topic>": reason} — a user decision (dead config, retired
+                          topic): a matching client / consumer / producer row → ignored "declared in aliases.json: …"
   H/links/<svc>.json      per-service contracts (+ resolved kafka topics, compact components) — plane or hub-scan
   H/service-links.json    {schema:1, edges:[…], unresolved:[…], ignored:[…+reason], dynamic:[…+reason]}  no timestamps
   H/HUB.md                ≤3 KB, paths from <HUB>
@@ -37,7 +39,7 @@ Join rules (07 §4.3 table):
          empty unset topic property → ignored; a prefix no other service consumes → dynamic, and so does a prefix the
          publisher bypasses (its topics are routed explicitly; "superseded"); a prefix-composed saveEvent topic cites
          the prefix line. A self-produced (or own-prefix) consumed topic and a static topic no registered consumer
-         names → ignored. Every input row ends in an edge or exactly one bucket row (hub-tests `account`).
+         names → ignored. aliases.ignore (unscoped or <svc>:) beats every rule but the test/local profile. Every input row ends in an edge or exactly one bucket row (hub-tests `account`).
   lib    one edge per (service, library module): a dependency whose group a registered library publishes (a repo
          extract.library_info detects as a multi-module publisher), or aliases.lib_owner / a gradle `group=` only one
          service declares / io.f8a.summer → owner, high. The edge carries module, version and version_src (explicit,
@@ -77,7 +79,7 @@ K8S_ENV_RE = re.compile(r"^[ \t]*-[ \t]*name:[ \t]*['\"]?([A-Za-z_][A-Za-z0-9_]*
 TOPIC_RE = re.compile(r"[A-Za-z0-9_.\-]+")
 NON_HTTP_SCHEME = re.compile(r"^(r2dbc|jdbc|redis|rediss|mongodb|amqp|amqps|kafka|tcp|file|classpath):", re.I)
 TOPIC_SKIP_LEAF = {"offset-storage-topic", "schema-history-topic", "topic-prefix"}
-ALIAS_KEYS = ("env", "topic_owner", "db_owner", "lib_owner")
+ALIAS_KEYS = ("env", "topic_owner", "db_owner", "lib_owner", "ignore")
 DB_SKIP_SEG = {"cdc", "flyway", "liquibase", "debezium"}
 GITIGNORE = ("links/", "service-links.json", ".understand-anything/", ".lock/", "aliases.suggested.json", ".aliases.sha1")
 
@@ -946,7 +948,9 @@ def write_aliases(h, suggested):
     base = {k: {} for k in ALIAS_KEYS}
     doc = dict(base, _suggested=suggested,
                _note="Hub suggestions live in _suggested and are never applied. Copy an entry into env / topic_owner "
-                     "/ db_owner / lib_owner to make it win; once you edit this file the hub never rewrites it.")
+                     "/ db_owner / lib_owner to make it win. ignore maps an env name, a topic, or <svc>:<env|topic> "
+                     "(one service only) to a reason: those rows go to ignored, never an edge or unresolved. Once "
+                     "you edit this file the hub never rewrites it.")
     if aliases_pristine(h):
         text = dumps(doc)
         write_if_changed(os.path.join(h, "aliases.json"), text)
@@ -1055,6 +1059,14 @@ def join(links, aliases, man=None):
     def ev(svc, at):
         return "%s/%s" % (dirs.get(svc, svc), at)
 
+    ign = {}  # aliases.ignore: (service or None, env|topic) → reason; a scope may name the repo dir
+    for k, why in aliases["ignore"].items():
+        sc, _c, ref = k.rpartition(":")
+        ign[(names.get(sc, sc) if sc else None, ref)] = "declared in aliases.json: %s" % why
+
+    def declared(s, ref):
+        return ign.get((s, ref)) or ign.get((None, ref)) if ref else None
+
     def add(f, t, typ, via, evidence, conf):
         """One edge per (from, to, type, via); http collapses to one edge per (from, to) — every other env that
         reaches the same target goes to also_via (three Keycloak realms are one dependency)."""
@@ -1124,6 +1136,9 @@ def join(links, aliases, man=None):
                 ignored.append(dict(u, reason=("test/local profile copy of %s" % ev(s, main_at[env])) if env in main_at
                                     else "test/local profile only: no main-profile key declares it"))
                 continue
+            if declared(s, env):
+                ignored.append(dict(u, reason=declared(s, env)))
+                continue
             if h.get("use") == "ui" and not h.get("_client_at"):  # evidence from use beats any address it holds
                 ignored.append(dict(u, reason="UI link: %s only reaches template/email/notification model data (%s), "
                                               "never an HTTP client base URL"
@@ -1170,6 +1185,10 @@ def join(links, aliases, man=None):
                 m = re.fullmatch(r"\$\{([A-Z0-9_]+)(?::([^}]*))?\}", tt)
                 h = {"env": m.group(1), "default_url": m.group(2)} if m else {"default_url": tt if "://" in tt else "",
                                                                              "env": ""}
+                if declared(s, h["env"]):
+                    ignored.append({"svc": s, "kind": "http_client", "env": h["env"],
+                                    "at": ev(s, "%s:%d" % (r["file"], r["line"])), "reason": declared(s, h["env"])})
+                    continue
                 t, conf, _w = http_target(h, names, aliases, s)
                 if t is None and not m:
                     t, conf = match_name(tt.lower(), names, s)
@@ -1177,13 +1196,19 @@ def join(links, aliases, man=None):
                     add(s, t, "http", h.get("env") or tt, [ev(s, "%s:%d" % (r["file"], r["line"]))], conf)
     # kafka
     exact, prefixes = {}, []
+    matched_prefix, superseded, seen = set(), {}, set()
     for s in svcs:
+        own = {c["topic"] for c in links[s]["kafka"]["consumes"]}
         for p in links[s]["kafka"]["produces"]:
-            if p.get("topic"):
+            if p.get("topic") and declared(s, p["topic"]):  # a self-consumed topic: its consumer row covers it
+                if p["topic"] not in own and (s, p["topic"]) not in seen:
+                    seen.add((s, p["topic"]))
+                    ignored.append({"svc": s, "kind": "kafka_produce", "topic": p["topic"], "at": ev(s, p["at"][0]),
+                                    "reason": declared(s, p["topic"])})
+            elif p.get("topic"):
                 exact.setdefault(p["topic"], []).append((s, p))
             elif p.get("prefix"):
                 prefixes.append((s, p))
-    matched_prefix, superseded, seen = set(), {}, set()
 
     def internal(s, t, at, why):
         if (s, t) not in seen:
@@ -1199,6 +1224,9 @@ def join(links, aliases, man=None):
     for s in svcs:
         for cns in links[s]["kafka"]["consumes"]:
             t = cns["topic"]
+            if declared(s, t):
+                internal(s, t, ev(s, cns["at"][0]), declared(s, t))
+                continue
             owner = aliases["topic_owner"].get(t)
             owner = names.get(owner, owner)
             cev = [ev(s, a) for a in cns["at"]]
@@ -1263,7 +1291,8 @@ def join(links, aliases, man=None):
     for s in svcs:
         for key, out in (("unresolved", unresolved), ("ignored", ignored), ("dynamic", dynamic)):
             for u in links[s].get(key, []):
-                out.append(dict(u, svc=s, at=ev(s, u["at"])))
+                why = declared(s, u.get("topic") or u.get("env")) if key == "unresolved" else None
+                (ignored if why else out).append(dict(u, svc=s, at=ev(s, u["at"]), **({"reason": why} if why else {})))
     # lib
     owners = {g: names.get(o, o) for g, o in DEFAULT_LIB_OWNER.items()}
     decl = {}
