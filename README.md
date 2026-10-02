@@ -494,12 +494,12 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1634 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1642 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 909  advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 917  advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 119 there (mutants + ewallet off), 162 alone with mutants and the va-ms part;
-                                  #       hub-tests counts 94 there (ewallet, dashboard and UA validator off), 106 alone with all three
+                                  #       hub-tests counts 102 there (ewallet, dashboard and UA validator off), 114 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 149  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    # 104  learnings merge, prune, injection, federation

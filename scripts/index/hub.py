@@ -21,8 +21,11 @@ Join rules (07 §4.3 table):
          else unresolved. Only entries with an http(s) default or an env ending _URL/_URI count as HTTP clients.
          Before those: a test/local-profile entry → ignored (never an edge); a deploy-manifest value of the env
          (aliases.manifests) → the service it names (image / applicationName, <name>.<namespace>), a deployed app
-         the hub lacks → external:<app>, a public host → external:<host>. After them: a key no src/main code reads
-         → ignored (dead config); a portal/login/deeplink key → ignored. Another service's datasource URL
+         the hub lacks → external:<app>, a public host → external:<host>; but first, a key whose every src/main use
+         is UI model data (put/Map.of with a literal key, a Mail/Notification/Template argument) and none an HTTP
+         client (baseUrl/uri/WebClient/RestTemplate/RestClient/HttpClient/Feign) → ignored "UI link" (by use). After
+         them: a key no src/main code reads → ignored (dead config); a portal/login/deeplink key with no HTTP-client
+         use → ignored; an address naming the service itself → ignored (self). Another service's datasource URL
          (…datasources.<x>.url) → a db edge to the owner of its deployed schema (aliases.db_owner wins).
   kafka  consumer topics come from @KafkaListener (literal, ${prop:default}, same-file constant, SpEL
          #{'${prop:default}'.split(',')}) resolved against application*.yml; producer topics from KafkaTemplate
@@ -31,7 +34,10 @@ Join rules (07 §4.3 table):
          a yml heuristic; no producer → unresolved. Source scan adds handler consumers (getSupportedTopics() /
          topic() → props getter / @Value) and publisher route tables / outbox saveEvent topics. A manifest ENV
          value wins over ${ENV:default}. DLT/replay, outbox and wrapper (topic parameter) send sites → dynamic; an
-         empty unset topic property → ignored; a prefix no other service consumes → dynamic.
+         empty unset topic property → ignored; a prefix no other service consumes → dynamic, and so does a prefix the
+         publisher bypasses (its topics are routed explicitly; "superseded"); a prefix-composed saveEvent topic cites
+         the prefix line. A self-produced (or own-prefix) consumed topic and a static topic no registered consumer
+         names → ignored. Every input row ends in an edge or exactly one bucket row (hub-tests `account`).
   lib    one edge per (service, library module): a dependency whose group a registered library publishes (a repo
          extract.library_info detects as a multi-module publisher), or aliases.lib_owner / a gradle `group=` only one
          service declares / io.f8a.summer → owner, high. The edge carries module, version and version_src (explicit,
@@ -400,6 +406,101 @@ def prop_bound(prop, code):
     return seg in code["lits"] or seg in code["idents"]
 
 
+HTTP_CALLEE = {"baseUrl", "rootUri", "uri", "uriTemplateHandler", "target", "newBuilder"}
+HTTP_TYPE_RE = re.compile(r"(?i)(WebClient|RestTemplate|RestClient|HttpClient|HttpRequest|Feign)")
+UI_TYPE_RE = re.compile(r"(?i)(mail|notif|template|sms|push)")
+MODEL_PUT = {"put", "putIfAbsent", "of", "entry", "setVariable", "addAttribute", "with", "data"}
+NEUTRAL_CALLEE = {"isBlank", "isEmpty", "hasText", "hasLength", "isNotBlank", "isNotEmpty", "requireNonNull",
+                  "trace", "debug", "info", "warn", "error", "if", "while"}
+
+
+def use_kind(src, a, b):
+    """The value read at src.code[a:b] → 'http' (it reaches an HTTP client builder: baseUrl/uri/rootUri/target,
+    WebClient/RestTemplate/RestClient/HttpClient/Feign), 'ui' (a keyed model entry — put/Map.of/setVariable with a
+    literal key — or an argument of a Mail/Notification/Template/Sms/Push type), 'neutral' (a null/blank check,
+    a log line) or None (anything else: passed on, assigned, returned)."""
+    code, skel = src.code, src.skel
+    after = code[b:b + 40]
+    if re.match(r"\s*(?:[!=]=\s*null|\.\s*(?:isBlank|isEmpty|equals|length)\s*\()", after) \
+            or re.search(r"null\s*[!=]=\s*$", code[max(0, a - 12):a]):
+        return "neutral"
+    callees, i, depth, comma, first = [], a - 1, 0, None, True
+    while i >= 0 and len(callees) < 6:
+        ch = skel[i]
+        if ch in ")]}":
+            depth += 1
+        elif ch in "([{" and depth:
+            depth -= 1
+        elif ch == "," and not depth and comma is None and first:
+            comma = i
+        elif ch == "(" and not depth:
+            m = re.search(r"(new\s+)?([\w.]*?)(\w+)\s*(?:<[^<>()]*>)?\s*$", code[max(0, i - 120):i])
+            name, qual = (m.group(3), m.group(2)) if m else ("", "")
+            prev = None
+            if first and comma is not None:
+                prev = extract.split_top(code[i + 1:comma])
+                prev = prev[-1].strip() if prev else None
+            callees.append((name, qual, prev))
+            first = False
+        elif ch in ";{}" and not depth:
+            break
+        i -= 1
+    for name, qual, _p in callees:
+        if name in HTTP_CALLEE or HTTP_TYPE_RE.search(name) or HTTP_TYPE_RE.search(qual) \
+                or (name in ("create", "url") and re.search(r"(?i)(WebClient|URI|Feign|RestClient)\.$", qual)):
+            return "http"
+    if not callees:
+        return None
+    name, _q, prev = callees[0]
+    if (name in MODEL_PUT and prev and re.fullmatch(r'"[^"]*"', prev)) or any(UI_TYPE_RE.search(n) for n, _q, _p in callees):
+        return "ui"
+    return "neutral" if name in NEUTRAL_CALLEE else None
+
+
+def prop_use(prop, code):
+    """How src/main reads `prop`: its @Value fields (their uses in the declaring file) and the getter chain of its
+    @ConfigurationProperties class (app.merchant-portal.url → .getMerchantPortal().getUrl(), any file) →
+    ('http'|'ui'|None, [rel:line of the ui uses]). 'ui' = every use is UI model data (or a null check / log) and at
+    least one is; any HTTP-client use wins; no use found → None (the key-name rules decide)."""
+    if not prop or not code or prop.startswith(FRAMEWORK_PROP):
+        return None, []
+    want, sites = extract.relax(prop), []
+    low = code.setdefault("relaxed", {})
+    for rel, t in sorted(code["texts"].items()):
+        if rel not in low:
+            low[rel] = extract.relax(t)
+        if want.split(".")[-1] not in low[rel]:
+            continue
+        src = None
+        for m in re.finditer(r'@Value\s*\(\s*"\$\{([^:}]+)[^"]*"\s*\)\s*(?:(?:private|protected|public|final)\s+)*'
+                             r'[\w.<>]+\s+(\w+)\s*[;=]', t):
+            if extract.relax(m.group(1)) != want:
+                continue
+            src = src or extract.Src(t)
+            for u in re.finditer(r"\b%s\b" % re.escape(m.group(2)), src.code):
+                if not m.start() <= u.start() < m.end():
+                    sites.append((rel, src, u.start(), u.end()))
+        for cls, (pre, _r) in code["props"].items():
+            if not want.startswith(extract.relax(pre) + "."):
+                continue
+            segs = prop.split(".")[len(pre.split(".")):]
+            pat = r"\s*".join([r"\.\s*get(\w+)\s*\(\s*\)"] * len(segs))
+            src = src or extract.Src(t)
+            for u in re.finditer(pat, src.code):
+                if [extract.relax(g) for g in u.groups()] == [extract.relax(x) for x in segs]:
+                    a = u.start()
+                    while a and (src.code[a - 1].isalnum() or src.code[a - 1] in "_."):
+                        a -= 1  # the receiver: props.getMerchantPortal().getUrl()
+                    sites.append((rel, src, a, u.end()))
+    kinds = [(use_kind(src, a, b), "%s:%d" % (rel, src.line(a))) for rel, src, a, b in sites]
+    if any(k == "http" for k, _a in kinds):
+        return "http", []
+    ui = [at for k, at in kinds if k == "ui"]
+    if ui and all(k in ("ui", "neutral") for k, _a in kinds):
+        return "ui", list(dict.fromkeys(ui))
+    return None, []
+
+
 def body_at(t, i):
     """t[i] == '{' (or '(') → (inner text, index of the matching close)."""
     o = t[i]
@@ -450,7 +551,8 @@ def code_kafka(code, flat, over, prefixes):
              returns props.get<X>Topic(), an @Value field or a literal (summer AbstractKafkaMessageHandler & co.)
     produce  props.get<X>Topic() in a publisher class (Publisher|Producer|Sender|Outbox — a custom outbox publisher's
              route table); outbox saveEvent(id, type, payload, topic) → topic (high); saveEvent(id, "x", payload)
-             with a topic-prefix → prefix + "x" (medium). DLT classes never count."""
+             with a topic-prefix → prefix + "x" (medium, via_prefix: the prefix line is its evidence too). DLT
+             classes never count. prefixes: {prefix: yml rel:line}."""
     cons, prods = [], []
     if not code:
         return cons, prods
@@ -513,7 +615,8 @@ def code_kafka(code, flat, over, prefixes):
                 prods += [{"topic": tp, "at": [a for a in (at, yat) if a], "conf": "high"} for tp in ts]
             elif len(args) == 3:
                 ts, _y = topics_of(args[1])
-                prods += [{"topic": p + tp, "at": [at], "conf": "medium"} for tp in ts for p in prefixes]
+                prods += [{"topic": p + tp, "at": [at, pat], "conf": "medium", "via_prefix": p}
+                          for tp in ts for p, pat in sorted(prefixes.items())]
     return cons, prods
 
 
@@ -537,8 +640,13 @@ def kafka_sides(repo, rows, contracts, flat, code=None, over=None):
     consumes, produces = [], []
     bk = {"unresolved": [], "ignored": [], "dynamic": []}
     used_props = set()
-    prefixes = sorted({v.strip() for rel in flat for e in flat[rel] if e["prop"].split(".")[-1].lower() == "topic-prefix"
-                       for v in yml_val(e["value"], over).split(",") if TOPIC_RE.fullmatch(v.strip())})
+    prefixes = {}
+    for rel in sorted(flat, key=lambda r: (ev_rank(r), r)):
+        for e in flat[rel]:
+            if e["prop"].split(".")[-1].lower() == "topic-prefix":
+                for v in yml_val(e["value"], over).split(","):
+                    if TOPIC_RE.fullmatch(v.strip()):
+                        prefixes.setdefault(v.strip(), "%s:%d" % (rel, e["line"]))
     for r in rows:
         if r.get("kind") != "listener":
             continue
@@ -682,6 +790,11 @@ def build_link(repo, svc, hroot, man=None):
     for hc in contracts.get("http_clients", []):  # a URL key no code reads is dead config, never "unresolved"
         if not prop_bound(hc.get("prop"), code):
             hc["unbound"] = True
+        use, use_at = prop_use(hc.get("prop"), code)
+        if use:
+            hc["use"] = use
+        if use_at:
+            hc["use_at"] = use_at[:3]
     consumes, produces, bk = kafka_sides(repo, rows, contracts, flat, code, topic_over(man, svc))
     props = {"%s:%d" % (rel, e["line"]): e["prop"] for rel in flat for e in flat[rel]}
     dbs = [d for d in contracts.get("db", [])  # a CDC / migration connector URL is not the service's database
@@ -1011,12 +1124,21 @@ def join(links, aliases, man=None):
                 ignored.append(dict(u, reason=("test/local profile copy of %s" % ev(s, main_at[env])) if env in main_at
                                     else "test/local profile only: no main-profile key declares it"))
                 continue
-            deployed = []
+            if h.get("use") == "ui" and not h.get("_client_at"):  # evidence from use beats any address it holds
+                ignored.append(dict(u, reason="UI link: %s only reaches template/email/notification model data (%s), "
+                                              "never an HTTP client base URL"
+                                              % (h.get("prop"), ", ".join(ev(s, a) for a in h.get("use_at", [])))))
+                continue
+            deployed, own = [], False
             if not (env and env in aliases["env"]):  # an alias still wins; else the deploy manifests decide
                 for v, mev in senv.get(env, []) if env else []:
                     t = deployed_target(v, man, names)
-                    if t:
+                    own = own or t == s
+                    if t and t != s:
                         deployed.append((t, mev))
+            if own and not deployed:
+                ignored.append(dict(u, reason="self: the deployed address names %s itself" % s))
+                continue
             if deployed:
                 for t, mev in deployed:
                     add(s, t, "http", via, evid + [mev], "high")
@@ -1031,12 +1153,13 @@ def join(links, aliases, man=None):
                     u["host"] = host_of(h.get("default_url"))
                 if h.get("unbound"):
                     ignored.append(dict(u, reason="unused config: no src/main code reads %s" % h.get("prop")))
-                elif UI_LINK_RE.search(h.get("prop") or env or ""):
+                elif UI_LINK_RE.search(h.get("prop") or env or "") and h.get("use") != "http":
                     ignored.append(dict(u, reason="UI link (portal/login/deeplink) handed to users, not a service call"))
                 else:
                     unresolved.append(u)
                 continue
             if t == s:
+                ignored.append(dict(u, reason="self: the address names %s itself" % s))
                 continue
             add(s, t, "http", via, evid, conf)
             if why in ("env-substring",) and h.get("env"):
@@ -1060,7 +1183,19 @@ def join(links, aliases, man=None):
                 exact.setdefault(p["topic"], []).append((s, p))
             elif p.get("prefix"):
                 prefixes.append((s, p))
-    matched_prefix = set()
+    matched_prefix, superseded, seen = set(), {}, set()
+
+    def internal(s, t, at, why):
+        if (s, t) not in seen:
+            seen.add((s, t))
+            ignored.append({"svc": s, "kind": "kafka_consume", "topic": t, "at": at, "reason": why})
+
+    def by_topic(rows):
+        out = {}
+        for p in rows:
+            if p.get("topic"):
+                out.setdefault(p["topic"], []).extend(p["at"][:1])
+        return out
     for s in svcs:
         for cns in links[s]["kafka"]["consumes"]:
             t = cns["topic"]
@@ -1075,28 +1210,56 @@ def join(links, aliases, man=None):
                 for ps, p in prods:
                     cf = min(p["conf"], cns.get("conf", "high"), key=lambda c: CONF_W[c])
                     add(ps, s, "kafka", t, [ev(ps, a) for a in p["at"]] + cev, cf)
-                    matched_prefix.update((ps, x["prefix"]) for xs, x in prefixes if xs == ps and t.startswith(x["prefix"]))
+                    if p.get("via_prefix"):  # topic = prefix + event type: the prefix line is on the edge
+                        matched_prefix.add((ps, p["via_prefix"]))
+                    else:  # the publisher names the topic itself: a same-service prefix it starts with is bypassed
+                        for xs, x in prefixes:
+                            if xs == ps and t.startswith(x["prefix"]):
+                                superseded.setdefault((ps, x["prefix"]), set()).add("%s → %s" % (t, s))
                 continue
             if any(ps == s for ps, _p in exact.get(t, [])):
-                continue  # produced and consumed by the same service
+                internal(s, t, cev[0], "internal topic: %s produces and consumes %s itself" % (s, t))
+                continue
             pm = [(ps, p) for ps, p in prefixes if t.startswith(p["prefix"])]
             if pm:
                 longest = max(len(p["prefix"]) for _s, p in pm)
                 pm = [(ps, p) for ps, p in pm if len(p["prefix"]) == longest]
             if any(ps == s for ps, _p in pm):
-                continue  # the service's own outbox prefix
+                internal(s, t, cev[0], "internal topic: %s consumes %s under its own outbox topic-prefix %s"
+                         % (s, t, pm[0][1]["prefix"]))
+                continue
             if len(pm) == 1:
                 ps, p = pm[0]
                 matched_prefix.add((ps, p["prefix"]))
                 add(ps, s, "kafka", t, [ev(ps, a) for a in p["at"]] + cev, "medium")
                 sugg["topic_owner"][t] = ps
                 continue
-            unresolved.append({"svc": s, "kind": "kafka_consume", "topic": t, "at": cev[0]})
+            if (s, t) not in seen:
+                seen.add((s, t))
+                unresolved.append({"svc": s, "kind": "kafka_consume", "topic": t, "at": cev[0]})
     for ps, p in prefixes:
-        if (ps, p["prefix"]) not in matched_prefix:
-            dynamic.append({"svc": ps, "kind": "kafka_produce", "prefix": p["prefix"], "at": ev(ps, p["at"][0]),
-                            "reason": "outbox topic-prefix: no other registered service consumes a %s* topic"
-                                      % p["prefix"]})
+        k = (ps, p["prefix"])
+        if k in matched_prefix or k in seen:
+            continue
+        seen.add(k)
+        if k in superseded:
+            sup = sorted(superseded[k])
+            why = ("outbox topic-prefix superseded: the publisher routes these topics explicitly (%s%s), so no "
+                   "consumed topic is composed from %s" % (", ".join(sup[:4]), " +%d" % (len(sup) - 4)
+                                                            if len(sup) > 4 else "", p["prefix"]))
+        else:
+            why = "outbox topic-prefix: no other registered service consumes a %s* topic" % p["prefix"]
+        dynamic.append({"svc": ps, "kind": "kafka_produce", "prefix": p["prefix"], "at": ev(ps, p["at"][0]),
+                        "reason": why})
+    linked = {(e["from"], e["via"]) for e in edges.values() if e["type"] == "kafka"}
+    for ps in svcs:  # a static topic no registered consumer names: not a link, but never dropped silently
+        own = {c["topic"] for c in links[ps]["kafka"]["consumes"]}
+        for t, ats in sorted(by_topic(links[ps]["kafka"]["produces"]).items()):
+            if (ps, t) not in linked and (ps, t) not in seen:
+                seen.add((ps, t))
+                ignored.append({"svc": ps, "kind": "kafka_produce", "topic": t, "at": ev(ps, ats[0]), "reason": (
+                    "internal topic: %s produces and consumes %s itself; no other registered service consumes it"
+                    % (ps, t)) if t in own else "no registered service's consumer side names %s" % t})
     for s in svcs:
         for key, out in (("unresolved", unresolved), ("ignored", ignored), ("dynamic", dynamic)):
             for u in links[s].get(key, []):

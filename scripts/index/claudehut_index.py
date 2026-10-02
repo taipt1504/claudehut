@@ -885,10 +885,10 @@ def cmd_links(ctx, opts):
         lines.append("%s → %s lib %d module(s): %s" % (e["from"], e["to"], len(es), ", ".join(
             "%s %s" % (x.get("module") or x["via"], ver(x)) for x in es) if t == "lib" else
             "(links --type lib%s)" % ("" if s else " --service %s" % e["from"])))
-    lines.append("%d edge(s), %d unresolved, %d ignored, %d dynamic%s" % (
+    foot = "%d edge(s), %d unresolved, %d ignored, %d dynamic%s" % (
         len(edges), len(unres), len(other["ignored"]), len(other["dynamic"]),
-        "" if not (unres or other["ignored"] or other["dynamic"]) else " (links --json)"))
-    print(clip("\n".join(lines), 6000))
+        "" if not (unres or other["ignored"] or other["dynamic"]) else " (links --json)")
+    print(clip("\n".join(lines), 6000 - len(foot.encode("utf-8")) - 1) + "\n" + foot)  # the totals survive the clip
     return 0
 
 

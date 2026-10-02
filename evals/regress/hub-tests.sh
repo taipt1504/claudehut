@@ -37,8 +37,13 @@
 #                       external:<app>, a public host → external:<host>; another service's datasource → db edge by
 #                       deployed schema; a manifest topic env beats the yml default; handler getSupportedTopics(),
 #                       publisher route tables and outbox saveEvent topics join; test/local copies, dead config, UI
-#                       links and an empty topic property are `ignored`, DLT and wrapper send sites `dynamic`, each
-#                       with a reason; the one undecidable client stays `unresolved`; no manifest secret leaks
+#                       links (by key name, and by use: values only put into email/template model data, whatever
+#                       address the manifest or default holds), a deployed self-address, a topic no consumer names
+#                       and an empty topic property are `ignored`; DLT, outbox, wrapper send sites and a prefix the
+#                       publisher bypasses are `dynamic`, each with a reason; real clients (WebClient.baseUrl,
+#                       RestClient.create, even portal-named or also emailed) keep their edges or stay `unresolved`;
+#                       accounting: every client/consumer/producer/prefix row lands in an edge xor exactly one
+#                       bucket row; `links` keeps the totals when clipped; no manifest secret leaks
 #
 # Run: evals/regress/hub-tests.sh
 set -uo pipefail
@@ -76,6 +81,61 @@ for d, ds, fs in os.walk(root):
 PY
 }
 H="$W/hubrepo/.claude/claudehut/hub"
+# account <hub dir> — prints every input row of links/<svc>.json that does not end up exactly once: in an edge
+# (http: via/also_via of an edge from the service, for a main-profile key; kafka: an edge from/to the service via the
+# topic; topic-prefix: its yml line in the evidence of an edge from the service) XOR in exactly one bucket row (by
+# its evidence line; kafka by service + topic or prefix). Inputs: HTTP-shaped clients (is_http_client), client
+# targets, Feign/@HttpExchange targets, kafka consumes, kafka produces (topic and prefix). Empty output = accounted.
+account() { python3 - "$1" "$ROOT/scripts/index" <<'PY'
+import glob, json, os, sys
+sys.dont_write_bytecode = True
+sys.path.insert(0, sys.argv[2])
+import hub
+h = sys.argv[1]
+sl = json.load(open(os.path.join(h, "service-links.json")))
+edges, rows = sl["edges"], [u for b in ("unresolved", "ignored", "dynamic") for u in sl[b]]
+bad = []
+def out(what, n_edge, n_row):
+    if not ((n_edge and n_row == 0) or (not n_edge and n_row == 1)):
+        bad.append("%s: edges=%s bucket rows=%d" % (what, bool(n_edge), n_row))
+for f in sorted(glob.glob(os.path.join(h, "links", "*.json"))):
+    L = json.load(open(f)); s = L["svc"]; d = hub.repo_dir(L, s)
+    ev = lambda at: "%s/%s" % (d, at)
+    c = L["contracts"]
+    clients = [x for x in c.get("http_clients", []) if hub.is_http_client(x)]
+    have = {x["at"] for x in clients}
+    clients += [{"env": t.get("env"), "prop": t.get("prop"), "at": t["yml_at"]} for t in c.get("client_targets", [])
+                if t.get("yml_at") not in have and hub.is_http_client(t)]
+    for x in clients:
+        via = x.get("env") or x.get("prop") or x.get("key")
+        n_edge = hub.ev_rank(x["at"]) < 2 and any(e["type"] == "http" and e["from"] == s and
+                                                  (e["via"] == via or via in e.get("also_via", [])) for e in edges)
+        out("%s http %s @%s" % (s, via, x["at"]), n_edge, sum(1 for u in rows if u["svc"] == s and u.get("at") == ev(x["at"])))
+    for r in L["components"]:
+        if r["kind"] == "client" and r.get("target"):
+            n_edge = any(e["type"] == "http" and e["from"] == s and any(a == ev("%s:%d" % (r["file"], r["line"]))
+                                                                       for a in e["evidence"]) for e in edges)
+            out("%s feign %s" % (s, r["target"]), n_edge,
+                sum(1 for u in rows if u["svc"] == s and u.get("at") == ev("%s:%d" % (r["file"], r["line"]))))
+    kin = lambda u: u["svc"] == s and u.get("kind", "").startswith("kafka")
+    for t in sorted({x["topic"] for x in L["kafka"]["consumes"]}):
+        out("%s consumes %s" % (s, t), any(e["type"] == "kafka" and e["to"] == s and e["via"] == t for e in edges),
+            sum(1 for u in rows if kin(u) and u.get("topic") == t and u["kind"] == "kafka_consume"))
+    cons = {x["topic"] for x in L["kafka"]["consumes"]}
+    for p in L["kafka"]["produces"]:
+        if p.get("topic"):
+            t = p["topic"]
+            n_edge = any(e["type"] == "kafka" and e["from"] == s and e["via"] == t for e in edges)
+            out("%s produces %s" % (s, t), n_edge,  # an internal topic: its consumer row covers the producer side
+                sum(1 for u in rows if kin(u) and u.get("topic") == t and (u["kind"] == "kafka_produce"
+                                                                           or (t in cons and not n_edge))))
+        else:
+            out("%s prefix %s" % (s, p["prefix"]), any(e["type"] == "kafka" and e["from"] == s and ev(p["at"][0]) in e["evidence"]
+                                                     for e in edges),
+                sum(1 for u in rows if kin(u) and u.get("prefix") == p["prefix"]))
+print("\n".join(sorted(set(bad))))
+PY
+}
 
 # ---------------------------------------------------------------- 1. fixture ------------------------------------
 echo "== 1. fixture: 3 repos → exact edges (AC-8) =="
@@ -92,10 +152,14 @@ c_before="$(snap "$W/c-ms")"
 ix "$W/hubrepo" hub-sync --hub . --repo ../a-ms --repo ../b-ms
 chk "hub-sync registers 2 planes" '[[ "$OUT" == "hub: synced 2 services"* ]]'
 ix "$W/hubrepo" hub-scan --hub . --repo "$W/c-ms"
-chk "hub-scan adds c-ms (no plane): 3 services, 6 edges (lib per module), 2 unresolved, the unconsumed prefix dynamic" \
-  '[[ "$OUT" == "hub: synced 3 services, 6 edges (http 2, kafka 1, lib 2, db 1), 2 unresolved, 0 ignored, 1 dynamic"* ]]'
+chk "hub-scan adds c-ms (no plane): 3 services, 6 edges (lib per module), 2 unresolved, the self-produced topic ignored, the unconsumed prefix dynamic" \
+  '[[ "$OUT" == "hub: synced 3 services, 6 edges (http 2, kafka 1, lib 2, db 1), 2 unresolved, 1 ignored, 1 dynamic"* ]]'
+chk "the self-produced topic is ignored as internal, with its reason (never dropped silently)" \
+  '[ "$(jq -c "[.ignored[] | [.svc, .kind, .topic, .reason]]" "$H/service-links.json")" = "[[\"b-ms\",\"kafka_consume\",\"b.internal.v1\",\"internal topic: b-ms produces and consumes b.internal.v1 itself\"]]" ]'
 chk "the c. prefix nobody consumes is dynamic with its reason, not unresolved" \
   'jq -e "[.dynamic[] | select(.prefix==\"c.\" and (.reason|test(\"no other registered service consumes\")))] | length == 1" "$H/service-links.json" >/dev/null'
+ACC="$(account "$H")"
+chk "accounting (3 repos): every input row is in an edge xor exactly one bucket row${ACC:+ — $ACC}" '[ -z "$ACC" ]'
 chk "services.json: c-ms has_plane=false, a-ms/b-ms true, paths relative to the hub root" \
   '[ "$(jq -c "[.\"a-ms\".has_plane, .\"b-ms\".has_plane, .\"c-ms\".has_plane, .\"c-ms\".path]" "$H/services.json")" = "[true,true,false,\"../c-ms\"]" ]'
 GOT="$(jq -S '{edges: .edges, unresolved: .unresolved}' "$H/service-links.json")"; WANT="$(jq -S . "$FX/expected-links.json")"
@@ -473,7 +537,7 @@ mkdir -p "$BH"; git -C "$BW/kh" init -q -b main
 printf '{"env":{"APP_SMS_URL":"e-ms"},"topic_owner":{},"db_owner":{},"manifests":"../workloads"}\n' > "$BH/aliases.json"
 al_before="$(sha "$BH/aliases.json")"
 ix "$BW/kh" hub-sync --hub . --repo ../d-ms --repo ../e-ms
-chk "2 planes: 1 unresolved, 5 ignored, 2 dynamic" '[[ "$OUT" == "hub: synced 2 services, "*", 1 unresolved, 5 ignored, 2 dynamic"* ]]'
+chk "2 planes: 2 unresolved, 9 ignored, 4 dynamic" '[[ "$OUT" == "hub: synced 2 services, "*", 2 unresolved, 9 ignored, 4 dynamic"* ]]'
 BL="$BH/service-links.json"
 edge() { jq -e --arg f "$1" --arg t "$2" --arg ty "$3" --arg v "$4" --arg c "$5" \
   'any(.edges[]; .from==$f and .to==$t and .type==$ty and .via==$v and .confidence==$c)' "$BL" >/dev/null; }
@@ -489,24 +553,44 @@ chk "kafka: handler getSupportedTopics() ← publisher route table (props getter
   'edge d-ms e-ms kafka e.cmd.v1 high && edge d-ms e-ms kafka f.cmd.v1 high'
 chk "manifest topic env beats the stale yml default; 3-arg saveEvent = topic-prefix + type; the prefix counts as consumed" \
   'edge d-ms e-ms kafka d.link.notify medium && ! jq -e "any(.edges[]; .via==\"stale_link_topic\") or any(.unresolved[]; .topic==\"stale_link_topic\") or any(.dynamic[]; .prefix==\"d.\")" "$BL" >/dev/null'
-chk "unresolved = exactly the bound client with no deployed value and no counterpart" \
-  '[ "$(jq -c "[.unresolved[] | [.svc, .kind, .env]]" "$BL")" = "[[\"d-ms\",\"http_client\",\"COMPLIANCE_URL\"]]" ]'
-chk "ignored: test copy, test-only (its alias never applies), dead map entry, UI link, disabled topic — each with a reason" \
-  '[ "$(jq -c "[.ignored[] | [(.env // .expr), (.reason|split(\":\")[0]|split(\" \")[0:2]|join(\" \"))]] | sort" "$BL")" = "[[\"APP_SMS_URL\",\"test/local profile\"],[\"E_SVC_URL\",\"test/local profile\"],[\"GHOST_SERVICE_URL\",\"unused config\"],[\"PORTAL_LOGIN_URL\",\"UI link\"],[\"opsTopic\",\"topic property\"]]" ] && ! jq -e "any(.edges[]; .via==\"APP_SMS_URL\")" "$BL" >/dev/null'
+chk "unresolved = exactly the bound clients with no deployed value and no counterpart (a portal-named key feeding WebClient.baseUrl is a client, not a UI link)" \
+  '[ "$(jq -c "[.unresolved[] | [.svc, .kind, .env]]" "$BL")" = "[[\"d-ms\",\"http_client\",\"COMPLIANCE_URL\"],[\"d-ms\",\"http_client\",\"PORTAL_GATEWAY_URL\"]]" ]'
+chk "ignored: test copy, test-only (its alias never applies), dead map entry, UI links (by key name; by use), a deployed self-address, a topic no consumer names, disabled topic — each with a reason" \
+  '[ "$(jq -c "[.ignored[] | [(.env // .expr // .topic), (.reason|split(\":\")[0]|split(\" \")[0:2]|join(\" \"))]] | sort" "$BL")" = "[[\"APP_BACKOFFICE_URL\",\"UI link\"],[\"APP_MERCHANT_PORTAL_URL\",\"UI link\"],[\"APP_SMS_URL\",\"test/local profile\"],[\"D_CALLBACK_URL\",\"self\"],[\"E_SVC_URL\",\"test/local profile\"],[\"GHOST_SERVICE_URL\",\"unused config\"],[\"PORTAL_LOGIN_URL\",\"UI link\"],[\"d.audit.v1\",\"no registered\"],[\"opsTopic\",\"topic property\"]]" ] && ! jq -e "any(.edges[]; .via==\"APP_SMS_URL\")" "$BL" >/dev/null'
 chk "the test copy names its main-profile key" 'jq -e "any(.ignored[]; .env==\"E_SVC_URL\" and .reason==\"test/local profile copy of d-ms/src/main/resources/application.yml:9\")" "$BL" >/dev/null'
-chk "dynamic: the DLT publisher and the topic-parameter wrapper (with the topics its callers name)" \
-  '[ "$(jq -c "[.dynamic[] | [(.at|split(\"/\")|last|split(\":\")[0]), (.reason|split(\":\")[0]), (.topics // [])]] | sort" "$BL")" = "[[\"DltPublisher.java\",\"dead-letter/replay publisher\",[]],[\"GenericProducer.java\",\"producer wrapper\",[\"d.link.notify\",\"e.cmd.v1\",\"f.cmd.v1\"]]]" ]'
+chk "dynamic: the DLT publisher, the outbox publisher and the topic-parameter wrapper (with the topics their callers name), the bypassed prefix" \
+  '[ "$(jq -c "[.dynamic[] | [(.at|split(\"/\")|last|split(\":\")[0]), (.reason|split(\":\")[0]), (.topics // [])]] | sort" "$BL")" = "[[\"DltPublisher.java\",\"dead-letter/replay publisher\",[]],[\"EOutboxEventPublisher.java\",\"outbox publisher\",[\"e.done.v1\"]],[\"GenericProducer.java\",\"producer wrapper\",[\"d.link.notify\",\"e.cmd.v1\",\"f.cmd.v1\"]],[\"application.yml\",\"outbox topic-prefix superseded\",[]]]" ]'
+chk "UI link by use: a URL only put into email/template model data (@Value field; props getter chain into Map.of + a *MailContext) is ignored — neither its manifest host nor its public default becomes an edge" \
+  '! jq -e "any(.edges[]; .via==\"APP_BACKOFFICE_URL\" or .via==\"APP_MERCHANT_PORTAL_URL\" or .to==\"external:cms.shop.example.net\" or .to==\"external:merchant.portal.example.com\")" "$BL" >/dev/null && jq -e "[.ignored[] | select(.env==\"APP_MERCHANT_PORTAL_URL\" and (.reason|test(\"UserMailer.java:31\")))] | length == 1" "$BL" >/dev/null'
+chk "real clients keep their edges: a portal-named key feeding WebClient.baseUrl, a URL used in an email AND by RestClient.create" \
+  'edge d-ms external:portal-api.partner.example.com http PARTNER_PORTAL_URL high && edge d-ms external:help.example.org http APP_HELP_URL high'
+chk "a topic-prefix the publisher bypasses (routes e.done.v1 explicitly) keeps a dynamic row naming the routed topic" \
+  'edge e-ms d-ms kafka e.done.v1 high && jq -e "[.dynamic[] | select(.prefix==\"e.\" and (.reason|test(\"superseded.*e.done.v1 → d-ms\")))] | length == 1" "$BL" >/dev/null'
+chk "a prefix-composed topic (3-arg saveEvent) cites the prefix line on its edge" \
+  'jq -e "any(.edges[]; .via==\"d.link.notify\" and any(.evidence[]; . == \"d-ms/src/main/resources/application.yml:42\"))" "$BL" >/dev/null'
+ACC="$(account "$BH")"
+chk "accounting: every client/consumer/producer/prefix row is in an edge xor exactly one bucket row${ACC:+ — $ACC}" '[ -z "$ACC" ]'
 chk "no manifest secret value (helm env, *.enc.yaml) appears anywhere under the hub dir" \
   '! grep -rqE "fake-pass-ABC123|fake-token-QQQ777|fake-secret-XYZ999" "$BH"'
 chk "aliases.json with manifests is user-owned: never rewritten" '[ "$al_before" = "$(sha "$BH/aliases.json")" ]'
 chk "HUB.md tail counts every bucket; ≤3072 B" \
-  'grep -qxF "Unresolved: 1 (fix with aliases.json) · ignored 5 · dynamic 2 (each with its reason in service-links.json)." "$BH/HUB.md" && [ "$(wc -c < "$BH/HUB.md")" -le 3072 ]'
+  'grep -qxF "Unresolved: 2 (fix with aliases.json) · ignored 9 · dynamic 4 (each with its reason in service-links.json)." "$BH/HUB.md" && [ "$(wc -c < "$BH/HUB.md")" -le 3072 ]'
 ix "$BW/kh" links --json
-chk "links --json carries ignored + dynamic" '[ "$(printf "%s" "$OUT" | jq -c "[(.unresolved|length), (.ignored|length), (.dynamic|length)]")" = "[1,5,2]" ]'
+chk "links --json carries ignored + dynamic" '[ "$(printf "%s" "$OUT" | jq -c "[(.unresolved|length), (.ignored|length), (.dynamic|length)]")" = "[2,9,4]" ]'
 ix "$BW/kh" links
-chk "links footer counts the buckets" 'printf "%s\n" "$OUT" | tail -1 | grep -q " 1 unresolved, 5 ignored, 2 dynamic (links --json)$"'
+chk "links footer counts the buckets" 'printf "%s\n" "$OUT" | tail -1 | grep -q " 2 unresolved, 9 ignored, 4 dynamic (links --json)$"'
 b1="$(sha "$BL")"; ix "$BW/kh" hub-sync
 chk "re-sync byte-identical" '[ "$b1" = "$(sha "$BL")" ]'
+python3 - "$BL" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["edges"] += [{"from": "d-ms", "to": "svc-%03d-ms" % i, "type": "http", "via": "SVC_%03d_SERVICE_URL" % i,
+                "confidence": "high", "evidence": ["d-ms/src/main/resources/application.yml:%d" % i]} for i in range(300)]
+json.dump(d, open(sys.argv[1], "w"))
+PY
+ix "$BW/kh" links
+chk "links keeps the bucket totals when the edge list is clipped (≤6000 B)" \
+  'printf "%s\n" "$OUT" | tail -1 | grep -q "^311 edge(s), 2 unresolved, 9 ignored, 4 dynamic (links --json)$" && [ "$(printf "%s" "$OUT" | wc -c)" -le 6000 ]'
 
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__ 2>/dev/null)" ]'
 echo "hub-tests: $PASS passed, $FAIL failed"

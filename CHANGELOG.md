@@ -4,8 +4,10 @@
 
 Hub: `unresolved` now means only "the hub could not decide". Rows the hub can explain move to two new buckets,
 `ignored` and `dynamic`, and every row there carries a `reason`, so nothing disappears silently. On the ewallet
-hub, 60 unresolved rows go down to 3 (33 ignored, 18 dynamic). 46 edges are added and 4 removed: two
-report-ms datasource "http" edges became db edges, and two wrong targets were corrected.
+hub, 60 unresolved rows go down to 3 (60 ignored, 19 dynamic), and 276 edges become 311: 43 are added and 8
+removed. The removed ones are two report-ms datasource "http" edges (now db edges), three targets corrected by
+the manifest and profile rules, and three UI links (auth-ms placeholders `backoffice.com` / `merchant.portal.com`, report-ms
+`pay.winmoney.com.vn`).
 
 - **Deploy manifests.** `aliases.json` takes `"manifests": "<dir>"` (relative to the hub root). The hub reads
   helm `values.yaml` (`env: {NAME: {value}}`) and k8s `env: [{name, value}]` read-only. It skips
@@ -24,6 +26,17 @@ report-ms datasource "http" edges became db edges, and two wrong targets were co
   prefix. These sources are read straight from the repo, because planes are frozen. Send sites in DLT/replay
   code, outbox publishers and wrappers that take the topic as a parameter go to `dynamic`. An empty topic
   property that is set nowhere goes to `ignored`, and so does a topic prefix no other service consumes.
+- **UI links by use.** A URL key whose every `src/main` use is UI model data (`put`/`Map.of` with a literal key, a
+  Mail/Notification/Template argument, via an `@Value` field or a `@ConfigurationProperties` getter chain) and
+  none an HTTP client (`baseUrl`/`uri`/WebClient/RestTemplate/RestClient/HttpClient/Feign) goes to `ignored` as
+  "UI link", before manifests and hosts are consulted. On ewallet this removes auth-ms `APP_BACKOFFICE_URL` /
+  `APP_MERCHANT_PORTAL_URL` (4 manifest edges + the 2 placeholder hosts) and report-ms `TGTT_SERVICE_CHANNEL_URL`.
+  A portal-named key with an HTTP-client use is never a UI link.
+- **Nothing dropped silently.** A prefix the publisher bypasses (its topics routed explicitly, e.g. aml-service
+  `aml.`) keeps a `dynamic` row naming the routed topics; a prefix-composed `saveEvent` topic cites the prefix
+  line on its edge. A topic a service produces and consumes itself, a static topic no registered consumer names,
+  and a client address naming its own service go to `ignored`. `links` keeps its totals line when clipped. On
+  ewallet every input row is accounted for.
 - `aliases.env` values may be `external:<host>`. Any user edit, including `manifests`, makes `aliases.json`
   user-owned. `links` and HUB.md show the three buckets, and `hub-sync` prints them as
   `N unresolved, N ignored, N dynamic`.

@@ -145,8 +145,10 @@ Mỗi service giữ plane như mono, chỉ khác `topology.json` trỏ tới hub
 ```
 
 `unresolved` nghĩa là hub không quyết được. `ignored` (bản test/local profile, config không code nào đọc, link
-portal/login, topic property rỗng) và `dynamic` (DLT/replay, outbox publisher, wrapper nhận topic qua tham số,
-prefix không ai consume) luôn kèm `reason` — không có gì biến mất im lặng. `aliases.manifests` trỏ tới thư mục
+UI — theo tên key portal/login hoặc theo cách dùng: giá trị chỉ vào model email/template, không vào HTTP client —,
+địa chỉ trỏ về chính service, topic tự produce/consume, topic không service nào consume, topic property rỗng) và
+`dynamic` (DLT/replay, outbox publisher, wrapper nhận topic qua tham số, prefix không ai consume hoặc bị publisher
+route tường minh bỏ qua) luôn kèm `reason` — mỗi dòng input nằm trong đúng một cạnh hoặc một bucket. `aliases.manifests` trỏ tới thư mục
 deploy manifest (helm `env: {NAME: {value}}`, k8s `env: [{name, value}]`), đọc read-only: chỉ lấy host / schema /
 topic, bỏ qua `secrets*.yaml`, `*.enc.yaml` và key dạng password/secret/token.
 

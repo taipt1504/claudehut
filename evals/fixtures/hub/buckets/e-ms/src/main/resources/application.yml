@@ -4,6 +4,11 @@ spring:
   kafka:
     topics:
       e-cmd: ${SPRING_KAFKA_TOPICS_E_CMD:e.cmd.v1}
+      e-done: ${SPRING_KAFKA_TOPICS_E_DONE:e.done.v1}
 app:
   link:
     topic: ${KAFKA_TOPIC_LINK:stale_link_topic}
+f8a:
+  outbox:
+    publisher:
+      topic-prefix: "e."

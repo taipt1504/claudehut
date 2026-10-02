@@ -11,6 +11,10 @@ deployment:
       value: "http://stub-bank.shop:8883"
     PARTNER_URL:
       value: "https://api.partner.example.com/v1"
+    D_CALLBACK_URL:
+      value: "http://d-ms.shop/callbacks"
+    APP_BACKOFFICE_URL:
+      value: "https://cms.shop.example.net"
     REPORT_DATASOURCES_E_URL:
       value: r2dbc:postgresql://10.0.0.1:5432/shop?currentSchema=e_schema
     SPRING_R2DBC_URL:
