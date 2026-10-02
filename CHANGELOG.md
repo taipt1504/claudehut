@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.5 — 2026-10-02
+
+Hub: a user decision can now close a link the hub cannot decide on its own.
+
+- **`aliases.json` `"ignore"`.** Maps an env name, a topic, or `<svc>:<env|topic>` (one service only) to a
+  reason, e.g. `{"ignore": {"aml-service:CLIENTS_COMPLIANCE_URL": "dead config: legacy compliance API"}}`. A
+  matching HTTP client, Feign target, kafka consumer or producer row goes to `ignored` with reason
+  `declared in aliases.json: <reason>` and its evidence line, instead of `unresolved` or an edge. An unscoped key
+  applies to every service. Only a test/local-profile copy keeps its own reason. Every input row still ends in
+  exactly one edge or bucket row. The `_note` in a fresh `aliases.json` documents the key.
+- hub-tests §12 pins a scoped ignore (the same env in another service keeps its edge), an unscoped env ignore, a
+  topic ignore and the accounting.
+
 ## 0.12.4 — 2026-10-02
 
 Hub: `unresolved` now means only "the hub could not decide". Rows the hub can explain move to two new buckets,

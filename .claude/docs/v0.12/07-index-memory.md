@@ -113,7 +113,7 @@ Mỗi service giữ plane như mono, chỉ khác `topology.json` trỏ tới hub
 <HUB>/.claude/claudehut/hub/
 ├── hub.json             {schema:1, language:"vi"|"en"}  mặc định cho mọi service
 ├── services.json        {"<svc>":{path, remote, indexed_commit, synced_at, has_plane}}
-├── aliases.json         {env:{}, topic_owner:{}, db_owner:{}, manifests?}  người dùng sửa; env có thể là external:<host>
+├── aliases.json         {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, ignore:{}, manifests?}  người dùng sửa; env có thể là external:<host>
 ├── links/<svc>.json     contracts từng service; repo chưa có plane được hub-scan read-only
 ├── service-links.json   cạnh xuyên service
 ├── HUB.md               ≤3 KB, path tính từ gốc hub
@@ -151,6 +151,11 @@ UI — theo tên key portal/login hoặc theo cách dùng: giá trị chỉ vào
 route tường minh bỏ qua) luôn kèm `reason` — mỗi dòng input nằm trong đúng một cạnh hoặc một bucket. `aliases.manifests` trỏ tới thư mục
 deploy manifest (helm `env: {NAME: {value}}`, k8s `env: [{name, value}]`), đọc read-only: chỉ lấy host / schema /
 topic, bỏ qua `secrets*.yaml`, `*.enc.yaml` và key dạng password/secret/token.
+`aliases.ignore` ghi quyết định của người dùng (config chết, topic đã bỏ): key là tên env, tên topic, hoặc
+`<svc>:<env|topic>` để chỉ áp cho một service; value là lý do. Dòng client / Feign / consumer / producer khớp
+(lẽ ra `unresolved` hoặc thành cạnh) vào `ignored` với reason `declared in aliases.json: <lý do>` và `at` của nó;
+key không scope áp cho mọi service; chỉ bản test/local profile giữ reason riêng. Ví dụ:
+`{"ignore": {"aml-service:CLIENTS_COMPLIANCE_URL": "dead config: legacy compliance API, no provider"}}`.
 
 | Loại cạnh | Luật join | Confidence |
 |-----------|-----------|------------|

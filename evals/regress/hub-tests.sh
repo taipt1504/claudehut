@@ -44,6 +44,10 @@
 #                       RestClient.create, even portal-named or also emailed) keep their edges or stay `unresolved`;
 #                       accounting: every client/consumer/producer/prefix row lands in an edge xor exactly one
 #                       bucket row; `links` keeps the totals when clipped; no manifest secret leaks
+#  12. aliases.ignore   the buckets repos (e-ms copy also names COMPLIANCE_URL → d-ms): a scoped ignore
+#                       (d-ms:COMPLIANCE_URL, unresolved → ignored) leaves e-ms's same env an edge; an unscoped env
+#                       ignore drops edges; a topic ignore drops the kafka edge (producer + consumer rows); each row
+#                       carries "declared in aliases.json: <reason>" and its evidence; accounting stays empty
 #
 # Run: evals/regress/hub-tests.sh
 set -uo pipefail
@@ -591,6 +595,38 @@ PY
 ix "$BW/kh" links
 chk "links keeps the bucket totals when the edge list is clipped (≤6000 B)" \
   'printf "%s\n" "$OUT" | tail -1 | grep -q "^311 edge(s), 2 unresolved, 9 ignored, 4 dynamic (links --json)$" && [ "$(printf "%s" "$OUT" | wc -c)" -le 6000 ]'
+
+# ---------------------------------------------------------------- 12. aliases.ignore -----------------------------
+echo "== 12. aliases.ignore: user-declared ignores (scoped / unscoped / topic) =="
+IW="$W/ig"; mkdir -p "$IW"; IH="$IW/kh/.claude/claudehut/hub"
+for r in d-ms e-ms; do
+  cp -R "$FX/buckets/$r" "$IW/$r"
+  [ "$r" = e-ms ] && printf 'compliance:\n  url: ${COMPLIANCE_URL:http://d-ms:8080}\n' >> "$IW/e-ms/src/main/resources/application.yml"
+  git -C "$IW/$r" init -q -b main; git -C "$IW/$r" config commit.gpgsign false
+  git -C "$IW/$r" add -A; git -C "$IW/$r" commit -qm base --no-verify
+  mkdir -p "$IW/$r/.claude/claudehut"; "$CLI" update --plane "$IW/$r/.claude/claudehut" >/dev/null
+done
+cp -R "$FX/buckets/workloads" "$IW/workloads"
+mkdir -p "$IH"; git -C "$IW/kh" init -q -b main
+cat > "$IH/aliases.json" <<'JSON'
+{"env":{"APP_SMS_URL":"e-ms"},"manifests":"../workloads",
+ "ignore":{"d-ms:COMPLIANCE_URL":"dead config: legacy compliance API","PARTNER_URL":"vendor sandbox, not tracked",
+           "e.cmd.v1":"retired command topic"}}
+JSON
+ix "$IW/kh" hub-sync --hub . --repo ../d-ms --repo ../e-ms
+IL="$IH/service-links.json"
+decl() { jq -e --arg s "$1" --arg k "$2" --arg r "$3" --arg at "$4" \
+  '[.ignored[] | select(.svc==$s and ((.env // .topic)==$k) and .reason==("declared in aliases.json: " + $r) and ($at=="" or .at==$at))] | length == 1' "$IL" >/dev/null; }
+chk "scoped ignore: d-ms COMPLIANCE_URL unresolved → ignored (reason + evidence); e-ms's own COMPLIANCE_URL keeps its edge to d-ms" \
+  'decl d-ms COMPLIANCE_URL "dead config: legacy compliance API" d-ms/src/main/resources/application.yml:19 && ! jq -e "any(.unresolved[]; .env==\"COMPLIANCE_URL\")" "$IL" >/dev/null && jq -e "any(.edges[]; .from==\"e-ms\" and .to==\"d-ms\" and .type==\"http\" and .via==\"COMPLIANCE_URL\") and ([.ignored[] | select(.svc==\"e-ms\" and .env==\"COMPLIANCE_URL\")] | length == 0)" "$IL" >/dev/null'
+chk "unscoped env ignore: PARTNER_URL makes no edge (manifest host nor yml default) and lands once in ignored" \
+  'decl d-ms PARTNER_URL "vendor sandbox, not tracked" "" && ! jq -e "any(.edges[]; .via==\"PARTNER_URL\" or (.also_via // [] | index(\"PARTNER_URL\")))" "$IL" >/dev/null'
+chk "topic ignore: e.cmd.v1 makes no kafka edge; the d-ms producer and the e-ms consumer rows are ignored" \
+  'decl d-ms e.cmd.v1 "retired command topic" "" && decl e-ms e.cmd.v1 "retired command topic" "" && ! jq -e "any(.edges[]; .type==\"kafka\" and .via==\"e.cmd.v1\") or any(.unresolved[]; .topic==\"e.cmd.v1\")" "$IL" >/dev/null'
+ACC="$(account "$IH")"
+chk "accounting with declared ignores: empty, and exactly 4 declared rows${ACC:+ — $ACC}" \
+  '[ -z "$ACC" ] && [ "$(jq "[.ignored[] | select(.reason|startswith(\"declared in aliases.json: \"))] | length" "$IL")" = 4 ]'
+chk "a hub-written aliases.json carries an empty ignore map and a _note documenting it" 'jq -e "(.ignore == {}) and (._note|test(\"ignore maps\"))" "$KH/aliases.json" >/dev/null'
 
 chk "no __pycache__ written into the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__ 2>/dev/null)" ]'
 echo "hub-tests: $PASS passed, $FAIL failed"
