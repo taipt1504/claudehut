@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: d-ms
+  kafka:
+    topics:
+      e-cmd: ${SPRING_KAFKA_TOPICS_E_CMD:e.cmd.v1}
+clients:
+  e-service:
+    base-url: ${E_SVC_URL:}
+  bank:
+    base-url: ${MOCK_BANK_URL:http://localhost:8883}
+  partner:
+    base-url: ${PARTNER_URL:https://sandbox.partner.example.com/v1}
+  ghost-service:
+    base-url: ${GHOST_SERVICE_URL:http://localhost:8002}
+  merchant-portal:
+    login-url: ${PORTAL_LOGIN_URL:}
+  compliance:
+    url: ${COMPLIANCE_URL:http://localhost:1124}
+  partner-portal:
+    base-url: ${PARTNER_PORTAL_URL:https://portal-api.partner.example.com}
+  portal-gateway:
+    base-url: ${PORTAL_GATEWAY_URL:}
+app:
+  backoffice-url: ${APP_BACKOFFICE_URL:}
+  merchant-portal:
+    url: ${APP_MERCHANT_PORTAL_URL:https://merchant.portal.example.com}
+  help-url: ${APP_HELP_URL:https://help.example.org}
+  callback:
+    base-url: ${D_CALLBACK_URL:}
+report:
+  datasources:
+    e:
+      url: ${REPORT_DATASOURCES_E_URL:}
+d:
+  ops-topic: ${D_OPS_TOPIC:}
+  done-topic: ${D_DONE_TOPIC:e.done.v1}
+  audit-topic: d.audit.v1
+f8a:
+  outbox:
+    publisher:
+      topic-prefix: "d."

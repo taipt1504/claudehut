@@ -1,0 +1,5 @@
+namespaceOverride: "shop"
+applicationName: "stub-bank"
+deployment:
+  image:
+    repository: "registry.example.invalid/shop/backend/stub-bank"

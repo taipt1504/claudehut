@@ -88,12 +88,6 @@
       "kind": "kafka_consume",
       "svc": "c-ms",
       "topic": "orphan.v1"
-    },
-    {
-      "at": "c-ms/src/main/resources/application.yml:18",
-      "kind": "kafka_produce",
-      "prefix": "c.",
-      "svc": "c-ms"
     }
   ]
 }

@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "clients")
 public class ClientsProperties {
   private BService bService = new BService();
+  private BService mystery = new BService();
 
   public BService getBService() {
     return bService;

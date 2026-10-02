@@ -862,8 +862,10 @@ def cmd_links(ctx, opts):
     edges = [e for e in data.get("edges", []) if (not s or s in (e["from"], e["to"])) and (not t or e["type"] == t)
              and (not mod or mod in (e.get("module"), e["via"]) or (e.get("module") or "").endswith("-" + mod))]
     unres = [] if mod else [u for u in data.get("unresolved", []) if not s or u.get("svc") == s]
+    other = {k: [] if mod else [u for u in data.get(k, []) if not s or u.get("svc") == s] for k in ("ignored", "dynamic")}
     if opts.get("json"):
-        print(json.dumps({"hub": h, "edges": edges, "unresolved": unres}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(dict({"hub": h, "edges": edges, "unresolved": unres}, **other), ensure_ascii=False,
+                         sort_keys=True))
         return 0
     def ver(e):
         return "%s%s" % (hub.eff_version(e), " [test]" if e.get("scope") == "test" else "")
@@ -883,8 +885,10 @@ def cmd_links(ctx, opts):
         lines.append("%s → %s lib %d module(s): %s" % (e["from"], e["to"], len(es), ", ".join(
             "%s %s" % (x.get("module") or x["via"], ver(x)) for x in es) if t == "lib" else
             "(links --type lib%s)" % ("" if s else " --service %s" % e["from"])))
-    lines.append("%d edge(s), %d unresolved%s" % (len(edges), len(unres), "" if not unres else " (links --json)"))
-    print(clip("\n".join(lines), 6000))
+    foot = "%d edge(s), %d unresolved, %d ignored, %d dynamic%s" % (
+        len(edges), len(unres), len(other["ignored"]), len(other["dynamic"]),
+        "" if not (unres or other["ignored"] or other["dynamic"]) else " (links --json)")
+    print(clip("\n".join(lines), 6000 - len(foot.encode("utf-8")) - 1) + "\n" + foot)  # the totals survive the clip
     return 0
 
 

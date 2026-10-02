@@ -1,0 +1,5 @@
+clients:
+  e-service:
+    base-url: ${E_SVC_URL:http://localhost:9}
+  sms:
+    base-url: ${APP_SMS_URL:http://localhost:9100}
