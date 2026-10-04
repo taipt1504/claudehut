@@ -12,10 +12,13 @@ The source of truth is java-common-ms/.claude/summer-kb/, stamped with the libra
 .summer-kb-meta.json (role "source": summerCommit + the doc list of every module). Run in java-common-ms itself,
 this script only (re)writes that stamp; run in a consumer, it refreshes a stale source stamp first.
 
-Usage:  python3 install_summer_kb.py [SERVICE_DIR] [--if-stale] [--dry-run]   (SERVICE_DIR default: cwd)
+Usage:  python3 install_summer_kb.py [SERVICE_DIR] [--if-stale] [--dry-run] [--with M[,M]] [--without M[,M]]
+        (SERVICE_DIR default: cwd)
         --if-stale  install when the KB is missing, refresh when the consumer's summerCommit differs from the
                     source's or its Summer module set changed; otherwise write nothing
         --dry-run   print the plan, write nothing
+        --with      opt in module docs the service does not depend on yet (persisted as optInModules in the stamp;
+                    every later run installs detected ∪ opt-in); --without drops modules from that set
 The last line is always "summer-kb: <installed|refreshed|up-to-date|source ...|skip ...>" (claudehut-migrate parses
 it). Exit 0 = done, 1 = not a Summer consumer, 2 = error. Never touches a file outside .claude/summer-kb/ except
 creating a missing .claude/rules/summer-kb.md. Does NOT git add/commit.
@@ -34,13 +37,15 @@ ARTIFACT_TO_MODULE = {
     'summer-kafka-consumer': 'kafka', 'summer-kafka-consumer-autoconfigure': 'kafka',
     'summer-kafka-dlt-handling': 'kafka-dlt-handling', 'summer-kafka-dlt-handling-autoconfigure': 'kafka-dlt-handling',
     'summer-ratelimit-core': 'ratelimit', 'summer-ratelimit-autoconfigure': 'ratelimit',
+    'summer-featureflag-core': 'featureflag', 'summer-featureflag-autoconfigure': 'featureflag',
+    'summer-dr-core': 'dr', 'summer-dr-autoconfigure': 'dr',
     'summer-payment-sdk': 'payment-sdk',
     'summer-platform': 'platform',
     'summer-test': 'test',
     'summer-file': 'file',
 }
-MODULE_ORDER = ['core', 'rest', 'data', 'security', 'kafka', 'kafka-dlt-handling', 'ratelimit', 'payment-sdk',
-                'platform', 'test', 'file']
+MODULE_ORDER = ['core', 'rest', 'data', 'security', 'kafka', 'kafka-dlt-handling', 'ratelimit', 'featureflag', 'dr',
+                'payment-sdk', 'platform', 'test', 'file']
 # Docs that ship inside another module (INDEX: "vietqr.md — ships in payment-sdk").
 EXTRA_DOCS = {'payment-sdk': ['vietqr']}
 # Every doc stem INDEX scoping knows; extended at runtime with the source's own *.md (a new doc is never dangling).
@@ -255,6 +260,27 @@ def scope_index(src_index_text, included, detected_arts):
     return '\n'.join(pruned).rstrip() + '\n'
 
 
+def mark_opt_in(index_text, opt_in, mod_docs):
+    """Tag the INDEX rows linking an opt-in module's doc and add a note naming the Gradle dependency to add."""
+    if not opt_in:
+        return index_text
+    out = []
+    for ln in index_text.splitlines():
+        if ln.lstrip().startswith('|'):
+            for m in opt_in:
+                ln = ln.replace(f'[{m}.md]({m}.md)', f'[{m}.md]({m}.md) _(opt-in, not yet a dependency)_', 1)
+        out.append(ln)
+    items = []
+    for m in opt_in:
+        arts = sorted(a for a, mod in ARTIFACT_TO_MODULE.items() if mod == m) or [f'summer-{m}*']
+        items.append(f"`{m}` ({', '.join(f'[{d}.md]({d}.md)' for d in mod_docs.get(m, []))}; add "
+                     f"{' / '.join(f'`io.f8a.summer:{a}`' for a in arts)})")
+    note = ('> **opt-in (not yet a dependency):** ' + '; '.join(items) + '. Installed by `--with`: this service '
+            'does not declare these yet — add the Gradle dependency before using them.')
+    at = 1 if out and out[0].startswith('# ') else 0  # under the title
+    return '\n'.join(out[:at] + ([''] if at else []) + [note] + out[at:]) + '\n'
+
+
 def localize_usage(src_usage_text):
     """Point USAGE at the local docs path instead of the library sibling."""
     t = src_usage_text.replace('java-common-ms/.claude/summer-kb/', '.claude/summer-kb/')
@@ -285,19 +311,19 @@ KB lives under `.claude/` (committable — share with the team; never commit `.c
 
 
 
-def consumer_state(dest, commit, included, docs, if_stale):
-    """→ (state, old meta). install: no KB yet · refresh: stale stamp, module set changed or a doc missing."""
-    old = load_json(os.path.join(dest, META))
+def consumer_state(dest, old, commit, included, opt_in, docs, if_stale):
+    """→ state. install: no KB yet · refresh: stale stamp, module or opt-in set changed, or a doc missing."""
     if old is None:
-        return 'install', None
+        return 'install'
     if not if_stale:
-        return 'refresh', old
-    if old.get('summerCommit') != commit or old.get('includedModules') != included:
-        return 'refresh', old
+        return 'refresh'
+    if old.get('summerCommit') != commit or old.get('includedModules') != included \
+            or sorted(old.get('optInModules') or []) != opt_in:
+        return 'refresh'
     want = docs + ['INDEX', 'USAGE']
     if any(not os.path.isfile(os.path.join(dest, d + '.md')) for d in want):
-        return 'refresh', old
-    return 'up-to-date', old
+        return 'refresh'
+    return 'up-to-date'
 
 
 def main():
@@ -305,6 +331,8 @@ def main():
     ap.add_argument('service', nargs='?', default=os.getcwd())
     ap.add_argument('--dry-run', action='store_true')
     ap.add_argument('--if-stale', action='store_true')
+    ap.add_argument('--with', dest='with_mods', action='append', default=[], metavar='MOD[,MOD]')
+    ap.add_argument('--without', dest='without_mods', action='append', default=[], metavar='MOD[,MOD]')
     ap.add_argument('--skill-dir', default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     args = ap.parse_args()
 
@@ -331,6 +359,18 @@ def main():
                   f"summerCommit={commit[:7]}")
         return 0
 
+    split = lambda vals: {m.strip() for v in vals for m in v.split(',') if m.strip()}
+    with_mods, without_mods = split(args.with_mods), split(args.without_mods)
+    old = load_json(os.path.join(dest, META))
+    prev_opt = {m for m in ((old or {}).get('optInModules') or []) if isinstance(m, str)}
+    bad = sorted(m for m in with_mods if m not in mod_docs) + sorted(m for m in without_mods - prev_opt
+                                                                       if m not in mod_docs)
+    if bad:
+        print(f"ERROR: unknown Summer module(s): {', '.join(bad)} (source docs: {', '.join(sorted(mod_docs))})",
+              file=sys.stderr)
+        print(f"summer-kb: skip (error: unknown module {', '.join(bad)})")
+        return 2
+
     arts = detect_artifacts(service)
     if not arts:
         print(f"No io.f8a.summer:summer-* dependencies found under {service}.")
@@ -341,6 +381,10 @@ def main():
 
     modules = {module_for(a, mod_docs) for a in arts} - {None}
     modules.add('core')  # base value types are always in play
+    # Opt-in: docs for modules the service is about to adopt; kept on every later run (--if-stale included).
+    opt_in = sorted((prev_opt | with_mods) - without_mods)
+    opt_new = [m for m in opt_in if m not in modules and m in mod_docs]  # opted in, not yet a dependency
+    modules.update(opt_in)
     unknown = sorted(a for a in arts if module_for(a, mod_docs) is None)
     included = sorted(modules, key=lambda m: (MODULE_ORDER.index(m) if m in MODULE_ORDER else len(MODULE_ORDER), m))
     docs = [d for m in included for d in mod_docs.get(m, [])]
@@ -348,13 +392,15 @@ def main():
     # A sibling source stamp that lags the library HEAD is refreshed first (the only file outside this service
     # the script writes, and only the generated stamp).
     src_stamp = stamp_source(src, commit, mod_docs, args.dry_run) if kind == 'sibling' else None
-    state, old = consumer_state(dest, commit, included, docs, args.if_stale)
+    state = consumer_state(dest, old, commit, included, opt_in, docs, args.if_stale)
 
     print(f"Service:   {service}")
     print(f"Detected:  {', '.join(sorted(arts))}")
     if unknown:
         print(f"Unknown artifacts (no module doc): {', '.join(unknown)}")
     print(f"Modules:   {', '.join(included)}  (docs: {', '.join(docs) or 'none'})")
+    if opt_in:
+        print(f"Opt-in:    {', '.join(opt_in)}" + (f"  (not yet a dependency: {', '.join(opt_new)})" if opt_new else ''))
     print(f"Source:    {kind}  ({src})  summerCommit={commit}" + (f"  [source stamp {src_stamp}]" if src_stamp else ''))
     print(f"Dest:      {dest}")
     word = {'install': 'installed', 'refresh': 'refreshed', 'up-to-date': 'up-to-date'}[state]
@@ -391,7 +437,7 @@ def main():
 
     idx_src = os.path.join(src, 'INDEX.md')
     if os.path.isfile(idx_src):
-        scoped = scope_index(open(idx_src, encoding='utf-8').read(), set(docs), arts)
+        scoped = mark_opt_in(scope_index(open(idx_src, encoding='utf-8').read(), set(docs), arts), opt_new, mod_docs)
         banner = (f"<!-- service-scoped install: {', '.join(included)} · source={kind} "
                   f"· summerCommit={commit} -->\n")
         write_if_changed(os.path.join(dest, 'INDEX.md'), banner + scoped)
@@ -412,7 +458,7 @@ def main():
     stamp = {
         'source': kind, 'summerCommit': commit,
         'installedAt': datetime.datetime.now().isoformat(timespec='seconds'),
-        'includedModules': included, 'docs': docs, 'detectedArtifacts': sorted(arts),
+        'includedModules': included, 'optInModules': opt_in, 'docs': docs, 'detectedArtifacts': sorted(arts),
         'unknownArtifacts': unknown,
     }
     write_if_changed(os.path.join(dest, META), json.dumps(stamp, indent=2) + '\n')
