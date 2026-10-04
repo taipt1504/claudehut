@@ -354,6 +354,41 @@ printf '{"session_id":"s-kb3","hook_event_name":"SessionStart","source":"startup
   && ok "maintain.sh: a catalog-only Summer consumer (libs.versions.toml) gets its first KB install" \
   || bad "catalog-only consumer: $(ls -a "$WS/c-toml/.claude/summer-kb" 2>&1)"
 
+echo "== 8. Summer KB opt-in (--with/--without): docs for modules a service is about to adopt survive --if-stale"
+OW="$T/optws"; OL="$OW/java-common-ms/.claude/summer-kb"; mkdir -p "$OL"
+printf '# INDEX\n| Module doc |\n|---|\n| [core.md](core.md) |\n| [rest.md](rest.md) |\n| [dr.md](dr.md) | opt-in gate |\n| [featureflag.md](featureflag.md) | opt-in |\n' > "$OL/INDEX.md"
+for d in USAGE core rest dr featureflag; do printf '# %s\n' "$d" > "$OL/$d.md"; done
+git -C "$OW/java-common-ms" init -q -b main && gitq "$OW/java-common-ms" add -A && gitq "$OW/java-common-ms" commit -qm kb
+mkdir -p "$OW/o-svc" "$OW/o-core"; OK8="$OW/o-svc/.claude/summer-kb"
+printf "dependencies { implementation 'io.f8a.summer:summer-rest-common' }\n" > "$OW/o-svc/build.gradle"
+python3 "$KBI" "$OW/o-svc" --with dr,featureflag >/dev/null 2>&1
+[ -f "$OK8/dr.md" ] && [ -f "$OK8/featureflag.md" ] && [ "$(jq -c .optInModules "$OK8/.summer-kb-meta.json")" = '["dr","featureflag"]' ] \
+  && ok "--with dr,featureflag installs both docs and stamps optInModules" || bad "--with: $(ls "$OK8" 2>&1) $(jq -c .optInModules "$OK8/.summer-kb-meta.json" 2>&1)"
+grep -q '\[dr.md\](dr.md) _(opt-in, not yet a dependency)_' "$OK8/INDEX.md" && grep -q '^> \*\*opt-in (not yet a dependency):\*\* `dr`.*io.f8a.summer:summer-dr-core' "$OK8/INDEX.md" \
+  && ! grep '\[rest.md\]' "$OK8/INDEX.md" | grep -q 'not yet a dependency' \
+  && ok "INDEX.md marks opt-in docs 'not yet a dependency' (with the artifact to add), a detected module's row unmarked" \
+  || bad "INDEX opt-in marker: $(cat "$OK8/INDEX.md")"
+printf "dependencies {\n  implementation 'io.f8a.summer:summer-rest-common'\n  implementation 'io.f8a.summer:summer-file'\n}\n" > "$OW/o-svc/build.gradle"
+printf '# file\n' > "$OL/file.md"
+out="$(python3 "$KBI" "$OW/o-svc" --if-stale 2>&1)"
+tail -1 <<<"$out" | grep -q '^summer-kb: refreshed' && [ -f "$OK8/dr.md" ] && [ -f "$OK8/featureflag.md" ] && [ -f "$OK8/file.md" ] \
+  && ok "--if-stale after a dependency change refreshes and keeps the opt-in docs" || bad "--if-stale dropped opt-in: $(tail -1 <<<"$out") $(ls "$OK8")"
+o0="$(tree_sum "$OK8")"; out="$(python3 "$KBI" "$OW/o-svc" --if-stale 2>&1)"
+tail -1 <<<"$out" | grep -q '^summer-kb: up-to-date' && [ "$o0" = "$(tree_sum "$OK8")" ] \
+  && ok "a second --if-stale is up-to-date, tree unchanged (no refresh loop)" || bad "opt-in loop: $(tail -1 <<<"$out")"
+python3 "$KBI" "$OW/o-svc" --without featureflag >/dev/null 2>&1
+[ ! -e "$OK8/featureflag.md" ] && [ -f "$OK8/dr.md" ] && [ "$(jq -c .optInModules "$OK8/.summer-kb-meta.json")" = '["dr"]' ] \
+  && ! grep -q 'featureflag' "$OK8/INDEX.md" && ok "--without featureflag removes its doc and INDEX row; dr stays opted in" \
+  || bad "--without: $(ls "$OK8") $(jq -c .optInModules "$OK8/.summer-kb-meta.json")"
+o0="$(tree_sum "$OK8")"; out="$(python3 "$KBI" "$OW/o-svc" --with nope 2>&1)"; rc=$?
+[ "$rc" = 2 ] && [ "$(tail -1 <<<"$out")" = 'summer-kb: skip (error: unknown module nope)' ] && [ "$o0" = "$(tree_sum "$OK8")" ] \
+  && ok "--with an unknown module: exit 2, 'summer-kb: skip (error: unknown module nope)', nothing written" || bad "unknown module (rc=$rc): $(tail -2 <<<"$out")"
+printf "dependencies { implementation 'io.f8a.summer:summer-dr-core' }\n" > "$OW/o-core/build.gradle"
+python3 "$KBI" "$OW/o-core" >/dev/null 2>&1
+[ -f "$OW/o-core/.claude/summer-kb/dr.md" ] && [ "$(jq -c .includedModules "$OW/o-core/.claude/summer-kb/.summer-kb-meta.json")" = '["core","dr"]' ] \
+  && ! grep -q 'not yet a dependency' "$OW/o-core/.claude/summer-kb/INDEX.md" \
+  && ok "a summer-dr-core-only consumer gets dr.md (ARTIFACT_TO_MODULE), unmarked" || bad "-core only: $(ls "$OW/o-core/.claude/summer-kb" 2>&1)"
+
 echo; echo "MIGRATE: $PASS passed, $FAIL failed"
 [ -z "${EVAL_COUNT_DIR:-}" ] || printf '%s\n' "$PASS" > "$EVAL_COUNT_DIR/migrate-tests.count"
 [ "$FAIL" -eq 0 ]

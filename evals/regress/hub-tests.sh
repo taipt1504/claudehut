@@ -346,7 +346,7 @@ else
   chk "HUB.md ≤3072 B" '[ "$(wc -c < "$EH/HUB.md")" -le 3072 ]'
   if command -v node >/dev/null 2>&1 && [ -f "$UA/packages/core/dist/schema.js" ]; then
     n="$(cd "$UA/packages/core" && node --input-type=module -e 'import { validateGraph } from "./dist/schema.js"; import fs from "fs";
-      const r = validateGraph(JSON.parse(fs.readFileSync(process.argv[1], "utf8"))); console.log(r.success ? r.issues.length : -1);' "$EH/.understand-anything/knowledge-graph.json")"
+      const r = validateGraph(JSON.parse(fs.readFileSync(process.argv[1], "utf8"))); console.log(String(r.success ? r.issues.length : -1));' "$EH/.understand-anything/knowledge-graph.json")"
     chk "ewallet graph: UA validateGraph 0 issues" '[ "$n" = 0 ]'
   fi
   chk "java-common-ms clone: hub-scan left every mtime unchanged, wrote no plane" \
@@ -514,7 +514,7 @@ chk "graph: module node per library artifact; consumers depend_on, the library c
 if command -v node >/dev/null 2>&1 && [ -f "$UA/packages/core/dist/schema.js" ]; then
   n="$(cd "$UA/packages/core" && node --input-type=module -e 'import { validateGraph, sanitizeGraph } from "./dist/schema.js"; import fs from "fs";
     const g = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); const r = validateGraph(g);
-    console.log(r.success && g.edges.length === r.data.edges.length && JSON.stringify(sanitizeGraph(g)) === JSON.stringify(g) ? r.issues.length : -1);' "$G4")"
+    console.log(String(r.success && g.edges.length === r.data.edges.length && JSON.stringify(sanitizeGraph(g)) === JSON.stringify(g) ? r.issues.length : -1));' "$G4")"
   chk "shared-library graph: UA validateGraph 0 issues, nothing dropped, sanitizeGraph no-op" '[ "$n" = 0 ]'
 fi
 cp "$SL" "$W/sl.bak"   # 15 peers into kit-lib: "Used by:" shows 14 and says how many it left off

@@ -55,6 +55,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/summer-kb-setup/scripts/install_summer_kb.
 - Preview with `--dry-run` (shows detected deps + modules, writes nothing).
 - `--if-stale`: install when missing, refresh when the stamp's summerCommit differs from the source's or the Summer
   module set changed, otherwise write nothing. The last line is `summer-kb: installed|refreshed|up-to-date|source …|skip …`.
+- `--with dr,featureflag`: also install docs of modules not yet a dependency (stamped `optInModules`, kept by every
+  later run, `--if-stale` too; INDEX marks them). `--without <mod>` drops one. Unknown names are an error.
 - `SERVICE_DIR` defaults to the cwd.
 - Report the script's summary: detected artifacts, included modules, source (sibling|bundled), files written.
 

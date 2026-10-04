@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.12.5** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.12.6** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
 path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
@@ -494,7 +494,7 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1647 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1654 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
 evals/hook-tests.sh               # 922  advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
@@ -509,7 +509,7 @@ evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
 evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
-evals/migrate-tests.sh            #  54  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
+evals/migrate-tests.sh            #  61  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.6 — 2026-10-04
+
+Summer KB: opt in module docs a service does not depend on yet, so a fleet-wide rollout (DR, feature flags) can
+ground every service before the dependency lands.
+
+- **`--with <mod>[,<mod>…]` / `--without <mod>[,…]`** on `install_summer_kb.py`. The set is stored as
+  `optInModules` in the consumer's `.summer-kb-meta.json`; every later run, the `--if-stale` one maintain.sh starts
+  included, installs detected ∪ opt-in, so an opt-in doc is never removed as unused. A name the source KB has no doc
+  for is an error (exit 2, `summer-kb: skip (error: unknown module …)`), checked before anything is written.
+- The scoped `INDEX.md` lists opt-in docs, tags their rows `opt-in, not yet a dependency` and names the Gradle
+  artifact to add.
+- `ARTIFACT_TO_MODULE` maps `summer-dr-core` / `-autoconfigure` → `dr` and `summer-featureflag-core` /
+  `-autoconfigure` → `featureflag` (both in `MODULE_ORDER`), so a `-core`-only consumer gets the doc too.
+- maintain.sh is unchanged: it still compares stamps only (summerCommit, build-file mtime). The installer's own
+  module-set check compares against the stamped union and opt-in set, so a second `--if-stale` is `up-to-date`
+  (no refresh loop); stamps without `optInModules` stay current. The bundled snapshot has no `dr.md` /
+  `featureflag.md`, so `--with dr` needs the sibling java-common-ms KB.
+- migrate-tests §8 pins `--with`, `--if-stale` keeping it, `--without`, an unknown module, a `-core`-only consumer
+  and the INDEX marker.
+
 ## 0.12.5 — 2026-10-02
 
 Hub: a user decision can now close a link the hub cannot decide on its own.
