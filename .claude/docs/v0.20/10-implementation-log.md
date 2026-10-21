@@ -386,3 +386,15 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
   - route rubric đẩy "tích hợp mới" lên tối thiểu light;
   - sensor vendor-leak (a2 §2);
   - tournament T3.
+
+### Kiểm tra sau review của advisor (M4)
+
+| Kiểm tra | Kết quả |
+|---|---|
+| Suite process trên commit hiện tại (`4aadee0`) | 8/9. `review-pass-new-plane`: 1/3 run thử `--override` với lý do tự bịa ở check bằng chứng test. Override không áp dụng cho check đó nên vẫn bị refuse, và báo cáo cuối vẫn trung thực. Chạy lại case này: lại 1/3. Đã sửa ở `fix(state)`: thông điệp refuse giờ nói rõ `--override` không áp dụng cho check này. Chạy lại sau khi sửa: **3/3**. Vì n=3 nên chưa coi là đã sửa xong hẳn |
+| Chẩn đoán đối xứng `diagnostic/guard-forced-deliberate` (guard + ép chạy skill) | **3/3**. Skill chạy 3/3, gọi kb 2/3, và đều không trừu tượng hoá client nội bộ. Loop không đẩy sai theo chiều nguy hiểm |
+| Case held-out `decision/payout-channel-follows-strategy` (freeze ở `4aadee0`, trước mọi lần chạy) | with 1.00, without 1.00, Δ 0. Case **không phân biệt** được: không có plugin thì agent cũng tự theo strategy, có lẽ vì router nằm ngay cạnh. Không thấy hại, nhưng cũng không chứng minh được gain tổng quát. **Con số 8/9 ở trên đo trên chính các case mà trigger đã được chỉnh theo** |
+| `~/.claude/plugins/data` | Không có thư mục mới. `claudehut-inline` (27/05), `devco-agent-skills-inline` (24/04) và `probeplug-inline` (29/09) đều có từ trước. Model arm của trigger-eval gọi `claude -p` với config thường và không nạp plugin này |
+| Độ chính xác của keyword gate (miễn phí) | Trên `deliberate.json`: fire 7/8 positive, 0/8 negative. Nhưng trên guard thật ("add … through the party client") gate có fire, và câu hint "this request adds a variant" khi đó là sai. Cả hai guard vẫn 1.00 nên chưa sửa câu chữ |
+
+Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi user nói rõ "like X". Ở headless, đó là hành vi a2 đã duyệt. Trong session tương tác, hỏi một AskUserQuestion có lẽ hợp lý hơn. Chờ user quyết.
