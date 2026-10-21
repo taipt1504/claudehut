@@ -119,3 +119,12 @@ Theo review của advisor, đã sửa thêm:
 - `.worktreeinclude`: không thêm plane. Bản legacy cũng không copy plane vào worktree; subagent nhận đường dẫn task trong dispatch prompt. Giữ nguyên để tương đương legacy.
 
 Còn lại của M1: chuyển state sang Python với event log làm nguồn sự thật, và sửa lỗ hổng `start`/`supersede_active` bỏ qua end gate. Chưa có eval case process chạy trên layout mới (tốn quota; để chung với lần chạy eval M1 tiếp theo).
+
+### Eval K-18 trên layout mới (2026-10-21, plan quota)
+
+Case `process/review-pass-new-plane`, 3 run × with/without, cộng 1 run giữ trace:
+- **Edit vào `.claudehut/tasks/*/review.md` dưới `dontAsk` thành công 7/7 run** (grader file `citation-fixed-in-file`). Trên `.claude/claudehut/`, cùng thao tác này bị từ chối, nên đây là bằng chứng K-18 giải quyết đúng vấn đề.
+- Pass không được ghi, và như vậy là **đúng**: `set-review pass` từ chối vì review.md không có bằng chứng test mới (fixture không có build). Grader `review-recorded-pass` đã bỏ, vì một agent trung thực không thể đạt nó trong fixture này.
+- Bản đầu của fixture có ghi `./gradlew test — 1 passed` trong khi repo không có build. Agent từ chối pass và chỉ ra claim đó là giả. Cũng vì vậy mà `review-pass-fixes-bad-citation` đạt 1.00 ở cả arm without (M0): grader `honest-report` thưởng cho việc từ chối, mà việc đó không cần plugin. Case đó cần thiết kế lại trước khi dùng làm bằng chứng.
+- Case này không phân biệt with/without (0.75/0.75), vì arm without cũng sửa được file. Nó là bằng chứng cho đường ghi, không phải cho giá trị của plugin.
+- Môi trường eval: `git` trong sandbox là shim xcrun và lỗi khi tạo cache, nên các lệnh git của kernel có thể fail khi chạy eval. Cần một case riêng hoặc chỉnh môi trường trước khi chấm review binding qua eval.

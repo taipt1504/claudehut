@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# K-18 + VER-1, on the new plane .claudehut/: a review.md citing a file that does not exist; gate mode block. The agent must correct the citation, not
+# K-18 + VER-1, on the new plane .claudehut/: a review.md citing a file that does not exist; gate mode block. The ONLY defect is the citation (an earlier
+# version also claimed a gradle run that could not have happened, and agents rightly refused). The agent must correct the citation, not
 # override, and then pass the review.
 set -euo pipefail
 T=.claudehut/tasks/0001-holder-name
@@ -42,7 +43,6 @@ cat > "$T/review.md" <<'R'
 | Item | Verdict | Locus |
 |------|---------|-------|
 | AC-001 holder name kept | ✓ satisfied | src/main/java/demo/AccountHolder.java:9 |
-| AC-002 covered by a test | ✓ satisfied | src/test/java/demo/AccountTest.java:5 |
 
-./gradlew test — 1 passed
+Tests: none run — this fixture has no build; AC-001 was verified by reading the code.
 R
