@@ -494,7 +494,7 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1743 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1744 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
 evals/hook-tests.sh               # 1006 advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness,plane-layout}-tests.sh (--fast: the first part only);
@@ -509,7 +509,7 @@ evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
 evals/worktree-tests.sh           #  54  parallel-implementer worktree lifecycle
 evals/artifact-oracle-tests.sh    #  14  artifact shape oracles
 evals/ranker-tests.sh             #   8  reuse ranker
-evals/migrate-tests.sh            #  61  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
+evals/migrate-tests.sh            #  62  claudehut-migrate: dry-run writes nothing, apply, idempotent re-apply, exact restore
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI

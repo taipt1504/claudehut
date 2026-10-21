@@ -222,10 +222,10 @@ def list_files(ctx):
     else:
         files = []
         for d, dirs, fs in os.walk(ctx.repo):
-            dirs[:] = [x for x in dirs if x not in (".git", "build", "target", ".gradle", "node_modules", ".claude")]
+            dirs[:] = [x for x in dirs if x not in (".git", "build", "target", ".gradle", "node_modules", ".claude", ".claudehut")]
             for f in fs:
                 files.append(os.path.relpath(os.path.join(d, f), ctx.repo))
-    return sorted(p for p in files if not p.startswith(".claude/") and os.path.isfile(os.path.join(ctx.repo, p)))
+    return sorted(p for p in files if not p.startswith((".claude/", ".claudehut/")) and os.path.isfile(os.path.join(ctx.repo, p)))
 
 
 def read_text(ctx, rel):

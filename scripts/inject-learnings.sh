@@ -58,6 +58,7 @@ if [ -n "$FED" ] && [ -d "$FED" ]; then
   while IFS= read -r peer; do
     [ -n "$peer" ] || continue
     case "$peer" in "$FILE") continue ;; esac          # never fold the local store in twice
+    case "$peer" in */"$CH_PLANE_LEGACY"/*) [ -d "${peer%/"$CH_PLANE_LEGACY"/learnings.jsonl}/$CH_PLANE_NEW" ] && continue ;; esac   # new plane wins
     case "$peer" in */"$CH_PLANE_LEGACY"/*) origin="$(basename "$(dirname "$(dirname "$(dirname "$peer")")")")" ;;
       *) origin="$(basename "$(dirname "$(dirname "$peer")")")" ;; esac
     jq -Rc --arg o "$origin" 'fromjson? // empty

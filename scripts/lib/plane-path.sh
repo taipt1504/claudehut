@@ -6,7 +6,8 @@
 #                                             Outside `.claude/`, which Claude Code treats as a protected path
 #                                             (file-tool writes prompt, go to the classifier, or are DENIED in dontAsk).
 # Legacy:         <repo>/.claude/claudehut/ — still read and written when it is the only plane; migrate moves it.
-# Both present:   the new one wins; the legacy one is reported once (claudehut-state status / init), never merged.
+# Both present:   the new one wins everywhere (federation skips the legacy twin); never merged.
+#                  claudehut-migrate-plane refuses such a repo — merging is a human decision.
 #
 # A hub keeps the same rule one level down: <hub>/.claudehut/hub, legacy <hub>/.claude/claudehut/hub.
 

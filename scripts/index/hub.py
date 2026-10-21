@@ -221,9 +221,9 @@ def list_repo_files(repo):
     else:
         files = []
         for d, dirs, fs in os.walk(repo):
-            dirs[:] = [x for x in dirs if x not in (".git", "build", "target", ".gradle", "node_modules", ".claude")]
+            dirs[:] = [x for x in dirs if x not in (".git", "build", "target", ".gradle", "node_modules", ".claude", ".claudehut")]
             files += [os.path.relpath(os.path.join(d, f), repo) for f in fs]
-    return sorted(p for p in files if not p.startswith(".claude/") and os.path.isfile(os.path.join(repo, p)))
+    return sorted(p for p in files if not p.startswith((".claude/", ".claudehut/")) and os.path.isfile(os.path.join(repo, p)))
 
 
 def read_rel(repo, rel):

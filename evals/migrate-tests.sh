@@ -145,11 +145,12 @@ B1="$(ls -d "$WS"/.claudehut-backup-* 2>/dev/null | head -1)"
 [ -n "$B1" ] && tar -tzf "$B1/svc-a.tar.gz" | grep -q '^\.git/hooks/pre-commit$' && tar -tzf "$B1/svc-a.tar.gz" | grep -q '^\.claude/claudehut/MEMORY\.md$' \
   && grep -q "^hub_created" "$B1/manifest.tsv" && ok "backups: one tar.gz per repo + root, holding .claude/ and .git/hooks; manifest records hub_created" \
   || bad "backups missing: $(ls "$WS"/.claudehut-backup-* 2>&1)"
-[ -d "$HUB/.git" ] && [ -z "$(git -C "$HUB" remote)" ] && jq -e '.language=="vi" and .schema==1' "$HUB/.claude/claudehut/hub/hub.json" >/dev/null 2>&1 \
-  && ok "hub: git init, no remote, hub.json {schema:1, language:vi}" || bad "hub wrong: $(cat "$HUB/.claude/claudehut/hub/hub.json" 2>&1)"
-jq -e '(keys|sort)==["scan-x","svc-a","svc-b","svc-c"] and ."scan-x".has_plane==false and ."svc-a".has_plane==true' "$HUB/.claude/claudehut/hub/services.json" >/dev/null 2>&1 \
+[ -d "$HUB/.git" ] && [ -z "$(git -C "$HUB" remote)" ] && jq -e '.language=="vi" and .schema==1' "$HUB/.claudehut/hub/hub.json" >/dev/null 2>&1 \
+  && ok "hub: git init, no remote, hub.json {schema:1, language:vi}" || bad "hub wrong: $(cat "$HUB/.claudehut/hub/hub.json" 2>&1)"
+[ ! -e "$HUB/.claude/claudehut" ] && ok "K-18: a new hub is created only at <hub>/.claudehut/hub (no legacy twin)" || bad "K-18: a legacy hub dir appeared beside the new one"
+jq -e '(keys|sort)==["scan-x","svc-a","svc-b","svc-c"] and ."scan-x".has_plane==false and ."svc-a".has_plane==true' "$HUB/.claudehut/hub/services.json" >/dev/null 2>&1 \
   && ok "services.json: exactly the 3 services + scan-x (hub-scanned, has_plane false); never the root or the hub" \
-  || bad "services.json: $(jq -c 'keys' "$HUB/.claude/claudehut/hub/services.json" 2>&1)"
+  || bad "services.json: $(jq -c 'keys' "$HUB/.claudehut/hub/services.json" 2>&1)"
 okt=1; for s in svc-a svc-b svc-c; do
   jq -e '.mode=="microservice" and .hub=="../ws-knowledge" and (has("language")|not)' "$WS/$s/.claude/claudehut/topology.json" >/dev/null 2>&1 || okt=0
   [ -f "$WS/$s/.claude/claudehut/index/meta.json" ] || okt=0
@@ -190,13 +191,13 @@ printf '%s' "$gimsg" | grep -q 'by .gitignore:2 (.claude/)' && [ "$gln" = 2 ] \
 ! printf '%s' "$out" | awk '/^== service svc-b/{on=1;next} /^== /{on=0} on' | grep -q 'gitignore: plane ignored' \
   && ok "svc-b: a '!' rule re-including MEMORY.md is not reported as ignored (no advice to delete it)" || bad "svc-b: negation rule reported as ignoring the plane"
 [ "$H0" = "$(heads)" ] && [ -z "$(git -C "$WS/svc-a" status --porcelain -- src build.gradle)" ] && ok "no commits: every HEAD unchanged" || bad "a HEAD moved"
-F="$HUB/.claude/claudehut/hub/fleet-learnings.jsonl"
+F="$HUB/.claudehut/hub/fleet-learnings.jsonl"
 [ "$(wc -l < "$F" | tr -d ' ')" = 2 ] && jq -s -e 'all(.[]; .scope=="fleet" and .sources[0].service=="ws") and (map(.id)|sort)==["F-0001","F-0002"]' "$F" >/dev/null 2>&1 \
   && [ -s "$WS/.claude/claudehut/learnings.jsonl.migrated" ] && [ -f "$WS/.claude/claudehut/learnings.jsonl" ] && [ ! -s "$WS/.claude/claudehut/learnings.jsonl" ] \
   && ok "root learnings: 2 valid → fleet-learnings.jsonl (provenance ws), old store .migrated, empty store kept for inject-phase" || bad "root learnings move wrong: $(cat "$F" 2>&1 | head -3)"
 c="$(grep -c '^@' "$WS/CLAUDE.md")"
-[ "$c" = 2 ] && grep -qx '@.claude/claudehut/PROJECT.md' "$WS/CLAUDE.md" && grep -qx '@ws-knowledge/.claude/claudehut/hub/HUB.md' "$WS/CLAUDE.md" \
-  && grep -q 'ClaudeHut: project-adaptive memory' "$WS/CLAUDE.md" && [ -f "$HUB/.claude/claudehut/hub/HUB.md" ] \
+[ "$c" = 2 ] && grep -qx '@.claude/claudehut/PROJECT.md' "$WS/CLAUDE.md" && grep -qx '@ws-knowledge/.claudehut/hub/HUB.md' "$WS/CLAUDE.md" \
+  && grep -q 'ClaudeHut: project-adaptive memory' "$WS/CLAUDE.md" && [ -f "$HUB/.claudehut/hub/HUB.md" ] \
   && ok "root CLAUDE.md: @imports only PROJECT.md + hub HUB.md, marker kept" || bad "root CLAUDE.md: $(cat "$WS/CLAUDE.md")"
 jq -e '.mode=="microservice" and .hub=="ws-knowledge"' "$WS/.claude/claudehut/topology.json" >/dev/null 2>&1 && ok "root topology.json → hub (fleet learnings reach root sessions)" || bad "root topology wrong"
 # The moved rows carry provenance {service: ws}; with the root store now empty they must still be injected at the root
@@ -310,7 +311,7 @@ MK="$WS/c-missing/.claude/summer-kb"
   && [ -f "$WS/c-missing/.claude/rules/summer-kb.md" ] && [ "$(jq -r .summerCommit "$MK/.summer-kb-meta.json")" = "$HEADL" ] \
   && ok "missing consumer installed: payment-sdk + vietqr + core, pointer created, stamp at HEAD" || bad "missing consumer: $(ls -a "$MK" 2>&1)"
 KBA="$(jq -c '.detectedArtifacts' "$MK/.summer-kb-meta.json" 2>/dev/null)"
-HBA="$(jq -c '[.edges[] | select(.type=="lib" and .from=="c-missing") | .module] | sort' "$KH/.claude/claudehut/hub/service-links.json" 2>/dev/null)"
+HBA="$(jq -c '[.edges[] | select(.type=="lib" and .from=="c-missing") | .module] | sort' "$KH/.claudehut/hub/service-links.json" 2>/dev/null)"
 [ "$KBA" = '["summer-file","summer-payment-sdk"]' ] && [ "$KBA" = "$HBA" ] \
   && ok "KB module set == the hub's lib edges for that service (commented dep ignored, catalog-only dep counted)" \
   || bad "KB artifacts $KBA vs hub lib-edge modules $HBA"

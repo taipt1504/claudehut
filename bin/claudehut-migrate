@@ -45,7 +45,8 @@ INIT="$PLUGIN_ROOT/bin/claudehut-init"
 IDX="$PLUGIN_ROOT/bin/claudehut-index"
 MERGE="$PLUGIN_ROOT/scripts/merge-learnings.sh"
 KB="$PLUGIN_ROOT/skills/summer-kb-setup/scripts/install_summer_kb.py"
-MEMBERS=(.claude CLAUDE.md .gitignore .worktreeinclude .git/hooks)
+MEMBERS=(.claude .claudehut CLAUDE.md .gitignore .worktreeinclude .git/hooks)
+. "$PLUGIN_ROOT/scripts/lib/plane-path.sh"   # K-18: a plane is .claudehut/ or a legacy .claude/claudehut/; a hub likewise
 MARK="ClaudeHut: project-adaptive memory"
 
 die() { echo "claudehut-migrate: $*" >&2; exit 2; }
@@ -134,7 +135,7 @@ case "$HOOKS" in safe|none) : ;; *) die "--git-hooks takes safe|none" ;; esac
 command -v jq >/dev/null 2>&1 || die "jq is required"
 command -v python3 >/dev/null 2>&1 || die "python3 is required"
 WS="$(cd "$WS" && pwd -P)"; HUB="$(abspath "$HUB")"
-HUB="${HUB%/.claude/claudehut/hub}"
+HUB="$(ch_hub_root "$HUB")"
 [ -d "$(dirname "$HUB")" ] || die "the hub's parent $(dirname "$HUB") does not exist"
 HUB="$(cd "$(dirname "$HUB")" && pwd -P)/$(basename "$HUB")"
 [ "$HUB" != "$WS" ] || die "the hub must be its own directory, not the workspace root"
@@ -186,7 +187,7 @@ discover() { # $1 workspace, $2 hub → sets SERVICES[], SCANS[], SKIPPED[]
     d="${d%/}"; n="${d##*/}"
     case "$n" in .claudehut-backup-*|.git|.claude|.understand-anything|.idea) continue ;; esac
     [ "$(cd "$d" && pwd -P)" = "$hub" ] && continue
-    if [ -d "$d/.claude/claudehut" ]; then
+    if [ -d "$d/.claudehut" ] || [ -d "$d/.claude/claudehut" ]; then
       if [ -d "$d/.git" ]; then SERVICES+=("$d")
       else SKIPPED+=("$n: has a plane but no .git directory (not a repo, or a linked worktree) — skipped"); fi
     elif [ -d "$d/.git" ] && manifest_of "$d"; then SCANS+=("$d")
@@ -288,12 +289,12 @@ move_root_learnings() { # $1 root plane, $2 hub dir, $3 root service name
 root_claude_md() { # $1 root, $2 hub dir → CLAUDE.md @imports PROJECT.md + HUB.md; keeps the marker (init greps it)
   local root="$1" rel new tmp
   rel="$(relpath "$2" "$root")"
-  new="$(printf '<!-- %s (workspace root: PROJECT.md + the hub HUB.md only — 10 §4 step 6, D9) -->\n@.claude/claudehut/PROJECT.md\n@%s/HUB.md' "$MARK" "$rel")"
+  new="$(printf '<!-- %s (workspace root: PROJECT.md + the hub HUB.md only — 10 §4 step 6, D9) -->\n@%s/PROJECT.md\n@%s/HUB.md' "$MARK" "$(ch_plane_rel "$root")" "$rel")"
   tmp="$(mktemp "$root/.claudehut-migrate.XXXXXX")" || return 1
   if [ -f "$root/CLAUDE.md" ] && grep -q "$MARK" "$root/CLAUDE.md"; then
     CHM_NEW="$new" CHM_MARK="$MARK" awk '
       index($0, ENVIRON["CHM_MARK"]) && !done { print ENVIRON["CHM_NEW"]; skip=1; done=1; next }
-      skip && /^@\.claude\/claudehut\// { next }
+      skip && /^@(\.claude\/claudehut|\.claudehut)\// { next }
       skip && /^@.*\/HUB\.md$/ { next }
       { skip=0; print }' "$root/CLAUDE.md" > "$tmp"
   else
@@ -318,11 +319,11 @@ migrate_all() {
   # 1. Backups — all of them, verified, before the first write.
   log "== backups → $b"
   for s in ${SERVICES[@]+"${SERVICES[@]}"}; do backup_entry "${s##*/}" "$s" "$b" || { log "ABORT: backup of ${s##*/} failed — nothing was changed"; return 1; }; done
-  if [ -d "$ws/.claude/claudehut" ]; then backup_entry "_workspace-root" "$ws" "$b" || { log "ABORT: root backup failed"; return 1; }; fi
+  if [ -d "$ws/.claudehut" ] || [ -d "$ws/.claude/claudehut" ]; then backup_entry "_workspace-root" "$ws" "$b" || { log "ABORT: root backup failed"; return 1; }; fi
   if [ -d "$hub" ]; then backup_entry "_hub" "$hub" "$b" || { log "ABORT: hub backup failed"; return 1; }
   else printf 'hub_created\t%s\t%s\t\t\n' "${hub##*/}" "$hub" >> "$b/manifest.tsv"; fi
   # 2. Hub first, so its language is set before any service init inherits it.
-  hd="$hub/.claude/claudehut/hub"
+  hd="$(ch_hub_dir "$hub")"; case "$hd" in ''|"$hub") hd="$hub/$CH_PLANE_NEW/hub" ;; esac   # a new hub: K-18 layout
   log "== hub $hub"
   if [ ! -d "$hub" ]; then
     mkdir -p "$hub" && git -C "$hub" init -q && log "  created $hub (git init, local only — no remote)" || { log "ABORT: cannot create hub"; return 1; }
@@ -335,7 +336,7 @@ migrate_all() {
   else log "  keep $hj (language $LANG_SEL)"; fi
   # 3. Services.
   for s in ${SERVICES[@]+"${SERVICES[@]}"}; do
-    name="${s##*/}"; P="$s/.claude/claudehut"
+    name="${s##*/}"; P="$(ch_plane_dir "$s")"
     log "== service $name"
     out="$(run_env "$s" "$IDX" memory --plane "$P" 2>&1)"; log "  memory: $out"
     out="$(cd "$s" && run_env "$s" bash "$MERGE" --repair 2>&1 | tail -1)"; log "  learnings --repair: $out"
@@ -360,7 +361,7 @@ migrate_all() {
     # Appending the patch is not enough: a '!' line cannot re-include a path under an ignored directory ('.claude/')
     # nor a file another rule names, so the matching rule (check-ignore -v: source:line:pattern) must go first.
     # -q decides (-v also prints a matching '!' rule, i.e. a plane that is NOT ignored); -v only names the rule.
-    if git -C "$s" check-ignore -q .claude/claudehut/MEMORY.md 2>/dev/null; then
+    if [ "$P" = "$s/$CH_PLANE_LEGACY" ] && git -C "$s" check-ignore -q .claude/claudehut/MEMORY.md 2>/dev/null; then
       gi="$(git -C "$s" check-ignore -v .claude/claudehut/MEMORY.md 2>/dev/null | cut -f1)"
       gsrc="${gi%%:*}"; gi="${gi#*:}"; gln="${gi%%:*}"; gpat="${gi#*:}"
       log "  gitignore: plane ignored by $gsrc:$gln ($gpat) — .gitignore NOT edited; to share the plane, delete line $gln of $gsrc ('!' cannot re-include what it ignores), add the lines below, then re-run: git check-ignore -v .claude/claudehut/MEMORY.md"
@@ -396,8 +397,8 @@ migrate_all() {
   fi
   out="$(cd "$hub" && run_env "$hub" "$IDX" hub-sync --hub "$hub" 2>&1)"; log "  hub-sync: $out"
   # 5. Workspace root plane (never claudehut-init here: it would register the root as a service).
-  if [ -d "$ws/.claude/claudehut" ]; then
-    P="$ws/.claude/claudehut"; log "== workspace root $ws"
+  if [ -d "$ws/.claudehut" ] || [ -d "$ws/.claude/claudehut" ]; then
+    P="$(ch_plane_dir "$ws")"; log "== workspace root $ws"
     if [ -f "$P/learnings.jsonl" ]; then out="$(cd "$ws" && run_env "$ws" bash "$MERGE" --repair 2>&1 | tail -1)"; log "  learnings --repair: $out"; fi
     local topo="$P/topology.json" rel tnew
     rel="$(relpath "$hub" "$ws")"
@@ -519,7 +520,8 @@ a, b = load(sys.argv[1]), load(sys.argv[2])
 agg = {}
 for f in sorted(set(a) | set(b)):
     key = None
-    for pre in (".claude/claudehut/index/", ".claude/rules/", ".claude/summer-kb/", ".claude/claudehut/hub/links/", ".claude/claudehut/hub/.understand-anything/"):
+    for pre in (".claude/claudehut/index/", ".claudehut/index/", ".claude/rules/", ".claude/summer-kb/", ".claude/claudehut/hub/links/",
+                ".claudehut/hub/links/", ".claude/claudehut/hub/.understand-anything/", ".claudehut/hub/.understand-anything/"):
         if f.startswith(pre): key = pre
     if f in a and f in b and a[f][1] == b[f][1]:
         continue
@@ -563,8 +565,8 @@ for s in ${R_SERVICES[@]+"${R_SERVICES[@]}"}; do
   plan_diff "$TMP/before.$n" "$TMP/after.$n"
   sed "s#$FS##g" "$TMP/run.out" | awk -v n="== service $n" '$0==n{on=1;next} /^== /{on=0} on' | grep -E 'git hooks|gitignore|WARN|^      \.claude' || :
 done
-if [ -d "$WS/.claude/claudehut" ]; then
-  snap "$SWS" .claude CLAUDE.md .gitignore .worktreeinclude > "$TMP/after._root"
+if [ -d "$WS/.claudehut" ] || [ -d "$WS/.claude/claudehut" ]; then
+  snap "$SWS" .claude .claudehut CLAUDE.md .gitignore .worktreeinclude > "$TMP/after._root"
   echo "-- workspace root ($WS)"
   echo "    backup → $(dirname "$HUB")/.claudehut-backup-<ts>/_workspace-root.tar.gz"
   plan_diff "$TMP/before._root" "$TMP/after._root"

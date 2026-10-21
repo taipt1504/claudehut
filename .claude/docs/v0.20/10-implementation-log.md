@@ -82,6 +82,8 @@ Hệ quả:
 
 Chạy bằng plan quota: 0.12.7 `--ablation with-without` × 3 run, rồi 0.12.6 (tag `baseline-0.12.6`) × 3 run. Tổng $12.10 (giá list; plan không tính tiền theo token).
 
+Provenance (`run-meta.json`): arm "0.12.7" là `a65180b` + **cây đang dirty** (sửa suite và một phần K-18 chưa commit, phần K-18 lúc đó chỉ là resolver, fallback legacy). Arm 0.12.6 là `9860eb7`, sạch. Vì vậy cột 0.12.7 phải đọc là "0.12.7 + WIP", không phải bản release sạch.
+
 | Case | 0.12.7 with | 0.12.7 without | 0.12.6 with | Ghi chú |
 |---|---|---|---|---|
 | bank-export-follows-param | 0.50 | 0.50 | 0.50 | Không arm nào nhận ra variation point (`bank-is-a-variation-point` fail ở mọi run) |
@@ -109,5 +111,11 @@ Kết luận:
 | Skill/agent | Skill dùng `<plane>/…`; SessionStart in `Plane: .claudehut/` cạnh dòng State CLI. Agent ghi rõ cả hai layout, vì subagent không thấy context SessionStart | — |
 
 Test: thêm `regress/plane-layout-tests.sh` (18). Fixture init/hub tạo plane mới thì giờ kỳ vọng `.claudehut/`. Các suite dựng fixture legacy giữ nguyên và vẫn xanh, đó chính là test cho legacy.
+
+Theo review của advisor, đã sửa thêm:
+- `claudehut-migrate` (migration workspace) cũng đi qua resolver. Hub mới được tạo ở `<hub>/.claudehut/hub`, không còn tạo song song bản legacy; có test riêng cho việc này. `MEMBERS` của backup/restore và prefix của dry-run giờ có `.claudehut`.
+- Index/hub bỏ qua `.claudehut/` khi walk file (non-git) và khi lọc danh sách file.
+- Federation learnings bỏ qua plane legacy của một sibling nếu sibling đó đã có `.claudehut/`.
+- `.worktreeinclude`: không thêm plane. Bản legacy cũng không copy plane vào worktree; subagent nhận đường dẫn task trong dispatch prompt. Giữ nguyên để tương đương legacy.
 
 Còn lại của M1: chuyển state sang Python với event log làm nguồn sự thật, và sửa lỗ hổng `start`/`supersede_active` bỏ qua end gate. Chưa có eval case process chạy trên layout mới (tốn quota; để chung với lần chạy eval M1 tiếp theo).
