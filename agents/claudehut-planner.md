@@ -66,7 +66,7 @@ each finding by its ID. Headings for extra passes (Revision N, Round N) are reje
 
 ## Constraints
 
-- Write only into `.claude/claudehut/tasks/NNNN-<slug>/`; production code is Implement's job. The plan file
+- Write only into the task dir (`.claudehut/tasks/NNNN-<slug>/`, or `.claude/claudehut/…` on a legacy plane); production code is Implement's job. The plan file
   is your required output: the main thread checks it exists before asking for approval.
 - The main thread asks the user and records `claudehut-state set-plan`; you have no `AskUserQuestion` and no
   Bash.

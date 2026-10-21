@@ -4,7 +4,7 @@ python3 stdlib only. The hub aggregates per-service contracts into cross-service
 service repos and never writes into them (no .claude/, no .understand-anything/, no git lock: every git call runs
 with GIT_OPTIONAL_LOCKS=0).
 
-Layout (<HUB> is the hub root, e.g. <workspace>/ewallet-knowledge; H = <HUB>/.claude/claudehut/hub):
+Layout (<HUB> is the hub root, e.g. <workspace>/ewallet-knowledge; H = <HUB>/.claudehut/hub, legacy <HUB>/.claude/claudehut/hub):
   H/hub.json              {schema:1, language?}      init writes language; the hub only creates {schema:1}
   H/services.json         {"<svc>": {path, remote, indexed_commit, synced_at, has_plane}}  path relative to <HUB>
   H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, ignore:{}, manifests?, _suggested:{…}}
@@ -60,6 +60,7 @@ sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import extract  # noqa: E402
+from planepath import PLANE_LEGACY, PLANE_NEW, hub_dirs, plane_dir, repo_of  # noqa: E402
 
 SCHEMA = 1
 HUB_MD_MAX = 3072
@@ -139,26 +140,33 @@ def clip(text, budget):
 
 # ---------------------------------------------------------------- hub location --------------------------------
 def hub_dir(path, base=None):
-    """A hub root (<HUB>/.claude/claudehut/hub) or the hub dir itself; relative paths resolve against base
-    (the service repo root), as memory.resolve_language does."""
+    """A hub root (<HUB>/.claudehut/hub, legacy <HUB>/.claude/claudehut/hub) or the hub dir itself; relative paths
+    resolve against base (the service repo root), as memory.resolve_language does."""
     if not path:
         return None
     p = path if os.path.isabs(path) else os.path.normpath(os.path.join(base or os.getcwd(), path))
-    if os.path.basename(p.rstrip("/")) == "hub" and (os.path.isfile(os.path.join(p, "hub.json"))
-                                                    or os.path.basename(os.path.dirname(p.rstrip("/"))) == "claudehut"):
-        return os.path.realpath(p) if os.path.exists(p) else p
+    p = p.rstrip("/")
+    # Either inner spelling names the hub ROOT, whichever layout the hub is actually on (K-18).
+    for rel in (PLANE_NEW, PLANE_LEGACY):
+        if p.endswith("/" + rel + "/hub"):
+            p = p[: -len("/" + rel + "/hub")]
+            break
+    else:
+        if os.path.basename(p) == "hub" and os.path.isfile(os.path.join(p, "hub.json")):
+            return os.path.realpath(p)
     root = os.path.realpath(p) if os.path.exists(p) else p
-    return os.path.join(root, ".claude", "claudehut", "hub")
+    new, legacy = hub_dirs(root)
+    return legacy if os.path.isdir(legacy) and not os.path.isdir(new) else new
 
 
 def hub_root(h):
-    """H = <HUB>/.claude/claudehut/hub → <HUB>."""
-    return os.path.dirname(os.path.dirname(os.path.dirname(h)))
+    """H = <HUB>/.claudehut/hub or <HUB>/.claude/claudehut/hub → <HUB>."""
+    return repo_of(os.path.dirname(h))
 
 
 def find_hub(plane, topo, explicit=None):
     """--hub, CLAUDEHUT_HUB, topology.json.hub, or the plane's own hub/ (a session opened at the hub root)."""
-    base = os.path.dirname(os.path.dirname(plane))
+    base = repo_of(plane)
     for cand in (explicit, os.environ.get("CLAUDEHUT_HUB"), (topo or {}).get("hub")):
         if cand:
             return hub_dir(cand, base)
@@ -200,7 +208,7 @@ def repo_top(path):
 
 
 def svc_name(repo):
-    plane = os.path.join(repo, ".claude", "claudehut")
+    plane = plane_dir(repo)
     t = read_json(os.path.join(plane, "topology.json"), {}) or {}
     m = read_json(os.path.join(plane, "index", "meta.json"), {}) or {}
     return t.get("service") or m.get("svc") or os.path.basename(repo.rstrip("/"))
@@ -248,7 +256,7 @@ def scan_repo(repo, svc):
 
 
 def load_plane(repo):
-    idx = os.path.join(repo, ".claude", "claudehut", "index")
+    idx = os.path.join(plane_dir(repo), "index")
     meta = read_json(os.path.join(idx, "meta.json"))
     contracts = read_json(os.path.join(idx, "contracts.json"))
     if not isinstance(meta, dict) or not isinstance(contracts, dict):
@@ -1446,7 +1454,7 @@ def hub_md(h, services, edges, buckets, links=None):
     hroot = hub_root(h)
     L = ["# Hub — %d services, %d edges" % (len(services), len(edges)),
          "Service paths are relative to the hub root `%s`; evidence is `<repo dir>/<file>:<line>`. Full data: "
-         "`.claude/claudehut/hub/service-links.json`; query with `claudehut-index links|svc <name>`."
+         "`.claudehut/hub/service-links.json`; query with `claudehut-index links|svc <name>`."
          % os.path.basename(hroot), "", "## Services"]
     for s in sorted(services):
         m = services[s]

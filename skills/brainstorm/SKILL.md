@@ -43,11 +43,11 @@ flowchart TB
    language (headings stay English, the body follows the language). **Cap 2 re-dispatch rounds**: a third
    non-conforming return means the problem statement is the problem. Take the gap to the user with
    `AskUserQuestion` (non-interactive: proceed with the best set returned and note the gap in §1).
-2. **Persist**: fill the template into `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/brainstorm.md`
+2. **Persist**: fill the template into `${CLAUDE_PROJECT_DIR}/<plane>/tasks/NNNN-<slug>/brainstorm.md`
    (the agent has no Write), then record it:
 
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-brainstorm .claude/claudehut/tasks/NNNN-<slug>/brainstorm.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-brainstorm <plane>/tasks/NNNN-<slug>/brainstorm.md
    ```
 
    `set-brainstorm` runs doclint and refuses on a structural violation (missing or extra heading, bad

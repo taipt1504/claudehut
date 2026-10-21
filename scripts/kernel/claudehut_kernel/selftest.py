@@ -48,9 +48,9 @@ def _json_objects(text):
 
 def _plane(root):
     p = os.path.join(root, "proj")
-    os.makedirs(os.path.join(p, ".claude", "claudehut", "tasks"))
-    os.makedirs(os.path.join(p, ".claude", "claudehut", "state"))
-    with open(os.path.join(p, ".claude", "claudehut", "topology.json"), "w") as f:
+    os.makedirs(os.path.join(p, ".claudehut", "tasks"))
+    os.makedirs(os.path.join(p, ".claudehut", "state"))
+    with open(os.path.join(p, ".claudehut", "topology.json"), "w") as f:
         json.dump({"schema": 1, "mode": "mono", "language": "en"}, f)
     subprocess.run(["git", "init", "-q", p], capture_output=True)
     return p
@@ -112,7 +112,7 @@ def _canary_failure(root, env, proj, tmp):
     subprocess.run(["bash", os.path.join(root, "scripts", "record-failure.sh")], input=json.dumps(payload).encode(),
                    capture_output=True, env=env, cwd=proj, timeout=30)
     rec = None
-    for d, _, fs in os.walk(os.path.join(proj, ".claude", "claudehut")):
+    for d, _, fs in os.walk(os.path.join(proj, ".claudehut")):
         for f in fs:
             if f.endswith("failures.jsonl"):
                 with open(os.path.join(d, f)) as fh:

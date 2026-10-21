@@ -175,7 +175,8 @@ degrade() { DEGRADED=true; DEGR="${DEGR:+$DEGR; }$1"; }
 
 # ---- task / plane -------------------------------------------------------------------------------------
 PROJECT="${CLAUDE_PROJECT_DIR:-$REPO}"
-PLANE="$PROJECT/.claude/claudehut"
+. "${BASH_SOURCE[0]%/*}/lib/plane-path.sh"   # K-18 resolver
+PLANE="$(ch_plane_dir "$PROJECT")"
 TASK_ID="$TASK_ARG"
 if [ -z "$TASK_ID" ] && [ -n "$SID" ] && [ -f "$PLANE/state/$SID.json" ]; then
   TASK_ID="$(jq -r 'if type=="object" and .schema==2 then (.active_task // empty) else empty end' "$PLANE/state/$SID.json" 2>/dev/null || true)"
@@ -237,7 +238,7 @@ BASE_SHA="$(g rev-parse -q --verify "$BASE^{commit}" 2>/dev/null || g rev-parse 
 # ---- FILES --------------------------------------------------------------------------------------------
 excluded() { # 0 = drop the path (08 §4 FILES)
   case "$1" in
-    .claude/*|*/.claude/*|docs/*|build/*|*/build/*|target/*|*/target/*) return 0 ;;
+    .claude/*|*/.claude/*|.claudehut/*|*/.claudehut/*|docs/*|build/*|*/build/*|target/*|*/target/*) return 0 ;;
     */generated/*|generated/*|*.generated.*) return 0 ;;
     *.lock|*.lockfile|package-lock.json|*/package-lock.json|pnpm-lock.yaml|*/pnpm-lock.yaml|yarn.lock|*/yarn.lock) return 0 ;;
   esac

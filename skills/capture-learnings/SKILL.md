@@ -38,7 +38,7 @@ something novel, and the merge always runs (it writes the learn receipt).
 1. **Harvest candidates inline (always; no agent).** Run on the main thread:
 
    ```
-   "${CLAUDE_PLUGIN_ROOT}/scripts/harvest-candidates.sh" --session ${CLAUDE_SESSION_ID} --task-dir .claude/claudehut/tasks/NNNN-<slug>
+   "${CLAUDE_PLUGIN_ROOT}/scripts/harvest-candidates.sh" --session ${CLAUDE_SESSION_ID} --task-dir <plane>/tasks/NNNN-<slug>
    ```
 
 2. **Dispatch `claudehut:claudehut-learner` only when the task surfaced something novel**, on any route: a task
@@ -53,9 +53,9 @@ something novel, and the merge always runs (it writes the learn receipt).
 
    ```
    "${CLAUDE_PLUGIN_ROOT}/scripts/merge-learnings.sh" \
-     --candidates .claude/claudehut/tasks/NNNN-<slug>/learn-candidates.jsonl \
+     --candidates <plane>/tasks/NNNN-<slug>/learn-candidates.jsonl \
      --session ${CLAUDE_SESSION_ID} \
-     --injected .claude/claudehut/state/${CLAUDE_SESSION_ID}.injected.json
+     --injected <plane>/state/${CLAUDE_SESSION_ID}.injected.json
    ```
 
    It writes `state/${SID}.learn-receipt.json` (the proof a Learn pass ran THIS task) and prints

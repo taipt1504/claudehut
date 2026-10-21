@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.8 — 2026-10-21
+
+ADR K-18 (accepted): the writable plane moves out of `.claude/`. Claude Code treats `.claude/` as a protected
+path: Write/Edit there prompts in `default`/`acceptEdits`, goes to the classifier in `auto`, and is **denied** in
+`dontAsk` (headless runner, routines, `claude plugin eval`); `permissions.allow` does not lift it. Verified by the
+`process/plane-write-probe` eval case. Path resolution only: no gate, hook or schema behaviour changes.
+
+- **New layout `<repo>/.claudehut/`** (tasks, learnings, index, state, ledger, events; a hub keeps `<hub>/.claudehut/hub`).
+  One rule, two twins: `scripts/lib/plane-path.sh` (bash) and `claudehut_kernel/plane.py` (Python; the index
+  tools import it through `scripts/index/planepath.py`): `.claudehut/` if present, else a legacy
+  `.claude/claudehut/`, else `.claudehut/`. Every hook, `claudehut-state`, `doclint`, the index/hub/memory tools
+  and the index git hook resolve through it. Either inner hub spelling still names the hub root.
+- **`claudehut-init`** creates `.claudehut/` on a fresh repo with its own `'*'` `.gitignore` (local by default,
+  `shared:false`; the project `.gitignore` is still never edited) and wires `@.claudehut/…` imports. A repo that
+  already has a legacy plane keeps it.
+- **`bin/claudehut-migrate-plane --dry-run|--apply [REPO…]`** moves a legacy plane: `mv`, rewrites only the
+  `@.claude/claudehut/` imports in CLAUDE.md, keeps a local plane local, re-installs the index git hooks. Never
+  commits; refuses a repo with both layouts. Not run on any repo by this release (phase B).
+- Skills say `<plane>/…`; SessionStart names the plane next to the State CLI line. Agents name both layouts.
+- Tests: `evals/regress/plane-layout-tests.sh` (resolver parity, state CLI on both layouts, migrate, a grep guard
+  against new hard-coded plane paths); init/hub fixtures that create a fresh plane now expect `.claudehut/`;
+  every legacy-fixture suite stays green unchanged.
+
 ## 0.12.7 — 2026-10-21
 
 Track Q of the 0.20 harness design (`.claude/docs/v0.20/`, 09 §2.1): small fixes for S1 problems, built as the

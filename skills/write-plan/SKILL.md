@@ -51,7 +51,7 @@ flowchart TB
    round (`plan_review_round` + 1 from `claudehut-state status`). Only the reviewer writes
    `plan-review.md`; the main thread does not edit it or write a verdict itself. Record what it wrote:
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-plan-review <APPROVE|REVISE> --evidence .claude/claudehut/tasks/NNNN-<slug>/plan-review.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-plan-review <APPROVE|REVISE> --evidence <plane>/tasks/NNNN-<slug>/plan-review.md
    ```
    The verdict must match the file's single `Verdict:` line. State counts rounds (`plan_review_round`, cap 2):
    REVISE on round 1 → back to the planner with the findings. REVISE on round 2 → `capped`; the command
@@ -61,7 +61,7 @@ flowchart TB
    from the `--json` `budget` block: **Approve** / **Request changes**. Non-interactive (`-p`): record
    `approval: non-interactive run — proceeded with draft` in the header. Then:
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-plan .claude/claudehut/tasks/NNNN-<slug>/plan.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-plan <plane>/tasks/NNNN-<slug>/plan.md
    ```
    `set-plan` re-runs the doclint gate and refuses a stale `spec-rev`.
 5. **Task mirror, only with task tools** (`TaskCreate`/`TaskUpdate` are absent in many sessions; then skip):

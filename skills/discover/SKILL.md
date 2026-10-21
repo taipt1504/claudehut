@@ -91,8 +91,8 @@ flowchart TB
      packages/classes the task touches (cite `file:line`), returns a **Reuse candidates** list and `index_miss:`
      lines. Read-only. The main thread appends its map to `context.md` as `## Explorer map`.
    - `claudehut:claudehut-reuse-scanner` — writes
-     `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` (claudehut-state accepts it
-     only under `.claude/claudehut/`) **in the summary-first format of
+     `${CLAUDE_PROJECT_DIR}/<plane>/tasks/NNNN-<slug>/reuse-scan.md` (claudehut-state accepts it
+     only under `<plane>/`) **in the summary-first format of
      `${CLAUDE_PLUGIN_ROOT}/skills/discover/references/reuse-scan-template.md` — name this template path in
      the dispatch prompt**. It has no Bash: paste the brief and any `find` output it needs. It **returns the
      path — it does not write state**.
@@ -100,7 +100,7 @@ flowchart TB
 3. **Main thread records the artifact** (this flips `reuse_scan=true`, Implement's first precondition):
 
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact .claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-reuse-scan --artifact <plane>/tasks/NNNN-<slug>/reuse-scan.md
    ```
 
 ## Red flags

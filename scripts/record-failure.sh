@@ -7,7 +7,7 @@
 # auto-promoting them would pollute the curated store. The learner reads this staging file and
 # decides what is a genuine, reusable lesson. Non-blocking (the tool already failed); always exit 0.
 #
-# Staging file: .claude/claudehut/state/<sid>.failures.jsonl  (under state/ = gitignored/ephemeral).
+# Staging file: <plane>/state/<sid>.failures.jsonl  (under state/ = gitignored/ephemeral).
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
 . "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
 hc_init
@@ -23,7 +23,7 @@ trap - ERR                # this body predates the lib and relies on non-errexit
 # real event. Off by default; costs nothing when unset. Deliberately not session-scoped — .session_id is
 # itself one of the guesses, and a wrong guess there would silently produce no file at all.
 if [ "${CLAUDEHUT_DEBUG_PAYLOAD:-}" = "1" ]; then
-  _dbg="$PROJECT_DIR/.claude/claudehut/state"
+  _dbg="$PLANE/state"
   mkdir -p "$_dbg" 2>/dev/null \
     && printf '%s\n' "$in" >> "$_dbg/payload-debug.PostToolUseFailure.jsonl" 2>/dev/null || true
 fi
@@ -57,7 +57,7 @@ fi
 err="$(printf '%s' "$raw_err" | sed '1{/^Exit code [0-9]/d;}' | tail -c 600)"
 [ -n "$cmd" ] || exit 0
 
-DIR="$PROJECT_DIR/.claude/claudehut/state"
+DIR="$PLANE/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.failures.jsonl"
 

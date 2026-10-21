@@ -79,5 +79,5 @@ Don't game branch coverage by removing legitimate `if` checks just to pass.
 
 ## Enforcement
 
-When the verify command in `.claude/claudehut/PROJECT.md` runs `jacocoTestCoverageVerification` (Gradle) or
+When the verify command in the plane's `PROJECT.md` (`.claudehut/`, legacy `.claude/claudehut/`) runs `jacocoTestCoverageVerification` (Gradle) or
 `jacoco:check` (Maven), a threshold miss is a failing test result in the evidence Review records.

@@ -39,7 +39,9 @@ if [ -n "$EXCLUDE" ] && [ -f "$EXCLUDE" ]; then EXRAW="$(< "$EXCLUDE")" || EXRAW
 
 command -v jq >/dev/null 2>&1 || exit 0
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-FILE="$PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+. "${BASH_SOURCE[0]%/*}/lib/plane-path.sh"   # K-18 resolver
+if [ -d "$PROJECT_DIR/$CH_PLANE_NEW" ]; then PLANE_D="$PROJECT_DIR/$CH_PLANE_NEW"; else PLANE_D="$PROJECT_DIR/$CH_PLANE_LEGACY"; fi
+FILE="$PLANE_D/learnings.jsonl"
 
 # IDEA-F4: federation. Fifteen sibling services in one workspace learn the same lesson fifteen times —
 # each store starts empty and stays local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms.
@@ -56,12 +58,13 @@ if [ -n "$FED" ] && [ -d "$FED" ]; then
   while IFS= read -r peer; do
     [ -n "$peer" ] || continue
     case "$peer" in "$FILE") continue ;; esac          # never fold the local store in twice
-    origin="$(basename "$(dirname "$(dirname "$(dirname "$peer")")")")"
+    case "$peer" in */"$CH_PLANE_LEGACY"/*) origin="$(basename "$(dirname "$(dirname "$(dirname "$peer")")")")" ;;
+      *) origin="$(basename "$(dirname "$(dirname "$peer")")")" ;; esac
     jq -Rc --arg o "$origin" 'fromjson? // empty
       | select((.promoted // false) | not)
       | .federated_from = $o
       | .confidence = (((.confidence // 0.5) * 0.5))' "$peer" 2>/dev/null >> "$FEDTMP"
-  done < <(find "$FED" -maxdepth 4 -path '*/.claude/claudehut/learnings.jsonl' 2>/dev/null | head -40)
+  done < <(find "$FED" -maxdepth 4 \( -path '*/.claudehut/learnings.jsonl' -o -path '*/.claude/claudehut/learnings.jsonl' \) 2>/dev/null | head -40)
   [ -s "$FEDTMP" ] && FILE="$FEDTMP" || { rm -f "$FEDTMP"; FEDTMP=""; }
 fi
 trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
@@ -73,7 +76,7 @@ trap '[ -n "$FEDTMP" ] && rm -f "$FEDTMP"' EXIT
 # local learning is dropped; a source whose local row is gone (the workspace root after claudehut-migrate moved
 # its store to the hub) does not hide the row. The mode test is a bash string match, so a mono plane pays no extra fork.
 FLEETF=""; SELF=""
-TOPO="$PROJECT_DIR/.claude/claudehut/topology.json"
+TOPO="$PLANE_D/topology.json"
 if [ -f "$TOPO" ]; then
   _t=""; IFS= read -r -d '' _t < "$TOPO" 2>/dev/null || :   # no fork (a $(< f) subshell is one)
   case "$_t" in *'"microservice"'*)
@@ -81,7 +84,7 @@ if [ -f "$TOPO" ]; then
     [ -z "${CLAUDEHUT_HUB:-}" ] || _hb="$CLAUDEHUT_HUB"
     if [ "$_m" = microservice ] && [ -n "$_hb" ]; then
       case "$_hb" in /*) : ;; *) _hb="$PROJECT_DIR/$_hb" ;; esac
-      for _f in "$_hb/.claude/claudehut/hub/fleet-learnings.jsonl" "$_hb/fleet-learnings.jsonl"; do
+      for _f in "$_hb/$CH_PLANE_NEW/hub/fleet-learnings.jsonl" "$_hb/$CH_PLANE_LEGACY/hub/fleet-learnings.jsonl" "$_hb/fleet-learnings.jsonl"; do
         [ -f "$_f" ] && { FLEETF="$_f"; break; }
       done
     fi

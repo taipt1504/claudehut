@@ -388,7 +388,7 @@ def resolve_language(path):
                 if h.get('language') in ('en', 'vi'):
                     return h['language']
             return 'en'
-        if os.path.basename(d) == 'claudehut' and os.path.basename(os.path.dirname(d)) == '.claude':
+        if os.path.basename(d) == '.claudehut' or (os.path.basename(d) == 'claudehut' and os.path.basename(os.path.dirname(d)) == '.claude'):
             break
         nd = os.path.dirname(d)
         if nd == d:
@@ -757,8 +757,10 @@ def report(r):
     return '\n'.join(out)
 
 def rel_art(p):
-    """a path from its .claude/claudehut/ segment on (project-relative); else p"""
-    i = p.find('.claude/claudehut/')
+    """a path from its plane segment on (.claudehut/ or legacy .claude/claudehut/; project-relative); else p"""
+    i = p.find('.claude/claudehut/')   # legacy layout
+    if i < 0:
+        i = p.find('.claudehut/')
     return p[i:] if i >= 0 else p
 
 def shorten(s, n):

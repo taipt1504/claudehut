@@ -12,7 +12,7 @@ section stays verbatim, and the generated block is inserted. A file with markers
 per-task blocks (`## Reuse additions (`, `## Topics (`) found outside the block. Re-running is a no-op.
 
 Usage: memory.py [--plane DIR] [--plugin-root DIR] [--no-migrate] [--check] [--json]
-  --plane DIR     the .claude/claudehut directory (default: $CLAUDE_PROJECT_DIR/.claude/claudehut, else ./)
+  --plane DIR     the plane directory (default: $CLAUDE_PROJECT_DIR/.claudehut, else legacy .claude/claudehut)
   --no-migrate    only refresh a file that already has markers (merge-learnings uses this)
   --check         report what would change, write nothing
   --json          print the report as one JSON object
@@ -24,6 +24,9 @@ import re
 import sys
 import tempfile
 import time
+
+sys.dont_write_bytecode = True   # planepath and the kernel package are imported from the plugin tree
+from planepath import PLANE_LEGACY, PLANE_NEW, hub_dirs, plane_dir, repo_of  # noqa: E402
 
 START = "<!-- claudehut:generated:start -->"
 END = "<!-- claudehut:generated:end -->"
@@ -77,8 +80,11 @@ def resolve_language(plane, topo):
         return lang
     hub = os.environ.get("CLAUDEHUT_HUB") or (topo or {}).get("hub")
     if hub:
-        base = hub if os.path.isabs(hub) else os.path.normpath(os.path.join(os.path.dirname(os.path.dirname(plane)), hub))
-        for cand in (os.path.join(base, ".claude", "claudehut", "hub", "hub.json"), os.path.join(base, "hub.json")):
+        base = hub if os.path.isabs(hub) else os.path.normpath(os.path.join(repo_of(plane), hub))
+        for rel in (PLANE_NEW, PLANE_LEGACY):  # either inner spelling names the hub root (K-18)
+            if base.rstrip("/").endswith("/" + rel + "/hub"):
+                base = base.rstrip("/")[: -len("/" + rel + "/hub")]
+        for cand in [os.path.join(d, "hub.json") for d in hub_dirs(base)] + [os.path.join(base, "hub.json")]:
             h = read_json(cand)
             if isinstance(h, dict) and h.get("language") in ("vi", "en"):
                 return h["language"]
@@ -172,7 +178,7 @@ def build_block(plane, plugin_root, name):
     if len(block.encode("utf-8")) > BLOCK_MAX:  # pathological path lengths: drop the topics header too
         block = render(head + tail)
     if len(block.encode("utf-8")) > BLOCK_MAX:
-        block = render([START, "# ClaudeHut memory index — %s" % name[:60], "- Plane: `.claude/claudehut`", END])
+        block = render([START, "# ClaudeHut memory index — %s" % name[:60], "- Plane: `%s`" % os.path.relpath(plane, repo_of(plane)), END])
     return block
 
 
@@ -218,7 +224,7 @@ def atomic_write(path, data):
 
 def main(argv):
     a = args_parse(argv)
-    plane = a["plane"] or os.path.join(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd(), ".claude", "claudehut")
+    plane = a["plane"] or plane_dir(os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd())
     plane = os.path.abspath(plane)
     plugin_root = os.path.abspath(a["plugin_root"] or os.environ.get("CLAUDE_PLUGIN_ROOT")
                                   or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -226,7 +232,7 @@ def main(argv):
     if not os.path.isdir(plane):
         rep["action"] = "skip"; rep["reason"] = "no plane"
         return rep
-    project_dir = os.path.dirname(os.path.dirname(plane))
+    project_dir = repo_of(plane)
     topo = read_json(os.path.join(plane, "topology.json"))
     name = (topo or {}).get("service") if isinstance(topo, dict) else None
     name = name or os.path.basename(project_dir) or "project"

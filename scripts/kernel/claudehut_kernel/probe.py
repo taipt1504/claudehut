@@ -79,7 +79,8 @@ def foreign_bash_hooks(project_dir):
 def _cache_path(project_dir):
     """The plugin's own data dir when the host provides it; otherwise the project plane's state dir — never a
     guessed path under ~/.claude (that would be another install's data)."""
-    base = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.join(project_dir, ".claude", "claudehut", "state")
+    from . import plane
+    base = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.join(plane.plane_dir(project_dir), "state")
     return os.path.join(base, "host-probe-cache.json")
 
 

@@ -71,7 +71,7 @@ flowchart TB
      Grepped for the concept (`name`/`summary`/`filePath`) as leads — it can lag, so confirm each hit in source. On a candidate, **score Fit and name Impact** before `adopt`/`extend` (cite `file:line`); Fit ≤2 → prefer `new` over forcing a misfit, and say why.
    - **Rung 5 — new.** Only if every rung above failed (or the best candidate's Fit is too low). Justify why.
 2. Write the artifact into the task dir the dispatch prompt names —
-   `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md` — **following the reuse-scan template the dispatch prompt points at** (`skills/discover/references/reuse-scan-template.md`). Format is summary-first:
+   `<task dir>/reuse-scan.md` (the task dir is in the dispatch prompt) — **following the reuse-scan template the dispatch prompt points at** (`skills/discover/references/reuse-scan-template.md`). Format is summary-first:
    - **## Summary table FIRST** — one row per dimension:
      `| Dimension | Existing asset | Decision | Fit | Impact | Effort |`. The table IS the artifact; reviewers
      read top-down. **Fit** = 1-5 for adopt/extend/framework rows (`-` for drop/new); **Impact** = blast-radius

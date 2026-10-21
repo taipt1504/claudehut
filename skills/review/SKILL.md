@@ -104,7 +104,7 @@ include production code (`src/main/**`).
 
 ## 4. review.md
 
-Write `.claude/claudehut/tasks/NNNN-<slug>/review.md` with these sections:
+Write `<plane>/tasks/NNNN-<slug>/review.md` with these sections:
 
 - **Header line** — `round: N · base: <sha> · head_tree: <sha>` from `lanes.json`.
 - **Lanes** — `| Lane | Agent | Run | Result | Reason |`; Run ∈ `ran | skipped | added | dropped | incomplete`,
@@ -130,7 +130,7 @@ Write `.claude/claudehut/tasks/NNNN-<slug>/review.md` with these sections:
 `outstanding == []` and tests green →
 
 ```
-claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence .claude/claudehut/tasks/NNNN-<slug>/review.md
+claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence <plane>/tasks/NNNN-<slug>/review.md
 ```
 
 `set-review pass` refuses a `review.md` without a coverage table, test counts, a locus per `✓`, a resolution per reuse

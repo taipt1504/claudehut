@@ -482,6 +482,7 @@ while True:
 FLEOF
 chmod +x "$FS/flock"
 sed 's/^acquire_lock$/acquire_lock; echo PROBE-AFTER-LOCK >\&2/' "$SH" > "$T/ml-probe.sh"
+mkdir -p "$T/lib" && cp "${SH%/*}/lib/plane-path.sh" "$T/lib/"   # the copy sources its K-18 resolver beside itself
 printf '{"category":"pitfall","trigger":"lock, flock","learning":"a lock-test lesson long enough for the gate","evidence":"F.java:1","confidence":0.7}\n' > "$T/cand.jsonl"
 mlk_err="$(PATH="$FS:$PATH" bash "$T/ml-probe.sh" --candidates "$T/cand.jsonl" --ts 2026-06-17T10:00:00Z 2>&1 >/dev/null)"
 grep -q '^acquire_lock; echo PROBE' "$T/ml-probe.sh" && [ -e "$(store).lock.flock" ] && printf '%s' "$mlk_err" | grep -q PROBE-AFTER-LOCK \

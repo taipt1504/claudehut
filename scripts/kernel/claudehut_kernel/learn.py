@@ -70,13 +70,11 @@ def _save(path, rows):
 
 
 def store_path(project_dir, hub=None):
+    from . import plane
     if hub:
-        for cand in (os.path.join(hub, ".claude", "claudehut", "hub", "fleet-learnings.jsonl"),
-                     os.path.join(hub, "fleet-learnings.jsonl")):
-            if os.path.isfile(cand):
-                return cand
-        return os.path.join(hub, "fleet-learnings.jsonl")
-    return os.path.join(project_dir, ".claude", "claudehut", "learnings.jsonl")
+        hd = plane.hub_dir(hub) or hub
+        return os.path.join(hd, "fleet-learnings.jsonl")
+    return os.path.join(plane.plane_dir(project_dir), "learnings.jsonl")
 
 
 def update(path, entry_id, fields):

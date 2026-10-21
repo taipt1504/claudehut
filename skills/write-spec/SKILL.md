@@ -30,7 +30,7 @@ flowchart TB
 
 ## Process
 
-1. **Write** `${CLAUDE_PROJECT_DIR}/.claude/claudehut/tasks/NNNN-<slug>/spec.md` from
+1. **Write** `${CLAUDE_PROJECT_DIR}/<plane>/tasks/NNNN-<slug>/spec.md` from
    `${CLAUDE_PLUGIN_ROOT}/skills/write-spec/references/spec-template.md`: copy from `# Spec` down (the schema
    comments stay in the template). Headings stay English; the body follows the project language.
    Required headings by profile: `feature` → §1, 3, 4, 5, 6; `bugfix` → §1, 3, 6; `migration` → §1, 3, 6 and
@@ -56,7 +56,7 @@ flowchart TB
 5. **Record** only after approval. `set-spec` runs the same doclint gate and refuses on a blocking violation:
 
    ```
-   claudehut-state --session ${CLAUDE_SESSION_ID} set-spec .claude/claudehut/tasks/NNNN-<slug>/spec.md
+   claudehut-state --session ${CLAUDE_SESSION_ID} set-spec <plane>/tasks/NNNN-<slug>/spec.md
    ```
 
 **Summer KB (when the project has `.claude/summer-kb/`):** every AC row and decision that touches Summer

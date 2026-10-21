@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SubagentStart hook, SYNC (timeout 5 s) — dispatch ledger, start half (F5, F-1).
 #
-# Appends one record to .claude/claudehut/ledger/dispatches.jsonl (shared, append-only, never swept;
+# Appends one record to <plane>/ledger/dispatches.jsonl (shared, append-only, never swept;
 # session_id is a field). agent_type is resolved through lib/resolve-agent.sh: a teammate reports its chosen
 # name, which the PreToolUse(Agent) ledger maps back to the claudehut:* subagent_type.
 #

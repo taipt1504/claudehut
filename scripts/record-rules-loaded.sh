@@ -9,7 +9,7 @@
 # was not declared is a gap worth surfacing; a rule declared but not observed may simply not have matched a
 # path glob yet. Neither blocks.
 #
-# Sidecar: .claude/claudehut/state/<sid>.rules-loaded.jsonl (ephemeral; claudehut-init gitignores state/)
+# Sidecar: <plane>/state/<sid>.rules-loaded.jsonl (ephemeral; claudehut-init gitignores state/)
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
 . "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
 hc_init
@@ -23,7 +23,7 @@ fp="$(jq -r '.file_path // empty' <<<"$in" 2>/dev/null || true)"
 reason="$(jq -r '.load_reason // empty' <<<"$in" 2>/dev/null || true)"   # the field is load_reason, not reason
 [ -n "$sid" ] && [ -n "$fp" ] || exit 0
 
-DIR="$PROJECT_DIR/.claude/claudehut/state"
+DIR="$PLANE/state"
 mkdir -p "$DIR" 2>/dev/null || exit 0
 F="$DIR/$sid.rules-loaded.jsonl"
 

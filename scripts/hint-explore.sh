@@ -64,7 +64,7 @@ fi
 
 hub="$HUB"; case "$hub" in /*) : ;; *) hub="$PROJECT_DIR/$hub" ;; esac
 cv "$hub"; hub="$CV"
-sj="$hub/.claude/claudehut/hub/services.json"
+sj="$hub/$CH_PLANE_NEW/hub/services.json"; [ -f "$sj" ] || sj="$hub/$CH_PLANE_LEGACY/hub/services.json"   # K-18, no fork
 [ -f "$sj" ] || exit 0
 # services.json: {"<svc>": {path (relative to the hub root, or absolute), remote, indexed_commit, …}} — flat entries,
 # so each one is `"<svc>": { … }` without a nested brace. A target under a service's repo wins, else the service a Grep

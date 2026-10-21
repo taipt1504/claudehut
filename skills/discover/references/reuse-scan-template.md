@@ -1,4 +1,4 @@
-# Reuse-scan template (copy per task → `.claude/claudehut/tasks/NNNN-<slug>/reuse-scan.md`)
+# Reuse-scan template (copy per task → `<plane>/tasks/NNNN-<slug>/reuse-scan.md`)
 
 <!-- Summary-first: the table is the artifact; an Evidence section exists only where the table alone
      cannot justify the decision, and does not repeat the table. Budget: ≤450 words total.

@@ -9,7 +9,7 @@
 # SubagentStart. An async PreToolUse does not hold the Agent tool, so the subagent could start (and resolve its
 # name) before this row lands. Never a decision: it emits nothing. The append is one short printf so concurrent dispatches
 # of a fan-out cannot interleave (fields are capped to keep the record inside one buffered write).
-# Sidecar: .claude/claudehut/state/<sid>.agent-dispatch.jsonl
+# Sidecar: <plane>/state/<sid>.agent-dispatch.jsonl
 
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
 . "$_d/lib/hook-common.sh" 2>/dev/null || exit 0

@@ -25,7 +25,8 @@ set -euo pipefail
 command -v jq >/dev/null 2>&1 || { echo '{"added":0,"merged":0,"promoted":0,"dropped":0,"skipped":"no-jq"}'; exit 0; }
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-DIR="$PROJECT_DIR/.claude/claudehut"
+. "${BASH_SOURCE[0]%/*}/lib/plane-path.sh"   # K-18 resolver
+DIR="$(ch_plane_dir "$PROJECT_DIR")"
 LEARNINGS="$DIR/learnings.jsonl"
 RULES_DIR="$PROJECT_DIR/.claude/rules"
 
@@ -469,8 +470,7 @@ if [ "$(jq -r '.mode // empty' "$DIR/topology.json" 2>/dev/null)" = microservice
   [ -z "${CLAUDEHUT_HUB:-}" ] || _hb="$CLAUDEHUT_HUB"
   if [ -n "$_hb" ]; then
     case "$_hb" in /*) : ;; *) _hb="$PROJECT_DIR/$_hb" ;; esac
-    if [ -d "$_hb/.claude/claudehut/hub" ]; then FLEET_DIR="$_hb/.claude/claudehut/hub"
-    elif [ -f "$_hb/hub.json" ]; then FLEET_DIR="$_hb"; fi
+    FLEET_DIR="$(ch_hub_dir "$_hb")"
   fi
 fi
 if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then

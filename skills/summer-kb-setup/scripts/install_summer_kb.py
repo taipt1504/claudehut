@@ -306,7 +306,7 @@ limiter) — you **MUST** ground the decision in this KB, not memory or guesswor
 3. Cite the graph node id / source path the KB gives. Never invent property names, gate defaults, or coordinates.
 4. If the KB lacks a fact, read the source it points to; if unverifiable, mark `[unverified]` — never guess.
 
-KB lives under `.claude/` (committable — share with the team; never commit `.claude/claudehut/state/`). Refresh with `/summer-kb-setup` after Summer upgrades.
+KB lives under `.claude/` (committable — share with the team; never commit the ClaudeHut plane's `state/`). Refresh with `/summer-kb-setup` after Summer upgrades.
 """
 
 

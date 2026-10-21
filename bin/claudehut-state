@@ -68,6 +68,8 @@
 # verbs (set-phase discover…, set-reuse-scan, set-spec, set-plan, a shape change via set-profile/set-route/
 # set-complexity, and on a done task its review verbs) are the same no-op + notice; `start` opens the new task.
 set -euo pipefail
+# K-18 plane resolver (scripts/lib/plane-path.sh): .claudehut/ wins, legacy .claude/claudehut/ otherwise.
+. "$(cd "$(dirname "$0")/.." && pwd)/scripts/lib/plane-path.sh"
 
 err() { echo "claudehut-state: $*" >&2; exit 1; }
 note() { echo "claudehut-state: $*" >&2; }
@@ -113,7 +115,8 @@ done
 # For money the footer points at /usage and the OTEL grouping (README "Measuring it: /usage").
 if [ "${#args[@]}" -ge 1 ] && [ "${args[0]}" = "cost-report" ]; then
   _P="${CLAUDE_PROJECT_DIR:-$PWD}"
-  _LEDGER="$_P/.claude/claudehut/ledger/dispatches.jsonl"
+  _PL="$(ch_plane_dir "$_P")"
+  _LEDGER="$_PL/ledger/dispatches.jsonl"
   _PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
   _COUNT_ONLY=no
   for _a in "${args[@]:1}"; do [ "$_a" = "--count" ] && _COUNT_ONLY=yes; done
@@ -152,14 +155,14 @@ if [ "${#args[@]}" -ge 1 ] && [ "${args[0]}" = "cost-report" ]; then
   # still resolves, to its most recently created task (R2-2).
   # Parsed one FILE at a time: jq reads several files as one stream and stops at the first corrupt one, so a
   # single bad task.json would unresolve every session. Here it costs only itself (the file's own jq fails).
-  _bysess="$(for _tf in "$_P"/.claude/claudehut/tasks/*/task.json; do
+  _bysess="$(for _tf in "$_PL"/tasks/*/task.json; do
       [ -f "$_tf" ] && jq -c 'select(type=="object" and .schema==2 and (.session // "") != "" and (.id // "") != "")
                              | {session, id, created}' "$_tf" 2>/dev/null
     done | jq -sc 'sort_by(.created // "") | map({(.session): .id}) | add // {}' 2>/dev/null || true)"
   [ -n "$_bysess" ] || _bysess='{}'
   while IFS= read -r _sid; do
     [ -n "$_sid" ] || continue
-    _sf="$_P/.claude/claudehut/state/$_sid.json"
+    _sf="$_PL/state/$_sid.json"
     _t=""
     if [ -f "$_sf" ]; then
       _t="$(jq -r '.active_task // .task // empty' "$_sf" 2>/dev/null || true)"   # schema 2 pointer, v0.11 field
@@ -266,7 +269,8 @@ esac
 is_verb "$sub" || err "unknown verb: $sub"
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-PLANE="$PROJECT_DIR/.claude/claudehut"
+PLANE="$(ch_plane_dir "$PROJECT_DIR")"
+PLANE_REL="$(ch_plane_rel "$PROJECT_DIR")"
 STATE_DIR="$PLANE/state"
 TASKS_DIR="$PLANE/tasks"
 
@@ -433,8 +437,8 @@ flag() { # flag --name -> value or empty
     if [ "${shift_args[$i]}" = "$name" ]; then echo "${shift_args[$((i+1))]:-}"; return; fi
   done
 }
-# Artifact paths must live under .claude/claudehut/, resolved before the test so
-# `.claude/claudehut/../../src/main/java/Evil.md` cannot pass as a store path.
+# Artifact paths must live under the plane (.claudehut/ or legacy .claude/claudehut/), resolved before the test so
+# `.claudehut/../../src/main/java/Evil.md` cannot pass as a store path.
 canon_path_state() {
   local p="$1" out="" seg rest
   case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
@@ -450,7 +454,7 @@ canon_path_state() {
   done
   printf '%s' "${out:-/}"
 }
-canon() { case "$(canon_path_state "$1")" in */.claude/claudehut/*) : ;; *) err "artifact path must be under .claude/claudehut/ (got: $1) — do not use a bare specs/, .claudehut/, or .claude/prompt/ path" ;; esac; }
+canon() { case "$(canon_path_state "$1")" in "$(canon_path_state "$PLANE")"/*) : ;; *) err "artifact path must be under the plane $PLANE_REL/ (got: $1) — write it into $PLANE_REL/tasks/<id>/, not a bare specs/ or .claude/prompt/ path" ;; esac; }
 # Structure checks of the artifacts doclint does not cover (reuse-scan, findings). Only checkable when the file exists.
 tmpl() { # $1 path  $2 grep -E pattern  $3 error
   local p="$1"; case "$p" in /*) : ;; *) p="$PROJECT_DIR/$p" ;; esac
@@ -577,7 +581,7 @@ dirty_json() {
   { git -C "$1" -c core.quotePath=false status --porcelain=v1 -z --untracked-files=all 2>/dev/null || true; } \
   | while IFS= read -r -d '' rec; do
       case "${rec:0:2}" in R?|C?|?R|?C) IFS= read -r -d '' _ || true ;; esac
-      case "${rec:3}" in .claude/claudehut/*|'') continue ;; esac
+      case "${rec:3}" in .claude/claudehut/*|.claudehut/*|'') continue ;; esac
       printf '%s\0' "${rec:3}"
     done | jq -Rsc 'split("\u0000") | map(select(length>0))' 2>/dev/null || echo '[]'
 }
@@ -696,7 +700,7 @@ case "$sub" in
     CROSS="$cross" new_task "$id" "$route" "$profile"
     note "start -> $TASKS_DIR/$id/task.json ($route${profile:+, $profile}); write every artifact of this task into that dir"
     echo "$id"
-    echo ".claude/claudehut/tasks/$id/"
+    echo "$PLANE_REL/tasks/$id/"
     exit 0
     ;;
   resume)
@@ -749,7 +753,7 @@ case "$sub" in
     pl="$(flag --plan)"; if [ -n "$pl" ]; then canon "$pl"; pk="$(plan_kind "$pl")"; doclint_gate "$pk" "$pl"; tset --arg v "$pl" '.plan_path=$v'; fi
     ;;
   set-reuse-scan)
-    a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under .claude/claudehut/tasks/NNNN-slug/>"
+    a="$(flag --artifact)"; [ -n "$a" ] || err "set-reuse-scan needs --artifact <path under $PLANE_REL/tasks/NNNN-slug/>"
     canon "$a"
     tmpl "$a" '^\|.*[Ff]it.*[Ii]mpact' "reuse-scan rejected: missing the Fit/Impact columns in $a (legacy format?). Use skills/discover/references/reuse-scan-template.md — | Dimension | Existing asset | Decision | Fit | Impact | Effort | — and re-run set-reuse-scan."
     tmpl "$a" 'adopt|extend|reuse|framework|drop|[Nn]ew' "reuse-scan rejected: no reuse DECISION token in $a (adopt/extend/reuse/framework/drop/new). State the decision per the template and re-run."
@@ -821,7 +825,7 @@ case "$sub" in
     [ "$capped" = no ] || [ -n "$ud" ] || err "set-plan-review: capped — plan review has run $rnd rounds and the last verdict was REVISE (cap 2). Ask the user how to proceed (AskUserQuestion), then record their answer: claudehut-state set-plan-review APPROVE|REVISE --user-decision \"<the user's decision>\"."
     [ -z "$ud" ] || [ "$capped" = yes ] || { note "set-plan-review: --user-decision ignored — the review is not capped (round $rnd)"; ud=""; }
     # The reviewer's file is the evidence for BOTH verdicts; its one Verdict: line must match the argument (L11).
-    ev="$(flag --evidence)"; [ -n "$ev" ] || ev=".claude/claudehut/tasks/$ACTIVE/plan-review.md"
+    ev="$(flag --evidence)"; [ -n "$ev" ] || ev="$PLANE_REL/tasks/$ACTIVE/plan-review.md"
     canon "$ev"
     evp="$(abspath "$ev")"
     [ -f "$evp" ] || err "set-plan-review: evidence file not found at $ev — the plan-reviewer writes its verdict to plan-review.md before this is recorded."

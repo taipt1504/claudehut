@@ -19,6 +19,8 @@
 HC_IN=""; HC_EVENT=""; HC_CTX=""; HC_SYS=""; HC_FAILED=""; HC_BUDGET="${HC_BUDGET:-500}"
 HC_SID=""; HC_TASK=""; HC_TASK_ID=""; HC_REL=""; PLANE=""; HUB=""; HC_LANG="en"; HC_MODE="mono"; HC_SVC=""; HC_HEAD=""; HC_INDEXED=""
 HC_NAME="${0##*/}"
+# shellcheck source=plane-path.sh
+. "${BASH_SOURCE[0]%/*}/plane-path.sh"   # ADR K-18 resolver (functions only; nothing runs on source)
 
 hc_init() {
   PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -38,8 +40,10 @@ hc_log() { # one line, ≤300 B, only when a plane exists (no plane → create n
 }
 
 hc_plane_or_exit() {
-  PLANE="$PROJECT_DIR/.claude/claudehut"
-  [ -d "$PLANE" ] || { PLANE=""; exit 0; }
+  # K-18 (plane-path.sh, inlined: no fork on the hot path): .claudehut wins, legacy .claude/claudehut otherwise.
+  if [ -d "$PROJECT_DIR/$CH_PLANE_NEW" ]; then PLANE="$PROJECT_DIR/$CH_PLANE_NEW"
+  elif [ -d "$PROJECT_DIR/$CH_PLANE_LEGACY" ]; then PLANE="$PROJECT_DIR/$CH_PLANE_LEGACY"
+  else PLANE=""; exit 0; fi
   command -v jq >/dev/null 2>&1 || exit 0
   # Not inside a `{ …; } 2>/dev/null` group: bash restores the group's fds when it ends, undoing the exec.
   [ -d "$PLANE/state" ] || mkdir -p "$PLANE/state" 2>/dev/null   # a fork per hook run only on the first one
@@ -59,7 +63,7 @@ hc_plane_or_exit() {
   [ "$HC_MODE" = microservice ] || HC_MODE=mono
   [ -z "${CLAUDEHUT_HUB:-}" ] || HUB="$CLAUDEHUT_HUB"
   # Either spelling names the hub: the root or its inner <root>/.claude/claudehut/hub dir (as hub.py accepts).
-  HUB="${HUB%/}"; HUB="${HUB%/.claude/claudehut/hub}"
+  HUB="${HUB%/}"; HUB="${HUB%/$CH_PLANE_NEW/hub}"; HUB="${HUB%/$CH_PLANE_LEGACY/hub}"
   [ -n "$HUB" ] || HUB="$PLANE"
   # HC_LAZY_LANG=1 (a hook that rarely speaks): the hub.json fallback waits for an explicit hc_hub_lang call.
   [ -n "${HC_LAZY_LANG:-}" ] || hc_hub_lang
@@ -80,7 +84,7 @@ hc_hub_lang() { # HC_LANG: plane topology.json → hub.json (microservice) → e
     local hb="$HUB" hf hs re='"language"[[:space:]]*:[[:space:]]*"(vi|en)"'
     case "$hb" in /*) : ;; *) hb="$PROJECT_DIR/$hb" ;; esac
     # hub.json is a flat object ({schema, language}): a bash regex reads it without a jq fork (AC-11 hot path).
-    for hf in "$hb/.claude/claudehut/hub/hub.json" "$hb/hub.json"; do
+    for hf in "$hb/$CH_PLANE_NEW/hub/hub.json" "$hb/$CH_PLANE_LEGACY/hub/hub.json" "$hb/hub.json"; do
       [ -f "$hf" ] || continue
       hs=""; IFS= read -r -d '' hs < "$hf" 2>/dev/null || :
       [[ $hs =~ $re ]] && { HC_LANG="${BASH_REMATCH[1]}"; break; }

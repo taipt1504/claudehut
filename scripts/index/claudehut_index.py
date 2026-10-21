@@ -18,7 +18,7 @@ Data (the shared contract):
                                  meta.json so the hooks' head-only read of meta.json stays cheap
   <plane>/index/contracts.json   exposed/consumed contracts — the M6 hub-sync input
   <plane>/topology.json          {schema:1, mode, hub, language, shared, git_hooks, service?} (init writes it)
-Hub (M6, hub.py): `svc <other>`, `find --svc S`, `links` read <hub>/.claude/claudehut/hub (topology.hub,
+Hub (M6, hub.py): `svc <other>`, `find --svc S`, `links` read <hub>/.claudehut/hub (legacy <hub>/.claude/claudehut/hub; topology.hub,
 CLAUDEHUT_HUB or --hub); without a hub they answer "hub not configured". `update --hub-sync`, `hub-sync` and
 `hub-scan` write only inside the hub.
 """
@@ -38,6 +38,7 @@ sys.path.insert(0, HERE)
 import extract  # noqa: E402
 import hub  # noqa: E402
 from memory import resolve_language  # noqa: E402
+from planepath import plane_dir, repo_of  # noqa: E402
 
 TOOL_VERSION = "0.12.2-idx5"  # idx5: library surface + per-module lib deps; idx4: reactor-kafka receivers; idx3: client targets
 SCHEMA = 1
@@ -118,14 +119,14 @@ class Ctx:
     def __init__(self, plane_arg):
         if plane_arg:
             self.plane = os.path.abspath(plane_arg)
-            base = os.path.dirname(os.path.dirname(self.plane))
+            base = repo_of(self.plane)
         else:
             base = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
         top = git(base, "rev-parse", "--show-toplevel")
         self.is_git = top is not None
         self.repo = os.path.realpath(top.strip()) if top else os.path.realpath(base)
         if not plane_arg:
-            self.plane = os.path.join(self.repo, ".claude", "claudehut")
+            self.plane = plane_dir(self.repo)
         self.idx = os.path.join(self.plane, "index")
         self.topo = read_json(os.path.join(self.plane, "topology.json"), {}) or {}
         self.svc = self.topo.get("service") or os.path.basename(self.repo.rstrip("/")) or "repo"
@@ -823,7 +824,7 @@ def svc_other(ctx, opts, name):
     note = ""
     if n:
         spawned = False
-        plane = os.path.join(repo, ".claude", "claudehut")
+        plane = plane_dir(repo)
         if ent.get("has_plane") and os.environ.get("CLAUDEHUT_INDEX_NO_SPAWN") != "1" and os.path.isdir(plane):
             try:
                 subprocess.Popen([sys.executable, "-B", os.path.abspath(__file__), "update", "--hub-sync", "--hub", h,
@@ -917,8 +918,9 @@ def hook_block(hook, cmd):
         "# claudehut-index install-git-hooks: refresh the ClaudeHut index in the background (never blocks, never exits).",
         "# Remove with: claudehut-index uninstall-git-hooks. Skipped in linked worktrees.",
         'if %s[ "$(git rev-parse --git-dir 2>/dev/null)" = "$(git rev-parse --git-common-dir 2>/dev/null)" ] \\' % guard,
-        '  && [ -x %s ] && [ -d "$(git rev-parse --show-toplevel 2>/dev/null)/.claude/claudehut" ]; then' % q,
-        '  %s update --detach --plane "$(git rev-parse --show-toplevel)/.claude/claudehut" </dev/null >/dev/null 2>&1 || :' % q,
+        '  && [ -x %s ] && _ch_t="$(git rev-parse --show-toplevel 2>/dev/null)" \\' % q,
+        '  && { _ch_p="$_ch_t/.claudehut"; [ -d "$_ch_p" ] || _ch_p="$_ch_t/.claude/claudehut"; [ -d "$_ch_p" ]; }; then',
+        '  %s update --detach --plane "$_ch_p" </dev/null >/dev/null 2>&1 || :' % q,
         "fi",
         MARK_END,
     ]) + "\n"
@@ -1119,7 +1121,7 @@ def main(argv):
         opts["repos"] = repos
         opts.pop("repo", None)
     if opts.get("repo") and not opts.get("plane"):
-        opts["plane"] = os.path.join(opts["repo"], ".claude", "claudehut")
+        opts["plane"] = plane_dir(opts["repo"])
     ctx = Ctx(opts.get("plane"))
     return fn(ctx, opts)
 

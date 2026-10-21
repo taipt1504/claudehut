@@ -2,7 +2,7 @@
 # PostToolUse hook (matcher: Write|Edit) — ADVISORY doclint for the writer of a task artifact (06 §4, ADR-D1).
 #
 # The one run point that reaches a writer without Bash (the planner): after a Write/Edit of
-#   .claude/claudehut/tasks/<id>/{spec,plan,brainstorm,plan-review,task,context}.md
+#   <plane>/tasks/<id>/{spec,plan,brainstorm,plan-review,task,context}.md  (plane: .claudehut/ or legacy .claude/claudehut/)
 # it runs `doclint.sh --advise` and passes its single summary line back as additionalContext. Every other path,
 # no plane, no engine, an engine failure or an engine over DOCLINT_ADVISE_TIMEOUT (3 s) is exit 0 with empty
 # stdout. Never blocks, never writes state (K8); the gate that refuses is `claudehut-state set-*`, inside an
@@ -16,8 +16,9 @@ hc_plane_or_exit
 
 fp="$(jq -r '.tool_input.file_path // empty' <<<"$HC_IN")"
 hc_rel "$fp" || exit 0
-case "$HC_REL" in .claude/claudehut/tasks/*/*.md) ;; *) exit 0 ;; esac
-rest="${HC_REL#.claude/claudehut/tasks/}"; id="${rest%%/*}"; name="${rest#*/}"
+case "$HC_REL" in "$CH_PLANE_NEW"/tasks/*/*.md) rest="${HC_REL#"$CH_PLANE_NEW"/tasks/}" ;;
+  "$CH_PLANE_LEGACY"/tasks/*/*.md) rest="${HC_REL#"$CH_PLANE_LEGACY"/tasks/}" ;; *) exit 0 ;; esac
+id="${rest%%/*}"; name="${rest#*/}"
 case "$name" in spec.md|plan.md|brainstorm.md|plan-review.md|task.md|context.md) ;; *) exit 0 ;; esac
 hc_safe_id "$id" || exit 0
 [ -f "$_d/doclint.sh" ] || exit 0

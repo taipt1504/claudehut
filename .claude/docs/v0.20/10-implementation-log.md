@@ -97,3 +97,17 @@ Kết luận:
 - **Decision**: chưa arm nào giúp được. zns 0.00 và bank-export 0.50 ở mọi arm. Đây là mục tiêu của deliberation pack (M4); suite hiện đã đủ nhạy để đo nó.
 - **Lỗi của suite**: `review-pass-fixes-bad-citation` đạt 1.00 ngay cả khi không có plugin, nên grader đang chấm "báo cáo trung thực" chứ chưa chấm "gate bắt được citation sai". Cần một grader chỉ pass khi có plugin, trước khi dùng case này làm bằng chứng.
 - Hai guard (`single-client`, `fix-rounding`) giữ 1.00 ở mọi arm, đúng vai trò: một pack sau này làm tụt guard là regression.
+
+## M1a — K-18: plane ra khỏi `.claude/` → 0.12.8 (2026-10-21)
+
+| Thiết kế | Đã build | Lệch / ghi chú |
+|---|---|---|
+| Plane ghi được nằm ở `<repo>/.claudehut/` | Resolver duy nhất (bash `scripts/lib/plane-path.sh`, Python `claudehut_kernel/plane.py`); mọi hook, `claudehut-state`, doclint, index/hub/memory đi qua nó | Chỉ đổi cách tìm path; gate, hook và schema giữ nguyên hành vi |
+| Legacy vẫn chạy | `.claudehut/` thắng; chỉ có `.claude/claudehut/` thì dùng legacy; không có gì thì dùng mới | Có cả hai: dùng mới, không merge. Migrate từ chối repo có cả hai |
+| `claudehut-init` | Repo mới → `.claudehut/` + `.gitignore` `*` (plane mặc định local), import `@.claudehut/…` | `.gitignore` của project vẫn không bao giờ bị sửa |
+| `claudehut-migrate` | Thêm script riêng `bin/claudehut-migrate-plane` (dry-run/apply), không gộp vào `claudehut-migrate` | `claudehut-migrate` cũ là migration workspace v0.11→v0.12, cần `--workspace/--hub`; move layout là việc theo từng repo nên tách ra cho đơn giản. Chưa chạy trên scope nào (phase B) |
+| Skill/agent | Skill dùng `<plane>/…`; SessionStart in `Plane: .claudehut/` cạnh dòng State CLI. Agent ghi rõ cả hai layout, vì subagent không thấy context SessionStart | — |
+
+Test: thêm `regress/plane-layout-tests.sh` (18). Fixture init/hub tạo plane mới thì giờ kỳ vọng `.claudehut/`. Các suite dựng fixture legacy giữ nguyên và vẫn xanh, đó chính là test cho legacy.
+
+Còn lại của M1: chuyển state sang Python với event log làm nguồn sự thật, và sửa lỗ hổng `start`/`supersede_active` bỏ qua end gate. Chưa có eval case process chạy trên layout mới (tốn quota; để chung với lần chạy eval M1 tiếp theo).

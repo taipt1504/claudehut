@@ -7,7 +7,7 @@
 # can't), never errors the tool, exits 0 always. Enforcement is routed to Review (which loops until clean),
 # matching the gate's fail-open philosophy — a heuristic false-positive must not wedge the user.
 #
-# Staging file: .claude/claudehut/state/<task-id>.suspects.jsonl  (per task, 05 §4 #7; under state/ = gitignored),
+# Staging file: <plane>/state/<task-id>.suspects.jsonl  (per task, 05 §4 #7; under state/ = gitignored),
 # read by claudehut:review and pasted into the reviewer prompt as "Known reuse suspects".
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
 . "$_d/lib/hook-common.sh" 2>/dev/null || exit 0
@@ -23,7 +23,7 @@ fp="$(jq -r '.tool_input.file_path // empty' <<<"$in" 2>/dev/null || true)"
 
 # Production Java only: skip tests, non-java, and plugin/state artifacts.
 case "$fp" in
-  *Test.java|*IT.java|*/test/*|*/.claude/*) exit 0 ;;
+  *Test.java|*IT.java|*/test/*|*/.claude/*|*/.claudehut/*) exit 0 ;;
   *.java) : ;;
   *) exit 0 ;;
 esac
@@ -32,7 +32,7 @@ esac
 hc_active_task || exit 0
 { hc_rel "$fp" && hc_in_scope "$HC_REL"; } || exit 0
 
-DIR="$PROJECT_DIR/.claude/claudehut/state"; F="$DIR/$HC_TASK_ID.suspects.jsonl"   # per task, not per session
+DIR="$PLANE/state"; F="$DIR/$HC_TASK_ID.suspects.jsonl"   # per task, not per session
 mkdir -p "$DIR" 2>/dev/null || exit 0
 rel="${fp#"$PROJECT_DIR"/}"
 ts="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"

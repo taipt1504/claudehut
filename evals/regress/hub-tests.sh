@@ -358,7 +358,7 @@ fi
 
 # ---------------------------------------------------------------- 8. init-driven ---------------------------------
 echo "== 8. init-driven: build name ≠ repo dir, inner hub spelling, yml-only consumer =="
-WS="$W/ws2"; K="$WS/knowledge"; KH="$K/.claude/claudehut/hub"; INIT="$ROOT/bin/claudehut-init"
+WS="$W/ws2"; K="$WS/knowledge"; KH="$K/.claudehut/hub"; INIT="$ROOT/bin/claudehut-init"
 mk() { # $1 dir, $2 rootProject.name — a gradle repo with group io.x (both declare it: no lib owner)
   mkdir -p "$WS/$1/src/main/resources" "$WS/$1/src/main/java/com/acme/k"
   printf "rootProject.name = '%s'\n" "$2" > "$WS/$1/settings.gradle"
@@ -382,7 +382,7 @@ done
 ( cd "$WS/wal-ms" && CLAUDEHUT_HUB="$KH/" CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" --mode microservice --git-hooks no >"$W/init-wal.log" 2>&1 )
 chk "init with the inner hub dir (--hub and CLAUDEHUT_HUB) creates no nested hub" '[ -d "$KH" ] && [ ! -e "$KH/.claude" ]'
 chk "both topologies record hub=../knowledge, no language (inherit hub.json vi)" \
-  '[ "$(jq -c "[.hub, has(\"language\"), .service]" "$WS/pay-ms/.claude/claudehut/topology.json")" = "[\"../knowledge\",false,\"pay-service\"]" ] && [ "$(jq -c "[.hub, has(\"language\")]" "$WS/wal-ms/.claude/claudehut/topology.json")" = "[\"../knowledge\",false]" ] && [ "$(jq -r .language "$KH/hub.json")" = vi ]'
+  '[ "$(jq -c "[.hub, has(\"language\"), .service]" "$WS/pay-ms/.claudehut/topology.json")" = "[\"../knowledge\",false,\"pay-service\"]" ] && [ "$(jq -c "[.hub, has(\"language\")]" "$WS/wal-ms/.claudehut/topology.json")" = "[\"../knowledge\",false]" ] && [ "$(jq -r .language "$KH/hub.json")" = vi ]'
 chk "services.json keys by build name, path by repo dir" \
   '[ "$(jq -c "[.\"pay-service\".path, .\"wal-service\".path]" "$KH/services.json")" = "[\"../pay-ms\",\"../wal-ms\"]" ]'
 SL="$KH/service-links.json"
@@ -408,7 +408,7 @@ hint() { printf '%s' "$2" | CLAUDE_PROJECT_DIR="$WS/wal-ms" CLAUDE_PLUGIN_ROOT="
 H1="$(hint "$KH" '{"session_id":"hx1","tool_name":"Read","tool_input":{"file_path":"'"$WS"'/pay-ms/build.gradle"}}')"
 chk "hint-explore with CLAUDEHUT_HUB=<inner dir>: sibling Read → one vi line (hub language inherited)" \
   '[ "$(printf "%s\n" "$H1" | grep -c .)" = 1 ] && [[ "$H1" == *"pay-service là service khác"* ]]'
-jq '.hub = "../knowledge/.claude/claudehut/hub"' "$WS/wal-ms/.claude/claudehut/topology.json" > "$W/t.json" && cp "$W/t.json" "$WS/wal-ms/.claude/claudehut/topology.json"
+jq '.hub = "../knowledge/.claude/claudehut/hub"' "$WS/wal-ms/.claudehut/topology.json" > "$W/t.json" && cp "$W/t.json" "$WS/wal-ms/.claudehut/topology.json"   # legacy inner spelling still names the hub
 H2="$(hint "" '{"session_id":"hx2","tool_name":"Grep","tool_input":{"pattern":"pay-service.*Done"}}')"
 H3="$(hint "" '{"session_id":"hx3","tool_name":"Grep","tool_input":{"pattern":"nothing.here"}}')"
 H4="$(hint "" '{"session_id":"hx4","tool_name":"Grep","tool_input":{"pattern":"DoneProducer","path":"../pay-ms"}}')"
@@ -422,7 +422,7 @@ chk "hint-explore: a pattern naming only this repo (its dir wal-ms or its key wa
 
 # ---------------------------------------------------------------- 9. scan then init ------------------------------
 echo "== 9. one repo, two names: hub-scanned by dir (ekyc-int-ms), then init'd by build name (kyc-ms) =="
-WS="$W/ws3"; KH="$WS/knowledge/.claude/claudehut/hub"
+WS="$W/ws3"; KH="$WS/knowledge/.claudehut/hub"
 mk() { # $1 dir, $2 rootProject.name
   mkdir -p "$WS/$1/src/main/resources" "$WS/$1/src/main/java/com/acme/k"
   printf "rootProject.name = '%s'\n" "$2" > "$WS/$1/settings.gradle"
@@ -466,7 +466,7 @@ chk "topic_owner naming the repo dir → kyc-ms → acc-ms kafka high" \
 
 # ---------------------------------------------------------------- 10. shared library ---------------------------
 echo "== 10. shared library: per-module lib edges, versions, skew, library surface =="
-WS="$W/ws4"; mkdir -p "$WS/kh"; git -C "$WS/kh" init -q -b main; KH="$WS/kh/.claude/claudehut/hub"
+WS="$W/ws4"; mkdir -p "$WS/kh"; git -C "$WS/kh" init -q -b main; KH="$WS/kh/.claudehut/hub"   # a fresh hub: K-18 layout
 for r in kit-lib cons-x-ms cons-y-ms; do
   cp -R "$FX/$r" "$WS/$r"; git -C "$WS/$r" init -q -b main; git -C "$WS/$r" config commit.gpgsign false
   git -C "$WS/$r" add -A; git -C "$WS/$r" commit -qm base --no-verify

@@ -28,7 +28,8 @@ n=0
 emit() { printf '%s\n' "$1" >> "$OUT" 2>/dev/null && n=$((n+1)); }
 
 # 1) recurring failures → pitfalls (signature seen >=2x). Tolerant of the failure record's shape.
-FAIL="$PROJECT_DIR/.claude/claudehut/state/$SID.failures.jsonl"
+. "${BASH_SOURCE[0]%/*}/lib/plane-path.sh"
+FAIL="$(ch_plane_dir "$PROJECT_DIR")/state/$SID.failures.jsonl"
 if [ -n "$SID" ] && [ -f "$FAIL" ]; then
   while IFS= read -r sig; do
     [ -n "$sig" ] || continue

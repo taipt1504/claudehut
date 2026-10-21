@@ -15,7 +15,9 @@ TOP=5
 while [ $# -gt 0 ]; do case "$1" in --top) TOP="${2:-5}"; shift 2 ;; *) shift ;; esac; done
 
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
-FILE="$PROJECT_DIR/.claude/claudehut/learnings.jsonl"
+. "${BASH_SOURCE[0]%/*}/lib/plane-path.sh"   # K-18 resolver
+PLANE_D="$(ch_plane_dir "$PROJECT_DIR")"
+FILE="$PLANE_D/learnings.jsonl"
 
 echo "  claudehut learning report                              measured from learnings.jsonl"
 echo
@@ -63,7 +65,7 @@ jq -R 'fromjson? // empty' "$FILE" 2>/dev/null | jq -s -r --argjson top "$TOP" '
 # it printed before, and a clean run must not add a line that becomes wallpaper. The number still comes
 # from a deterministic artifact, so the honesty boundary above holds: nothing here is computed by
 # judgment.
-RC_DIR="$PROJECT_DIR/.claude/claudehut/state"
+RC_DIR="$PLANE_D/state"
 if [ -d "$RC_DIR" ]; then
   RC_LATEST="$(ls -t "$RC_DIR"/*.learn-receipt.json 2>/dev/null | head -1 || true)"
   if [ -n "${RC_LATEST:-}" ] && [ -f "$RC_LATEST" ]; then

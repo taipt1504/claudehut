@@ -213,8 +213,8 @@ def check_findings(task, review_md=None):
 
 def _worktree_tree(path):
     """Tree sha of the working tree as `git add -A` would stage it, built in a throwaway index so the user's index is
-    untouched. `.claude/` is excluded: the plane, rules promoted by the Learn phase and settings change after review
-    without changing the reviewed code. The same content gives the same tree whether it is untracked, staged or
+    untouched. `.claude/` and `.claudehut/` are excluded: the plane (either layout, K-18), rules promoted by the Learn
+    phase and settings change after review without changing the reviewed code. The same content gives the same tree whether it is untracked, staged or
     committed — so only a real edit changes it."""
     import shutil
     import tempfile
@@ -230,7 +230,8 @@ def _worktree_tree(path):
         env = dict(os.environ, GIT_INDEX_FILE=idx, GIT_PAGER="cat", GIT_TERMINAL_PROMPT="0", LC_ALL="C")
         base_cmd = ["git", "-C", path, "-c", "core.hooksPath=/dev/null"]
         try:
-            add = subprocess.run(base_cmd + ["add", "-A", "--", ".", ":(exclude).claude"], capture_output=True, env=env,
+            add = subprocess.run(base_cmd + ["add", "-A", "--", ".", ":(exclude).claude", ":(exclude).claudehut"],
+                                 capture_output=True, env=env,
                                  timeout=120)
             if add.returncode != 0:
                 return None

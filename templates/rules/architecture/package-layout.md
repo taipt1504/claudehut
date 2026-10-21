@@ -13,8 +13,8 @@ tags: [architecture, layout]
 
 # Package Layout Rule
 
-Choose one layout and don't mix them. Record the choice in `.claude/claudehut/architecture.md`; for ddd,
-hexagonal or cqrs also set `Architecture style:` in `.claude/claudehut/PROJECT.md`, which activates the matching rule.
+Choose one layout and don't mix them. Record the choice in the plane's `architecture.md` (`.claudehut/`, legacy `.claude/claudehut/`); for ddd,
+hexagonal or cqrs also set `Architecture style:` in its `PROJECT.md`, which activates the matching rule.
 
 ## Option A — Feature-slice (recommended for most projects)
 

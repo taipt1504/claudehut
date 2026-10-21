@@ -157,13 +157,14 @@ ctx_bytes() { local o; o="$(cat)"; [ -n "$o" ] || { echo 0; return; }
 
 # $1 = fixture project dir, $2 = optional source service dir. Prepares the plane so bootstrap takes no
 # init/refresh branch; copies (never links) the source's learnings + KB meta.
+. "$ROOT/scripts/lib/plane-path.sh"   # K-18 resolver: a real source service may still be on the legacy layout
 payload_fixture() {
   local p="$1" src="${2:-}" v
-  mkdir -p "$p/.claude/claudehut/state"
+  mkdir -p "$p/.claudehut/state"
   v="$(jq -r '.version // empty' "$ROOT/.claude-plugin/plugin.json" 2>/dev/null)"
-  printf '%s' "$v" > "$p/.claude/claudehut/.plugin-version"
+  printf '%s' "$v" > "$p/.claudehut/.plugin-version"
   if [ -n "$src" ]; then
-    [ -f "$src/.claude/claudehut/learnings.jsonl" ] && cp "$src/.claude/claudehut/learnings.jsonl" "$p/.claude/claudehut/"
+    [ -f "$(ch_plane_dir "$src")/learnings.jsonl" ] && cp "$(ch_plane_dir "$src")/learnings.jsonl" "$p/.claudehut/"
     [ -f "$src/.claude/summer-kb/.summer-kb-meta.json" ] && { mkdir -p "$p/.claude/summer-kb"; cp "$src/.claude/summer-kb/.summer-kb-meta.json" "$p/.claude/summer-kb/"; }
   fi
 }
@@ -179,7 +180,7 @@ payload_worst_fixture() {
         trigger:"api|dynamic|filter|va|view|display|name",
         learning:"dynamic va view filters go through the view repository specification; add the column to the index and the api contract test",
         evidence:"tasks/0001-x/review.md", confidence:0.85, hits:3, recurrence:0}'
-  done > "$p/.claude/claudehut/learnings.jsonl"
+  done > "$p/.claudehut/learnings.jsonl"
   mkdir -p "$p/.claude/summer-kb" "$p/.understand-anything"
   jq -n '{source:"sibling", summerCommit:"5975f1c70737e86584e9566579c6c1dd5d234347",
           includedModules:["core","rest","data","security","kafka","payment-sdk","platform"]}' > "$p/.claude/summer-kb/.summer-kb-meta.json"
@@ -190,15 +191,15 @@ payload_worst_fixture() {
   # The index-head claim is pre-made so inject-phase states nothing new and spawns no background update
   # into a fixture that is deleted right after.
   jq -n '{schema:1, mode:"mono", service:"fixture", hub:null, language:"vi", shared:false, git_hooks:false}' \
-    > "$p/.claude/claudehut/topology.json"
+    > "$p/.claudehut/topology.json"
   local g=(git -C "$p" -c user.name=fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false)
   "${g[@]}" init -q 2>/dev/null && "${g[@]}" commit -q --allow-empty -m one 2>/dev/null || return 0
   local c1; c1="$("${g[@]}" rev-parse HEAD 2>/dev/null)"
   "${g[@]}" commit -q --allow-empty -m two 2>/dev/null
-  mkdir -p "$p/.claude/claudehut/index"
+  mkdir -p "$p/.claudehut/index"
   jq -n --arg c "$c1" '{schema:1, indexed_commit:$c, indexed_at:"2026-10-01T00:00:00Z", tool_version:"fixture",
-    counts:{total:1234, controller:40, service:120}}' > "$p/.claude/claudehut/index/meta.json"
-  : > "$p/.claude/claudehut/state/index-head.$("${g[@]}" rev-parse HEAD 2>/dev/null)"
+    counts:{total:1234, controller:40, service:120}}' > "$p/.claudehut/index/meta.json"
+  : > "$p/.claudehut/state/index-head.$("${g[@]}" rev-parse HEAD 2>/dev/null)"
 }
 
 # $1 = fixture project dir, $2 = stub bin dir, $3 = script, stdin = hook payload. Prints the hook's stdout.
@@ -231,7 +232,7 @@ payload_measure() {
   um="$(jq -nc --arg s "$PAYLOAD_SID" '{session_id:$s,prompt:"<task-notification><status>completed</status></task-notification>",hook_event_name:"UserPromptSubmit"}' \
         | payload_run "$p" "$b" inject-phase.sh | ctx_bytes)"                  # machine-generated turn (F-6)
   jq -nc --arg l "$label" --argjson ss "$ss" --argjson u1 "$u1" --argjson u2 "$u2" --argjson um "$um" \
-    --argjson learn "$([ -f "$p/.claude/claudehut/learnings.jsonl" ] && grep -c '' "$p/.claude/claudehut/learnings.jsonl" || echo 0)" \
+    --argjson learn "$([ -f "$p/.claudehut/learnings.jsonl" ] && grep -c '' "$p/.claudehut/learnings.jsonl" || echo 0)" \
     --argjson kb "$([ -f "$p/.claude/summer-kb/.summer-kb-meta.json" ] && echo true || echo false)" \
     --argjson lines "$lines" \
     '{fixture:$l, learnings_entries:$learn, summer_kb:$kb, session_start_bytes:$ss, session_start_lines:$lines,
@@ -249,7 +250,7 @@ run_payload() { # [$1 = --json]
   # the State CLI line must not grow past their caps with the install path.
   local lr="$t/plugin-cache-$(printf 'x%.0s' $(seq 1 60))/claudehut/0.12.0"; mkdir -p "${lr%/*}"; ln -s "$ROOT" "$lr"
   payload_worst_fixture "$t/worst"; rows="$rows"$'\n'"$(PAYLOAD_PLUGIN_ROOT="$lr" payload_measure "$t/worst" "$t/bin" worst)"
-  if [ -d "$PAYLOAD_SOURCE/.claude/claudehut" ]; then
+  if [ -d "$PAYLOAD_SOURCE/.claudehut" ] || [ -d "$PAYLOAD_SOURCE/.claude/claudehut" ]; then
     payload_fixture "$t/realistic" "$PAYLOAD_SOURCE"
     rows="$rows"$'\n'"$(payload_measure "$t/realistic" "$t/bin" "realistic:$(basename "$PAYLOAD_SOURCE")")"
   fi

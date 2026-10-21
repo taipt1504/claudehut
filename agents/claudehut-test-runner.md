@@ -25,7 +25,7 @@ flowchart TB
 ## Command
 
 1. If your prompt gives a review pack, use its `## Test command` section.
-2. Otherwise use the build/verify command in `.claude/claudehut/PROJECT.md` (Maven/Gradle), with the selectors
+2. Otherwise use the build/verify command in `.claudehut/PROJECT.md` (legacy `.claude/claudehut/PROJECT.md`) (Maven/Gradle), with the selectors
    the prompt names — the targeted module/test first, the full suite when the change is cross-cutting.
 3. Give a long run an explicit Bash `timeout` (up to 600000 ms). Do not background it: a backgrounded run ends
    when you return.

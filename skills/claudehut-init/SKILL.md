@@ -1,6 +1,6 @@
 ---
 name: claudehut-init
-description: Use when a Java/Spring repository has no ClaudeHut project memory yet (no .claude/claudehut/PROJECT.md), or the user asks to initialize or refresh ClaudeHut - detects the stack and generates the project memory, index and path-scoped rules. Idempotent; run as /claudehut:claudehut-init.
+description: Use when a Java/Spring repository has no ClaudeHut project memory yet (no .claudehut/PROJECT.md, nor a legacy .claude/claudehut/PROJECT.md), or the user asks to initialize or refresh ClaudeHut - detects the stack and generates the project memory, index and path-scoped rules. Idempotent; run as /claudehut:claudehut-init.
 allowed-tools: Read Write Grep Glob Bash
 ---
 
@@ -47,9 +47,9 @@ hub language, else `en`; a re-run keeps what was recorded):
 | Git hooks refresh the index after pull/rebase/checkout? | No (the next prompt catches up); Yes | `--git-hooks yes\|no` |
 
 Microservice writes `hub.json` (`{schema:1, language}`, once), `aliases.json` and this service's
-`services.json` entry under `<hub>/.claude/claudehut/hub/`, then runs the index update with `--hub-sync`. After
+`services.json` entry under `<hub>/.claudehut/hub/`, then runs the index update with `--hub-sync`. After
 it, when `siblings_without_plane` is non-empty, ask: hub-scan them read-only now (`claudehut-index hub-scan`)?
-The service graph opens with `/understand-anything:understand-dashboard <hub>/.claude/claudehut/hub`; no
+The service graph opens with `/understand-anything:understand-dashboard <hub>/.claudehut/hub`; no
 repo's own `.understand-anything/` is written.
 
 Git hooks are opt-in. With `core.hooksPath`, husky or lefthook the CLI writes nothing and prints the block to
@@ -59,12 +59,12 @@ add by hand; show that block to the user.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/claudehut-init" "${CLAUDE_PROJECT_DIR}" --language vi --mode mono --git-hooks no \
-  && ls "${CLAUDE_PROJECT_DIR}/.claude/claudehut/"   # microservice: --mode microservice --hub "<dir>"
+  && ls "${CLAUDE_PROJECT_DIR}/.claudehut/"   # microservice: --mode microservice --hub "<dir>"
 ```
 
 No hook creates a plane (ClaudeHut stays silent without one): this skill, or `--refresh`, is the way in.
 
-It writes, under `${CLAUDE_PROJECT_DIR}/.claude/claudehut/`: `MEMORY.md` (generated block ≤2 KB, from
+It writes, under `${CLAUDE_PROJECT_DIR}/.claudehut/`: `MEMORY.md` (generated block ≤2 KB, from
 `claudehut-index memory`), `PROJECT.md`, `LANGUAGE.md`, `architecture.md`, `topology.json`, `learnings.jsonl`,
 `state/`; the **stack-gated** rules under `.claude/rules/`; the always-load `@import` slice in `CLAUDE.md`; in a
 git repo, the codebase index (`claudehut-index update`) and its status. Idempotent (`--refresh` regenerates);

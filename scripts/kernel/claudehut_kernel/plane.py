@@ -11,8 +11,36 @@ def read_json(path, default=None):
         return default
 
 
+PLANE_NEW = ".claudehut"
+PLANE_LEGACY = os.path.join(".claude", "claudehut")
+
+
 def plane_dir(project_dir):
-    return os.path.join(project_dir, ".claude", "claudehut")
+    """ADR K-18: <repo>/.claudehut (new) wins, else <repo>/.claude/claudehut (legacy), else the new location.
+    Same rule as scripts/lib/plane-path.sh — keep them identical."""
+    for rel in (PLANE_NEW, PLANE_LEGACY):
+        d = os.path.join(project_dir, rel)
+        if os.path.isdir(d):
+            return d
+    return os.path.join(project_dir, PLANE_NEW)
+
+
+def hub_dir(root):
+    """The hub data dir of a hub root (or of the hub dir itself), new layout first; None when there is none."""
+    root = root.rstrip("/")
+    for rel in (PLANE_NEW, PLANE_LEGACY):
+        if root.endswith("/" + rel + "/hub"):
+            root = root[: -len("/" + rel + "/hub")]
+    for rel in (PLANE_NEW, PLANE_LEGACY):
+        d = os.path.join(root, rel, "hub")
+        if os.path.isdir(d):
+            return d
+    return root if os.path.isfile(os.path.join(root, "hub.json")) else None
+
+
+def is_plane_path(rel):
+    rel = rel.replace(os.sep, "/")
+    return any(rel.startswith(x + "/") or ("/" + x + "/") in rel for x in (PLANE_NEW, ".claude/claudehut"))
 
 
 def topology(project_dir):

@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# claudehut-migrate-plane — move a repo's plane from the legacy .claude/claudehut/ to .claudehut/ (ADR K-18).
+# Claude Code treats .claude/ as a protected path: file-tool writes there prompt, go to the auto-mode classifier, or
+# are DENIED in dontAsk (headless runner, routines, eval). .claudehut/ is an ordinary directory.
+#
+# Usage: claudehut-migrate-plane (--dry-run | --apply) [REPO ...]      (default REPO: ${CLAUDE_PROJECT_DIR:-$PWD})
+#   --dry-run  prints, per repo, what --apply would do. Writes nothing.
+#   --apply    per repo:
+#                1. mv .claude/claudehut .claudehut (a hub root's hub/ moves with it: <hub>/.claudehut/hub)
+#                2. CLAUDE.md: the @.claude/claudehut/ imports become @.claudehut/ (nothing else is touched)
+#                3. a plane that was NOT tracked by git and is now not ignored gets .claudehut/.gitignore = '*'
+#                   (it was local before; it stays local). A tracked plane is reported: commit the rename yourself
+#                4. the index git hooks (if installed) are re-installed, so they find the new path
+#              Never commits, pushes, or edits the project .gitignore. Safe to re-run (a moved repo is skipped).
+# A repo with BOTH layouts is refused: the resolver already uses .claudehut/, merging is a human decision.
+# Exit: 0 all done or nothing to do, 1 at least one repo refused or failed, 2 usage.
+set -uo pipefail
+export GIT_OPTIONAL_LOCKS=0
+
+PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+. "$PLUGIN_ROOT/scripts/lib/plane-path.sh"
+IDX="$PLUGIN_ROOT/bin/claudehut-index"
+
+ACTION=""; REPOS=()
+for a in "$@"; do
+  case "$a" in
+    --dry-run) ACTION=dry ;;
+    --apply) ACTION=apply ;;
+    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) echo "claudehut-migrate-plane: unknown flag $a" >&2; exit 2 ;;
+    *) REPOS+=("$a") ;;
+  esac
+done
+[ -n "$ACTION" ] || { echo "claudehut-migrate-plane: pass --dry-run or --apply" >&2; exit 2; }
+[ "${#REPOS[@]}" -gt 0 ] || REPOS=("${CLAUDE_PROJECT_DIR:-$PWD}")
+
+rc=0
+for r in "${REPOS[@]}"; do
+  r="${r%/}"; old="$r/$CH_PLANE_LEGACY"; new="$r/$CH_PLANE_NEW"
+  echo "== $r"
+  if [ ! -d "$old" ]; then
+    if [ -d "$new" ]; then echo "  already on $CH_PLANE_NEW/ — skipped"; else echo "  no plane — skipped"; fi
+    continue
+  fi
+  if [ -e "$new" ]; then
+    echo "  REFUSED: both $CH_PLANE_LEGACY/ and $CH_PLANE_NEW/ exist; the resolver uses $CH_PLANE_NEW/. Merge or remove one by hand."
+    rc=1; continue
+  fi
+  tracked=false
+  if git -C "$r" rev-parse --git-dir >/dev/null 2>&1 && [ -n "$(git -C "$r" ls-files -- "$CH_PLANE_LEGACY" 2>/dev/null | head -1)" ]; then
+    tracked=true
+  fi
+  imports=false
+  grep -q "@$CH_PLANE_LEGACY/" "$r/CLAUDE.md" 2>/dev/null && imports=true
+  hooks=false
+  hd="$(git -C "$r" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" || hd=""
+  for h in post-commit post-merge post-checkout; do
+    [ -n "$hd" ] && grep -q '>>> claudehut-index >>>' "$hd/$h" 2>/dev/null && hooks=true
+  done
+  if [ "$ACTION" = dry ]; then
+    echo "  would move: $CH_PLANE_LEGACY/ -> $CH_PLANE_NEW/ ($(find "$old" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
+    $imports && echo "  would rewrite: CLAUDE.md @$CH_PLANE_LEGACY/ imports -> @$CH_PLANE_NEW/"
+    if $tracked; then echo "  note: the plane is tracked by git — commit the rename yourself"
+    else echo "  would write: $CH_PLANE_NEW/.gitignore '*' if the new path is not ignored (the plane stays local)"; fi
+    $hooks && echo "  would re-install: index git hooks"
+    continue
+  fi
+  mv "$old" "$new" || { echo "  FAILED: mv $old $new"; rc=1; continue; }
+  rmdir "$r/.claude" 2>/dev/null || :   # only when nothing else lives in .claude/
+  echo "  moved: $CH_PLANE_LEGACY/ -> $CH_PLANE_NEW/"
+  if $imports; then
+    tmp="$r/CLAUDE.md.tmp.$$"
+    sed "s#@$CH_PLANE_LEGACY/#@$CH_PLANE_NEW/#g" "$r/CLAUDE.md" > "$tmp" && mv -f "$tmp" "$r/CLAUDE.md" \
+      && echo "  rewrote: CLAUDE.md imports" || { rm -f "$tmp"; echo "  FAILED: CLAUDE.md imports"; rc=1; }
+  fi
+  if $tracked; then
+    echo "  note: the plane was tracked by git — review and commit the rename yourself"
+  elif ! git -C "$r" check-ignore -q "$CH_PLANE_NEW/MEMORY.md" 2>/dev/null && [ ! -e "$new/.gitignore" ]; then
+    printf '*\n' > "$new/.gitignore" && echo "  wrote: $CH_PLANE_NEW/.gitignore '*' (the plane stays local)"
+  fi
+  if $hooks && [ -x "$IDX" ]; then
+    "$IDX" install-git-hooks --plane "$new" >/dev/null 2>&1 && echo "  re-installed: index git hooks" \
+      || echo "  WARN: re-install the index git hooks: claudehut-index install-git-hooks"
+  fi
+done
+exit "$rc"

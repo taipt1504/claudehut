@@ -35,7 +35,7 @@ ctx="$(cat "$DIGEST" 2>/dev/null || cat "$PLUGIN_ROOT/skills/claudehut-workflow/
 # The same root locates skills/<name>/SKILL.md, the digest's Read fallback when a Skill call returns no body
 # (#80802). The root is printed once: repeating the full path cost ~60-80 B of context for nothing.
 if [ -x "$PLUGIN_ROOT/bin/claudehut-state" ]; then
-  ctx="$ctx"$'\n\n'"State CLI: \`bin/claudehut-state\` under plugin root \`$PLUGIN_ROOT\` (not on PATH)."
+  ctx="$ctx"$'\n\n'"State CLI: \`bin/claudehut-state\` under plugin root \`$PLUGIN_ROOT\` (not on PATH). Plane (\`<plane>\` in skills): \`${PLANE#"$PROJECT_DIR"/}/\`."
 fi
 [ -n "$HC_SID" ] && ctx="$ctx"$'\n'"Session id: $HC_SID"
 # Exactly one language line (ADR-R7, 04 §6 row 7): topology.json .language, resolved by hc_plane_or_exit, else en.
@@ -60,7 +60,7 @@ fi
 
 if [ -s "$PLANE/learnings.jsonl" ]; then
   n_learn="$(grep -c '' "$PLANE/learnings.jsonl" 2>/dev/null)" || n_learn="?"
-  ctx="$ctx"$'\n'"Learnings: $n_learn entries in .claude/claudehut/learnings.jsonl; relevant ones are added to each prompt."
+  ctx="$ctx"$'\n'"Learnings: $n_learn entries in ${PLANE#"$PROJECT_DIR"/}/learnings.jsonl; relevant ones are added to each prompt."
 fi
 
 # Index card (07 §7, 04 §7: <=500 B). Silent without the CLI or index/meta.json (AC-6). The fresh case is built
