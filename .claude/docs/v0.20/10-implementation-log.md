@@ -175,3 +175,16 @@ Lỗ hổng tồn từ review Track Q: `supersede_active` (do `start` và `resum
 - Test SU1–SU8 trong verify-tests: block/stale, warn, review còn hiện hành, task chưa finished, đường resume.
 
 Auth profile (K-17): eval-harness A1–A4 ghim nhánh auth của `plugin-eval.sh`. Một lần chạy `api` thật không làm được, vì quyết định Q7 là eval chạy bằng quota của plan, không dùng API key. Tiêu chí "suite chạy được cả plan lẫn api" vì vậy mới **được xác minh bằng unit test, chưa bằng một lần chạy thật**.
+
+## M1 — tiêu chí exit (2026-10-21)
+
+| Tiêu chí (09 §2.2) | Kết quả |
+|---|---|
+| Suite process pass^3 | **Đạt.** `--tag process --runs 3`, plan quota, trên writer Python tại `19d166d` (không có thay đổi tracked; `source_dirty:true` chỉ do các file untracked có từ trước, như `CLAUDE.md` và `.understand-anything/`): `end-refused-without-review`, `review-pass-fixes-bad-citation` và `review-pass-new-plane` đều 3/3, tổng 9/9 run, $2.22. Grader `gate-never-skipped` pass ở mọi run, tức gate in-process có chạy thật trong sandbox. Caveat: `review-pass-fixes-bad-citation` không phân biệt with/without (M0), nên kết quả của nó chỉ cho thấy không có regression, không chứng minh giá trị |
+| Regression 0.12 xanh | **Đạt.** 1781 assertion với writer Python, mỗi lần ghi đều kèm selfcheck. Suite cũng chạy lại với writer bash và xanh |
+| Suite chạy được cả `plan` lẫn `api` | **Mới một phần.** Đường `plan` đã chạy thật. Đường `api` chỉ được unit test (eval-harness R1–R3, A1–A4), vì Q7 là không dùng API key |
+
+Chuyển sang sau:
+- TTL `stale` (04 §1) và digest khi resume chuyển sang M5 (`claudehut status`). Lý do: thêm field vào output `status` sẽ phá hợp đồng chung với writer bash fallback.
+- Strangler bước 2 (hook dispatcher sang Python) chưa làm.
+- Gỡ writer bash: sau một release.
