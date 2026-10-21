@@ -26,7 +26,8 @@
     ".lsp.json",
     "templates/LANGUAGE.md.tmpl",
     "templates/architecture.md.tmpl",
-    "scripts/index/variation.py"
+    "scripts/index/variation.py",
+    "scripts/advise-variant.sh"
   ],
   "rules": {
     "root": "templates/rules"

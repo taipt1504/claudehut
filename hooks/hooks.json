@@ -25,7 +25,8 @@
       {
         "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
-          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/advise-write.sh\"", "timeout": 5 }
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/advise-write.sh\"", "timeout": 5 },
+          { "type": "command", "if": "Write(*.java)", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/advise-variant.sh\"", "timeout": 5 }
         ]
       },
       {

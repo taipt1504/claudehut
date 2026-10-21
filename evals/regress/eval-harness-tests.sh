@@ -53,10 +53,12 @@ if [ -d "$SU" ]; then
     for g in "$d"/graders/*.md; do
       t="$(sed -n '2,8s/^type: *//p' "$g" | head -1)"
       case "$t" in regex|tool_used|tool_order|file_exists|llm|baseline) : ;; *) nbad=$((nbad+1)); echo "   bad grader type '$t': $g" ;; esac
+      w="$(sed -n '2,8s/^weight: *//p' "$g" | head -1)"   # claude plugin eval rejects weight <= 0 (the whole case fails to load)
+      [ -z "$w" ] || python3 -c "import sys; sys.exit(not float(sys.argv[1]) > 0)" "$w" 2>/dev/null || { nbad=$((nbad+1)); echo "   weight must be > 0: $g"; }
     done
   done < <(find "$SU" -name prompt.md -not -path '*/results/*')
   check "P1: plugin-eval suites exist ($ncase cases)" '[ "$ncase" -ge 1 ]'
-  check "P2: every case has ≥1 grader of a known type ($nbad bad)" '[ "$nbad" = 0 ]'
+  check "P2: every case has ≥1 grader of a known type, weights > 0 ($nbad bad)" '[ "$nbad" = 0 ]'
 fi
 
 # ── A: plugin-eval.sh auth profile (K-17). The refusals exit before any copy or model call; a run under `plan` and

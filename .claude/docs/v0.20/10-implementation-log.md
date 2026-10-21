@@ -293,3 +293,29 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
   - payment-gateway-ms: 4 multi-impl, 4 registry, 1 factory, 1 contract-param (`partnerCode`), 6 extension-point.
   - va-ms: 2 multi-impl, 5 registry.
   - Trước khi có rule extension-point, các base handler generic (69 và 25 subclass) bị tính là VP. Sau rule thì tên của các VP còn lại đều trông như concern variant; **chưa đối chiếu từng file**.
+
+## M3b/M3c — MCP `claudehut-kb` và guide tại thời điểm quyết định (2026-10-21)
+
+| Thiết kế (05 §4, §6) | Đã build | Lệch |
+|---|---|---|
+| MCP stdio, stdlib, chỉ đọc | `bin/claudehut-kb` → `scripts/kb/claudehut_kb.py`; tool `kb_variation_points`, `kb_patterns`, `kb_brief` | `kb_impact`, `kb_decisions`, `kb_domain`, `kb_record_decision` chưa làm (chờ harvest decision) |
+| Ba trạng thái `ok` / `none_found` / `unknown` | Có, kèm lý do và cách sửa; có `stale` và commit đã index; provenance file:line; dữ liệu đã sanitize | **Lệch:** server không bao giờ reindex một index *đã có* (chỉ báo stale). Nhưng một plane *chưa từng* index thì được build một lần ngay lần gọi đầu, có giới hạn. Nếu không, mọi repo mới clone sẽ chỉ trả `unknown` |
+| Digest một câu cố định | Có, digest vẫn trong budget 2.500 B | — |
+| Budget always-on (K-15) | Instructions + schema khoảng 2.066 ký tự (~520 tok), có test ≤2.600 | `claude plugin details` không tính MCP |
+| Guide tại thời điểm quyết định (mới) | UserPromptSubmit cho prompt kiểu "thêm provider/vendor/bank…"; PreToolUse cho một class production *mới* có tên giống variant hoặc gọi hệ thống ngoài (`advise-variant.sh`, pack Java). Mỗi loại một dòng, tối đa một lần mỗi session | Tạm thay cho phần deliberation pack ở M4 |
+
+**Eval** (decision suite, plan quota, `--mocks off`, kb tool được cấp theo tên):
+
+| Lần chạy | zns | bank-export | single-client (guard) | vendor-neutral |
+|---|---|---|---|---|
+| M0, 0.12.7 with | 0.00 | 0.50 | 1.00 | 0.83 |
+| M3b, chỉ có tool | 0.00 | 0.67 | 1.00 | 1.00 |
+| M3c, tool + hint | 0.00 | **1.00** (3/3) | 1.00 | 0.83 |
+
+- Số lần gọi kb tool thật (đếm `tool_use`): **2/12 run** ở M3b, cả hai đều trả `unknown` vì eval không có index; **0/12** ở M3c.
+- Tiêu chí M3 "tool được gọi ở ≥90% case T1+" **không đạt**. Tier T1+ cũng chưa tồn tại trước M4.
+- Đọc session log của run zns cho thấy cả hai guide **đều đến được model**: hint UserPromptSubmit nêu `SmsProvider` và advisory lúc Write nêu `SmsProviderFactory`. Agent tự đọc file của SmsProvider/Factory, nhưng vẫn làm theo prompt ("like PushService", "minimal change") và chỉ viết `ZnsService` một lần.
+- Vì vậy thiếu dữ kiện không phải lý do. Agent thấy đủ thông tin mà vẫn chọn sai. Đây là đúng việc của deliberation pack (M4): tier, rule PV, design-reviewer.
+- bank-export lên 3/3, nhưng với 3 run thì chưa tách được khỏi nhiễu.
+- **Sửa một kết luận sai của chính em:** em từng ghi "UserPromptSubmit không fire dưới `-p`". Thực ra nó có fire. `trace.jsonl` của eval chỉ ghi event hook SessionStart; context của hook nằm trong session log `config/projects/*.jsonl`.
+- Hook latency: `hook-bench` báo cáo, không gate.

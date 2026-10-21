@@ -2,7 +2,8 @@
 """claudehut-kb — the knowledge plane's MCP server (K6, docs/v0.20 05 §4, ADR K-04; M3b). Read-only in M3b.
 
 Stdio, newline-delimited JSON-RPC 2.0, Python stdlib. It reads the project plane's index files and never reindexes
-inside a call: a stale index is reported (`stale: true` + the indexed commit), never silently served as current.
+inside a call: a stale index is reported (`stale: true` + the indexed commit), never silently served as current. A
+plane that was never indexed is built once, bounded, on the first call (a fresh clone must not answer "unknown").
 
 Tools
   kb_variation_points  where the code already chooses among variants of a concern (D1-D4, D8): ranked by `scope`
@@ -94,6 +95,11 @@ def index_state():
     pl = kplane.plane_dir(proj)
     path = os.path.join(pl, "index", "variation.json")
     doc = kplane.read_json(path)
+    if not isinstance(doc, dict) and os.path.isdir(pl) and os.environ.get("CLAUDEHUT_KB_NO_BUILD") != "1":
+        # First use on a plane that was never indexed (a fresh clone, a plane init has not run on): build it ONCE,
+        # bounded. Not a reindex: an existing index is never rebuilt inside a call, it is reported stale instead.
+        build_index(proj, pl)
+        doc = kplane.read_json(path)
     if not isinstance(doc, dict):
         return None, {"status": "unknown", "reason": f"no index at {os.path.relpath(path, proj)}",
                       "fix": "run `claudehut-index update` (or open a session so SessionStart refreshes it)"}
@@ -106,6 +112,16 @@ def index_state():
     else:
         st["stale"] = False
     return doc, st
+
+
+def build_index(proj, pl):
+    cli = os.path.join(ROOT, "bin", "claudehut-index")
+    try:
+        r = subprocess.run([cli, "update", "--plane", pl], capture_output=True, text=True, timeout=45,
+                           env=dict(os.environ, CLAUDE_PROJECT_DIR=proj, CLAUDEHUT_INDEX_NO_SPAWN="1"), cwd=proj)
+        log(f"first-use index build: {(r.stdout or r.stderr).strip()[:200]}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        log(f"first-use index build failed: {exc}")
 
 
 def head_of(proj):

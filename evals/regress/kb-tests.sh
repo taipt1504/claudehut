@@ -19,7 +19,7 @@ check() { if eval "$2"; then PASS=$((PASS+1)); echo "ok - $1"; else FAIL=$((FAIL
 export CLAUDEHUT_HOST_PROBE=0 CLAUDEHUT_INDEX_NO_SPAWN=1
 rpc() { # $1 project, rest: JSON lines → server output lines
   local p="$1"; shift
-  printf '%s\n' "$@" | CLAUDE_PROJECT_DIR="$p" "$KB" 2>"$TMP/kb.err"
+  printf '%s\n' "$@" | CLAUDE_PROJECT_DIR="$p" "$KB" 2>>"$TMP/kb.err"
 }
 call() { # $1 project $2 tool $3 arguments JSON → the tool's text payload (parsed JSON)
   rpc "$1" "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"$2\",\"arguments\":$3}}" | jq -r '.result.content[0].text'
@@ -42,8 +42,11 @@ check "B1: ping → {}; tools/list → kb_variation_points, kb_patterns, kb_brie
 check "B1: unknown method → -32601; malformed line → -32700; unknown tool → isError result" \
   'jq -se "(.[3].error.code==-32601) and (.[4].error.code==-32700) and (.[5].result.isError==true)" <<<"$out" >/dev/null'
 
-u="$(call "$J" kb_variation_points '{}')"
-check "B2: no index → status unknown with the fix (never none_found)" '[ "$(jq -r .status <<<"$u")" = unknown ] && jq -r .fix <<<"$u" | grep -q "claudehut-index update"'
+u="$(CLAUDEHUT_KB_NO_BUILD=1 call "$J" kb_variation_points '{}')"
+check "B2: no index (first-use build off) → status unknown with the fix (never none_found)" '[ "$(jq -r .status <<<"$u")" = unknown ] && jq -r .fix <<<"$u" | grep -q "claudehut-index update"'
+J2="$(repo java2 "$ROOT/evals/fixtures/variation/repo")"
+f="$(call "$J2" kb_variation_points '{}')"
+check "B2: a never-indexed plane is built once on first use → status ok" '[ "$(jq -r .status <<<"$f")" = ok ] && [ -f "$J2/.claudehut/index/variation.json" ]'
 "$IDX" update --plane "$J/.claudehut" >/dev/null 2>&1
 v="$(call "$J" kb_variation_points '{"scope":"bank export"}')"
 check "B2: indexed Java repo → status ok, stale false, the bank parameter ranked first for scope 'bank export'" \
@@ -80,6 +83,42 @@ BAD="$TMP/bad"; mkdir -p "$BAD"; printf '#!/bin/sh\nexit 1\n' >"$BAD/python3"; c
 echo '{}' | PATH="$BAD:$PATH" CLAUDE_PROJECT_DIR="$J" "$KB" >/dev/null 2>"$TMP/bad.err"; rc=$?
 check "B6: a python3 that cannot run → exit 1 with the reason on stderr (rc=$rc)" '[ "$rc" = 1 ] && grep -q "kb_\* tools are off" "$TMP/bad.err"'
 check "B6: no __pycache__ in the plugin" '[ -z "$(find "$ROOT/scripts" -name __pycache__)" ]'
+
+# B7 — the UserPromptSubmit variation hint (scripts/inject-phase.sh, M3c)
+ups() { printf '%s' "{\"session_id\":\"u1\",\"prompt\":\"$2\"}" | CLAUDE_PROJECT_DIR="$1" CLAUDE_PLUGIN_ROOT="$ROOT" bash "$ROOT/scripts/inject-phase.sh" 2>/dev/null; }
+mkdir -p "$J/.claudehut/state"
+h="$(ups "$J" "Add a ZNS sender via GapOne for OTP messages")"
+check "B7: an 'add a sender' prompt in an indexed repo gets ONE kb line naming the port-selector instances" \
+  'jq -e ".hookSpecificOutput.additionalContext | test(\"port \\\\+ selector: .*SmsProvider\") and test(\"kb_patterns\")" <<<"$h" >/dev/null'
+check "B7: … and the endpoint that takes the variant (bank)" 'jq -r ".hookSpecificOutput.additionalContext" <<<"$h" | grep -q "export(bank)"'
+q="$(ups "$J" "explain the refund flow")"
+check "B7: a prompt that adds nothing gets no hint" '! grep -q "kb: this repo" <<<"$q"'
+e="$(mkdir -p "$E/.claudehut/state"; ups "$E" "add a new sms provider")"
+check "B7: no variation point in the repo → no hint (silence, not an empty claim)" '! grep -q "kb: this repo" <<<"$e"'
+N="$(repo noidx "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$N/.claudehut/state"
+nh="$(ups "$N" "add a new sms provider")"
+check "B7: never indexed + a small repo → indexed now, once, and THIS prompt gets the hint" \
+  '[ -f "$N/.claudehut/state/index-build.pending" ] && [ -f "$N/.claudehut/index/variation.json" ] && grep -q "kb: this repo" <<<"$nh"'
+
+# B8 — the write-time variant advisory (scripts/advise-variant.sh, PreToolUse Write(*.java); fires under -p too)
+aw() { printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$2" "$3" | CLAUDE_PROJECT_DIR="$1" bash "$ROOT/scripts/advise-variant.sh" 2>/dev/null; }
+w1="$(aw "$J" w1 "$J/src/main/java/demo/notify/zns/GapOneZnsClient.java")"
+check "B8: a NEW *Client class in a repo with port+selector families → one note naming them, with variant dir and selector" \
+  'jq -r ".hookSpecificOutput.additionalContext" <<<"$w1" | grep -q "SmsProvider (3 variants in src/main/java/demo/notify/sms/impl, selector SmsProviderFactory)"'
+w2="$(aw "$J" w1 "$J/src/main/java/demo/notify/zns/OtherZnsClient.java")"
+check "B8: said once per session" '[ -z "$w2" ]'
+w3="$(aw "$J" w3 "$J/src/main/java/demo/notify/sms/impl/CmcSmsProvider.java")"
+check "B8: editing an EXISTING class is not a decision → silent" '[ -z "$w3" ]'
+w7="$(printf '%s' '{"session_id":"w7","tool_name":"Write","tool_input":{"file_path":"'"$J"'/src/main/java/demo/notify/ZnsService.java","content":"class ZnsService { void send() { http.post(\"https://api.vendor.example/zns/send\"); } }"}}' | CLAUDE_PROJECT_DIR="$J" bash "$ROOT/scripts/advise-variant.sh" 2>/dev/null)"
+check "B8: a new *Service whose body calls an external URL is an integration too → the note" 'grep -q "ZnsService looks like a new variant" <<<"$w7"'
+w4="$(aw "$J" w4 "$J/src/main/java/demo/report/MonthlyReport.java")"
+check "B8: a new class without a variant-like name → silent" '[ -z "$w4" ]'
+NI="$(repo noidx2 "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$NI/.claudehut/state"
+w6="$(aw "$NI" w6 "$NI/src/main/java/demo/notify/zns/GapOneZnsClient.java")"
+check "B8: a never-indexed small repo is indexed at the write and the note still comes (what a fresh eval workspace needs)" \
+  '[ -f "$NI/.claudehut/index/variation.json" ] && grep -q "looks like a new variant" <<<"$w6"'
+w5="$(aw "$PY" w5 "$PY/src/main/java/x/FooClient.java")"
+check "B8: no applicable variation index → silent" '[ -z "$w5" ]'
 
 echo "KB: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

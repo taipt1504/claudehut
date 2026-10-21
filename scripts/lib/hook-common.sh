@@ -228,6 +228,25 @@ hc_once() { # $1 = key; 0 the first time per session, 1 after (sidecar, never th
   return 0
 }
 
+# hc_index_first_build: a plane whose repo was never indexed gets ONE build, claimed by an exclusive create so
+# parallel hooks and sessions cannot double-build. A small repo (≤300 Java files, ~1 s) is built now, so the hook
+# that asked can use it; a bigger one is built detached for the next call (hook timeouts must hold). M3c.
+hc_index_first_build() {
+  [ -f "$PLANE/index/meta.json" ] && return 0
+  local root="${CLAUDE_PLUGIN_ROOT:-}" nj cli
+  [ -n "$root" ] || root="$(cd "${BASH_SOURCE[0]%/*}/../.." 2>/dev/null && pwd)"   # this file is scripts/lib/
+  cli="$root/bin/claudehut-index"
+  [ -x "$cli" ] || return 1
+  ( set -C; : > "$PLANE/state/index-build.pending" ) 2>/dev/null || return 1
+  nj="$(git -C "$PROJECT_DIR" ls-files -- '*.java' 2>/dev/null | head -301 | wc -l | tr -d ' ')"
+  if [ "${nj:-301}" -le 300 ]; then
+    ( cd "$PROJECT_DIR" && CLAUDEHUT_INDEX_NO_SPAWN=1 "$cli" update --plane "$PLANE" ) </dev/null >/dev/null 2>&1
+  else
+    ( cd "$PROJECT_DIR" && exec "$cli" update --detach --plane "$PLANE" ) </dev/null >/dev/null 2>&1 &
+  fi
+  return 0
+}
+
 hc_ctx()    { [ -n "$HC_CTX" ] || { HC_EVENT="$1"; HC_CTX="$2"; }; return 0; }
 hc_sysmsg() { [ -n "$HC_SYS" ] || HC_SYS="$1"; return 0; }
 

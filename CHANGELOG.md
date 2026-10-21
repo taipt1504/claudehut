@@ -16,6 +16,12 @@
   ≈ 520 tokens (tested ≤ 2600 chars; `claude plugin details` does not count MCP). A python3 that cannot run fails
   loudly on stderr. The digest points at the kb tools; plugin evals start the real server (`--mocks off`, tools
   granted by name); decision cases gain a weight-0 `kb-consulted` observation.
+- **Guides at the decision, M3c:** a prompt that adds a provider/vendor/bank/channel (UserPromptSubmit) and a NEW
+  production class that looks like one more variant — a variant-like name or a body that calls an external system
+  — (PreToolUse `Write(*.java)`, `scripts/advise-variant.sh`, pack lang-java-spring) get ONE line, once per session,
+  naming the repo's port + selector families (variant dir, selector) from the index. A never-indexed small repo
+  (≤300 Java files) is indexed on the spot (`hc_index_first_build`), and the kb server builds a missing index on
+  first use; an existing index is never rebuilt inside a call.
 - Ground truth frozen before the detectors (`evals/fixtures/variation/expected.json`, 11 VPs, 8 negatives) plus
   documented post-freeze additions; `regress/variation-tests.sh`: precision 1.0 / recall 1.0 on the fixture, the zns
   and bank-export eval scaffolds, and a rule-deletion pass where all 15 tagged rules carry weight.

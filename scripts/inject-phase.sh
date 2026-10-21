@@ -37,6 +37,28 @@ if [ -x "$IDX_CLI" ] && hc_indexed_commit && hc_head && [ "$HC_HEAD" != "$HC_IND
   fact="Index: HEAD moved to ${HC_HEAD:0:7} (indexed ${HC_INDEXED:0:7}); a background update started — brief/find may lag until it ends."
 fi
 
+# Variation hint (M3c, docs/v0.20 05 §2/§6): a prompt that ADDS a variant-like thing (provider, vendor, bank,
+# channel …) in a repo whose index already found selectors gets ONE line naming them, so the decision is made
+# against the existing pattern rather than as a one-off class. Keyword-gated (no jq on other prompts); the names
+# come from the deterministic index (data, not instructions).
+VAR_ADD_RE='(add|new|support|integrat|implement|introduc|wire|hook up|connect|onboard|thêm|tích hợp|hỗ trợ|bổ sung|kết nối)'
+VAR_NOUN_RE='(provider|vendor|bank|channel|gateway|partner|sms|zns|email|push|notif|payment|export|import|client|strategy|adapter|nhà cung cấp|ngân hàng|kênh|đối tác)'
+lc="$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]')"
+if [[ $lc =~ $VAR_ADD_RE ]] && [[ $lc =~ $VAR_NOUN_RE ]]; then
+  VJ="$PLANE/index/variation.json"
+  [ -f "$VJ" ] || hc_index_first_build   # never indexed: built now when small, so this very prompt gets the hint
+  if [ -f "$VJ" ]; then
+    vh="$(jq -r 'select(.applicable == true)
+      | ([.patterns[]?.instances[]? | "\(.anchor | split(".") | last) (\(.variants) variants)"] | .[:4] | join(", ")) as $p
+      | ([.variation_points[]? | select(.kind == "contract-param") | (.anchor | split(".") | last)] | .[:2] | join(", ")) as $c
+      | if ($p == "" and $c == "") then empty else
+        "kb: this repo already selects among variants" + (if $p != "" then " — port + selector: " + $p else "" end)
+        + (if $c != "" then "; endpoint takes the variant: " + $c else "" end)
+        + ". Check kb_patterns / kb_variation_points (MCP) before adding a one-off class." end' "$VJ" 2>/dev/null | head -c 400)"
+    [ -n "$vh" ] && fact="${fact:+$fact$'\n'}$vh"
+  fi
+fi
+
 if [ -x "$PLUGIN_ROOT/scripts/inject-learnings.sh" ] && [ -f "$PLANE/learnings.jsonl" ] && [ -n "$HC_SID" ]; then :; else
   [ -n "$fact" ] && hc_ctx UserPromptSubmit "$fact"
   exit 0
