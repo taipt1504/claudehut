@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — 0.20 M1 (kernel K1/K2 in Python)
+
+- **State writer ported to the Python kernel** (docs/v0.20 04 §7, strangler step 1): `bin/claudehut-state` is a shim
+  that runs `claudehut_kernel/state.py`; the CLI contract (verbs, messages, exit codes, task.json shape) is unchanged.
+  The 0.12 bash writer stays at `scripts/legacy/claudehut-state.sh` for one release: `CLAUDEHUT_STATE_IMPL=bash`, a
+  python3 that is missing or older than 3.8, and the read-only `cost-report` run it. Gates run in-process; a gate
+  that raises is recorded as `gate.skipped` and never refuses. The plane lock interoperates with the bash writer
+  (flock on `state/.state.lock.flock` and the mkdir lock).
+- Tests: every suite runs under both writers (`CLAUDEHUT_STATE_IMPL=py|bash`, all green); `regress/state-diff-tests.sh`
+  runs the same verb scripts through both and requires identical transcripts (exit codes, stdout, stderr, task.json,
+  pointers, events); `regress/state-lock-tests.sh` pins the lock interleavings in-process.
+
 ## 0.12.8 — 2026-10-21
 
 ADR K-18 (accepted): the writable plane moves out of `.claude/`. Claude Code treats `.claude/` as a protected

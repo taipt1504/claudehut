@@ -138,7 +138,8 @@ check "G17: a plan revised after review is caught (plan-changed)" 'jq -e ".probl
 
 P="$(newrepo nopy)"
 id="$(cs "$P" s7 start --route light --slug n 2>/dev/null | head -1)"
-CLAUDEHUT_PYTHON=/nonexistent/python3 CLAUDEHUT_GATE_MODE=block cs "$P" s7 end --status done 2>"$TMP/err"; rc=$?
+# The bash writer's subprocess gate (the fallback when python3 is missing): CLAUDEHUT_STATE_IMPL=bash pins it.
+CLAUDEHUT_STATE_IMPL=bash CLAUDEHUT_PYTHON=/nonexistent/python3 CLAUDEHUT_GATE_MODE=block cs "$P" s7 end --status done 2>"$TMP/err"; rc=$?
 check "G18: python3 missing → gate skipped with a notice, transition proceeds (rc=$rc)" '[ "$rc" = 0 ] && grep -q "skipped: kernel unavailable" "$TMP/err"'
 
 # ── H: host probe (ENV-1) ──────────────────────────────────────────────────────────────────────────────────
@@ -232,8 +233,16 @@ CLAUDEHUT_GATE_MODE=block cs "$P" s11 end --status done 2>"$TMP/err"; rc=$?
 check "R6: a malformed binding is not a refusal" '[ "$rc" = 0 ]'
 P="$(newrepo crash2)"
 id="$(cs "$P" s12 start --route light --slug c 2>/dev/null | head -1)"
-CLAUDEHUT_PYTHON="$TMP/k1" CLAUDEHUT_GATE_MODE=block cs "$P" s12 end --status done 2>"$TMP/err"; rc=$?
+CLAUDEHUT_STATE_IMPL=bash CLAUDEHUT_PYTHON="$TMP/k1" CLAUDEHUT_GATE_MODE=block cs "$P" s12 end --status done 2>"$TMP/err"; rc=$?
 check "R7: a kernel that exits 1 WITHOUT a block decision does not refuse; gate.skipped is noted" '[ "$rc" = 0 ] && grep -q "skipped" "$TMP/err"'
+# The Python writer runs the gate in-process: a gate that raises (here: events.jsonl is a directory, so the gate's own
+# event write fails) is a skipped gate, never a refusal — the same contract as R7.
+P="$(newrepo crash3)"
+id="$(cs "$P" s13 start --route light --slug c 2>/dev/null | head -1)"
+mkdir -p "$P/.claude/claudehut/tasks/$id/events.jsonl"
+CLAUDEHUT_STATE_IMPL=py CLAUDEHUT_GATE_MODE=block cs "$P" s13 end --status done 2>"$TMP/err"; rc=$?
+check "R7-py: an in-process gate that raises does not refuse; the skip is noted" \
+  '[ "$rc" = 0 ] && grep -q "gate end skipped" "$TMP/err" && [ "$(jq -r .status "$P/.claude/claudehut/tasks/$id/task.json")" = done ]'
 
 # ── B: budget overrun is an event, never a refusal (PLN-3) ───────────────────────────────────────────────────
 P="$(newrepo budget)"

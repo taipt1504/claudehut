@@ -6,6 +6,7 @@
 # Run: evals/conformance.sh   (exit 0 iff all checks pass)
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STATE_PY="$ROOT/scripts/kernel/claudehut_kernel/state.py"   # the state writer (0.20 M1); bin/claudehut-state is its shim
 PASS=0; FAIL=0
 ok()  { PASS=$((PASS+1)); echo "  ok   - $1"; }
 bad() { FAIL=$((FAIL+1)); echo "  FAIL - $1"; }
@@ -832,7 +833,7 @@ grep -q 'artifact-checks.sh' "$ROOT/evals/tasks/review-standards-axis/oracle.sh"
 
 # C19 — v0.7 reuse-suspect review-loop GATE (R5 AC4, BEHAVIORAL): set-review pass must REFUSE while a
 # lint-reuse-staged suspect is unaddressed in review.md, and ALLOW once addressed. Advisory→real gate.
-grep -q 'reuse-suspect loop gate' "$ROOT/bin/claudehut-state" \
+grep -q 'reuse-suspect loop gate' "$ROOT/scripts/kernel/claudehut_kernel/state.py" \
   && ok "R1: set-review carries the reuse-suspect loop gate" || bad "R1: suspect loop gate missing from set-review"
 RT="$(mktemp -d)"; RSD="$RT/.claude/claudehut"; mkdir -p "$RSD/state"
 # v0.12: start creates tasks/0001-x/ (it never adopts a pre-made dir), so the artifacts are written after it.
@@ -1075,7 +1076,7 @@ grep -q 'Re-examine loop' "$ROOT/agents/claudehut-brainstormer.md" \
   || bad "WS-8b: brainstormer pipeline is still a single linear pass (no re-examine loop)"
 # v0.12 M3 (06 §5.3): the brainstorm header is "id · route · rev" — the loop count left the artifact; the
 # re-examine back-edge above is what carries the loop.
-grep -q 'needs a plan-reviewer APPROVE first' "$ROOT/bin/claudehut-state" \
+grep -q 'needs a plan-reviewer APPROVE first' "$ROOT/scripts/kernel/claudehut_kernel/state.py" \
   && ok "WS-8b: the plan-reviewer verdict is gated at set-plan (SubagentStop is ledger-only in v0.12)" || bad "WS-8b: plan-reviewer verdict not gated"
 
 # ============================================================================
@@ -1130,9 +1131,8 @@ BRS="$ROOT/skills/brainstorm/SKILL.md"; WPS="$ROOT/skills/write-plan/SKILL.md"; 
 # the predicate is three terms — ≥5 T-rows, a sensitive path in a T-row's Files cell, profile=migration — and
 # the path list has ONE home (claudehut-state), which the skill names instead of copying.
 { grep -qF '≥5' "$WPS" && grep -q 'Files cell' "$WPS" && grep -q 'profile=migration' "$WPS" && grep -q 'claudehut-state' "$WPS" \
-  && grep -qF "awk -F'|' '\$2 ~ /^[[:space:]]*T-[0-9]/ {print \$4}'" "$ROOT/bin/claudehut-state" \
-  && grep -q '\[ "\$nrows" -ge 5 \]' "$ROOT/bin/claudehut-state" \
-  && grep -q '= migration \]' "$ROOT/bin/claudehut-state"; } \
+  && grep -qF 'files_cell = cells[3]' "$STATE_PY" && grep -qF 'nrows >= 5' "$STATE_PY" \
+  && grep -qF '== "migration"' "$STATE_PY"; } \
   && ok "DT-11: write-plan names set-plan's three-term predicate (≥5 T-rows, Files cell, profile=migration)" \
   || bad "DT-11: write-plan's sensitive predicate diverges from set-plan's check — a skipped plan the gate refuses"
 

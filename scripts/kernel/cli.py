@@ -82,43 +82,12 @@ def cmd_verdict(a):
 
 
 def cmd_gate(a):
-    project = _project(a)
-    task_dir = os.path.abspath(a.task)
-    task = plane.load_task(task_dir)
-    out = {}
-    if a.which == "review-pass":
-        ev = plane.abspath(project, a.evidence)
-        _, claim_problems = verify.check_claims(ev, project, plane.repo_dirs(project, task), task.get("base") or {})
-        violations = [dict(p, invariant="review.claims-resolve") for p in claim_problems]
-        violations += [dict(p, invariant="review.no-open-findings") for p in verify.check_findings(task, ev)]
-        d = gates.decide(project, task_dir, "review-pass", violations, a.override)
-        if d["decision"] != "block":
-            out["binding"] = verify.binding(project, task, _ts())
-            events.append(task_dir, "review.verdict", {"verdict": "pass", "evidence": a.evidence,
-                                                       "gate": d["decision"]})
-    elif a.which == "end":
-        violations = []
-        if a.status == "done":
-            review = task.get("review") or "pending"
-            if review not in ("pass", "capped"):
-                violations.append({"kind": "review-not-done", "invariant": "end.done-requires-review",
-                                   "fix": f"review is '{review}': run the review and `claudehut-state set-review pass "
-                                          f"--evidence …`, or end with --status abandoned, or pass --override \"<reason>\"."})
-            elif review == "pass":
-                violations += [dict(p, invariant="end.verdict-current") for p in verify.check_verdict(project, task)]
-        d = gates.decide(project, task_dir, "end", violations, a.override)
-        if d["decision"] != "block":
-            events.append(task_dir, "task.ended", {"status": a.status, "gate": d["decision"]})
-    else:
-        print(f"unknown gate {a.which}", file=sys.stderr)
+    rc, out = gates.run(a.which, _project(a), os.path.abspath(a.task), evidence=a.evidence, status=a.status,
+                        override=a.override, ts=_ts())
+    if rc == 2:
         return 2
-    out.update(d)
-    if d["violations"]:
-        label = {"warn": "WARN (gate mode warn, recorded)", "override": "OVERRIDDEN (recorded)",
-                 "block": "BLOCKED"}[d["decision"]]
-        _human(d["violations"], f"gate {a.which} {label}")
     print(json.dumps(out, ensure_ascii=False))
-    return 1 if d["decision"] == "block" else 0
+    return rc
 
 
 def cmd_probe(a):

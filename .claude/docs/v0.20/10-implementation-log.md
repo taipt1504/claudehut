@@ -128,3 +128,19 @@ Case `process/review-pass-new-plane`, 3 run × with/without, cộng 1 run giữ 
 - Bản đầu của fixture có ghi `./gradlew test — 1 passed` trong khi repo không có build. Agent từ chối pass và chỉ ra claim đó là giả. Cũng vì vậy mà `review-pass-fixes-bad-citation` đạt 1.00 ở cả arm without (M0): grader `honest-report` thưởng cho việc từ chối, mà việc đó không cần plugin. Case đó cần thiết kế lại trước khi dùng làm bằng chứng.
 - Case này không phân biệt with/without (0.75/0.75), vì arm without cũng sửa được file. Nó là bằng chứng cho đường ghi, không phải cho giá trị của plugin.
 - Môi trường eval: `git` trong sandbox là shim xcrun và lỗi khi tạo cache, nên các lệnh git của kernel có thể fail khi chạy eval. Cần một case riêng hoặc chỉnh môi trường trước khi chấm review binding qua eval.
+
+## M1b-a — state writer sang Python, không đổi hành vi (2026-10-21)
+
+Theo advisor, M1b tách thành ba commit, mỗi commit đều xanh: (a) port không đổi hành vi, (b) event log làm nguồn sự thật, (c) sửa lỗ hổng supersede.
+
+| Thiết kế (04 §7) | Đã build | Ghi chú |
+|---|---|---|
+| Strangler: `claudehut-state` trước, giữ nguyên hợp đồng CLI | `bin/claudehut-state` là shim, gọi `scripts/kernel/state_cli.py` → `claudehut_kernel/state.py`. Bản bash 0.12 nằm ở `scripts/legacy/claudehut-state.sh` | Fallback sang bash khi `CLAUDEHUT_STATE_IMPL=bash`, khi không có python3 hoặc python < 3.8 (`state_cli.py` tự exec bash, nên chỉ tốn một fork), và với `cost-report` (chỉ đọc). Một transition không bao giờ bị chạy lại bằng writer kia |
+| Gate chạy trong process | `gates.run()` dùng chung cho CLI `claudehut-kernel gate` và state.py | Gate raise exception thì ghi `gate.skipped` và transition vẫn đi tiếp, giống R7 của bash |
+| Lock tương thích | flock trên `.state.lock.flock` cộng mkdir lock `.state.lock` (stale sau 30 s, chờ tối đa 10 s rồi fail-open) | Repo có cài lẫn nhiều bản plugin vẫn serialize được |
+
+Kiểm chứng:
+- Toàn bộ suite chạy với cả hai writer (`CLAUDEHUT_STATE_IMPL=py` và `bash`) đều xanh.
+- `state-diff-tests` chạy 4 kịch bản, tổng 68 lệnh, qua cả hai writer và so transcript: exit code, stdout, stderr, task.json, pointer, events. Mutation test (đổi một message) bị bắt.
+- `state-lock-tests` ghim các interleaving của lock trong process. Lý do: stub `mkdir` trên PATH của hook-tests không chạm được tới syscall `os.mkdir`, nên với writer Python thì check R3-C1 của hook-tests chuyển sang kỳ vọng `00000`.
+- Test đọc source (conformance R1, WS-8b, DT-11) giờ trỏ vào `state.py`. Doc của hợp đồng CLI nằm ở header của shim, nơi state-tests grep.

@@ -1009,15 +1009,20 @@ chmod +x "$STUB/mkdir"
 lost=0; rms=""
 for _i in 1 2 3 4 5; do
   cs --session c set-route full >/dev/null 2>&1; cs --session c set-outstanding '[]' >/dev/null 2>&1
-  rm -rf "$CH_RELEASED"; : > "$CH_RMLOG"; mkdir "$P/.claude/claudehut/state/.state.lock"   # a holder
+  rm -rf "$CH_RELEASED"; : > "$CH_RMLOG"
+  # a holder — only where the stub can release it (the bash writer's external mkdir); otherwise every trial would just
+  # wait out the 10 s cap
+  [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ] || mkdir "$P/.claude/claudehut/state/.state.lock"
   PATH="$STUB:$PATH" cs --session c set-route light >/dev/null 2>&1 &
   PATH="$STUB:$PATH" cs --session c set-outstanding '["x"]' >/dev/null 2>&1 &
   wait
   jq -e '.route=="light" and (.outstanding|length)==1' "$TL" >/dev/null 2>&1 || lost=$((lost+1))
   rms="$rms$(wc -l < "$CH_RMLOG" | tr -d ' ')"
 done
-# With flock on PATH (Linux) claudehut-state never takes the mkdir lock, so the stub never runs: 00000 there.
-if command -v flock >/dev/null 2>&1; then rmw=00000; else rmw=11111; fi
+# With flock on PATH (Linux) the bash writer never takes the mkdir lock, so the stub never runs: 00000 there. The
+# Python writer (0.20 M1) takes its mkdir lock with the os.mkdir syscall, so a PATH stub never runs for it either;
+# the same interleaving is pinned for it in-process by evals/regress/state-lock-tests.sh.
+if command -v flock >/dev/null 2>&1 || [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ]; then rmw=00000; else rmw=11111; fi
 chk "lock: the stub released the holder exactly once per trial on the mkdir-lock path — the interleaving the next check claims (R3-C1; got $rms, want $rmw)" '[ "$rms" = "$rmw" ]'
 chk "lock: a holder releasing INSIDE the failed-mkdir window does not drop a writer (5/5, ported from m0)" '[ "$lost" = 0 ]'
 rm -rf "$P/.claude/claudehut/state/.state.lock"
@@ -1160,7 +1165,7 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests state-diff-tests state-lock-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
     ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 HUB_NO_EWALLET=1 HUB_NO_DASHBOARD=1 HUB_UA_ROOT=/nonexistent bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone
