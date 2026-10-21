@@ -310,12 +310,31 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
 |---|---|---|---|---|
 | M0, 0.12.7 with | 0.00 | 0.50 | 1.00 | 0.83 |
 | M3b, chỉ có tool | 0.00 | 0.67 | 1.00 | 1.00 |
-| M3c, tool + hint | 0.00 | **1.00** (3/3) | 1.00 | 0.83 |
+| M3c, tool + hint (run by0wegcat, before advise-variant) | 0.00 | 1.00 | 1.00 | 0.83 |
+| **0129197, toàn bộ M3** (tool + hint + advisory, plan, `--mocks off`) | **0.00** | **1.00** (3/3) | **1.00** (3/3) | 0.83 |
 
-- Số lần gọi kb tool thật (đếm `tool_use`): **2/12 run** ở M3b, cả hai đều trả `unknown` vì eval không có index; **0/12** ở M3c.
+- **Kết quả đo trên commit cuối `0129197`** (`evals/results/plugin-eval/2026-10-21T15-45-57Z`, `signals.json`, đọc bằng `evals/plugin-eval-signals.py` từ session log; `source_dirty:true` chỉ do file untracked có từ trước):
+  - kb tool được gọi ở 3/21 run (14%): 2 run bank-export, 1 run vendor-neutral.
+  - Hint UserPromptSubmit được inject ở 9/9 run của zns, bank-export và vendor-neutral, và 0/3 ở guard single-client (đúng như mong đợi).
+  - Advisory lúc Write được inject ở 3/3 run zns.
+  - Suite process vẫn pass^3 (9/9) khi đã bật MCP server và hook mới.
+  - bank-export 3/3 trong khi hint đã được inject ở cả 3 run. Kết quả nhất quán với việc hint có giúp, nhưng chưa có arm đối chứng nên chưa chứng minh được nguyên nhân.
+- Số lần gọi kb tool ở các run trước: 2/12 ở M3b (cả hai trả `unknown` vì eval không có index); 0/12 ở M3c (by0wegcat).
 - Tiêu chí M3 "tool được gọi ở ≥90% case T1+" **không đạt**. Tier T1+ cũng chưa tồn tại trước M4.
-- Đọc session log của run zns cho thấy cả hai guide **đều đến được model**: hint UserPromptSubmit nêu `SmsProvider` và advisory lúc Write nêu `SmsProviderFactory`. Agent tự đọc file của SmsProvider/Factory, nhưng vẫn làm theo prompt ("like PushService", "minimal change") và chỉ viết `ZnsService` một lần.
+- Ở run `0129197`, cả 3 session log của zns đều cho thấy hai guide **đến được model**: hint UserPromptSubmit nêu `SmsProvider` và advisory lúc Write nêu `SmsProviderFactory`. Agent tự đọc file của SmsProvider/Factory, nhưng vẫn làm theo prompt ("like PushService", "minimal change") và chỉ viết `ZnsService` một lần.
 - Vì vậy thiếu dữ kiện không phải lý do. Agent thấy đủ thông tin mà vẫn chọn sai. Đây là đúng việc của deliberation pack (M4): tier, rule PV, design-reviewer.
 - bank-export lên 3/3, nhưng với 3 run thì chưa tách được khỏi nhiễu.
 - **Sửa một kết luận sai của chính em:** em từng ghi "UserPromptSubmit không fire dưới `-p`". Thực ra nó có fire. `trace.jsonl` của eval chỉ ghi event hook SessionStart; context của hook nằm trong session log `config/projects/*.jsonl`.
 - Hook latency: `hook-bench` báo cáo, không gate.
+
+### Sửa lỗi sau review của advisor (`0129197`)
+
+- **Lỗi chặn:** `do_update` trả "up to date" trước khi kịp chạy detector. Vì vậy mọi plane index trước `cf3a1f1`, tức mọi service thật, sẽ không bao giờ có `variation.json`, và kb tool, hint, advisory đều im lặng. Fixture của em đều là repo mới nên không bắt được.
+  - Đã sửa: bump `TOOL_VERSION`, coi "variation.json missing" là một lý do để rebuild, `hc_index_first_build` kiểm tra `variation.json`.
+  - Có test hồi quy (variation-tests V4, kb-tests B7).
+- Claim build hết hạn sau 10 phút, và sweep đã nhận ra file claim này.
+- **Thời gian (đo trên bản copy trong scratchpad, không index vào repo thật):**
+  - Build full lần đầu, 300 file Java: 0,75 s, nằm trong timeout 5 s của hook.
+  - Build full payment-gateway-ms (1.221 file): 3,7 s, nên chạy detached.
+  - Update incremental của cùng service: 3,0 s khi detector parse lại toàn bộ. Sau khi thêm cache parse theo từng file (key là sha nội dung): 1,0 s.
+- Dọn dẹp: đã xoá 46 thư mục `--keep-temp` (`/private/tmp/e-*`) của các run eval của em, kể cả phần `sealed/` (sau khi chmod).
