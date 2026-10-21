@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.12.8** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.20.0-dev.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
 path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
@@ -494,9 +494,9 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1781 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1782 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 1043 advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 1044 advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness,plane-layout,state-diff,state-lock,tasklog}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 119 there (mutants + ewallet off), 162 alone with mutants and the va-ms part;
                                   #       hub-tests counts 107 there (ewallet, dashboard and UA validator off), 119 alone with all three

@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased — 0.20 M1 (kernel K1/K2 in Python)
+## 0.20.0-dev.1 — 2026-10-21 · 0.20 M1 (kernel K1/K2 in Python; a dev build, not a release)
 
 - **State writer ported to the Python kernel** (docs/v0.20 04 §7, strangler step 1): `bin/claudehut-state` is a shim
   that runs `claudehut_kernel/state.py`; the CLI contract (verbs, messages, exit codes, task.json shape) is unchanged.
   The 0.12 bash writer stays at `scripts/legacy/claudehut-state.sh` for one release: `CLAUDEHUT_STATE_IMPL=bash`, a
-  python3 that is missing or older than 3.8, and the read-only `cost-report` run it. Gates run in-process; a gate
+  python3 that is missing, fails to run (CLT stub, broken venv) or is older than 3.8, and the read-only
+  `cost-report` run it; the shim uses the kernel's interpreter (`CLAUDEHUT_PYTHON`). Gates run in-process; a gate
   that raises is recorded as `gate.skipped` and never refuses. The plane lock interoperates with the bash writer
   (flock on `state/.state.lock.flock` and the mkdir lock).
 - **Event log is the source of truth** (K1, ADR K-03, M1b-b): every transition appends ONE typed state event to

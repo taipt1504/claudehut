@@ -188,3 +188,8 @@ Chuyển sang sau:
 - TTL `stale` (04 §1) và digest khi resume chuyển sang M5 (`claudehut status`). Lý do: thêm field vào output `status` sẽ phá hợp đồng chung với writer bash fallback.
 - Strangler bước 2 (hook dispatcher sang Python) chưa làm.
 - Gỡ writer bash: sau một release.
+
+Sau review của advisor:
+- **Shim fallback.** Nếu `python3` có trên PATH nhưng không chạy được (stub CLT của macOS, venv hỏng, shim trong sandbox), bản cũ làm mọi verb fail với exit 1, và exit 1 bị hiểu là "refused". Shim giờ dùng `CLAUDEHUT_PYTHON` (cùng interpreter với kernel), kiểm tra trước rằng interpreter chạy được và là ≥3.8, nếu không thì chuyển sang bash. Test G18b chạy trên đường mặc định và fail với shim cũ.
+- **Version dev `0.20.0-dev.1`.** `run-meta.json` của các eval sau sẽ phân biệt được với 0.12.8 (bản chỉ có K-18).
+- **Câu hỏi cho user (Q6):** gate mode mặc định vẫn là `warn` (quyết định từ Track Q), trong khi Q6 chốt bất biến kernel là `block` có override. Mọi case process đều tự set `block`, nên mặc định đang ship chưa từng được đo.

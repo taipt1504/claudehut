@@ -70,12 +70,17 @@
 #
 # Implementation (0.20 M1, docs/v0.20 04 §7 strangler): the Python kernel (scripts/kernel/claudehut_kernel/state.py)
 # is the writer. The 0.12 bash writer stays at scripts/legacy/claudehut-state.sh for one release: it runs when
-# CLAUDEHUT_STATE_IMPL=bash, when python3 is missing or older than 3.8, and for the read-only cost-report. The
+# CLAUDEHUT_STATE_IMPL=bash, when python3 is missing, fails to run or is older than 3.8, and for the read-only
+# cost-report. The
 # choice is made HERE, before anything is written; a transition is never retried with the other writer.
 set -uo pipefail
 CH_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-# state_cli.py itself hands over to the bash writer on a python3 older than 3.8 (one fork, not two).
-if [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ] && command -v python3 >/dev/null 2>&1; then
-  exec python3 -B "$CH_ROOT/scripts/kernel/state_cli.py" "$@"
+# The interpreter is the kernel's (CLAUDEHUT_PYTHON, as bin/claudehut-kernel). It must actually RUN and be ≥3.8: a
+# python3 that exists but fails (the macOS command-line-tools stub, a broken venv, a sandbox shim) would otherwise
+# fail every verb — and an exit 1 reads to the model as "refused". One precheck fork per call; verbs are rare.
+PY="${CLAUDEHUT_PYTHON:-python3}"
+if [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ] && command -v "$PY" >/dev/null 2>&1 \
+   && "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+  exec "$PY" -B "$CH_ROOT/scripts/kernel/state_cli.py" "$@"
 fi
 exec bash "$CH_ROOT/scripts/legacy/claudehut-state.sh" "$@"

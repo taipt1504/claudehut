@@ -142,6 +142,14 @@ id="$(cs "$P" s7 start --route light --slug n 2>/dev/null | head -1)"
 # The bash writer's subprocess gate (the fallback when python3 is missing): CLAUDEHUT_STATE_IMPL=bash pins it.
 CLAUDEHUT_STATE_IMPL=bash CLAUDEHUT_PYTHON=/nonexistent/python3 CLAUDEHUT_GATE_MODE=block cs "$P" s7 end --status done 2>"$TMP/err"; rc=$?
 check "G18: python3 missing → gate skipped with a notice, transition proceeds (rc=$rc)" '[ "$rc" = 0 ] && grep -q "skipped: kernel unavailable" "$TMP/err"'
+# The DEFAULT path (no CLAUDEHUT_STATE_IMPL): a python3 that exists but cannot run (the macOS CLT stub, a broken venv)
+# must hand the call to the bash writer, not fail every verb with an exit 1 that reads as "refused".
+BADPY="$TMP/badpy"; mkdir -p "$BADPY"; printf '#!/bin/sh\nexit 1\n' >"$BADPY/python3"; chmod +x "$BADPY/python3"
+P="$(newrepo badpy)"
+id="$(env -u CLAUDEHUT_STATE_IMPL PATH="$BADPY:$PATH" bash -c 'CLAUDE_PROJECT_DIR="$1" "$2" --session s7b start --route light --slug n 2>/dev/null | head -1' _ "$P" "$CS")"
+env -u CLAUDEHUT_STATE_IMPL PATH="$BADPY:$PATH" CLAUDEHUT_GATE_MODE=block CLAUDE_PROJECT_DIR="$P" "$CS" --session s7b end --status done 2>"$TMP/err"; rc=$?
+check "G18b: a python3 that fails to run → the shim falls back to the bash writer: start works, end proceeds with the gate skip noted (rc=$rc)" \
+  '[ -n "$id" ] && [ "$rc" = 0 ] && grep -q "skipped: kernel unavailable" "$TMP/err" && [ "$(tj "$P" "$id" | jq -r .status)" = done ]'
 
 # ── H: host probe (ENV-1) ──────────────────────────────────────────────────────────────────────────────────
 CK="$ROOT/bin/claudehut-kernel"
