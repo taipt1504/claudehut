@@ -100,6 +100,15 @@ nh="$(ups "$N" "add a new sms provider")"
 check "B7: never indexed + a small repo → indexed now, once, and THIS prompt gets the hint" \
   '[ -f "$N/.claudehut/state/index-build.pending" ] && [ -f "$N/.claudehut/index/variation.json" ] && grep -q "kb: this repo" <<<"$nh"'
 
+O="$(repo old "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$O/.claudehut/state"
+"$IDX" update --plane "$O/.claudehut" >/dev/null 2>&1; rm -f "$O/.claudehut/index/variation.json"
+oh="$(ups "$O" "add a new sms provider")"
+check "B7: an index from before M3 (meta.json, no variation.json) is completed at the prompt and the hint comes" \
+  '[ -f "$O/.claudehut/index/variation.json" ] && grep -q "kb: this repo" <<<"$oh"'
+rm -f "$O/.claudehut/index/variation.json"; touch -t 202601010000 "$O/.claudehut/state/index-build.pending"
+ups "$O" "add a new sms provider" >/dev/null
+check "B7: a stale build claim (>10 min, a killed build) does not block the retry" '[ -f "$O/.claudehut/index/variation.json" ]'
+
 # B8 — the write-time variant advisory (scripts/advise-variant.sh, PreToolUse Write(*.java); fires under -p too)
 aw() { printf '{"session_id":"%s","tool_name":"Write","tool_input":{"file_path":"%s","content":"x"}}' "$2" "$3" | CLAUDE_PROJECT_DIR="$1" bash "$ROOT/scripts/advise-variant.sh" 2>/dev/null; }
 w1="$(aw "$J" w1 "$J/src/main/java/demo/notify/zns/GapOneZnsClient.java")"

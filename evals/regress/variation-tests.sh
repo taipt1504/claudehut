@@ -87,6 +87,17 @@ check "V4: before any update, variation answers unknown (not none_found)" '[ "$(
 "$IDX" update --plane "$J/.claudehut" >/dev/null 2>&1
 check "V4: update on a Java repo writes index/variation.json (applicable, 11 points, 1 pattern)" \
   '[ "$(jq -c "[.applicable, (.variation_points|length), (.patterns|length)]" "$J/.claudehut/index/variation.json")" = "[true,11,1]" ]'
+# A plane indexed BEFORE the detectors existed (every real service): an old tool_version and no variation.json. One
+# update must write it (the TOOL_VERSION bump forces the rebuild); a current index merely missing it as well.
+jq '.tool_version="0.12.2-idx5"' "$J/.claudehut/index/meta.json" >"$TMP/m" && mv "$TMP/m" "$J/.claudehut/index/meta.json"
+rm -f "$J/.claudehut/index/variation.json"
+o1="$("$IDX" update --plane "$J/.claudehut" 2>&1)"
+check "V4: an index from before M3 (old tool_version, no variation.json) is rebuilt by one update and gets variation.json" \
+  '[ -f "$J/.claudehut/index/variation.json" ] && grep -q "extractor changed" <<<"$o1"'
+rm -f "$J/.claudehut/index/variation.json"
+o2="$("$IDX" update --plane "$J/.claudehut" 2>&1)"
+check "V4: a current index missing variation.json is not 'up to date': one update writes it" \
+  '[ -f "$J/.claudehut/index/variation.json" ] && ! grep -q "up to date" <<<"$o2"'
 PY="$TMP/py"; mkdir -p "$PY/.claudehut"; printf 'print(1)\n' >"$PY/a.py"; git -C "$PY" init -q && git -C "$PY" add -A && git -C "$PY" -c user.email=t@t -c user.name=t commit -qm x
 "$IDX" update --plane "$PY/.claudehut" >/dev/null 2>&1
 check "V4: on a Python repo variation.json says applicable:false with the reason (never an empty 'none found')" \

@@ -22,6 +22,12 @@
   naming the repo's port + selector families (variant dir, selector) from the index. A never-indexed small repo
   (≤300 Java files) is indexed on the spot (`hc_index_first_build`), and the kb server builds a missing index on
   first use; an existing index is never rebuilt inside a call.
+- Index: `TOOL_VERSION` 0.20.0-idx6 and "variation.json missing" both force a rebuild, so a plane indexed before M3
+  gets its variation points on the next update (an "up to date" index used to skip the detectors for good); the
+  first-build claim expires after 10 min; a per-file parse cache keyed by content sha (`index/variation-cache.json`)
+  keeps an incremental update of a 1,221-file service at ~1.0 s (3.0 s without).
+- `evals/plugin-eval-signals.py <results dir>`: per run, real kb `tool_use` calls and whether the hint / advisory
+  were injected — read from the session log, not `trace.jsonl` (which holds only SessionStart hook events).
 - Ground truth frozen before the detectors (`evals/fixtures/variation/expected.json`, 11 VPs, 8 negatives) plus
   documented post-freeze additions; `regress/variation-tests.sh`: precision 1.0 / recall 1.0 on the fixture, the zns
   and bank-export eval scaffolds, and a rule-deletion pass where all 15 tagged rules carry weight.

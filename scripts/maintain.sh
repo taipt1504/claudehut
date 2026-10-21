@@ -59,7 +59,7 @@ while IFS= read -r -d '' f; do
   case "$b" in
     "${HC_SID:-__none__}".*) continue ;;
     *.suspects.jsonl) task_active "${b%.suspects.jsonl}" && continue ;;
-    *.*.json|*.jsonl|*.injected-phase|*.ua-flag|*.nudged|*.nudged.*|index-head.*) : ;;
+    *.*.json|*.jsonl|*.injected-phase|*.ua-flag|*.nudged|*.nudged.*|index-head.*|index-build.pending) : ;;
     *.json)   # a pointer
       t="$(jq -r 'if type=="object" and .schema==2 then (.active_task // empty) else empty end' "$f" 2>/dev/null)" || t=""
       [ -n "$t" ] && task_active "$t" && continue ;;

@@ -191,17 +191,40 @@ def _loc(t, line=None):
     return {"fqn": t["fqn"], "file": t["file"], "line": line or t["line"]}
 
 
-def detect(files, read):
-    """files: repo-relative paths; read(rel) → text. → (variation_points, patterns)."""
+def parse_file(rel, text):
+    """One file → its type records, JSON-serializable (the per-file cache unit), or [] when not a Java source."""
+    test = bool(JAVA_TEST_RE.search(rel))
+    if not (JAVA_MAIN_RE.search(rel) or test):
+        return []
+    try:
+        out = _types_of(rel, text, test)
+    except Exception:  # one unparsable file costs only itself
+        return []
+    for t in out:
+        t["ann"] = sorted(t["ann"])
+        t.pop("ann_args", None)
+        for m in t["members"]:
+            if "ann" in m:
+                m["ann"] = sorted(m["ann"])
+    return out
+
+
+def detect(files, read, cache=None):
+    """files: repo-relative paths; read(rel) → text; cache: {rel: types} already parsed (reused as is).
+    → (variation_points, patterns)."""
     types = []
     for rel in files:
-        test = bool(JAVA_TEST_RE.search(rel))
-        if not (JAVA_MAIN_RE.search(rel) or test):
-            continue
-        try:
-            types += _types_of(rel, read(rel), test)
-        except Exception:  # one unparsable file costs only itself
-            continue
+        recs = cache[rel] if cache is not None and rel in cache else parse_file(rel, read(rel))
+        types += recs
+    return analyze(types)
+
+
+def analyze(types):
+    for t in types:   # cached records carry lists; the detectors use sets
+        t["ann"] = set(t["ann"])
+        for m in t["members"]:
+            if "ann" in m:
+                m["ann"] = set(m["ann"])
     model = Model(types)
     subs = {}
     for t in types:

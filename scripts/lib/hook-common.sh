@@ -232,11 +232,15 @@ hc_once() { # $1 = key; 0 the first time per session, 1 after (sidecar, never th
 # parallel hooks and sessions cannot double-build. A small repo (≤300 Java files, ~1 s) is built now, so the hook
 # that asked can use it; a bigger one is built detached for the next call (hook timeouts must hold). M3c.
 hc_index_first_build() {
-  [ -f "$PLANE/index/meta.json" ] && return 0
+  [ -f "$PLANE/index/variation.json" ] && return 0   # what the callers need (an old index has meta.json but not this)
   local root="${CLAUDE_PLUGIN_ROOT:-}" nj cli
   [ -n "$root" ] || root="$(cd "${BASH_SOURCE[0]%/*}/../.." 2>/dev/null && pwd)"   # this file is scripts/lib/
   cli="$root/bin/claudehut-index"
   [ -x "$cli" ] || return 1
+  # The claim expires after 10 min: a build that failed or was killed must not stop every later retry.
+  if [ -f "$PLANE/state/index-build.pending" ] && [ -n "$(find "$PLANE/state/index-build.pending" -mmin +10 2>/dev/null)" ]; then
+    rm -f "$PLANE/state/index-build.pending" 2>/dev/null
+  fi
   ( set -C; : > "$PLANE/state/index-build.pending" ) 2>/dev/null || return 1
   nj="$(git -C "$PROJECT_DIR" ls-files -- '*.java' 2>/dev/null | head -301 | wc -l | tr -d ' ')"
   if [ "${nj:-301}" -le 300 ]; then
