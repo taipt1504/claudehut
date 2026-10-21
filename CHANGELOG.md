@@ -9,6 +9,12 @@
   `claudehut-design-reviewer` (rubric R1–R6, APPROVE/REVISE). `minimalism.md` now carries the two-way rule; the
   digest, the prompt hint and the write advisory name rule (c) and the skill ("quick" / "like X" does not switch
   the rule off).
+- **Trigger, M4b:** when a prompt adds a variant and the kb finds a family, the UserPromptSubmit hint states a T2
+  "Deliberation trigger" and asks for `claudehut:deliberate` (a2 §2: the deterministic trigger runs first); the
+  write advisory says so too; sharper skill description (trigger fixture `evals/trigger-eval/deliberate.json`).
+  New should-not guard `decision/internal-client-beside-family` (the hint fires there); diagnostic
+  `diagnostic/zns-forced-deliberate` (not scored). Decision suite on 1ace782, with vs without, n=3:
+  should-abstract 8/9, should-not 6/6 (zns +0.67, bank-export +0.50, vendor-neutral +0.17, guards 0).
 - `claudehut-state set-tier T0|T1|T2|T3 [--reason R] [--user-decision D]` (event `tier.set`; lowering a tier needs
   the user's decision), in both writers; `status` shows the tier.
 

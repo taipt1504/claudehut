@@ -338,3 +338,51 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
   - Build full payment-gateway-ms (1.221 file): 3,7 s, nên chạy detached.
   - Update incremental của cùng service: 3,0 s khi detector parse lại toàn bộ. Sau khi thêm cache parse theo từng file (key là sha nội dung): 1,0 s.
 - Dọn dẹp: đã xoá 46 thư mục `--keep-temp` (`/private/tmp/e-*`) của các run eval của em, kể cả phần `sealed/` (sau khi chmod).
+
+## M3d + M4 — owner confirm pattern, deliberation pack (2026-10-22)
+
+**M3d:**
+- `claudehut-index patterns confirm|reject|deprecate <id> --by <owner> [--note]` ghi vào `<plane>/patterns.json` (ai, khi nào, vì sao, commit đã index).
+- Trong `kb_patterns`, hint và advisory: instance đã confirm đứng trước, instance đã reject không bao giờ hiện lại.
+
+**M4a** (`9a2833b`):
+- Pack `deliberation` gồm:
+  - skill `claudehut:deliberate`: tier, probe bằng kb, rule PV hai chiều (a)/(b)/(c), các option, `decision.md` theo dạng MADR;
+  - agent `claudehut-design-reviewer` (R1–R6);
+  - `set-tier` ở cả hai writer;
+  - `minimalism.md` mang rule hai chiều.
+- **Đo** (`2026-10-21T16-44-04Z`, with/without): bank-export +0.50 (1.00 so với 0.50), các case khác Δ 0.
+- Trong 24 run: **0 lần gọi Skill**, 0 lần gọi kb. Vì vậy con số này đo hint của M3c, chưa đo pack.
+
+**Chẩn đoán (theo advisor):**
+- Trigger-eval chỉ dựa vào description: recall 12/24, và poach case single-client 3/3.
+- Case chẩn đoán `diagnostic/zns-forced-deliberate` (zns kèm câu "Use claudehut:deliberate first", tag riêng, không tính điểm): **3/3**, có gọi kb ở 3/3.
+- Kết luận: **loop chạy đúng khi được kích hoạt; chỗ hỏng là trigger.**
+
+**M4b** (`1ace782`):
+- Theo đúng a2 §2 (trigger tất định chạy trước): khi prompt có dạng "thêm một variant" và kb tìm thấy một họ variant, hint giờ nêu rõ "Deliberation trigger (T2)" và yêu cầu gọi `claudehut:deliberate`. Advisory lúc Write cũng vậy.
+- Description của skill được viết sắc hơn (trigger recall lên 14/24).
+- Thêm guard **should-not mới** `decision/internal-client-beside-family`: vẫn là một client nội bộ duy nhất, nhưng cạnh một họ SMS đang hoạt động, để hint chắc chắn fire. Thêm theo point 5 của advisor, vì guard single-client cũ không thể fail trước câu chữ mới.
+
+**Exit M4, đo trên `1ace782`** (`2026-10-21T17-15-57Z`, `--ablation with-without`, 3 run mỗi arm, plan quota, $5,38):
+
+| Case | Loại | with | without | Δ |
+|---|---|---|---|---|
+| zns-follows-provider-pattern | should-abstract | 0.67 | 0.00 | +0.67 |
+| bank-export-follows-param | should-abstract | 1.00 | 0.50 | +0.50 |
+| vendor-neutral-columns | should-abstract (vendor leak) | 1.00 | 0.83 | +0.17 |
+| single-client-no-abstraction | should-not | 1.00 | 1.00 | 0 |
+| internal-client-beside-family | should-not (hint có fire) | 1.00 | 1.00 | 0 |
+
+- **should-abstract 8/9 (89% ≥ 80%), should-not 6/6 (100% ≥ 90%): tiêu chí exit M4 đạt ở n=3.** Với n=3, mỗi run làm điểm một case lệch 0,33 nên khoảng tin cậy còn rộng. Cần lặp lại trên n lớn hơn trước khi tin hẳn.
+- Signals:
+  - Skill `deliberate` được gọi 1/15 run;
+  - kb tool 0/15;
+  - hint ở 12/15 (không có ở single-client, đúng như mong đợi);
+  - advisory 2/15.
+- Vậy cải thiện đến từ **nội dung hint**: nó nêu họ variant, rule (c) và trigger T2. Skill hay kb tool gần như không được gọi. Bản thân loop deliberate mới chỉ được chứng minh ở case chẩn đoán.
+- Chưa làm:
+  - invariant `tier ≥ T2 ⇒ decision.md trước set-plan`;
+  - route rubric đẩy "tích hợp mới" lên tối thiểu light;
+  - sensor vendor-leak (a2 §2);
+  - tournament T3.
