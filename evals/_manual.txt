@@ -25,3 +25,5 @@ router-eval.sh: M0 dry-run harness for the router cases; the router it measures 
 # NOT listed, and deliberately: run.sh, score.sh and llm-judge.sh are executed by conformance.sh (:839,
 # :832, :822), which ci.yml runs — reference-check.sh treats "executed by a covered suite" as covered and
 # will call an entry for any of them stale.
+plugin-eval.sh: drives `claude plugin eval` (live, plan quota or API bill) — run on an explicit budget go-ahead; its harness logic is covered by regress/eval-harness-tests.sh.
+summarize.sh: a report over evals/results rows (pass rate, Δ), not a test — its logic is asserted by regress/eval-harness-tests.sh Y1–Y3.
