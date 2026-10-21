@@ -92,19 +92,19 @@ check "B7: an 'add a sender' prompt in an indexed repo gets ONE kb line naming t
   'jq -e ".hookSpecificOutput.additionalContext | test(\"port \\\\+ selector: .*SmsProvider\") and test(\"rule \\\\(c\\\\)\")" <<<"$h" >/dev/null'
 check "B7: … and the endpoint that takes the variant (bank)" 'jq -r ".hookSpecificOutput.additionalContext" <<<"$h" | grep -q "export(bank)"'
 q="$(ups "$J" "explain the refund flow")"
-check "B7: a prompt that adds nothing gets no hint" '! grep -q "kb: this repo" <<<"$q"'
+check "B7: a prompt that adds nothing gets no hint" '! grep -q "Deliberation trigger" <<<"$q"'
 e="$(mkdir -p "$E/.claudehut/state"; ups "$E" "add a new sms provider")"
-check "B7: no variation point in the repo → no hint (silence, not an empty claim)" '! grep -q "kb: this repo" <<<"$e"'
+check "B7: no variation point in the repo → no hint (silence, not an empty claim)" '! grep -q "Deliberation trigger" <<<"$e"'
 N="$(repo noidx "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$N/.claudehut/state"
 nh="$(ups "$N" "add a new sms provider")"
 check "B7: never indexed + a small repo → indexed now, once, and THIS prompt gets the hint" \
-  '[ -f "$N/.claudehut/state/index-build.pending" ] && [ -f "$N/.claudehut/index/variation.json" ] && grep -q "kb: this repo" <<<"$nh"'
+  '[ -f "$N/.claudehut/state/index-build.pending" ] && [ -f "$N/.claudehut/index/variation.json" ] && grep -q "Deliberation trigger" <<<"$nh"'
 
 O="$(repo old "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$O/.claudehut/state"
 "$IDX" update --plane "$O/.claudehut" >/dev/null 2>&1; rm -f "$O/.claudehut/index/variation.json"
 oh="$(ups "$O" "add a new sms provider")"
 check "B7: an index from before M3 (meta.json, no variation.json) is completed at the prompt and the hint comes" \
-  '[ -f "$O/.claudehut/index/variation.json" ] && grep -q "kb: this repo" <<<"$oh"'
+  '[ -f "$O/.claudehut/index/variation.json" ] && grep -q "Deliberation trigger" <<<"$oh"'
 rm -f "$O/.claudehut/index/variation.json"; touch -t 202601010000 "$O/.claudehut/state/index-build.pending"
 ups "$O" "add a new sms provider" >/dev/null
 check "B7: a stale build claim (>10 min, a killed build) does not block the retry" '[ -f "$O/.claudehut/index/variation.json" ]'

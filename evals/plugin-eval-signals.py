@@ -15,7 +15,7 @@ import os
 import sys
 
 KB = "mcp__plugin_claudehut_kb__"
-HINT = "kb: this repo already selects among variants"
+HINTS = ("kb: this repo already selects among variants", "Deliberation trigger (T2)")   # M3c wording, M4 wording
 ADVISORY = "looks like a new variant"
 
 
@@ -32,7 +32,7 @@ def signals(path):
         return out
     with open(path, encoding="utf-8", errors="replace") as f:
         for line in f:
-            if HINT in line:
+            if any(h in line for h in HINTS):
                 out["hint"] = True
             if ADVISORY in line:
                 out["advisory"] = True
@@ -49,6 +49,8 @@ def signals(path):
                     if name.startswith(KB):
                         k = name[len(KB):]
                         out["kb_calls"][k] = out["kb_calls"].get(k, 0) + 1
+                    if name == "Skill":
+                        out.setdefault("skills", []).append((c.get("input") or {}).get("skill", ""))
                     if name in ("Write", "Edit"):
                         fp = (c.get("input") or {}).get("file_path", "")
                         out["writes"].append(f"{name}:{fp.split('/src/main/java/')[-1]}")
@@ -73,7 +75,7 @@ def main(argv):
     for r in rows:
         kb = sum(r["kb_calls"].values())
         print(f"{r['case']:<32} {r['arm']:<7} #{r['run']} score={r['score']} kb_calls={kb} hint={int(r['hint'])} "
-              f"advisory={int(r['advisory'])} writes={' '.join(r['writes'])[:120]}{(' ' + r['error']) if r.get('error') else ''}")
+              f"advisory={int(r['advisory'])} skills={','.join(r.get('skills', [])) or '-'} writes={' '.join(r['writes'])[:120]}{(' ' + r['error']) if r.get('error') else ''}")
     n = len(rows) or 1
     print(f"-- {len(rows)} run(s): kb used in {sum(1 for r in rows if r['kb_calls'])}, hint in {sum(r['hint'] for r in rows)}, "
           f"advisory in {sum(r['advisory'] for r in rows)} ({100 * sum(1 for r in rows if r['kb_calls']) // n}% kb use)")

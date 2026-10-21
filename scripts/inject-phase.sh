@@ -55,9 +55,10 @@ if [[ $lc =~ $VAR_ADD_RE ]] && [[ $lc =~ $VAR_NOUN_RE ]]; then
          | .[:4] | join(", ")) as $p
       | ([.variation_points[]? | select(.kind == "contract-param") | (.anchor | split(".") | last)] | .[:2] | join(", ")) as $c
       | if ($p == "" and $c == "") then empty else
-        "kb: this repo already selects among variants" + (if $p != "" then " — port + selector: " + $p else "" end)
+        "Deliberation trigger (T2): this request adds a variant and the repo already selects among variants"
+        + (if $p != "" then " — port + selector: " + $p else "" end)
         + (if $c != "" then "; endpoint takes the variant: " + $c else "" end)
-        + ". Protected Variation rule (c): a new variant of an existing concern follows that pattern even when the request says quick or like X (claudehut:deliberate)." end' "$VJ" 2>/dev/null | head -c 400)"
+        + ". Invoke the claudehut:deliberate skill before writing code; under its Protected Variation rule (c) a new variant of an existing concern follows that pattern even when the request says quick or like X." end' "$VJ" 2>/dev/null | head -c 400)"
     [ -n "$vh" ] && fact="${fact:+$fact$'\n'}$vh"
   fi
 fi

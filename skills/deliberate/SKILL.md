@@ -1,6 +1,6 @@
 ---
 name: deliberate
-description: Use before a design choice - adding a provider, vendor, bank, channel, client, strategy, enum value, interface or DB column, or when a kb hint names an existing variant family - decides interface vs direct code by the two-way Protected Variation rule and records the decision.
+description: Use before writing code that adds a new external integration or variant - a provider, vendor, bank, partner or channel, a vendor-specific field, column or enum value - or when a ClaudeHut hint says "Deliberation trigger"; decides port vs direct code by the two-way Protected Variation rule and records it.
 ---
 
 # Deliberate (pack deliberation)

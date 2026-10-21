@@ -1,0 +1,24 @@
+{
+  "skill": "deliberate",
+  "description": "Use before writing code that adds a new external integration or variant - a provider, vendor, bank, partner or channel, a vendor-specific field, column or enum value - or when a ClaudeHut hint says \"Deliberation trigger\"; decides port vs direct code by the two-way Protected Variation rule and records it.",
+  "should_trigger": [
+    "wire GapOne ZNS into notification, like PushService does for OneSignal",
+    "Implement PaymentFileService.export for TCB, the only bank we need for now",
+    "add a zns_audit table storing the GapOne template id and message id",
+    "we need a second SMS vendor next to CMC",
+    "add an enum value for the new partner VNPAY",
+    "support a new payout channel through Napas",
+    "integrate the MoMo wallet as a new top-up provider",
+    "add a column for the provider message id"
+  ],
+  "should_not_trigger": [
+    "rename holderName to accountHolderName",
+    "fix the NPE in WalletService.balance",
+    "WalletService needs the KYC level from party-ms, add ownerKycLevel",
+    "explain how refunds flow through the dispatcher",
+    "run the tests",
+    "what does SmsProviderFactory do",
+    "bump the logback version",
+    "review my diff"
+  ]
+}
