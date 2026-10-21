@@ -41,7 +41,9 @@
     "scripts/index/extract.py",
     "scripts/index/hub.py",
     "scripts/index/memory.py",
-    "scripts/index/planepath.py"
+    "scripts/index/planepath.py",
+    "scripts/kb/**",
+    ".mcp.json"
   ],
   "guides": [],
   "sensors": [],

@@ -9,7 +9,8 @@
 #   - Bash in an eval run is sandboxed and cannot read $HOME, so the plugin under test is COPIED to $TMPDIR (outside
 #     $HOME on macOS and Linux) — otherwise the agent cannot run bin/claudehut-state from the plugin root.
 #   - Only evals/suites travels with the copy: the older oracles (evals/tasks/*/oracle.sh) never reach a run.
-#   - --scaffold (cases seed fixture repos), --trust-plugin and the tool grants are always the same.
+#   - --scaffold (cases seed fixture repos), --trust-plugin and the tool grants are always the same. --mocks off
+#     starts the plugin's real MCP server (claudehut-kb, M3b): `mcp__*` is refused as a grant, so its tools are named.
 # Auth (ADR K-17): `claude plugin eval` uses the same credentials as your sessions — plan = subscription login and
 # its usage limits (default), api = ANTHROPIC_API_KEY. Results: evals/results/plugin-eval/<UTC timestamp>/.
 # COSTS: every run is a model call on your plan or bill. Start with --runs 1 --ablation none on one case.
@@ -44,7 +45,9 @@ printf '{"auth_mode":"%s","claude_version":"%s","plugin_version":"%s","source_sh
   "$(claude --version 2>/dev/null | head -1)" "$(jq -r .version "$SRC/.claude-plugin/plugin.json" 2>/dev/null)" "$SHA" "$DIRTY" "$TS" > "$OUT/run-meta.json"
 echo "plugin copy: $COPY   results: $OUT   auth: $AUTH"
 ( cd "$COPY" && claude plugin eval . --eval-dir evals/suites --scaffold --trust-plugin --no-publish \
-    --output-dir "$OUT" --allow-tools Bash Write Edit "${pass[@]+"${pass[@]}"}" )
+    --output-dir "$OUT" --mocks off \
+    --allow-tools Bash Write Edit mcp__plugin_claudehut_kb__kb_variation_points mcp__plugin_claudehut_kb__kb_patterns \
+                  mcp__plugin_claudehut_kb__kb_brief "${pass[@]+"${pass[@]}"}" )
 rc=$?
 $KEEP || rm -rf "$BASE"
 exit "$rc"

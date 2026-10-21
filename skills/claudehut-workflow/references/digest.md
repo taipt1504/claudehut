@@ -15,8 +15,8 @@ ClaudeHut plans and reviews Java/Spring changes. Route every new request yoursel
 - "skip workflow"/"làm nhanh": `direct`, no `start` or confirmation; an open task gets `end --status abandoned`. "làm đủ quy trình": `full`. Overrides cover the current request only.
 
 ## Tools
-Any plugin's skills, agents, MCP tools may fit. Look up code: `claudehut-index brief`/`find` (CLI path: Index line), then `.understand-anything/knowledge-graph.json` (jq), then targeted Grep/Glob.
-Another service: `svc <name>`/`links --service <name>` before reading its repo. A task spanning services: `start --repo <a> --repo <b>`.
+New interface/provider/strategy/enum value, or a design choice: `kb_variation_points`/`kb_patterns` (MCP) first. Code lookup: `kb_brief` or `claudehut-index brief`/`find` (Index line), then `.understand-anything/knowledge-graph.json` (jq), then Grep/Glob.
+Another service: `svc <name>`/`links --service <name>` before reading its repo. Cross-service task: `start --repo <a> --repo <b>`.
 Skill call with no body: Read `skills/<name>/SKILL.md` under the plugin root.
 Dispatch agents as `claudehut:claudehut-<name>` without `name` (a teammate only if asked); independent ones in one message, copy the language line verbatim into each prompt. Subagents never ask the user or write state.
 

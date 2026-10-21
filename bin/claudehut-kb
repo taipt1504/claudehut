@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# claudehut-kb — MCP stdio server of the knowledge plane (docs/v0.20 05 §4; started by the plugin's .mcp.json).
+# A python3 that is missing or cannot run must fail LOUDLY on stderr (the host shows it in /mcp), not as a silent
+# crash: the tools then report nothing and the CLI (`claudehut-index variation|brief`) stays the fallback.
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+_root="$(cd "$_d/.." 2>/dev/null && pwd)" || exit 1
+PY="${CLAUDEHUT_PYTHON:-python3}"
+if ! command -v "$PY" >/dev/null 2>&1 || ! "$PY" -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+  echo "claudehut-kb: python3 >= 3.8 not available ($PY) — the kb_* tools are off; use claudehut-index variation|brief" >&2
+  exit 1
+fi
+PYTHONDONTWRITEBYTECODE=1 exec "$PY" -B "$_root/scripts/kb/claudehut_kb.py" "$@"

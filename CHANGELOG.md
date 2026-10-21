@@ -9,6 +9,13 @@
   framework `extension-point`, never a VP. The miner groups ports with variants AND a selector into the candidate
   pattern `port-selector`. `claudehut-index update` writes `index/variation.json` when the Java pack is active
   (else `applicable:false` + reason); `claudehut-index variation [--json]` reads it.
+- **MCP server `claudehut-kb`, M3b** (ADR K-04 replaces 0.12's V5 "no MCP"; docs/v0.20 05 §4): read-only stdio
+  server `bin/claudehut-kb` (`.mcp.json`), tools `kb_variation_points`, `kb_patterns`, `kb_brief`. Every answer is
+  `ok`, `none_found` or `unknown` (no index / stack not applicable, with the reason and the fix), carries
+  `stale`/`indexed_commit`, file:line provenance, sanitized data; concise ≤ 8k chars. Instructions + schemas
+  ≈ 520 tokens (tested ≤ 2600 chars; `claude plugin details` does not count MCP). A python3 that cannot run fails
+  loudly on stderr. The digest points at the kb tools; plugin evals start the real server (`--mocks off`, tools
+  granted by name); decision cases gain a weight-0 `kb-consulted` observation.
 - Ground truth frozen before the detectors (`evals/fixtures/variation/expected.json`, 11 VPs, 8 negatives) plus
   documented post-freeze additions; `regress/variation-tests.sh`: precision 1.0 / recall 1.0 on the fixture, the zns
   and bank-export eval scaffolds, and a rule-deletion pass where all 15 tagged rules carry weight.

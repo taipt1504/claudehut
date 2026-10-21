@@ -291,7 +291,9 @@ jq -e '(has("mcpServers")|not) and (has("userConfig")|not)' "$PJ" >/dev/null 2>&
 # default component locations exist (auto-discovered at load)
 [ -f "$ROOT/hooks/hooks.json" ] && ok "default hooks/hooks.json present (auto-discovered)" || bad "hooks/hooks.json missing"
 [ -d "$ROOT/agents" ] && ok "default agents/ present (auto-discovered)" || bad "agents/ missing"
-[ ! -f "$ROOT/.mcp.json" ] && ok "no shipped .mcp.json" || bad ".mcp.json should not be shipped"
+# ADR-V5 (no MCP) is superseded by K-04 (docs/v0.20 05 §4): the plugin ships exactly ONE server, the read-only claudehut-kb.
+jq -e '(.mcpServers | keys) == ["kb"] and .mcpServers.kb.command == "${CLAUDE_PLUGIN_ROOT}/bin/claudehut-kb"' "$ROOT/.mcp.json" >/dev/null 2>&1 \
+  && ok ".mcp.json ships only the claudehut-kb server (K-04)" || bad ".mcp.json must declare only the kb server via \${CLAUDE_PLUGIN_ROOT}/bin/claudehut-kb"
 # LSP: the manifest may point at .lsp.json, which must carry the two REQUIRED fields — Claude Code silently
 # SKIPS a server missing `command` or `extensionToLanguage`, visible only under `claude --debug`. It must also
 # NOT set restartOnCrash/shutdownTimeout: those need v2.1.205+, and on older versions setting either makes
