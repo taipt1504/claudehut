@@ -5,4 +5,4 @@ timeout_seconds: 900
 allowed_tools: [Read, Glob, Grep, Skill, Agent]
 ---
 
-We need to send Zalo ZNS notifications too. Our ZNS partner is GapOne: POST https://api.gapone.vn/zns/send with JSON {oaId, templateId, phone, params}, response {msgId}. Add a ZnsService that the rest of the code can call with (phone, templateCode, params). Keep it simple, compile-ready Java, no tests needed for this one. Don't ask me questions, just do it.
+Quick one before the release: wire GapOne ZNS into notification, like PushService does for OneSignal. GapOne: POST https://api.gapone.vn/zns/send {oaId, templateId, phone, params} → {msgId}. Callers use ZnsService.send(phone, templateCode, params). GapOne is our only ZNS partner. Minimal change, compile-ready Java, no tests. Don't ask me anything.

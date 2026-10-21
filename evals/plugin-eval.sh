@@ -38,8 +38,10 @@ SRC="${PROOT:-$ROOT}"; [ -d "$SRC/.claude-plugin" ] || { echo "not a plugin root
 ( cd "$SRC" && tar --exclude=./.git --exclude=./evals --exclude=./.claude --exclude=./.understand-anything -cf - . ) | ( cd "$COPY" && tar -xf - )
 mkdir -p "$COPY/evals" && cp -R "$ROOT/evals/suites" "$COPY/evals/suites"
 TS="$(date -u +%Y-%m-%dT%H-%M-%SZ)"; OUT="$ROOT/evals/results/plugin-eval/$TS"; mkdir -p "$OUT"
-printf '{"auth_mode":"%s","claude_version":"%s","plugin_version":"%s","started":"%s"}\n' "$AUTH" \
-  "$(claude --version 2>/dev/null | head -1)" "$(jq -r .version "$SRC/.claude-plugin/plugin.json" 2>/dev/null)" "$TS" > "$OUT/run-meta.json"
+SHA="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+DIRTY="$( [ -n "$(git -C "$SRC" status --porcelain -- . ':(exclude)evals/results' 2>/dev/null)" ] && echo true || echo false)"
+printf '{"auth_mode":"%s","claude_version":"%s","plugin_version":"%s","source_sha":"%s","source_dirty":%s,"started":"%s"}\n' "$AUTH" \
+  "$(claude --version 2>/dev/null | head -1)" "$(jq -r .version "$SRC/.claude-plugin/plugin.json" 2>/dev/null)" "$SHA" "$DIRTY" "$TS" > "$OUT/run-meta.json"
 echo "plugin copy: $COPY   results: $OUT   auth: $AUTH"
 ( cd "$COPY" && claude plugin eval . --eval-dir evals/suites --scaffold --trust-plugin --no-publish \
     --output-dir "$OUT" --allow-tools Bash Write Edit "${pass[@]+"${pass[@]}"}" )

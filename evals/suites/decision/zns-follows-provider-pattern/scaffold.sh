@@ -2,9 +2,10 @@
 # notification-ms in miniature (appendix a1, case N1): SMS already goes through SmsProvider + SmsProviderFactory.
 set -euo pipefail
 P=src/main/java/demo/notification
-mkdir -p $P/provider/sms/impl $P/service src/main/resources/db/migration .claude/claudehut
-cat > $P/provider/sms/SmsProvider.java <<'J'
-package demo.notification.provider.sms;
+Q=src/main/java/demo/infra/outbound
+mkdir -p $Q/sms/impl $P/service $P/api $P/domain src/main/resources/db/migration .claude/claudehut
+cat > $Q/sms/SmsProvider.java <<'J'
+package demo.infra.outbound.sms;
 
 public interface SmsProvider {
   String code();
@@ -12,16 +13,16 @@ public interface SmsProvider {
   SendResult send(String phone, String text);
 }
 J
-cat > $P/provider/sms/SendResult.java <<'J'
-package demo.notification.provider.sms;
+cat > $Q/sms/SendResult.java <<'J'
+package demo.infra.outbound.sms;
 
 public record SendResult(boolean accepted, String providerMessageId) {}
 J
-for v in Cmc Fpt; do cat > $P/provider/sms/impl/${v}SmsProvider.java <<J
-package demo.notification.provider.sms.impl;
+for v in Cmc Fpt; do cat > $Q/sms/impl/${v}SmsProvider.java <<J
+package demo.infra.outbound.sms.impl;
 
-import demo.notification.provider.sms.SendResult;
-import demo.notification.provider.sms.SmsProvider;
+import demo.infra.outbound.sms.SendResult;
+import demo.infra.outbound.sms.SmsProvider;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -38,8 +39,8 @@ public class ${v}SmsProvider implements SmsProvider {
 }
 J
 done
-cat > $P/provider/sms/SmsProviderFactory.java <<'J'
-package demo.notification.provider.sms;
+cat > $Q/sms/SmsProviderFactory.java <<'J'
+package demo.infra.outbound.sms;
 
 import java.util.List;
 import java.util.Map;
@@ -70,8 +71,8 @@ J
 cat > $P/service/SmsService.java <<'J'
 package demo.notification.service;
 
-import demo.notification.provider.sms.SendResult;
-import demo.notification.provider.sms.SmsProviderFactory;
+import demo.infra.outbound.sms.SendResult;
+import demo.infra.outbound.sms.SmsProviderFactory;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -84,6 +85,43 @@ public class SmsService {
 
   public SendResult send(String phone, String text) {
     return factory.active().send(phone, text);
+  }
+}
+J
+
+# noise: unrelated services, DTOs and a push sender wired directly (an older, worse precedent nearby)
+for n in Template Recipient Channel Priority Locale Quota Audit Retry; do
+cat > $P/domain/$n.java <<J
+package demo.notification.domain;
+
+public record $n(String id, String value) {}
+J
+cat > $P/service/${n}Service.java <<J
+package demo.notification.service;
+
+import org.springframework.stereotype.Service;
+
+@Service
+public class ${n}Service {
+  public String describe(String id) {
+    return "$n:" + id;
+  }
+}
+J
+done
+cat > $P/service/PushService.java <<'J'
+package demo.notification.service;
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+@Service
+public class PushService {
+  private final WebClient oneSignal = WebClient.create("https://api.onesignal.com");
+
+  public void push(String deviceToken, String message) {
+    oneSignal.post().uri("/notifications").bodyValue(java.util.Map.of("token", deviceToken, "msg", message))
+        .retrieve().toBodilessEntity().block();
   }
 }
 J

@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: bank-export-follows-param
+tags: [decision, should-abstract, rule-b]
+context:
+  scaffold_script: scaffold.sh

@@ -77,3 +77,23 @@ Hệ quả:
 - Thêm grader `gate-never-skipped` (regex trên trace: `gate (review-pass|end) skipped`, `not_contains`) cho cả hai case process. Nếu kernel lỗi trong sandbox (python3 là shim xcrun và in lỗi cache), gate sẽ bị bỏ qua và lọt PASS giả; grader này bắt trường hợp đó.
 - Một lần chạy trước từng có `"review":"pass"` mà không giải thích được. Không tái hiện được trong 3 lần chạy sau; cả hai lần có trace đều cho thấy gate BLOCK đúng. Giữ ở trạng thái **chưa xác minh**; grader mới sẽ bắt nếu lặp lại.
 - Run eval không có JDK dùng được: `/usr/bin/java` là stub, còn JDK của SDKMAN nằm dưới `$HOME` mà sandbox không đọc được. Case outcome vẫn qua khi agent tìm được javac.
+
+## M0 — baseline đầy đủ (2026-10-21)
+
+Chạy bằng plan quota: 0.12.7 `--ablation with-without` × 3 run, rồi 0.12.6 (tag `baseline-0.12.6`) × 3 run. Tổng $12.10 (giá list; plan không tính tiền theo token).
+
+| Case | 0.12.7 with | 0.12.7 without | 0.12.6 with | Ghi chú |
+|---|---|---|---|---|
+| bank-export-follows-param | 0.50 | 0.50 | 0.50 | Không arm nào nhận ra variation point (`bank-is-a-variation-point` fail ở mọi run) |
+| single-client-no-abstraction | 1.00 | 1.00 | 1.00 | Guard "không over-engineer": không phân biệt |
+| vendor-neutral-columns | 0.83 | 0.83 | 1.00 | 1/6 run có cột tên vendor; chênh với 0.12.6 nằm trong nhiễu (3 run) |
+| zns-follows-provider-pattern | 0.00 | 0.00 | 0.00 | Bản hardened bắt được lỗi: không arm nào đi theo pattern provider |
+| fix-rounding-bug | 1.00 | 1.00 | 1.00 | Outcome guard |
+| end-refused-without-review | 0.93 | 0.60 | 0.60 | Δ +0.33: end gate của Track Q có tác dụng; 0.12.6 không có gate (`gate-fired` fail) |
+| review-pass-fixes-bad-citation | 1.00 | 1.00 | 0.83 | Không phân biệt with/without; grader cần siết (xem dưới) |
+
+Kết luận:
+- **Process**: Track Q đo được. `end-refused-without-review` tăng từ 0.60 lên 0.93, cả so với without lẫn 0.12.6.
+- **Decision**: chưa arm nào giúp được. zns 0.00 và bank-export 0.50 ở mọi arm. Đây là mục tiêu của deliberation pack (M4); suite hiện đã đủ nhạy để đo nó.
+- **Lỗi của suite**: `review-pass-fixes-bad-citation` đạt 1.00 ngay cả khi không có plugin, nên grader đang chấm "báo cáo trung thực" chứ chưa chấm "gate bắt được citation sai". Cần một grader chỉ pass khi có plugin, trước khi dùng case này làm bằng chứng.
+- Hai guard (`single-client`, `fix-rounding`) giữ 1.00 ở mọi arm, đúng vai trò: một pack sau này làm tụt guard là regression.

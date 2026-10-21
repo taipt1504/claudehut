@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: plane-write-probe
+tags: [probe, k18]
+context:
+  scaffold_script: scaffold.sh
