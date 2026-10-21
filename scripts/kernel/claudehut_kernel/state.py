@@ -18,6 +18,7 @@ Port notes (kept identical to the bash writer, on purpose):
   - grep -E patterns are translated (POSIX classes → explicit) and applied line by line;
   - plan_review_plan_hash is the sha1 hex of the file bytes (shasum's default), so stored hashes keep matching.
 """
+import copy
 import fcntl
 import hashlib
 import json
@@ -27,7 +28,7 @@ import subprocess
 import sys
 import time
 
-from . import events, gates, plane
+from . import events, gates, plane, tasklog
 
 VERBS = ("start set-route set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review "
          "set-enforcement set-outstanding set-findings end resume status cost-report "
@@ -39,6 +40,14 @@ ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 SP = r"[ \t\n\r\f\v]"   # [[:space:]]
 LOCK_STALE = 30
 LOCK_WAIT = 10
+# The state event of each record-only verb (04 §1 list; profile/enforcement/outstanding/plan_review are additions).
+VERB_EVENT = {"set-route": "route.set", "set-complexity": "route.set", "set-phase": "phase.entered",
+              "set-reuse-scan": "artifact.rev", "set-brainstorm": "artifact.rev", "set-spec": "artifact.rev",
+              "set-plan": "artifact.rev", "set-findings": "artifact.rev", "set-plan-review": "plan_review.verdict",
+              "set-review": "review.verdict", "set-profile": "profile.set", "set-enforcement": "enforcement.set",
+              "set-outstanding": "outstanding.set"}
+ARTIFACT_KIND = {"set-reuse-scan": "reuse-scan", "set-brainstorm": "brainstorm", "set-spec": "spec", "set-plan": "plan",
+                 "set-findings": "findings"}
 
 
 class Exit(Exception):
@@ -80,6 +89,7 @@ class State:
         self._parse(argv)
         self._lock_flock = None
         self._lock_mkdir = None
+        self.gate_decision = None
 
     # ── output ───────────────────────────────────────────────────────────────────────────────────────────────
     @staticmethod
@@ -166,6 +176,18 @@ class State:
 
     def set_pointer(self, task_id):
         self.write_atomic(self.file, {"schema": 2, "active_task": task_id or None})
+
+    def commit(self, tfile, old, new, etype, data=None):
+        """K1: append the state event, then write the projection (task.json, which hooks read). Nothing is written
+        for a refused transition: every check runs before this."""
+        out = tasklog.commit(os.path.dirname(tfile), old, new, etype, data, session=self.session)
+        self.write_atomic(tfile, out)
+        if os.environ.get("CLAUDEHUT_STATE_SELFCHECK") == "1":
+            proj, _ = tasklog.project(events.read(os.path.dirname(tfile)))
+            if proj != read_json(tfile):
+                self.note(f"SELFCHECK: replay of {os.path.dirname(tfile)}/events.jsonl does not reproduce task.json")
+                raise Exit(70)
+        return out
 
     def load(self):
         self.active = ""
@@ -279,7 +301,7 @@ class State:
         ovr = self.flag("--override")
         try:
             rc, out = gates.run(which, os.path.abspath(self.project), os.path.abspath(self.task_dir()),
-                                override=ovr or None, ts=self.ts, **kw)
+                                override=ovr or None, ts=self.ts, record=False, **kw)
         except Exception as exc:  # noqa: BLE001 — a kernel failure must neither block nor pass silently
             print(f"claudehut-kernel: internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
             rc, out = 3, None
@@ -288,7 +310,9 @@ class State:
                       f"--override \"<reason>\" (recorded).")
             raise Exit(1)
         if rc == 0:
+            self.gate_decision = out.get("decision")
             return out
+        self.gate_decision = "skipped"
         self.note(f"gate {which} skipped: kernel unavailable or failed (exit {rc}) — transition proceeds, check "
                   f"`claudehut-kernel selftest`")
         try:
@@ -427,7 +451,7 @@ class State:
         t["status"] = st
         t["superseded_by"] = by
         t["ended"] = self.ts
-        self.write_atomic(self.tfile, t)
+        self.commit(self.tfile, self.task, t, "task.superseded", {"by": by})
         self.note(f"task {self.active} {'closed as done (it had finished) and ' if st == 'done' else ''}superseded by {by}")
 
     def claim_id(self, slug):
@@ -497,7 +521,7 @@ class State:
                "status": "active", "session": self.session, "created": self.ts}
         if cross:
             rec["cross_service"] = True
-        self.write_atomic(os.path.join(self.tasks_dir, tid, "task.json"), rec)
+        self.commit(os.path.join(self.tasks_dir, tid, "task.json"), None, rec, "task.started")
         self.supersede_active(tid)
         self.set_pointer(tid)
 
@@ -614,6 +638,9 @@ class State:
             self.no_task_note(" (the task closed or moved to another session while waiting for the lock)")
             return 0
         if self.task:
+            proj = tasklog.ahead(self.task_dir(), self.task)
+            if proj is not None and proj.get("status", "active") == "active":
+                self.task = proj   # a crash after the append: the log is ahead of task.json
             fk = self.finished_kind()
             if fk and self.new_request_verb(fk):
                 a0 = f" {self.arg0()}" if self.arg0() else ""
@@ -624,11 +651,19 @@ class State:
                           f"--profile <p> --slug <s> (it closes this one as done).")
                 return 0
         handler = getattr(self, "v_" + sub.replace("-", "_"))
+        old = copy.deepcopy(self.task) if self.task else None
         rc = handler()
         if rc is not None:
             return rc
         self.task["updated"] = self.ts
-        self.write_atomic(self.tfile, self.task)
+        data = {}
+        if sub in ARTIFACT_KIND:
+            data["kind"] = ARTIFACT_KIND[sub]
+        if sub == "set-review":
+            data["verdict"] = self.arg0()
+            if self.gate_decision:
+                data["gate"] = self.gate_decision
+        self.commit(self.tfile, old, self.task, VERB_EVENT[sub], data)
         self.note(f"{sub} -> {self.tfile}")
         return 0
 
@@ -711,7 +746,7 @@ class State:
         nt["session"] = self.session
         nt.pop("superseded_by", None)
         nt.pop("ended", None)
-        self.write_atomic(rf, nt)
+        self.commit(rf, rt, nt, "task.resumed")
         self.set_pointer(tid)
         po = alt(rt.get("session"), "")
         po = po if isinstance(po, str) else ""
@@ -728,9 +763,10 @@ class State:
         if es not in ("done", "abandoned"):
             self.err("end needs --status done|abandoned")
         self.gate_call("end", status=es)
+        old = copy.deepcopy(self.task)
         self.task["status"] = es
         self.task["ended"] = self.ts
-        self.write_atomic(self.tfile, self.task)
+        self.commit(self.tfile, old, self.task, "task.ended", {"status": es, "gate": self.gate_decision})
         self.set_pointer("")
         self.note(f"end -> {self.tfile} ({es})")
         return 0

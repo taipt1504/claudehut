@@ -8,9 +8,18 @@
   python3 that is missing or older than 3.8, and the read-only `cost-report` run it. Gates run in-process; a gate
   that raises is recorded as `gate.skipped` and never refuses. The plane lock interoperates with the bash writer
   (flock on `state/.state.lock.flock` and the mkdir lock).
+- **Event log is the source of truth** (K1, ADR K-03, M1b-b): every transition appends ONE typed state event to
+  `tasks/<id>/events.jsonl` (`task.started` snapshot, then patches: `phase.entered`, `route.set`, `artifact.rev`,
+  `plan_review.verdict`, `review.verdict`, `profile.set`, `enforcement.set`, `outstanding.set`, `task.superseded`,
+  `task.resumed`, `task.ended`; each with `rev` and `session`), then writes `task.json` as its projection with
+  `event_rev`. A refused transition writes nothing. A 0.12 task, or a task.json another writer changed, is recorded
+  as a `task.imported` snapshot on the next write; a log ahead of task.json (crash after the append) is re-projected
+  first. `claudehut-kernel replay --task DIR [--check]`; `CLAUDEHUT_STATE_SELFCHECK=1` replays after every write.
+  The 0.12.7 gate lines in old logs carry no patch and never change the projection.
 - Tests: every suite runs under both writers (`CLAUDEHUT_STATE_IMPL=py|bash`, all green); `regress/state-diff-tests.sh`
   runs the same verb scripts through both and requires identical transcripts (exit codes, stdout, stderr, task.json,
-  pointers, events); `regress/state-lock-tests.sh` pins the lock interleavings in-process.
+  pointers, gate events) and that every task replays; `regress/state-lock-tests.sh` pins the lock interleavings
+  in-process; `regress/tasklog-tests.sh` covers import, crash recovery and old logs; selftest has a replay canary.
 
 ## 0.12.8 — 2026-10-21
 

@@ -144,3 +144,19 @@ Kiểm chứng:
 - `state-diff-tests` chạy 4 kịch bản, tổng 68 lệnh, qua cả hai writer và so transcript: exit code, stdout, stderr, task.json, pointer, events. Mutation test (đổi một message) bị bắt.
 - `state-lock-tests` ghim các interleaving của lock trong process. Lý do: stub `mkdir` trên PATH của hook-tests không chạm được tới syscall `os.mkdir`, nên với writer Python thì check R3-C1 của hook-tests chuyển sang kỳ vọng `00000`.
 - Test đọc source (conformance R1, WS-8b, DT-11) giờ trỏ vào `state.py`. Doc của hợp đồng CLI nằm ở header của shim, nơi state-tests grep.
+
+## M1b-b — event log làm nguồn sự thật (2026-10-21)
+
+| Thiết kế (04 §1) | Đã build | Ghi chú |
+|---|---|---|
+| `events.jsonl` append-only là nguồn sự thật; `task.json` là projection | `claudehut_kernel/tasklog.py`: `commit()` append một state event (`rev`, `session`, `data.snapshot` hoặc `data.patch`/`unset`) rồi mới ghi projection, có `event_rev` | Hook vẫn đọc `task.json`, nên projection được ghi đồng bộ ở mỗi transition |
+| Event có kiểu | `task.started`, `phase.entered`, `route.set`, `artifact.rev` (`data.kind`), `review.verdict`, `task.ended`, `task.superseded`, `task.resumed` | **Thêm ngoài danh sách 04 §1:** `plan_review.verdict`, `profile.set`, `enforcement.set`, `outstanding.set`, `task.imported` |
+| Writer duy nhất, hook chỉ enrich | Chỉ state event (có `rev` + patch/snapshot) mới đổi projection. Event `gate.*`, `budget.exceeded` và các dòng `review.verdict`/`task.ended` mà gate CLI 0.12.7 đã ghi đều chỉ mang thông tin | Replay log cũ không bị lệch. Trên đường Python, gate chạy với `record=False`, nên mỗi transition ra đúng một event |
+| Ghi nguyên tử, schema có version | Transition bị refuse thì không ghi gì. Log đi trước `task.json` (crash sau khi append) → writer kế tiếp re-project trước khi làm. `task.json` bị writer khác sửa (bash fallback, sửa tay) → ghi `task.imported` | Giới hạn đã biết: nếu crash *và* bash fallback cùng sửa một task trước lần ghi Python kế tiếp, phần bash sửa sẽ bị projection ghi đè. Hiếm; bash chỉ là fallback một release |
+
+Kiểm chứng:
+- `claudehut-kernel replay --task DIR [--check]`.
+- Với `CLAUDEHUT_STATE_SELFCHECK=1`, mỗi lần ghi sẽ replay rồi so lại. Toàn bộ suite chạy ở chế độ này với writer Python và đều xanh. Thêm canary replay trong selftest.
+- `tasklog-tests` (10) phủ: một event cho mỗi transition, refuse thì không có event, import task 0.12, import khi có writer khác, phục hồi sau crash, và log 0.12.7 cũ.
+- `state-diff` giờ bỏ qua state event khi so (bash không có), nhưng bắt buộc mọi task phải replay đúng.
+- Fault canary chỉ dùng cho test: `CLAUDEHUT_KERNEL_FAULT=gate` (R7-py).

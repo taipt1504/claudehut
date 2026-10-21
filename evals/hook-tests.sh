@@ -696,10 +696,10 @@ cs --session sB set-review pass --evidence .claude/claudehut/tasks/0001-a/review
 cs --session sB set-phase discover 2>"$W/fin.err"
 chk "set-phase discover on a finished task never opens or adopts a task; the notice points at start (C3-2)" \
   '[ "$(ls "$TD" | wc -l | tr -d " ")" = 1 ] && [ "$(cs --session sB status | jq -r .active_task)" = 0001-a ] && grep -q "claudehut-state start" "$W/fin.err"'
-cs --session sB set-phase learn 2>/dev/null; h1="$(jq -S 'del(.status, .superseded_by, .ended, .updated)' "$T/task.json" | shasum)"
+cs --session sB set-phase learn 2>/dev/null; h1="$(jq -S 'del(.status, .superseded_by, .ended, .updated, .event_rev)' "$T/task.json" | shasum)"
 cs --session sB start --route light --profile bugfix --slug b >/dev/null 2>&1; T2="$TD/0002-b/task.json"
 chk "second task in a session: start closes the finished task 1 as done and leaves every other field of it untouched (D4, C3-2, R2-C1)" \
-  'jq -e ".status==\"done\" and .superseded_by==\"0002-b\" and .route==\"full\" and .profile==\"feature\" and .review==\"pass\"" "$T/task.json" >/dev/null && [ "$(jq -S "del(.status, .superseded_by, .ended, .updated)" "$T/task.json" | shasum)" = "$h1" ]'
+  'jq -e ".status==\"done\" and .superseded_by==\"0002-b\" and .route==\"full\" and .profile==\"feature\" and .review==\"pass\"" "$T/task.json" >/dev/null && [ "$(jq -S "del(.status, .superseded_by, .ended, .updated, .event_rev)" "$T/task.json" | shasum)" = "$h1" ]'
 chk "second task in a session: task 2 inherits no review / reuse_scan / findings_path of task 1 (C3-2)" \
   'jq -e ".review==\"pending\" and (has(\"reuse_scan\")|not) and (has(\"reuse_scan_artifact\")|not) and (has(\"findings_path\")|not) and (has(\"review_evidence\")|not) and .route==\"light\" and .profile==\"bugfix\"" "$T2" >/dev/null'
 cs --session sB end --status done 2>/dev/null; hd="$(shasum "$T2")"
@@ -1165,7 +1165,7 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests state-diff-tests state-lock-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests state-diff-tests state-lock-tests tasklog-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
     ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 HUB_NO_EWALLET=1 HUB_NO_DASHBOARD=1 HUB_UA_ROOT=/nonexistent bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone

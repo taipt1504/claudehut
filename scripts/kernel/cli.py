@@ -10,6 +10,8 @@
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
   claudehut-kernel event --task DIR --type T [--data JSON]
+  claudehut-kernel replay --task DIR [--check]   project tasks/<id>/events.jsonl → the task record (K1); --check exits 1
+                                                 when it differs from task.json (exit 0 with a note: no state events yet)
 
 Exit codes: 0 ok (pass or warn), 1 problems found (verify) / transition refused (gate), 2 usage error.
 `gate` prints one JSON object on stdout for the bash state CLI and human lines on stderr.
@@ -25,7 +27,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import events, gates, learn, plane, probe, selftest, verify  # noqa: E402
+from claudehut_kernel import events, gates, learn, plane, probe, selftest, tasklog, verify  # noqa: E402
 
 
 def _project(a):
@@ -162,6 +164,25 @@ def cmd_event(a):
     return 0 if events.append(os.path.abspath(a.task), a.type, data, source=a.source) else 1
 
 
+def cmd_replay(a):
+    task_dir = os.path.abspath(a.task)
+    proj, rev = tasklog.project(events.read(task_dir))
+    if proj is None:
+        print(f"replay: {task_dir}/events.jsonl holds no state event yet (a 0.12 task: imported on its next write)",
+              file=sys.stderr)
+        return 0
+    if not a.check:
+        print(json.dumps(proj, ensure_ascii=False, indent=1))
+        return 0
+    cur = plane.read_json(os.path.join(task_dir, "task.json"))
+    if proj == cur:
+        print(f"replay: rev {rev} reproduces task.json", file=sys.stderr)
+        return 0
+    keys = sorted(k for k in set(proj) | set(cur or {}) if (cur or {}).get(k) != proj.get(k))
+    print(f"replay: rev {rev} differs from task.json in: {', '.join(keys)}", file=sys.stderr)
+    return 1
+
+
 def main(argv):
     ap = argparse.ArgumentParser(prog="claudehut-kernel")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -220,6 +241,11 @@ def main(argv):
     e.add_argument("--data")
     e.add_argument("--source", default="cli")
     e.set_defaults(fn=cmd_event)
+
+    rp = sub.add_parser("replay")
+    rp.add_argument("--task", required=True)
+    rp.add_argument("--check", action="store_true")
+    rp.set_defaults(fn=cmd_replay)
 
     a = ap.parse_args(argv)
     return a.fn(a)

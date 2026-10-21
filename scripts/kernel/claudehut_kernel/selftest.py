@@ -17,6 +17,8 @@ import shutil
 import subprocess
 import tempfile
 
+from . import plane
+
 EVENT_PAYLOAD = {
     "SessionStart": {"source": "startup"},
     "UserPromptSubmit": {"prompt": "selftest"},
@@ -99,6 +101,7 @@ def run(plugin_root):
             results.append({"control": name, "ok": ok, "why": why})
         results.append(_canary_failure(plugin_root, env, proj, tmp))
         results.append(_canary_gate(plugin_root, env, proj))
+        results.append(_canary_replay(plugin_root, env, proj))
         results.append(_canary_claims(plugin_root, env, proj, tmp))
         results.append(_canary_probe(plugin_root, env, proj))
     finally:
@@ -133,6 +136,22 @@ def _canary_gate(root, env, proj):
                        cwd=proj, timeout=30)
     ok = p.returncode == 1 and b"review-not-done" in p.stderr
     return {"control": "canary gate end refuses done without review (block)", "ok": ok,
+            "why": "" if ok else f"exit {p.returncode}: {p.stderr.decode()[-160:]}"}
+
+
+def _canary_replay(root, env, proj):
+    """K1: the canary task's event log (written by the gate canary's start) replays to its task.json."""
+    if env.get("CLAUDEHUT_STATE_IMPL") == "bash":
+        return {"control": "canary event log replays to task.json", "ok": True,
+                "why": "n/a: CLAUDEHUT_STATE_IMPL=bash (the 0.12 writer keeps no event log)"}
+    tasks = os.path.join(plane.plane_dir(proj), "tasks")
+    tds = sorted(os.path.join(tasks, d) for d in os.listdir(tasks)) if os.path.isdir(tasks) else []
+    if not tds:
+        return {"control": "canary event log replays to task.json", "ok": False, "why": "no canary task was created"}
+    p = subprocess.run([os.path.join(root, "bin", "claudehut-kernel"), "replay", "--task", tds[-1], "--check"],
+                       capture_output=True, env=env, cwd=proj, timeout=30)
+    ok = p.returncode == 0 and b"reproduces task.json" in p.stderr
+    return {"control": "canary event log replays to task.json", "ok": ok,
             "why": "" if ok else f"exit {p.returncode}: {p.stderr.decode()[-160:]}"}
 
 

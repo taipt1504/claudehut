@@ -4,7 +4,10 @@
 # (scripts/legacy/claudehut-state.sh) on identical fixture repos. Per scenario the transcripts must be identical:
 # every command's exit code, stdout and stderr, then every task.json and state pointer (timestamps and the review
 # binding's time masked, the fixture path replaced by <P>). The suites assert a subset of the messages; this catches
-# drift in the rest. Prints "STATE-DIFF: N passed, M failed"; exit 1 on failure.
+# drift in the rest. Since M1b-b the Python writer also keeps the event log as the source of truth: its state events
+# (and task.json's event_rev) have no bash counterpart, so they are left out of the comparison and checked on their
+# own — every Python run is under CLAUDEHUT_STATE_SELFCHECK=1 and each task must replay to its task.json.
+# Prints "STATE-DIFF: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -49,9 +52,9 @@ run_scenario() { # $1 impl  $2 dir  $3 scenario file → transcript on stdout
     sid="${line%%|*}"; rest="${line#*|}"; rest="${rest//@T@/$T}"
     # shellcheck disable=SC2086
     if [ "$sid" = "-" ]; then
-      out="$(cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDEHUT_STATE_IMPL="$impl" CLAUDEHUT_DOCLINT="$STUB" "$CS" $rest 2>"$TMP/err")"; rc=$?
+      out="$(cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDEHUT_STATE_IMPL="$impl" CLAUDEHUT_STATE_SELFCHECK=1 CLAUDEHUT_DOCLINT="$STUB" "$CS" $rest 2>"$TMP/err")"; rc=$?
     else
-      out="$(cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDEHUT_STATE_IMPL="$impl" CLAUDEHUT_DOCLINT="$STUB" "$CS" --session "$sid" $rest 2>"$TMP/err")"; rc=$?
+      out="$(cd "$P" && CLAUDE_PROJECT_DIR="$P" CLAUDEHUT_STATE_IMPL="$impl" CLAUDEHUT_STATE_SELFCHECK=1 CLAUDEHUT_DOCLINT="$STUB" "$CS" --session "$sid" $rest 2>"$TMP/err")"; rc=$?
     fi
     err="$(cat "$TMP/err")"
     printf '$ [%s] %s\nrc=%s\n--out\n%s\n--err\n%s\n' "$sid" "$rest" "$rc" "$out" "$err"
@@ -60,13 +63,15 @@ run_scenario() { # $1 impl  $2 dir  $3 scenario file → transcript on stdout
   for f in "$P"/.claude/claudehut/tasks/*/task.json "$P"/.claude/claudehut/state/*.json; do
     [ -f "$f" ] || continue
     echo "-- ${f#"$P"/}"
-    jq -S 'walk(if type=="object" then with_entries(if (.key|test("^(created|updated|ended|at|plan_review_user_decision_at)$")) then .value="<ts>" else . end) else . end)' "$f" 2>/dev/null || cat "$f"
+    jq -S 'del(.event_rev) | walk(if type=="object" then with_entries(if (.key|test("^(created|updated|ended|at|plan_review_user_decision_at)$")) then .value="<ts>" else . end) else . end)' "$f" 2>/dev/null || cat "$f"
   done
   echo "== events"
   for f in "$P"/.claude/claudehut/tasks/*/events.jsonl; do
     [ -f "$f" ] || continue
-    echo "-- ${f#"$P"/}"
-    jq -c 'del(.ts)' "$f" 2>/dev/null
+    # gate.* and budget.exceeded are written by both; the state events (rev) only by the Python writer, and the
+    # informational review.verdict / task.ended lines only by the bash writer's gate CLI.
+    ev="$(jq -c 'select(has("rev") | not) | select(.type != "review.verdict" and .type != "task.ended") | del(.ts)' "$f" 2>/dev/null)"
+    [ -z "$ev" ] || printf -- '-- %s\n%s\n' "${f#"$P"/}" "$ev"
   done
 }
 
@@ -76,6 +81,15 @@ compare() { # $1 name  $2 scenario text
   a="$TMP/$name-py"; b="$TMP/$name-bash"
   run_scenario py "$a/P" "$sc" | sed "s#$a/P#<P>#g; s#$(cd "$a" 2>/dev/null && pwd -P)/P#<P>#g" >"$TMP/$name.py.txt"
   run_scenario bash "$b/P" "$sc" | sed "s#$b/P#<P>#g; s#$(cd "$b" 2>/dev/null && pwd -P)/P#<P>#g" >"$TMP/$name.bash.txt"
+  local td bad=""
+  for td in "$a"/P/.claude/claudehut/tasks/*/; do
+    "$ROOT/bin/claudehut-kernel" replay --task "$td" --check 2>/dev/null || bad="$bad ${td%/}"
+  done
+  if [ -n "$bad" ]; then
+    FAIL=$((FAIL+1)); echo "FAIL - $name: the event log does not replay to task.json for:${bad//$a\/P\//}"
+  else
+    PASS=$((PASS+1)); echo "ok - $name: every task's event log replays to its task.json"
+  fi
   if diff -u "$TMP/$name.bash.txt" "$TMP/$name.py.txt" >"$TMP/$name.diff"; then
     PASS=$((PASS+1)); echo "ok - $name: identical transcripts ($(grep -c '^\$ ' "$TMP/$name.py.txt") commands)"
   else

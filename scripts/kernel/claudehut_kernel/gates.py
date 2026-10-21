@@ -49,9 +49,13 @@ def _human(problems, prefix):
               file=sys.stderr)
 
 
-def run(which, project, task_dir, evidence=None, status="done", override=None, ts=None):
+def run(which, project, task_dir, evidence=None, status="done", override=None, ts=None, record=True):
     """One gate at one transition → (rc, out). rc 0 proceed (pass|warn|override), 1 refused (block), 2 unknown gate.
-    Human lines go to stderr; `out` carries the decision and, for review-pass, the binding to store."""
+    Human lines go to stderr; `out` carries the decision and, for review-pass, the binding to store.
+    record=False (the Python state writer): the transition's own state event carries the outcome, so the gate writes
+    only its gate.* events, not the informational review.verdict / task.ended lines the bash writer relies on."""
+    if os.environ.get("CLAUDEHUT_KERNEL_FAULT") == "gate":   # test-only canary: the gate-crash path (verify-tests R7-py)
+        raise RuntimeError("injected gate fault (CLAUDEHUT_KERNEL_FAULT=gate)")
     task = plane.load_task(task_dir)
     out = {}
     if which == "review-pass":
@@ -62,7 +66,8 @@ def run(which, project, task_dir, evidence=None, status="done", override=None, t
         d = decide(project, task_dir, "review-pass", violations, override)
         if d["decision"] != "block":
             out["binding"] = verify.binding(project, task, ts)
-            events.append(task_dir, "review.verdict", {"verdict": "pass", "evidence": evidence, "gate": d["decision"]})
+            if record:
+                events.append(task_dir, "review.verdict", {"verdict": "pass", "evidence": evidence, "gate": d["decision"]})
     elif which == "end":
         violations = []
         if status == "done":
@@ -74,7 +79,7 @@ def run(which, project, task_dir, evidence=None, status="done", override=None, t
             elif review == "pass":
                 violations += [dict(p, invariant="end.verdict-current") for p in verify.check_verdict(project, task)]
         d = decide(project, task_dir, "end", violations, override)
-        if d["decision"] != "block":
+        if d["decision"] != "block" and record:
             events.append(task_dir, "task.ended", {"status": status, "gate": d["decision"]})
     else:
         print(f"unknown gate {which}", file=sys.stderr)

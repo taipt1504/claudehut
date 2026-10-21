@@ -235,12 +235,11 @@ P="$(newrepo crash2)"
 id="$(cs "$P" s12 start --route light --slug c 2>/dev/null | head -1)"
 CLAUDEHUT_STATE_IMPL=bash CLAUDEHUT_PYTHON="$TMP/k1" CLAUDEHUT_GATE_MODE=block cs "$P" s12 end --status done 2>"$TMP/err"; rc=$?
 check "R7: a kernel that exits 1 WITHOUT a block decision does not refuse; gate.skipped is noted" '[ "$rc" = 0 ] && grep -q "skipped" "$TMP/err"'
-# The Python writer runs the gate in-process: a gate that raises (here: events.jsonl is a directory, so the gate's own
-# event write fails) is a skipped gate, never a refusal — the same contract as R7.
+# The Python writer runs the gate in-process: a gate that raises (the test-only CLAUDEHUT_KERNEL_FAULT=gate canary)
+# is a skipped gate, never a refusal — the same contract as R7.
 P="$(newrepo crash3)"
-id="$(cs "$P" s13 start --route light --slug c 2>/dev/null | head -1)"
-mkdir -p "$P/.claude/claudehut/tasks/$id/events.jsonl"
-CLAUDEHUT_STATE_IMPL=py CLAUDEHUT_GATE_MODE=block cs "$P" s13 end --status done 2>"$TMP/err"; rc=$?
+id="$(CLAUDEHUT_STATE_IMPL=py cs "$P" s13 start --route light --slug c 2>/dev/null | head -1)"
+CLAUDEHUT_KERNEL_FAULT=gate CLAUDEHUT_STATE_IMPL=py CLAUDEHUT_GATE_MODE=block cs "$P" s13 end --status done 2>"$TMP/err"; rc=$?
 check "R7-py: an in-process gate that raises does not refuse; the skip is noted" \
   '[ "$rc" = 0 ] && grep -q "gate end skipped" "$TMP/err" && [ "$(jq -r .status "$P/.claude/claudehut/tasks/$id/task.json")" = done ]'
 

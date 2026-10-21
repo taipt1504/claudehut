@@ -8,12 +8,15 @@ import os
 import time
 
 
-def append(task_dir, etype, data=None, source="cli"):
+def append(task_dir, etype, data=None, source="cli", extra=None):
+    """extra: top-level fields (state events carry `rev` and `session`, see tasklog)."""
     if not task_dir or not os.path.isdir(task_dir):
         return False
     rec = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "type": etype, "source": source}
     if data:
         rec["data"] = data
+    if extra:
+        rec.update(extra)
     line = json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n"
     fd = os.open(os.path.join(task_dir, "events.jsonl"), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
