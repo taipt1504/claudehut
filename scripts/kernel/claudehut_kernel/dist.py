@@ -12,6 +12,12 @@ The source stays ONE plugin (every suite runs against it, and it remains install
     plugins/claudehut-backend-jvm/       bundle: only `dependencies` (claudehut from the public marketplace +
                                          org-summer), the documented bundle pattern
 
+Versions and dependencies (M2b, verified in a spike, 10-implementation-log): `stable` stamps the plugin version
+(users are pinned to it until the next bump); `canary` omits it, so a git-hosted canary marketplace versions every
+commit by its SHA. Dependencies are bare names: a version RANGE resolves against `<plugin>--v<version>` git tags,
+and a git-hosted relative-path plugin with no matching tag installs but stays disabled. Ranges come back with a
+tagging step. `stable` refuses a dirty tree; every build writes dist-meta.json (source sha, dirty flag, channel).
+
 Why only org-summer is split out (M2b decision gate, 10-implementation-log): the other packs reference each other's
 files dozens of times and a plugin cannot read outside its own root, while hooks do not get other plugins' bin/ on
 PATH (verified). org-summer has the distribution reason (internal content) and a two-point coupling. The rest stays
@@ -59,9 +65,15 @@ def build(out, channel="stable", root=None):
     version = base["version"]
     sfx = "" if channel == "stable" else f"-{channel}"
     pub_mk, int_mk = f"claudehut{sfx}", f"claudehut-internal{sfx}"
-    rng = f"~{version.split('-')[0]}-0"   # a prerelease line (0.20.0-dev.N) needs the -0 opt-in to match
     common = {k: base[k] for k in ("author", "homepage", "repository", "license") if k in base}
     tracked = _tracked(root)
+    sha = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = bool(subprocess.run(["git", "-C", root, "status", "--porcelain", "--untracked-files=no"],
+                                capture_output=True, text=True).stdout.strip())
+    if channel == "stable" and dirty:
+        raise RuntimeError("--channel stable needs a clean tree (commit first): a stable build must be reproducible "
+                           "from its source sha")
+    stamp = (lambda d: dict(d, version=version)) if channel == "stable" else (lambda d: d)
     owner = {rel: (packs.owners_of(rel, manifests) or [None])[0] for rel in tracked}
 
     if os.path.isdir(out):
@@ -77,14 +89,16 @@ def build(out, channel="stable", root=None):
     for rel in sorted(set(files)):
         _copy(root, rel, pdir)
     pj = dict(base)
+    if channel != "stable":
+        pj.pop("version", None)
     pj["description"] = (base.get("description", "") + " Distribution: kernel + workflow + review + Java/Spring "
                          "+ Python/shell packs.").strip()
     _write_json(os.path.join(pdir, ".claude-plugin", "plugin.json"), pj)
     _write_json(os.path.join(pub, ".claude-plugin", "marketplace.json"), {
         "name": pub_mk, "owner": {"name": base.get("author", {}).get("name", "ClaudeHut Authors")},
         "description": f"ClaudeHut kernel and packs ({channel} channel).",
-        "plugins": [{"name": "claudehut", "source": "./plugins/claudehut", "description": pj["description"],
-                     "category": "development", "version": version}]})
+        "plugins": [stamp({"name": "claudehut", "source": "./plugins/claudehut", "description": pj["description"],
+                           "category": "development"})]})
     report["marketplaces"][pub_mk] = {"claudehut": len(set(files))}
 
     # ── internal: org-summer + bundle ────────────────────────────────────────────────────────────────────────
@@ -101,27 +115,28 @@ def build(out, channel="stable", root=None):
     with open(os.path.join(sdir, "README.md"), "w", encoding="utf-8") as f:
         f.write("# claudehut-org-summer\n\nClaudeHut pack `org-summer`: the Summer Framework KB for consumer services "
                 "(skill `summer-kb-setup`, install and self-heal at session start). Requires the `claudehut` plugin.\n")
-    _write_json(os.path.join(sdir, ".claude-plugin", "plugin.json"), dict(common, **{
-        "name": "claudehut-org-summer", "version": version,
+    _write_json(os.path.join(sdir, ".claude-plugin", "plugin.json"), stamp(dict(common, **{
+        "name": "claudehut-org-summer",
         "description": "ClaudeHut pack org-summer: Summer Framework KB for consumer services.",
-        "dependencies": [{"name": "claudehut", "marketplace": pub_mk, "version": rng}]}))
+        "dependencies": [{"name": "claudehut", "marketplace": pub_mk}]})))
     bdir = os.path.join(itl, "plugins", "claudehut-backend-jvm")
     with open(os.path.join(os.makedirs(bdir, exist_ok=True) or bdir, "README.md"), "w", encoding="utf-8") as f:
         f.write("# claudehut-backend-jvm\n\nBundle: installs `claudehut` and `claudehut-org-summer`.\n")
     shutil.copy2(os.path.join(root, "LICENSE"), os.path.join(bdir, "LICENSE"))
-    _write_json(os.path.join(bdir, ".claude-plugin", "plugin.json"), dict(common, **{
-        "name": "claudehut-backend-jvm", "version": version,
+    _write_json(os.path.join(bdir, ".claude-plugin", "plugin.json"), stamp(dict(common, **{
+        "name": "claudehut-backend-jvm",
         "description": "Bundle for JVM backend services: ClaudeHut + the org-summer pack.",
-        "dependencies": [{"name": "claudehut", "marketplace": pub_mk, "version": rng},
-                         {"name": "claudehut-org-summer", "version": rng}]}))
+        "dependencies": [{"name": "claudehut", "marketplace": pub_mk}, "claudehut-org-summer"]})))
     _write_json(os.path.join(itl, ".claude-plugin", "marketplace.json"), {
         "name": int_mk, "owner": {"name": base.get("author", {}).get("name", "ClaudeHut Authors")},
         "description": f"ClaudeHut internal packs ({channel} channel).",
         "allowCrossMarketplaceDependenciesOn": [pub_mk],
         "plugins": [
-            {"name": "claudehut-org-summer", "source": "./plugins/claudehut-org-summer", "version": version,
-             "description": "ClaudeHut pack org-summer.", "category": "development"},
-            {"name": "claudehut-backend-jvm", "source": "./plugins/claudehut-backend-jvm", "version": version,
-             "description": "Bundle: ClaudeHut + org-summer.", "category": "development"}]})
+            stamp({"name": "claudehut-org-summer", "source": "./plugins/claudehut-org-summer",
+                   "description": "ClaudeHut pack org-summer.", "category": "development"}),
+            stamp({"name": "claudehut-backend-jvm", "source": "./plugins/claudehut-backend-jvm",
+                   "description": "Bundle: ClaudeHut + org-summer.", "category": "development"})]})
     report["marketplaces"][int_mk] = {"claudehut-org-summer": len(set(sfiles)) + 2, "claudehut-backend-jvm": 0}
+    report.update(source_sha=sha, source_dirty=dirty)
+    _write_json(os.path.join(out, "dist-meta.json"), report)
     return report

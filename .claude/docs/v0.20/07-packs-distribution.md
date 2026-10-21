@@ -31,7 +31,7 @@ Pack là **một Claude Code plugin** (dùng nguyên cơ chế host) phụ thu�
 
 Kernel **không** đọc file nội bộ của host (`installed_plugins.json`, cấu trúc cache) vì chúng có thể đổi bất kỳ lúc nào. Thay vào đó:
 - ~~Mỗi pack ship một hook `SessionStart` gọi `claudehut-kernel register` qua PATH.~~ **Đã kiểm thực nghiệm (Claude Code 2.1.306, 2026-10-21): `bin/` của plugin KHÔNG có trên PATH của hook.** Docs chỉ hứa điều này cho Bash tool. Hook của plugin B gọi `probe-a-tool` (nằm trong `bin/` của plugin A) thì nhận `NOT FOUND`, và trong PATH của hook không có thư mục plugin nào. Plugin cũng không được đọc file của plugin khác: path không được thoát khỏi plugin root.
-- **Thiết kế thay thế:** mỗi pack ship một hook `SessionStart` nhỏ, tự chứa, không gọi kernel. Hook này ghi `{pack, version, root: ${CLAUDE_PLUGIN_ROOT}, manifest_hash}` vào `<plane>/state/packs/<pack>.json` của project; plane `.claudehut/` ghi được, theo K-18. Kernel đọc registry từ plane. Sensor dùng `{pack_root}` lấy từ đây.
+- **Thiết kế thay thế:** mỗi pack ship một hook `SessionStart` nhỏ, tự chứa, không gọi kernel. Hook này ghi `{pack, version, root: ${CLAUDE_PLUGIN_ROOT}, manifest_hash}` vào `<plane>/state/packs/<pack>.json` của project; plane `.claudehut/` ghi được, theo K-18. Kernel đọc registry từ plane. Sensor dùng `{pack_root}` lấy từ đây. **Trạng thái: mới thiết kế, chưa build** (M5, làm cùng `claudehut status`). Hiện chưa có gì đọc registry này, và trong bản cài tách, `claudehut-kernel packs` chưa thấy được `org-summer`.
 - Pack không đăng ký, ví dụ hook bị tắt, sẽ hiện trong `claudehut status` là `unregistered`, không bị bỏ qua âm thầm (VER-3).
 
 ## 2. Danh mục pack đề xuất
@@ -61,7 +61,8 @@ Skill hoặc checker của tổ chức (ví dụ `using-dr-summer`) **không cò
 | Kênh phát hành | Mỗi marketplace có hai bản `-stable` và `-canary` trỏ hai ref (host không có khái niệm channel). Pilot repo dùng canary |
 | Phạm vi cài | Cài ở **user** hoặc **managed** scope. Repo chỉ khai báo bundle trong `.claude/settings.json` (`enabledPlugins`). Không còn 21 bản cài project-scope (LIF-1) |
 | Cập nhật | `autoUpdate` cho marketplace. `claudehut status` cảnh báo session đang chạy bản cũ hơn bản đã cài |
-| Tag và version | `claude plugin tag`; version chỉ đặt ở `plugin.json` |
+| Tag và version | `claude plugin tag`; version chỉ đặt ở `plugin.json`. **M2b:** `stable` đóng dấu version (user bị ghim tới lần bump kế tiếp) và từ chối build khi cây dirty. `canary` bỏ version, nên marketplace git sẽ đánh version theo SHA của từng commit. Dependency để tên trần, vì range chỉ resolve được qua git tag `<plugin>--v<ver>`; plugin relative-path không có tag khớp thì cài xong vẫn bị tắt. Range sẽ quay lại khi có bước tag |
+| Onboarding | Thêm **cả hai** marketplace, public trước. Nếu chỉ có marketplace nội bộ, bundle vẫn cài nhưng báo `claudehut` sẽ không load; thêm marketplace public sau đó thì dependency còn thiếu được cài bù. Plugin gốc cũ `claudehut@claudehut-marketplace` trùng tên manifest với `claudehut` mới, và cả hai đều bật được. Host chỉ chạy hook của một bản, nên migrate ở phase B phải gỡ bản cũ trước |
 | Đổi tên | map `renames` append-only |
 | Tổ chức | mẫu managed settings: `extraKnownMarketplaces`, `enabledPlugins`; khoá chặt (`strictKnownMarketplaces`…) chỉ khi governance yêu cầu |
 

@@ -9,7 +9,11 @@
   still reference each other's files and a plugin cannot read outside its root (decision logged). The Summer KB
   maintenance moved to `skills/summer-kb-setup/scripts/kb-maintain.sh` (run by `maintain.sh`, or by the
   org-summer plugin's own SessionStart hook); `claudehut-migrate` skips the KB step when the pack is absent.
-- Tests: `regress/dist-tests.sh` — build, no org-summer in public, bundle shape, org-summer standalone, tracked-only,
+- Dist versioning: `stable` stamps the version and refuses a dirty tree; `canary` omits it (SHA versioning on a git
+  marketplace); dependencies are bare names (a version range needs `<plugin>--v<ver>` git tags, else the
+  dependency stays disabled); every build writes `dist-meta.json` (source sha, dirty flag).
+- Tests: `regress/dist-tests.sh` — build, no org-summer in public, bundle shape, versioning, the dist plugins RUN
+  from their own roots (selftest, init on a Gradle and a Python repo, kb-maintain), tracked-only,
   and (with the `claude` CLI) validate + install the bundle from the canary marketplaces in a throwaway
   `CLAUDE_CONFIG_DIR`.
 

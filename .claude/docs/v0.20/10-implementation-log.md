@@ -251,7 +251,14 @@ Kernel, workflow, review, java và python-shell vẫn là **một plugin `claude
 | Kênh stable/canary | Hậu tố tên marketplace theo channel. Ref thật (branch/tag) cần push, nên chưa làm (ngoài phạm vi phase A) |
 | Source vẫn cài được, làm đường rollback (07 §6) | Plugin gốc `claudehut` ở root repo không đổi |
 
-**Exit criterion M2 (2/2):** bundle cài sạch từ các marketplace canary (dạng directory), cả hai dependency đều được bật, `validate` pass, và registry của user không bị đụng (`dist-tests` D6).
+**Exit criterion M2 (2/2):** bundle cài sạch từ các marketplace canary **dạng directory**, cả hai dependency đều được bật, `validate` pass, và registry của user không bị đụng (`dist-tests` D6). Plugin trong dist cũng **chạy được** từ chính root của nó (D4): selftest xanh; init tìm thấy template bên trong plugin (Gradle → có rule Java, Python → không có); `kb-maintain.sh` của org-summer tự cài được KB.
+
+**Marketplace git-hosted chưa kiểm:** CLI từ chối URL `file://`, còn `extraKnownMarketplaces` trong config tạm thì không được nạp. Vì vậy dependency trong dist để tên trần, không dùng range: trên marketplace git, range cần tag, thiếu tag thì plugin bị tắt. Canary bỏ version, để mỗi commit có một version theo SHA. Ghi ở 07 §3.
+
+**Onboarding (spike, config tạm):**
+- Chỉ có marketplace nội bộ: bundle vẫn cài nhưng báo `claudehut` sẽ không load; thêm marketplace public sau đó thì dependency được cài bù.
+- Plugin gốc cũ và `claudehut@claudehut-canary` bật được cùng lúc dù trùng tên manifest, nên phase B phải gỡ bản cũ trước.
+- Registry pack ở plane (07 §1.1): mới thiết kế, chưa build (M5).
 
 **Phát hiện:** 14 file của plugin public vẫn nhắc tên tổ chức nội bộ (`f8a`). Việc scrub chờ user quyết; `dist-tests` in ra số đếm.
 

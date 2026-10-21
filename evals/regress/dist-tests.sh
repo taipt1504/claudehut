@@ -37,14 +37,34 @@ names="$(for f in "$CH" "$OS" "$BJ"; do jq -r .name "$f/.claude-plugin/plugin.js
 check "D3: plugin names are unique (claudehut, claudehut-org-summer, claudehut-backend-jvm)" '[ -z "$names" ]'
 check "D3: the bundle ships only metadata and dependencies (no component dirs)" \
   '[ -z "$(cd "$BJ" && ls -d skills agents hooks bin scripts commands 2>/dev/null)" ] && [ "$(jq ".dependencies|length" "$BJ/.claude-plugin/plugin.json")" = 2 ]'
-rng="$(jq -r '.dependencies[0].version' "$OS/.claude-plugin/plugin.json")"
-check "D3: the dependency range ($rng) opts into the prerelease line of $V" '[ "$rng" = "~${V%%-*}-0" ]'
+check "D3: dependencies are bare names (no version range: ranges need <plugin>--v<ver> git tags, M2b spike)" \
+  '[ "$(jq "[.dependencies[] | objects | select(has(\"version\"))] | length" "$OS/.claude-plugin/plugin.json" "$BJ/.claude-plugin/plugin.json" | sort -u)" = 0 ]'
+check "D3: canary plugins carry no version (a git-hosted canary versions every commit by SHA)" \
+  '[ -z "$(jq -r ".version // empty" "$CH/.claude-plugin/plugin.json" "$OS/.claude-plugin/plugin.json" "$BJ/.claude-plugin/plugin.json")" ] && [ -z "$(jq -r ".plugins[].version // empty" "$PUB/.claude-plugin/marketplace.json" "$INT/.claude-plugin/marketplace.json")" ]'
+check "D3: dist-meta.json records the source sha and dirty flag" \
+  '[ "$(jq -r .source_sha "$D/dist-meta.json")" = "$(git -C "$ROOT" rev-parse HEAD)" ] && jq -e "has(\"source_dirty\")" "$D/dist-meta.json" >/dev/null'
+if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]; then
+  "$K" dist --out "$TMP/st" --channel stable >/dev/null 2>&1; rc=$?
+  check "D3: --channel stable refuses a dirty tree (rc=$rc)" '[ "$rc" = 1 ] && [ ! -e "$TMP/st/dist-meta.json" ]'
+fi
 
 F="$TMP/svc"; mkdir -p "$F"; printf "dependencies { implementation 'io.f8a.summer:summer-core:1.0' }\n" >"$F/build.gradle"
 imp="$(python3 -B -c "import sys; sys.path.insert(0, sys.argv[1]); import install_summer_kb as k; print(k._extract() is not None)" "$OS/skills/summer-kb-setup/scripts")"
 dr="$(python3 -B "$OS/skills/summer-kb-setup/scripts/install_summer_kb.py" "$F" --dry-run 2>&1 | tail -1)"
 check "D4: org-summer standalone — vendored extract imports ($imp), installer dry-runs: $dr" '[ "$imp" = True ] && [[ "$dr" == "summer-kb: would be installed"* ]]'
 check "D4: its own SessionStart hook runs kb-maintain.sh" 'jq -e ".hooks.SessionStart[0].hooks[0].command | test(\"kb-maintain.sh\")" "$OS/hooks/hooks.json" >/dev/null'
+
+# The dist plugins RUN from their own roots (a missing runtime file the ownership map left out fails here):
+sel="$("$CH/bin/claudehut-kernel" selftest 2>&1 | tail -1)"
+check "D4: the dist claudehut plugin's selftest is all alive ($sel)" '"$CH/bin/claudehut-kernel" selftest >/dev/null 2>&1'
+GR="$TMP/gr"; cp -R "$ROOT/evals/tasks/_fixtures/servlet-jpa/." "$GR/"; PY="$TMP/py"; mkdir -p "$PY"; printf 'print(1)\n' >"$PY/a.py"
+for r in "$GR" "$PY"; do git -C "$r" init -q 2>/dev/null; CLAUDE_PLUGIN_ROOT="$CH" CLAUDEHUT_HOST_PROBE=0 "$CH/bin/claudehut-init" "$r" --language en --mode mono --git-hooks no >/dev/null 2>&1; done
+check "D4: dist claudehut-init resolves its templates inside the plugin (Gradle → Java rules, Python → none)" \
+  '[ -f "$GR/.claude/rules/coding/naming.md" ] && [ ! -e "$PY/.claude/rules/coding" ] && [ -f "$PY/.claude/rules/shell/strict-mode.md" ]'
+SV="$TMP/sv"; mkdir -p "$SV/.claudehut/state"; : >"$SV/.claudehut/PROJECT.md"
+printf "dependencies { implementation 'io.f8a.summer:summer-core:1.0' }\n" >"$SV/build.gradle"
+CLAUDE_PROJECT_DIR="$SV" bash "$OS/skills/summer-kb-setup/scripts/kb-maintain.sh"; rc=$?
+check "D4: dist org-summer kb-maintain.sh runs self-contained and installs the KB (rc=$rc)" '[ "$rc" = 0 ] && [ -f "$SV/.claude/summer-kb/INDEX.md" ]'
 
 tracked="$(git -C "$ROOT" ls-files)"
 extra="$(cd "$CH" && find . -type f ! -path './.claude-plugin/plugin.json' | sed 's#^\./##' | while read -r f; do grep -qxF "$f" <<<"$tracked" || echo "$f"; done)"
@@ -65,6 +85,7 @@ if command -v claude >/dev/null 2>&1 && [ "${CLAUDEHUT_DIST_INSTALL:-1}" != 0 ];
   check "D6 (M2 exit): the bundle installs from the canary marketplaces with both dependencies enabled (rc=$rc; enabled: $en)" \
     '[ "$rc" = 0 ] && [[ "$en" == *"claudehut-backend-jvm@claudehut-internal-canary"* ]] && [[ "$en" == *"claudehut-org-summer@claudehut-internal-canary"* ]] && [[ "$en" == *"claudehut@claudehut-canary"* ]]'
   unset CLAUDE_CONFIG_DIR
+  echo "      note: onboarding — add the public marketplace too: with only the internal one, the bundle installs but warns that claudehut will not load (M2b spike)"
   check "D6: the user's ~/.claude/plugins registry is untouched (installed_plugins.json, known_marketplaces.json)" '[ "$(hsum)" = "$h0" ]'
 else
   echo "      skip: D6 (no claude CLI or CLAUDEHUT_DIST_INSTALL=0)"
