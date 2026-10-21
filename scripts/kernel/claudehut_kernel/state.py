@@ -444,15 +444,37 @@ class State:
         return False
 
     def supersede_active(self, by):
+        """The open task of this session gives way to `by` (start, resume). A task that finished (review pass, learn,
+        findings) closes as done — but only through the end invariant, like `end --status done` (M1b-c: 0.12 closed it
+        as done with no gate). When the gate would refuse (block mode) the task closes as superseded instead, recorded;
+        start and resume themselves are never refused because of the task they replace."""
         if not self.task:
             return
-        st = "done" if self.finished_kind() else "superseded"
+        st, gate = "superseded", None
+        if self.finished_kind():
+            st, gate = "done", "skipped"
+            try:
+                rc, out = gates.run("end", os.path.abspath(self.project), os.path.abspath(self.task_dir()),
+                                    status="done", ts=self.ts, record=False)
+                gate = out.get("decision")
+                if rc == 1 and gate == "block":
+                    st = "superseded"
+            except Exception as exc:  # noqa: BLE001 — a gate crash keeps the 0.12 behaviour: closed as done
+                print(f"claudehut-kernel: internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
         t = dict(self.task)
         t["status"] = st
         t["superseded_by"] = by
         t["ended"] = self.ts
-        self.commit(self.tfile, self.task, t, "task.superseded", {"by": by})
-        self.note(f"task {self.active} {'closed as done (it had finished) and ' if st == 'done' else ''}superseded by {by}")
+        data = {"by": by}
+        if gate:
+            data["gate"] = gate
+        self.commit(self.tfile, self.task, t, "task.superseded", data)
+        if gate == "block":
+            self.note(f"task {self.active} had finished but cannot close as done (the end invariant above, gate mode "
+                      f"block): closed as superseded by {by}, recorded. To close it as done: claudehut-state resume "
+                      f"{self.active}, fix the review, end --status done.")
+        else:
+            self.note(f"task {self.active} {'closed as done (it had finished) and ' if st == 'done' else ''}superseded by {by}")
 
     def claim_id(self, slug):
         nums = []

@@ -160,3 +160,18 @@ Kiểm chứng:
 - `tasklog-tests` (10) phủ: một event cho mỗi transition, refuse thì không có event, import task 0.12, import khi có writer khác, phục hồi sau crash, và log 0.12.7 cũ.
 - `state-diff` giờ bỏ qua state event khi so (bash không có), nhưng bắt buộc mọi task phải replay đúng.
 - Fault canary chỉ dùng cho test: `CLAUDEHUT_KERNEL_FAULT=gate` (R7-py).
+
+## M1b-c — supersede đi qua end invariant (2026-10-21)
+
+Lỗ hổng tồn từ review Track Q: `supersede_active` (do `start` và `resume` gọi) đóng task đã "finished" thành `done` mà không qua end gate. Một review pass rồi bị sửa tiếp (binding stale) vẫn thành `done`.
+
+Đã sửa (chỉ ở writer Python; writer bash 0.12 giữ nguyên làm fallback):
+- Task finished → chạy end gate in-process, `status=done`, `record=False`.
+- Mode `warn`: vẫn `done`, ghi `gate.warned`.
+- Mode `block`: task thành `superseded` (vẫn resume được để sửa), ghi `gate.blocked`, có notice nêu invariant.
+- Gate crash: giữ hành vi 0.12 (`done`).
+- `start`/`resume` không bao giờ bị từ chối vì task cũ.
+- Task chưa finished: `superseded`, không chạy gate.
+- Test SU1–SU8 trong verify-tests: block/stale, warn, review còn hiện hành, task chưa finished, đường resume.
+
+Auth profile (K-17): eval-harness A1–A4 ghim nhánh auth của `plugin-eval.sh`. Một lần chạy `api` thật không làm được, vì quyết định Q7 là eval chạy bằng quota của plan, không dùng API key. Tiêu chí "suite chạy được cả plan lẫn api" vì vậy mới **được xác minh bằng unit test, chưa bằng một lần chạy thật**.

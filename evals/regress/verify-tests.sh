@@ -6,6 +6,7 @@
 #   G*  gate engine through claudehut-state: mode warn records + proceeds, block refuses with task.json byte-identical,
 #       --override proceeds and records the reason; end done needs review; the review binding goes stale on edit,
 #       not on commit; spec/plan revision after review is caught; python3 missing → gate skipped with a notice
+#   SU* start/resume close a finished task as done only through the end invariant (M1b-c), never refusing
 # Self-contained temp git repos, no network. Prints "VERIFY-TESTS: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 
@@ -264,6 +265,55 @@ printf '#!/usr/bin/env bash\nexit 0\n' >"$CP/scripts/record-failure.sh"
 out="$("$CP/bin/claudehut-kernel" selftest --json)"; rc=$?
 check "S3: a hook printing two JSON objects is reported DEAD (rc=$rc)" '[ "$rc" = 1 ] && jq -e ".results[]|select(.control|test(\"hint-explore\"))|select(.ok==false)" <<<"$out" >/dev/null'
 check "S4: a silent no-op failure recorder is reported DEAD" 'jq -e ".results[]|select(.control|test(\"record-failure keeps\"))|select(.ok==false)" <<<"$out" >/dev/null'
+
+# ── SU: supersede goes through the end invariant (M1b-c; 0.12 closed a finished task as done with no gate). Python
+#    writer only: the 0.12 bash writer is the unchanged fallback. start/resume are never refused for the old task.
+if [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ]; then
+  sup_setup() { # $1 name $2 session → repo with a task whose review passed and whose tree then changed (stale)
+    local p; p="$(newrepo "$1")"
+    local id; id="$(cs "$p" "$2" start --route light --slug old 2>/dev/null | head -1)"
+    printf 'l1\nl2\nCHANGED\nl4\nl5\n' >"$p/src/main/java/a/Foo.java"
+    review "$p/.claude/claudehut/tasks/$id/review.md"
+    cs "$p" "$2" set-review pass --evidence ".claude/claudehut/tasks/$id/review.md" 2>/dev/null
+    printf 'l1\nl2\nCHANGED AGAIN\nl4\nl5\n' >"$p/src/main/java/a/Foo.java"
+    printf '%s' "$p"
+  }
+  P="$(sup_setup sup-block s20)"
+  CLAUDEHUT_GATE_MODE=block cs "$P" s20 start --route light --slug new >/dev/null 2>"$TMP/err"; rc=$?
+  check "SU1: block mode — start over a finished task whose review went stale succeeds (rc=$rc)" '[ "$rc" = 0 ] && [ -f "$P/.claude/claudehut/tasks/0002-new/task.json" ]'
+  check "SU2: … the stale task closes as SUPERSEDED, not done, with the reason in the notice" \
+    '[ "$(tj "$P" 0001-old | jq -r .status)" = superseded ] && grep -q "cannot close as done" "$TMP/err" && grep -q "tree-changed" "$TMP/err"'
+  check "SU3: … recorded: gate.blocked (end) and task.superseded{gate:block} in the old task's log" \
+    'ev "$P" 0001-old | jq -se "(map(select(.type==\"gate.blocked\" and .data.gate==\"end\"))|length==1) and (map(select(.type==\"task.superseded\"))|.[-1].data.gate==\"block\")" >/dev/null'
+  check "SU4: … and it can be resumed to be fixed (superseded is not terminal)" 'cs "$P" s20 resume 0001-old 2>/dev/null && [ "$(tj "$P" 0001-old | jq -r .status)" = active ]'
+  P="$(sup_setup sup-warn s21)"
+  cs "$P" s21 start --route light --slug new >/dev/null 2>/dev/null; rc=$?
+  check "SU5: warn mode — the stale finished task still closes as done, with gate.warned recorded" \
+    '[ "$rc" = 0 ] && [ "$(tj "$P" 0001-old | jq -r .status)" = done ] && ev "$P" 0001-old | jq -se "map(select(.type==\"gate.warned\" and .data.gate==\"end\"))|length==1" >/dev/null'
+  P="$(newrepo sup-fresh)"
+  id="$(cs "$P" s22 start --route light --slug old 2>/dev/null | head -1)"
+  printf 'l1\nl2\nCHANGED\nl4\nl5\n' >"$P/src/main/java/a/Foo.java"
+  review "$P/.claude/claudehut/tasks/$id/review.md"
+  cs "$P" s22 set-review pass --evidence ".claude/claudehut/tasks/$id/review.md" 2>/dev/null
+  CLAUDEHUT_GATE_MODE=block cs "$P" s22 start --route light --slug new >/dev/null 2>/dev/null
+  check "SU6: block mode — a finished task with a CURRENT review closes as done (gate pass)" \
+    '[ "$(tj "$P" 0001-old | jq -r .status)" = done ] && ev "$P" 0001-old | jq -se "map(select(.type==\"task.superseded\"))|.[-1].data.gate==\"pass\"" >/dev/null'
+  P="$(newrepo sup-open)"
+  cs "$P" s23 start --route light --slug old >/dev/null 2>&1
+  CLAUDEHUT_GATE_MODE=block cs "$P" s23 start --route light --slug new >/dev/null 2>&1
+  check "SU7: an unfinished task is superseded with no gate run (no gate.* event)" \
+    '[ "$(tj "$P" 0001-old | jq -r .status)" = superseded ] && ! ev "$P" 0001-old | grep -q "\"gate\\."'
+  P="$(sup_setup sup-resume s24)"
+  cs "$P" s24 start --route light --slug other >/dev/null 2>&1   # warn: 0001 closes as done
+  cs "$P" s25 start --route light --slug third >/dev/null 2>&1
+  id3="0003-third"; printf 'l1\nl2\nCHANGED 3\nl4\nl5\n' >"$P/src/main/java/a/Foo.java"
+  review "$P/.claude/claudehut/tasks/$id3/review.md"
+  cs "$P" s25 set-review pass --evidence ".claude/claudehut/tasks/$id3/review.md" 2>/dev/null
+  printf 'l1\nl2\nCHANGED 4\nl4\nl5\n' >"$P/src/main/java/a/Foo.java"
+  CLAUDEHUT_GATE_MODE=block cs "$P" s25 resume 0002-other >/dev/null 2>"$TMP/err"; rc=$?
+  check "SU8: resume over a stale finished task: resume succeeds, the old one closes as superseded (rc=$rc)" \
+    '[ "$rc" = 0 ] && [ "$(tj "$P" "$id3" | jq -r .status)" = superseded ] && [ "$(tj "$P" 0002-other | jq -r .session)" = s25 ]'
+fi
 
 echo "VERIFY-TESTS: $PASS passed, $FAIL failed"
 [ -n "${EVAL_COUNT_DIR:-}" ] && printf '%s\n' "$PASS" >"$EVAL_COUNT_DIR/verify-tests.count" 2>/dev/null

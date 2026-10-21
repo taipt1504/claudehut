@@ -3,6 +3,7 @@
 #   R*  evals/run.sh: arm and auth validation in dry-run; the jq `// true` trap is gone; rows carry the new fields
 #   Y*  evals/summarize.sh: aborted and pre-0.12.7 rows excluded, Δ per task × auth
 #   P*  plugin-eval suites (evals/suites/**): every case has a prompt and ≥1 grader; graders have a known type
+#   A*  plugin-eval.sh auth profile: api without a key and an unknown mode are refused before any run
 # Prints "EVAL-HARNESS-TESTS: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -57,6 +58,17 @@ if [ -d "$SU" ]; then
   check "P1: plugin-eval suites exist ($ncase cases)" '[ "$ncase" -ge 1 ]'
   check "P2: every case has ≥1 grader of a known type ($nbad bad)" '[ "$nbad" = 0 ]'
 fi
+
+# ── A: plugin-eval.sh auth profile (K-17). The refusals exit before any copy or model call; a run under `plan` and
+#    one under `api` are the same script path past this point, so these pin the only branch that differs.
+PE="$ROOT/evals/plugin-eval.sh"
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN bash "$PE" --auth api --case none >/dev/null 2>&1; rc=$?
+check "A1: plugin-eval --auth api without a key is refused before anything runs (rc=$rc)" '[ "$rc" = 2 ]'
+bash "$PE" --auth bogus --case none >/dev/null 2>&1; rc=$?
+check "A2: plugin-eval --auth takes plan|api|auto only (rc=$rc)" '[ "$rc" = 2 ]'
+check "A3: plugin-eval --auth plan drops the API key env, so the run uses the subscription login" \
+  'grep -q "if \[ \"\$AUTH\" = plan \]; then unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN; fi" "$PE"'
+check "A4: run-meta.json records auth_mode" 'grep -q "auth_mode" "$PE"'
 
 echo "EVAL-HARNESS-TESTS: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

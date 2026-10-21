@@ -16,6 +16,11 @@
   as a `task.imported` snapshot on the next write; a log ahead of task.json (crash after the append) is re-projected
   first. `claudehut-kernel replay --task DIR [--check]`; `CLAUDEHUT_STATE_SELFCHECK=1` replays after every write.
   The 0.12.7 gate lines in old logs carry no patch and never change the projection.
+- **Supersede goes through the end invariant** (M1b-c; 0.12 closed a finished task as done with no gate): when
+  `start` or `resume` replaces an open task that had finished (review pass, learn, findings), the in-process end gate
+  decides. warn → done + `gate.warned`; block → the task closes as `superseded` (resumable) with `gate.blocked` and a
+  notice naming the invariant; start/resume themselves are never refused. Python writer only.
+- `plugin-eval.sh` auth profile pinned by tests (`--auth api` without a key, unknown mode).
 - Tests: every suite runs under both writers (`CLAUDEHUT_STATE_IMPL=py|bash`, all green); `regress/state-diff-tests.sh`
   runs the same verb scripts through both and requires identical transcripts (exit codes, stdout, stderr, task.json,
   pointers, gate events) and that every task replays; `regress/state-lock-tests.sh` pins the lock interleavings
