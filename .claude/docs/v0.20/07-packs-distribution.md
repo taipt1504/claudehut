@@ -49,6 +49,8 @@ Kernel **không** đọc file nội bộ của host (`installed_plugins.json`, c
 | `domain-ewallet` | domain | domain facts, template campaign (DR, feature flag), aliases hub | prompt copy ở 14 repo |
 | Bundle `backend-jvm` | bundle | chỉ `dependencies`: kernel, workflow, review, deliberation, lang-java-spring, topology-jvm-service | — |
 
+**Trạng thái M2 (2026-10-21):** cả 6 pack đều đã có manifest, và K10 đã gate `claudehut-init` theo pack. Về mặt vật lý, mới chỉ `org-summer` được tách thành plugin riêng `claudehut-org-summer` trong marketplace nội bộ, cùng bundle `claudehut-backend-jvm`. Các pack còn lại vẫn nằm chung plugin `claudehut`, vì còn tham chiếu file của nhau: một plugin không đọc được file ngoài root của nó, và `bin/` của plugin khác không có trên PATH của hook. Mỗi pack sẽ tách ra khi các tham chiếu của nó đã được cắt ([10](10-implementation-log.md) M2b).
+
 Skill hoặc checker của tổ chức (ví dụ `using-dr-summer`) **không còn copy vào repo**. Repo bật pack `org-summer` và skill được gọi theo namespace `org-summer:using-dr-summer` (LIF-2).
 
 ## 3. Phân phối và release
