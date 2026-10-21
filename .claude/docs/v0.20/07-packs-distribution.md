@@ -1,0 +1,94 @@
+# 07 — Packs, phân phối, vòng đời
+
+Component K10 và mô hình phân phối. Vấn đề neo: DOM-1, DOM-2, LIF-1..5, MAO-2, CMP-2, CMP-3, HIL-3.
+
+## 1. Pack là gì
+
+Pack là **một Claude Code plugin** (dùng nguyên cơ chế host) phụ thuộc `claudehut-kernel` theo semver. Pack có thêm `claudehut-pack.json` để khai báo extension cho kernel.
+
+```json
+{
+  "pack": "lang-java-spring",
+  "version": "0.20.0",
+  "kernel": "~0.20",
+  "detect": {"any": ["build.gradle", "pom.xml"], "deps": ["org.springframework.boot"]},
+  "guides": [{"skill": "spring-conventions", "trigger": "paths", "paths": ["src/main/java/**"], "budget_tokens": 1200}],
+  "sensors": ["archunit.layering", "archunit.vendor-fence"],
+  "knowledge": {"extractors": ["java-components", "spring-beans", "variation-detectors"]},
+  "invariants": [],
+  "evals": ["evals/java-spring/*.json"]
+}
+```
+
+| Khả năng | Cơ chế host dùng |
+|---|---|
+| Skill, agent, hook, MCP, LSP của pack | thành phần plugin chuẩn |
+| Phụ thuộc kernel và pack khác | `dependencies` có semver; ràng buộc phải giao nhau, xung đột thì cài thất bại |
+| Kích hoạt theo stack | `detect` do K10 đánh giá; pack không khớp thì không nạp guide hay rule (CTX-2, DOM-1) |
+| Ngân sách always-on | K10 cộng budget của pack đang kích hoạt; CI chặn release nếu vượt (đo bằng `claude plugin details`) |
+
+### 1.1 Khám phá pack (registry)
+
+Kernel **không** đọc file nội bộ của host (`installed_plugins.json`, cấu trúc cache) vì chúng có thể đổi bất kỳ lúc nào. Thay vào đó:
+- Mỗi pack ship một hook `SessionStart` nhỏ. Hook này biết `${CLAUDE_PLUGIN_ROOT}` của chính nó và gọi CLI kernel (có trên PATH qua `bin/` của kernel): `claudehut-kernel register --manifest "${CLAUDE_PLUGIN_ROOT}/claudehut-pack.json" --version <v>`.
+- Registry ghi `{pack, version, root, manifest_hash}` vào `${CLAUDE_PLUGIN_DATA}` của kernel theo phiên. Sensor dùng `{pack_root}` lấy từ đây.
+- Pack không đăng ký, ví dụ hook bị tắt, sẽ hiện trong `claudehut status` là `unregistered`, không bị bỏ qua âm thầm (VER-3).
+
+## 2. Danh mục pack đề xuất
+
+| Pack | Loại | Nội dung | Thay cho (0.12) |
+|---|---|---|---|
+| `claudehut-kernel` | lõi | K1–K11, `claudehut-state`, `claudehut-verify`, MCP `claudehut-kb`, hook advisory | toàn bộ `bin/`, `scripts/` lõi |
+| `workflow-standard` | workflow | phase, template spec/plan/review, AC confirm, router rubric | `skills/*` phase |
+| `review` | quality | lane, review-pack, reviewer roster | `agents/*reviewer*` |
+| `deliberation` | quality | tier, probe, PV rule, MADR, design-reviewer, tournament | mới |
+| `lang-java-spring` | stack | extractor, detector D1–D7, ArchUnit sensor, rule Spring | 58 rule template, extractor Spring trong lõi |
+| `lang-python-shell` | stack | extractor, `shellcheck`, `pytest` | mới (DOM-1) |
+| `topology-jvm-service`, `topology-kafka-consumer` | template | bộ guide và sensor theo topology (harness template) | mới |
+| `org-summer` | tổ chức | Summer KB, skill `using-*-summer`, checker theo version | Summer KB trong lõi; 51 bản copy skill, 16 bản copy checker |
+| `domain-ewallet` | domain | domain facts, template campaign (DR, feature flag), aliases hub | prompt copy ở 14 repo |
+| Bundle `backend-jvm` | bundle | chỉ `dependencies`: kernel, workflow, review, deliberation, lang-java-spring, topology-jvm-service | — |
+
+Skill hoặc checker của tổ chức (ví dụ `using-dr-summer`) **không còn copy vào repo**. Repo bật pack `org-summer` và skill được gọi theo namespace `org-summer:using-dr-summer` (LIF-2).
+
+## 3. Phân phối và release
+
+| Vấn đề | Cơ chế |
+|---|---|
+| Marketplace (Q9) | `claudehut` cho kernel và pack chung; `f8a-internal` cho `org-summer`, `domain-ewallet` |
+| Kênh phát hành | Mỗi marketplace có hai bản `-stable` và `-canary` trỏ hai ref (host không có khái niệm channel). Pilot repo dùng canary |
+| Phạm vi cài | Cài ở **user** hoặc **managed** scope. Repo chỉ khai báo bundle trong `.claude/settings.json` (`enabledPlugins`). Không còn 21 bản cài project-scope (LIF-1) |
+| Cập nhật | `autoUpdate` cho marketplace. `claudehut status` cảnh báo session đang chạy bản cũ hơn bản đã cài |
+| Tag và version | `claude plugin tag`; version chỉ đặt ở `plugin.json` |
+| Đổi tên | map `renames` append-only |
+| Tổ chức | mẫu managed settings: `extraKnownMarketplaces`, `enabledPlugins`; khoá chặt (`strictKnownMarketplaces`…) chỉ khi governance yêu cầu |
+
+## 4. Cấu hình project và profile
+
+- `claudehut-init` làm ba việc:
+  - phát hiện stack;
+  - đề xuất bundle;
+  - sinh profile (autonomy, sandbox, advisor). Advisor mặc định là `opus` (Q5).
+- Mọi thay đổi vào `settings.json` đều **merge có cấu trúc**: giữ nguyên format và field lạ, có diff, user đồng ý mới ghi (LIF-3). Bản ghi cũ được lưu để rollback.
+- File sinh ra giữ ngoài tree được track khi có thể (`.claude/claudehut/` có `.gitignore` riêng). File cần chia sẻ thì commit có chủ đích (ENV-3).
+- AGENTS.md: nếu repo dùng AGENTS.md, init tạo CLAUDE.md một dòng `@AGENTS.md` thay vì nhân đôi nội dung.
+
+## 5. Cùng tồn tại với plugin khác (CMP)
+
+| Tình huống | Chính sách |
+|---|---|
+| Plugin workflow khác (superpowers, spec-kit) đang bật | K5 phát hiện. Hỏi user chọn workflow chủ; pack `workflow-standard` tự lùi về vai knowledge, quality |
+| Plugin cung cấp skill hữu ích (ví dụ `ewallet-query-audit`, understand-anything) | K10 liệt kê làm guide khả dụng; pack có thể tham chiếu theo tên |
+| Hook của user/plugin khác rewrite input (rtk), inject style (caveman) | K5 phát hiện và thích nghi ([04 §5.1](04-kernel-control.md)); không chặn plugin khác |
+| Xung đột tên hoặc event | Tool có namespace riêng; ClaudeHut không đăng ký hook chặn |
+
+## 6. Migration 0.12.6 → 0.20
+
+Chạy theo kiểu strangler, có dry-run và apply, giống M7 của 0.12:
+
+1. **0.12.x quick-wins** ([09 §3](09-adr-roadmap.md)), trên cấu trúc hiện tại.
+2. Tách lõi thành `claudehut-kernel`. Plugin `claudehut` cũ thành bundle tương thích, phụ thuộc kernel + workflow-standard + review + lang-java-spring.
+3. Tách `org-summer` và `domain-ewallet`. `claudehut-migrate` gỡ các bản copy skill, checker, prompt ở repo, sau khi so sánh nội dung với bản canonical (copy lệch thì báo, không xoá).
+4. Chuyển cài đặt sang user/managed scope. Gỡ 21 bản cài project-scope.
+5. Task cũ: `task.json` schema 2 được chuyển thành `events.jsonl` (sự kiện tổng hợp) cộng projection. Task đã `done` không bị kiểm lại bằng bất biến.
+6. Rollback: bundle cũ vẫn có ở marketplace stable cho tới khi pilot đạt exit criteria.
