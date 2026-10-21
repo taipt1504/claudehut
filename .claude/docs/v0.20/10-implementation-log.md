@@ -216,3 +216,43 @@ Sau review của advisor:
 | Pack `lang-python-shell` (mới) | 3 rule rút từ bài học của chính repo này: bash 3.2 với mảng rỗng, bẫy `//` của jq, BSD/GNU, `__pycache__`, exit code | — |
 
 **Exit criterion M2 (1/2):** init trên bản copy của repo này (bash + Python) cho ra 0 rule Java (test K5). Tiêu chí (2/2), bundle cài sạch từ marketplace canary, thuộc M2b.
+
+## M2b — phân phối tách (2026-10-21)
+
+**Spike** (CLAUDE_CONFIG_DIR tạm, `~/.claude/plugins` không bị đụng; chỉ chạy model call qua `--plugin-dir`):
+- Bundle chỉ khai báo `dependencies`, cài từ directory marketplace: cài **và bật** cả hai dependency. Đúng với cả tên trần lẫn range `~0.20.0-0` (prerelease cần `-0`), không cần git tag.
+- `bin/` của plugin khác **có** trên PATH của Bash tool, và `$0` trỏ đúng path của plugin. Pattern locator cho caller là Bash tool vì vậy dùng được.
+- `bin/` **không** có trên PATH của hook (đã ghi ở M2a).
+- `claude plugin validate --strict` fail vì cảnh báo của directory (README, LICENSE, icon, author). Bản non-strict pass.
+- `claude plugin details` báo token cost always-on: plugin `claudehut` khoảng 1.255 tok.
+- Marketplace dạng `file://` git không được nhận, nên symlink qua cache copy chưa kiểm được. Chọn vendor file thay cho symlink.
+
+**Kiểm kê tham chiếu chéo giữa các pack** (quét path tĩnh, chưa tính path động như `$TPL/rules` hay `lib/hook-common.sh`):
+
+| Hướng | Số tham chiếu trong code |
+|---|---|
+| workflow → kernel | 11 |
+| kernel → workflow | 7 |
+| kernel → java | 4 (hook) |
+| kernel ↔ org-summer | 3 + 1 |
+| review → kernel/workflow | 4 |
+
+Phần lớn là skill gọi `scripts/` của kernel qua `${CLAUDE_PLUGIN_ROOT}`. Path đó không còn đúng khi skill nằm ở plugin khác.
+
+**Quyết định (decision gate của advisor):** chỉ tách `org-summer`. Lý do phân phối: nội dung nội bộ không được lên marketplace public (Q9). Coupling của nó chỉ có hai điểm, và đã cắt được:
+- bước Summer của `maintain.sh` chuyển thành `skills/summer-kb-setup/scripts/kb-maintain.sh`, tự chứa;
+- `extract.py` được vendor vào plugin org-summer.
+
+Kernel, workflow, review, java và python-shell vẫn là **một plugin `claudehut` với pack logic**, cho tới khi các tham chiếu trên được cắt. Đó là việc của từng pack sau này, không phải một lần refactor lớn.
+
+| Thiết kế (07 §2-§3) | Đã build |
+|---|---|
+| Kernel, pack, bundle; hai marketplace | `claudehut-kernel dist --out DIR [--channel stable\|canary]`. Kết quả gồm marketplace public `claudehut[-canary]` (plugin `claudehut`) và marketplace nội bộ `claudehut-internal[-canary]` (`claudehut-org-summer`, cùng bundle `claudehut-backend-jvm` có dependency chéo marketplace). Chỉ ship file tracked. `dist/` đã gitignore |
+| Kênh stable/canary | Hậu tố tên marketplace theo channel. Ref thật (branch/tag) cần push, nên chưa làm (ngoài phạm vi phase A) |
+| Source vẫn cài được, làm đường rollback (07 §6) | Plugin gốc `claudehut` ở root repo không đổi |
+
+**Exit criterion M2 (2/2):** bundle cài sạch từ các marketplace canary (dạng directory), cả hai dependency đều được bật, `validate` pass, và registry của user không bị đụng (`dist-tests` D6).
+
+**Phát hiện:** 14 file của plugin public vẫn nhắc tên tổ chức nội bộ (`f8a`). Việc scrub chờ user quyết; `dist-tests` in ra số đếm.
+
+Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `claudehut-migrate-plane` giữ là script riêng.

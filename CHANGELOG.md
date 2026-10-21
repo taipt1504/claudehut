@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased — 0.20 M2a (packs, logical)
+## Unreleased — 0.20 M2 (packs)
+
+- **Split distribution, M2b** (docs/v0.20 07 §2-§3): `claudehut-kernel dist --out DIR [--channel stable|canary]`
+  builds a public marketplace `claudehut[-canary]` (plugin `claudehut`: kernel + workflow + review + Java/Spring +
+  Python/shell packs) and an internal one `claudehut-internal[-canary]` (`claudehut-org-summer`, and the bundle
+  `claudehut-backend-jvm` = dependencies only). Tracked files only. Only org-summer is split out: the other packs
+  still reference each other's files and a plugin cannot read outside its root (decision logged). The Summer KB
+  maintenance moved to `skills/summer-kb-setup/scripts/kb-maintain.sh` (run by `maintain.sh`, or by the
+  org-summer plugin's own SessionStart hook); `claudehut-migrate` skips the KB step when the pack is absent.
+- Tests: `regress/dist-tests.sh` — build, no org-summer in public, bundle shape, org-summer standalone, tracked-only,
+  and (with the `claude` CLI) validate + install the bundle from the canary marketplaces in a throwaway
+  `CLAUDE_CONFIG_DIR`.
+
+### M2a (packs, logical)
 
 - **Pack manifests and K10 activation** (docs/v0.20 07 §1-§2): `packs/<name>/claudehut-pack.json` for
   `claudehut-kernel`, `workflow-standard`, `review`, `lang-java-spring`, `lang-python-shell`, `org-summer`

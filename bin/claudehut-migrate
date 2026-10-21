@@ -373,22 +373,27 @@ migrate_all() {
   #     so the backups above cover it). install_summer_kb.py --if-stale writes nothing when up to date.
   log "== summer-kb"
   local kb_n=0 kb_m=0 kb_k=0 kb_order=() st
-  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ -f "$s/.claude/summer-kb/INDEX.md" ] && [ "${s##*/}" = java-common-ms ] && kb_order+=("$s"); done
-  for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ "${kb_order[0]:-}" = "$s" ] || kb_order+=("$s"); done
-  for s in ${kb_order[@]+"${kb_order[@]}"}; do
-    out="$(run_env "$s" python3 "$KB" "$s" --if-stale 2>&1)"; printf '%s\n' "$out" >> "${LOG:-/dev/null}"
-    st="$(printf '%s\n' "$out" | grep '^summer-kb: ' | tail -1)"; st="${st#summer-kb: }"
-    case "$st" in
-      installed*) kb_m=$((kb_m+1)) ;;
-      refreshed*) kb_n=$((kb_n+1)) ;;
-      up-to-date*) kb_k=$((kb_k+1)) ;;
-      "skip (not a Summer consumer)") continue ;;
-      source*) : ;;
-      *) log "  WARN: summer-kb ${s##*/}: $(printf '%s' "$out" | tail -1)"; rc=1; continue ;;
-    esac
-    log "  summer-kb ${s##*/}: $st"
-  done
-  log "  summer-kb: refresh $kb_n, install $kb_m, up-to-date $kb_k"
+  # A distribution without the org-summer pack (docs/v0.20 07 §2) has no installer here: say so and skip the step.
+  if [ ! -f "$KB" ]; then
+    log "  summer-kb: skipped — pack org-summer is not part of this plugin (install it, then re-run)"
+  else
+    for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ -f "$s/.claude/summer-kb/INDEX.md" ] && [ "${s##*/}" = java-common-ms ] && kb_order+=("$s"); done
+    for s in ${SERVICES[@]+"${SERVICES[@]}"}; do [ "${kb_order[0]:-}" = "$s" ] || kb_order+=("$s"); done
+    for s in ${kb_order[@]+"${kb_order[@]}"}; do
+      out="$(run_env "$s" python3 "$KB" "$s" --if-stale 2>&1)"; printf '%s\n' "$out" >> "${LOG:-/dev/null}"
+      st="$(printf '%s\n' "$out" | grep '^summer-kb: ' | tail -1)"; st="${st#summer-kb: }"
+      case "$st" in
+        installed*) kb_m=$((kb_m+1)) ;;
+        refreshed*) kb_n=$((kb_n+1)) ;;
+        up-to-date*) kb_k=$((kb_k+1)) ;;
+        "skip (not a Summer consumer)") continue ;;
+        source*) : ;;
+        *) log "  WARN: summer-kb ${s##*/}: $(printf '%s' "$out" | tail -1)"; rc=1; continue ;;
+      esac
+      log "  summer-kb ${s##*/}: $st"
+    done
+    log "  summer-kb: refresh $kb_n, install $kb_m, up-to-date $kb_k"
+  fi
   # 4. Hub: read-only scan of repos without a plane, then one sync over everything registered.
   log "== hub-scan + hub-sync"
   if [ ${#SCANS[@]} -gt 0 ]; then

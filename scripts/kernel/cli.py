@@ -12,6 +12,8 @@
   claudehut-kernel event --task DIR --type T [--data JSON]
   claudehut-kernel packs [--project DIR] [--json] [--owner PATH…]   K10: which packs are active for the project (and
                                                  why); --owner prints the pack owning each plugin-relative path
+  claudehut-kernel dist --out DIR [--channel stable|canary]   M2b: build the split distribution (two directory
+                                                 marketplaces) from the pack manifests; tracked files only
   claudehut-kernel replay --task DIR [--check]   project tasks/<id>/events.jsonl → the task record (K1); --check exits 1
                                                  when it differs from task.json (exit 0 with a note: no state events yet)
 
@@ -29,7 +31,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import events, gates, learn, packs, plane, probe, selftest, tasklog, verify  # noqa: E402
+from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, tasklog, verify  # noqa: E402
 
 
 def _project(a):
@@ -183,6 +185,16 @@ def cmd_packs(a):
     return 1 if errors else 0
 
 
+def cmd_dist(a):
+    try:
+        rep = dist.build(os.path.abspath(a.out), a.channel)
+    except RuntimeError as exc:
+        print(f"dist: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(rep, ensure_ascii=False))
+    return 0
+
+
 def cmd_replay(a):
     task_dir = os.path.abspath(a.task)
     proj, rev = tasklog.project(events.read(task_dir))
@@ -266,6 +278,11 @@ def main(argv):
     pk.add_argument("--json", action="store_true")
     pk.add_argument("--owner", nargs="+")
     pk.set_defaults(fn=cmd_packs)
+
+    ds = sub.add_parser("dist")
+    ds.add_argument("--out", required=True)
+    ds.add_argument("--channel", default="stable", choices=["stable", "canary"])
+    ds.set_defaults(fn=cmd_dist)
 
     rp = sub.add_parser("replay")
     rp.add_argument("--task", required=True)

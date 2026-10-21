@@ -37,3 +37,6 @@ evals/suites/**/results/
 .claude/docs/v0.20/research/
 .claude/docs/v0.20/appendix/a1-decision-quality-evidence.md
 .claude/docs/v0.20/appendix/a3-approval-candidates.md
+
+# M2b split distribution (claudehut-kernel dist --out dist)
+dist/
