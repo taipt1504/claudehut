@@ -43,9 +43,12 @@ check "D3: canary plugins carry no version (a git-hosted canary versions every c
   '[ -z "$(jq -r ".version // empty" "$CH/.claude-plugin/plugin.json" "$OS/.claude-plugin/plugin.json" "$BJ/.claude-plugin/plugin.json")" ] && [ -z "$(jq -r ".plugins[].version // empty" "$PUB/.claude-plugin/marketplace.json" "$INT/.claude-plugin/marketplace.json")" ]'
 check "D3: dist-meta.json records the source sha and dirty flag" \
   '[ "$(jq -r .source_sha "$D/dist-meta.json")" = "$(git -C "$ROOT" rev-parse HEAD)" ] && jq -e "has(\"source_dirty\")" "$D/dist-meta.json" >/dev/null'
+"$K" dist --out "$TMP/st" --channel stable >/dev/null 2>&1; rc=$?
 if [ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]; then
-  "$K" dist --out "$TMP/st" --channel stable >/dev/null 2>&1; rc=$?
-  check "D3: --channel stable refuses a dirty tree (rc=$rc)" '[ "$rc" = 1 ] && [ ! -e "$TMP/st/dist-meta.json" ]'
+  check "D3: --channel stable on this dirty tree is refused (rc=$rc)" '[ "$rc" = 1 ] && [ ! -e "$TMP/st/dist-meta.json" ]'
+else
+  check "D3: --channel stable on this clean tree builds and stamps the version (rc=$rc)" \
+    '[ "$rc" = 0 ] && [ "$(jq -r .source_dirty "$TMP/st/dist-meta.json")" = false ] && [ "$(jq -r .version "$TMP/st/claudehut/plugins/claudehut/.claude-plugin/plugin.json")" = "$V" ]'
 fi
 
 F="$TMP/svc"; mkdir -p "$F"; printf "dependencies { implementation 'io.f8a.summer:summer-core:1.0' }\n" >"$F/build.gradle"
