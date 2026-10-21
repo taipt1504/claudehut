@@ -5,6 +5,7 @@
 #      unasked; init asks mono vs microservice), so this layer now asserts that a plane-less repo stays untouched.
 # Run: evals/init-tests.sh   (see evals/FOLLOWUP-init-script.md §12)
 set -uo pipefail
+export CLAUDEHUT_HOST_PROBE=0   # 0.12.7: never execute the developer's own hooks or write probe caches from a test run
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 INIT="$ROOT/bin/claudehut-init"
 PASS=0; FAIL=0

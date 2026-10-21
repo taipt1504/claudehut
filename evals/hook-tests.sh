@@ -15,6 +15,7 @@
 # Latency (AC12) is NOT gated here: wall-clock time depends on the machine and its load. It is the benchmark
 # evals/hook-bench.sh (a report; HOOK_BENCH_STRICT=1 gates it).
 set -uo pipefail
+export CLAUDEHUT_HOST_PROBE=0   # 0.12.7: never execute the developer's own hooks or write probe caches from a test run
 FAST=0
 case "${1:-}" in --fast) FAST=1 ;; "") ;; *) echo "usage: $0 [--fast]" >&2; exit 2 ;; esac
 

@@ -76,9 +76,10 @@ def foreign_bash_hooks(project_dir):
     return hooks
 
 
-def _cache_path():
-    base = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.join(os.path.expanduser("~"), ".claude", "plugins", "data",
-                                                                    "claudehut-claudehut")
+def _cache_path(project_dir):
+    """The plugin's own data dir when the host provides it; otherwise the project plane's state dir — never a
+    guessed path under ~/.claude (that would be another install's data)."""
+    base = os.environ.get("CLAUDE_PLUGIN_DATA") or os.path.join(project_dir, ".claude", "claudehut", "state")
     return os.path.join(base, "host-probe-cache.json")
 
 
@@ -146,7 +147,7 @@ def auth_mode():
 
 
 def probe(project_dir, execute=True):
-    cache_file = _cache_path()
+    cache_file = _cache_path(project_dir)
     cache = _read(cache_file) or {}
     now = time.time()
     hooks = foreign_bash_hooks(project_dir)

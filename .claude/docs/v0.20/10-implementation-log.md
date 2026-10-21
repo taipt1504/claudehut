@@ -68,6 +68,12 @@ Rule `permissions.allow` trong settings **không** mở được giới hạn n�
 Hệ quả:
 - Mọi artifact ClaudeHut (spec, plan, review, learnings) ghi bằng Write/Edit dưới `.claude/claudehut/` đều gây prompt hoặc tốn classifier trong session thường.
 - Mọi artifact đó bị chặn hẳn trong runner headless (Q1-B) và trong eval.
-- Đây là gốc của khoảng 150 Write denial ghi nhận từ v0.11 (STA-5), và của việc `evals/run.sh` cũ phải dùng `--dangerously-skip-permissions`.
+- Góp phần vào ma sát: trong session tương tác, mỗi lần ghi artifact sẽ hiện prompt hoặc đi qua classifier; còn ở `dontAsk` thì bị từ chối hẳn. Đây cũng là lý do `evals/run.sh` cũ phải dùng `--dangerously-skip-permissions`. Mối liên hệ với khoảng 150 Write denial thời v0.11 (STA-5) **chưa được xác minh**: r4 quy các denial đó chủ yếu cho gate riêng của ClaudeHut (scratchpad, `.understand-anything`).
 
 Đề xuất **ADR K-18 (chờ user)**: chuyển phần artifact ghi thường xuyên (tasks, learnings, index, events) ra khỏi `.claude/`, ví dụ sang `<repo>/.claudehut/`. Chỉ giữ dưới `.claude/` những gì Claude Code phải tự đọc (rules, skills, CLAUDE import). Việc migrate 20 scope thuộc phase B, dùng `claudehut-migrate`.
+
+## Eval: fail-open và grader
+
+- Thêm grader `gate-never-skipped` (regex trên trace: `gate (review-pass|end) skipped`, `not_contains`) cho cả hai case process. Nếu kernel lỗi trong sandbox (python3 là shim xcrun và in lỗi cache), gate sẽ bị bỏ qua và lọt PASS giả; grader này bắt trường hợp đó.
+- Một lần chạy trước từng có `"review":"pass"` mà không giải thích được. Không tái hiện được trong 3 lần chạy sau; cả hai lần có trace đều cho thấy gate BLOCK đúng. Giữ ở trạng thái **chưa xác minh**; grader mới sẽ bắt nếu lặp lại.
+- Run eval không có JDK dùng được: `/usr/bin/java` là stub, còn JDK của SDKMAN nằm dưới `$HOME` mà sandbox không đọc được. Case outcome vẫn qua khi agent tìm được javac.

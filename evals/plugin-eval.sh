@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # plugin-eval.sh — run the `claude plugin eval` suites (evals/suites/**) against THIS plugin (docs/v0.20 08 §4).
 #
-#   evals/plugin-eval.sh [--auth plan|api|auto] [--keep-copy] [claude plugin eval options…]
+#   evals/plugin-eval.sh [--auth plan|api|auto] [--plugin-root DIR] [--keep-copy] [claude plugin eval options…]
+#     --plugin-root DIR  evaluate ANOTHER tree (e.g. a baseline-0.12.6 worktree) with THIS tree's suites
 #     e.g. evals/plugin-eval.sh --case end-refused-without-review --runs 1 --ablation none
 #
 # Why a wrapper:
@@ -14,11 +15,12 @@
 # COSTS: every run is a model call on your plan or bill. Start with --runs 1 --ablation none on one case.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-AUTH=auto; KEEP=false; pass=()
+AUTH=auto; KEEP=false; PROOT=""; pass=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --auth) AUTH="${2:-auto}"; shift 2 ;;
     --keep-copy) KEEP=true; shift ;;
+    --plugin-root) PROOT="${2:-}"; shift 2 ;;
     *) pass+=("$1"); shift ;;
   esac
 done
@@ -32,11 +34,12 @@ command -v claude >/dev/null || { echo "claude not on PATH" >&2; exit 2; }
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/claudehut-eval.XXXXXX")"
 case "$BASE" in "$HOME"/*) echo "warning: $BASE is under \$HOME — sandboxed Bash in the run may not read the plugin" >&2 ;; esac
 COPY="$BASE/claudehut"; mkdir -p "$COPY"
-( cd "$ROOT" && tar --exclude=./.git --exclude=./evals --exclude=./.claude --exclude=./.understand-anything -cf - . ) | ( cd "$COPY" && tar -xf - )
+SRC="${PROOT:-$ROOT}"; [ -d "$SRC/.claude-plugin" ] || { echo "not a plugin root: $SRC" >&2; exit 2; }
+( cd "$SRC" && tar --exclude=./.git --exclude=./evals --exclude=./.claude --exclude=./.understand-anything -cf - . ) | ( cd "$COPY" && tar -xf - )
 mkdir -p "$COPY/evals" && cp -R "$ROOT/evals/suites" "$COPY/evals/suites"
 TS="$(date -u +%Y-%m-%dT%H-%M-%SZ)"; OUT="$ROOT/evals/results/plugin-eval/$TS"; mkdir -p "$OUT"
 printf '{"auth_mode":"%s","claude_version":"%s","plugin_version":"%s","started":"%s"}\n' "$AUTH" \
-  "$(claude --version 2>/dev/null | head -1)" "$(jq -r .version "$ROOT/.claude-plugin/plugin.json" 2>/dev/null)" "$TS" > "$OUT/run-meta.json"
+  "$(claude --version 2>/dev/null | head -1)" "$(jq -r .version "$SRC/.claude-plugin/plugin.json" 2>/dev/null)" "$TS" > "$OUT/run-meta.json"
 echo "plugin copy: $COPY   results: $OUT   auth: $AUTH"
 ( cd "$COPY" && claude plugin eval . --eval-dir evals/suites --scaffold --trust-plugin --no-publish \
     --output-dir "$OUT" --allow-tools Bash Write Edit "${pass[@]+"${pass[@]}"}" )

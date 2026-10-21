@@ -21,6 +21,7 @@
 | K-15 | **Context:** always-on có budget kiểm trong CI; không nội dung biến động trong prefix; handoff cạnh log; session theo task | Mega-session | CTX-*, PLN-3 |
 | K-16 | **AC confirm** trước implement (pack workflow); headless không tự duyệt T2+ | Self-approve | PLN-2, HIL-2 |
 | K-17 | **Auth profile** (`plan`/`api`/`auto`) cho runner, eval, judge; không phụ thuộc cách xác thực (§7) | Chỉ hỗ trợ API key (`--bare`) hoặc chỉ hỗ trợ plan | Q1, Q7, EVL-1 |
+| K-18 | **(Chờ user)** Chuyển dữ liệu plane hay ghi (tasks, learnings, index, events) ra khỏi `.claude/`, ví dụ sang `<repo>/.claudehut/`. `.claude` là protected path: interactive thì phải prompt hoặc qua classifier, `dontAsk` (runner, eval, CI) thì bị từ chối, và `permissions.allow` không mở được ([10](10-implementation-log.md)) | Giữ nguyên dưới `.claude/` | Q1-B, EVL-1, DX-1 |
 
 **ADR của 0.12:**
 

@@ -18,6 +18,7 @@
 #   NFC file name in the plane (restore must give the same bytes back), a linked worktree under .claude/worktrees
 #   (the dry-run copy must not point back at it); hooks go through the --plugin-data shim, never $ROOT/bin
 set -uo pipefail
+export CLAUDEHUT_HOST_PROBE=0   # 0.12.7: never execute the developer's own hooks or write probe caches from a test run
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MIG="$ROOT/bin/claudehut-migrate"; INIT="$ROOT/bin/claudehut-init"
 PASS=0; FAIL=0
