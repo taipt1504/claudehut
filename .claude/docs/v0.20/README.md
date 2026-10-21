@@ -55,8 +55,8 @@ Ma trận coverage gắn **35/35 vấn đề S1 và S2** với cơ chế và met
 | [08-observability-eval.md](08-observability-eval.md) | OTel, `claudehut status`, metric, 4 suite eval, vòng cải tiến |
 | [09-adr-roadmap.md](09-adr-roadmap.md) | ADR K-01…K-16, ADR 0.12 bị thay, track Q (quick-win) và track 0.20, câu hỏi Q1–Q11 |
 | [10-implementation-log.md](10-implementation-log.md) | Nhật ký build phase A: Track Q (0.12.7), review độc lập, phát hiện protected path (đề xuất K-18), harness eval M0 |
-| [appendix/a1](appendix/a1-decision-quality-evidence.md), [a2](appendix/a2-deliberation-pack.md) | Chi tiết cụm chất lượng quyết định và pack deliberation |
-| [research/](research/) | Báo cáo nguồn tiếng Anh r1–r5 |
+| [appendix/a2](appendix/a2-deliberation-pack.md) | Pack deliberation. `appendix/a1` (bằng chứng) và `a3` (gói duyệt) chỉ có local |
+| `research/` (chỉ có local) | Báo cáo nguồn tiếng Anh r1–r5. Không push vì chứa dữ liệu nội bộ ewallet |
 
 Thứ tự đọc: 01 → 03 → 09 → 04…08 theo vùng phụ trách.
 

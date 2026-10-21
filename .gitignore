@@ -32,3 +32,8 @@ evals/tasks/*/repo/bin/
 # claude plugin eval output (report.html, traces) — large, per run
 evals/results/plugin-eval/
 evals/suites/**/results/
+
+# v0.20 design: internal evidence (ewallet paths, commits, vendors, transcripts) — kept local, never pushed
+.claude/docs/v0.20/research/
+.claude/docs/v0.20/appendix/a1-decision-quality-evidence.md
+.claude/docs/v0.20/appendix/a3-approval-candidates.md
