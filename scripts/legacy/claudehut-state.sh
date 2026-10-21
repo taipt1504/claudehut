@@ -811,7 +811,7 @@ case "$sub" in
       grep -qiE '^[[:space:]]*\|.*(✓|✗|satisfied|violated|n-?/?a)' "$evp" \
         || err "set-review pass: $ev has no coverage table — expected markdown rows like '| <item> | ✓ satisfied | file:line |'."
       grep -qiE '(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|build success|[0-9]+ +(passed|passing|tests?))' "$evp" \
-        || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed')."
+        || err "set-review pass: $ev shows no fresh test evidence (a build command + pass count, e.g. './gradlew test — 12 passed'). --override does not apply to this check: run the tests and paste their output, or leave the review pending and tell the user why."
       if grep -iE '^[[:space:]]*\|.*(✓|satisfied)' "$evp" \
            | grep -qvE '\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|sql|md|yaml|yml|xml|gradle|sh|properties)\b|[A-Za-z0-9_]+Test\b|[A-Za-z0-9_]+#[A-Za-z0-9_]+'; then
         err "set-review pass: a '✓ satisfied' coverage row in $ev has no evidence locus. Cite WHERE each item is satisfied (Foo.java:42, a Test class, or Class#method)."

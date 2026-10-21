@@ -1010,7 +1010,8 @@ class State:
             if not any(re.search(r"(gradlew|mvnw|gradle (test|build|check)|mvn (test|verify|install)|tests? run[: ]|"
                                  r"build success|[0-9]+ +(passed|passing|tests?))", ln, re.I) for ln in lines):
                 self.err(f"set-review pass: {ev} shows no fresh test evidence (a build command + pass count, e.g. "
-                         f"'./gradlew test — 12 passed').")
+                         f"'./gradlew test — 12 passed'). --override does not apply to this check: run the tests and paste "
+                         f"their output, or leave the review pending and tell the user why.")
             locus = re.compile(r"\.(java|kt|kts|ts|tsx|js|jsx|py|go|rb|sql|md|yaml|yml|xml|gradle|sh|properties)\b|"
                                r"[A-Za-z0-9_]+Test\b|[A-Za-z0-9_]+#[A-Za-z0-9_]+")
             sat = [ln for ln in lines if re.search(r"^" + SP + r"*\|.*(✓|satisfied)", ln, re.I)]
