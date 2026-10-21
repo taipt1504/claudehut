@@ -263,3 +263,33 @@ Kernel, workflow, review, java và python-shell vẫn là **một plugin `claude
 **Phát hiện:** 14 file của plugin public vẫn nhắc tên tổ chức nội bộ (`f8a`). Việc scrub chờ user quyết; `dist-tests` in ra số đếm.
 
 Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `claudehut-migrate-plane` giữ là script riêng.
+
+## M3a — detector variation point (2026-10-21)
+
+**Spike MCP** (trước khi thiết kế server):
+- Một stdio server khai trong `.mcp.json` của plugin nhận được `CLAUDE_PLUGIN_ROOT`, `CLAUDE_PLUGIN_DATA`, `CLAUDE_PROJECT_DIR`; cwd là project.
+- Server ghi được vào `.claudehut/`: nó là một process, không phải file tool, nên không dính protected path.
+- Tên tool là `mcp__plugin_<plugin>_<server>__<tool>`.
+- Trong `claude plugin eval`, server thật chỉ start khi có `--mocks off`. `--allow-tools 'mcp__*'` bị từ chối, phải liệt kê tên tool cụ thể. Tool gọi được trong sandbox của eval.
+- **Vệ sinh spike:** chạy `--plugin-dir` thật sẽ tạo `~/.claude/plugins/data/<name>-inline`. Hai spike của em tạo 2 thư mục rỗng (`probe-b-inline`, `probe-kb-inline`); đã xoá. Thư mục `probeplug-inline` có từ 29/09, không phải của em, nên để nguyên. Từ giờ chạy thử live qua `plugin-eval` (HOME tạm).
+
+| Thiết kế (05 §2) | Đã build | Ghi chú |
+|---|---|---|
+| Detector thuộc pack | `scripts/index/variation.py` thuộc `lang-java-spring` (kernel giờ liệt kê từng file của `scripts/index/` mà nó sở hữu). Index chỉ chạy detector khi K10 bật pack Java; không bật thì ghi `applicable:false` kèm lý do | Kernel không có khái niệm Spring |
+| D1–D4 | multi-impl, registry, factory, conditional | — |
+| D5–D7 | **chưa build** | D7 (inject vendor trực tiếp) để M3 sau |
+| D8 (mới, không có trong 05) | `contract-param`: tham số endpoint mang tên variant (bank, provider, vendor, partner, channel…) | Thêm cho case `bank-export-follows-param` (rule b: variation do contract quyết định) |
+| Pattern miner | `port-selector`: port có ≥2 variant **và** một selector. Trạng thái `candidate` | Chưa có cơ chế confirm của owner |
+| `extension-point` (mới) | Base type generic (`RequestHandler<T,R>`, `AbstractService<E,ID,R>`) có ≥2 bean con. Chỉ báo cáo, không phải VP | Rút ra từ mẫu đọc trên service thật |
+
+**Đo lường:**
+- **Fixture đã freeze trước khi viết code** (`1d59276`): precision 1.0, recall 1.0, không trúng negative nào, pattern khớp chính xác.
+- Scaffold eval zns và bank-export (viết cho mục đích khác): đều tìm thấy.
+- **Pass xoá rule** đã bắt được hai lỗi trong cách đo:
+  - Ở bản đầu, 10/12 lần xoá làm module lỗi cú pháp, nên lần V3 pass trước đó là vô nghĩa. Đã viết lại rule thành bảng, mỗi entry một dòng xoá độc lập được.
+  - Sau đó còn 4 rule xoá đi mà điểm không đổi. 2 rule là thật sự thừa trên fixture: registry chỉ dùng Map và selector chỉ là factory, vì mọi port trong fixture đều có thêm List. Đã thêm vào `additions/`, file tách riêng có ghi rõ, không sửa ground truth đã freeze. Rule "concrete" chuyển thành guard không tag. Kết quả: 15/15 rule đều có trọng số.
+- **Mẫu đọc trên service thật** (chỉ đọc, chỉ đếm, không commit code):
+  - notification-ms: 5 multi-impl, 3 registry, 2 factory, 1 extension-point; 3 instance pattern (Email/Push provider, SmsProvider).
+  - payment-gateway-ms: 4 multi-impl, 4 registry, 1 factory, 1 contract-param (`partnerCode`), 6 extension-point.
+  - va-ms: 2 multi-impl, 5 registry.
+  - Trước khi có rule extension-point, các base handler generic (69 và 25 subclass) bị tính là VP. Sau rule thì tên của các VP còn lại đều trông như concern variant; **chưa đối chiếu từng file**.

@@ -1,0 +1,13 @@
+{
+  "_doc": "Post-freeze additions (M3a). (1) From the read-only sample on real services: a GENERIC base type with many bean subclasses is a framework extension point, not a variation point. (2) From the rule-mutation pass: the frozen fixture never isolates a Map-only registry or a factory-only selector (every such port also had a List), so those rules carried no weight; these cases isolate them. Kept apart from the frozen expected.json so the original ground truth stays unchanged.",
+  "repo": "repo",
+  "variation_points": [
+    {"anchor": "demo.notify.Notifier", "kind": "multi-impl"},
+    {"anchor": "demo.notify.Notifier", "kind": "registry"},
+    {"anchor": "demo.export.Exporter", "kind": "multi-impl"},
+    {"anchor": "demo.export.Exporter", "kind": "factory"}
+  ],
+  "extension_points": ["demo.cqrs.RequestHandler"],
+  "negatives": ["demo.cqrs.RequestHandler"],
+  "patterns": {"port-selector": ["demo.export.Exporter", "demo.notify.Notifier"]}
+}

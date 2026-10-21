@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased — 0.20 M3 (knowledge plane)
+
+- **Variation-point detectors and pattern miner, M3a** (pack lang-java-spring, `scripts/index/variation.py`,
+  docs/v0.20 05 §2): D1 multi-impl, D2 registry (Map/EnumMap/List/Set of a port), D3 factory (a *Factory/*Registry/…
+  returning a port), D4 conditional (@ConditionalOnProperty/@Profile variants), D8 contract-param (an endpoint
+  parameter naming a variant: bank, provider, vendor, partner, channel …); a generic base type is reported as a
+  framework `extension-point`, never a VP. The miner groups ports with variants AND a selector into the candidate
+  pattern `port-selector`. `claudehut-index update` writes `index/variation.json` when the Java pack is active
+  (else `applicable:false` + reason); `claudehut-index variation [--json]` reads it.
+- Ground truth frozen before the detectors (`evals/fixtures/variation/expected.json`, 11 VPs, 8 negatives) plus
+  documented post-freeze additions; `regress/variation-tests.sh`: precision 1.0 / recall 1.0 on the fixture, the zns
+  and bank-export eval scaffolds, and a rule-deletion pass where all 15 tagged rules carry weight.
+
 ## Unreleased — 0.20 M2 (packs)
 
 - **Split distribution, M2b** (docs/v0.20 07 §2-§3): `claudehut-kernel dist --out DIR [--channel stable|canary]`

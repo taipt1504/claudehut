@@ -1,6 +1,6 @@
 """claudehut_index.py — the `claudehut-index` CLI (07-index-memory.md §5–§7, ADR-IDX-1/2/5/7).
 
-Read commands (agents call these): status, brief, find, svc, links. They never write a file and never change an
+Read commands (agents call these): status, brief, find, svc, links, variation (M3a: variation points + candidate patterns). They never write a file and never change an
 mtime: every git call runs with GIT_OPTIONAL_LOCKS=0, so `git status` does not refresh .git/index. The only
 side effect a read may have is to start a detached `update` when the index is stale (brief/svc, §7);
 CLAUDEHUT_INDEX_NO_SPAWN=1 turns that off.
@@ -364,6 +364,56 @@ def cmd_update(ctx, opts):
     return hub_sync_here(ctx, opts, [ctx.repo])
 
 
+def variation_applicable(ctx):
+    """(True, None) when the detectors apply here: the lang-java-spring pack is active (K10) and shipped."""
+    try:
+        from claudehut_kernel import packs as kpacks
+        if "lang-java-spring" not in kpacks.active_names(ctx.repo):
+            return False, "pack lang-java-spring is not active for this repo"
+    except Exception as e:  # no kernel → the 0.12 behaviour: the Java pack is on
+        sys.stderr.write("variation: pack check unavailable (%s)\n" % e)
+    if not os.path.isfile(os.path.join(HERE, "variation.py")):
+        return False, "pack lang-java-spring is not installed in this plugin"
+    return True, None
+
+
+def write_variation(ctx, all_files, head):
+    """index/variation.json (05 §2): variation points + candidate patterns, or {applicable:false, reason}. A tool that
+    reads it can then tell `none_found` (applicable, empty) from `unknown` (missing / not applicable)."""
+    ok, why = variation_applicable(ctx)
+    doc = {"schema": 1, "indexed_commit": head, "applicable": ok}
+    if not ok:
+        doc["reason"] = why
+    else:
+        try:
+            import variation
+            java = [p for p in all_files if p.endswith(".java") and not extract.excluded(p)]
+            vps, pats = variation.detect(java, lambda rel: read_text(ctx, rel))
+            doc.update(variation_points=vps, patterns=pats)
+        except Exception as e:  # never fails the index
+            doc.update(applicable=False, reason="detector failed: %s" % e)
+    write_atomic(os.path.join(ctx.idx, "variation.json"), json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
+
+
+def cmd_variation(ctx, opts):
+    """variation [--json]: the variation points and candidate patterns of the last update (read-only)."""
+    doc = read_json(os.path.join(ctx.idx, "variation.json"), None)
+    if doc is None:
+        return out_line(opts, {"applicable": None, "reason": "no index/variation.json yet — run claudehut-index update"},
+                        "variation: unknown — no index/variation.json yet (run claudehut-index update)")
+    if not doc.get("applicable"):
+        return out_line(opts, doc, "variation: not applicable — %s" % doc.get("reason"))
+    lines = ["variation: %d point(s), %d candidate pattern(s) at %s" % (len(doc.get("variation_points", [])),
+             len(doc.get("patterns", [])), (doc.get("indexed_commit") or "?")[:7])]
+    for v in doc.get("variation_points", []):
+        if v["kind"] == "extension-point":
+            continue
+        lines.append("  %-14s %s  (%s:%s)" % (v["kind"], v["anchor"], v.get("file"), v.get("line")))
+    for p in doc.get("patterns", []):
+        lines.append("  pattern %s [%s]: %s" % (p["id"], p["status"], ", ".join(i["anchor"] for i in p["instances"])))
+    return out_line(opts, doc, "\n".join(lines))
+
+
 def hub_sync_here(ctx, opts, repos):
     h = hub.find_hub(ctx.plane, ctx.topo, opts.get("hub"))
     if not h:
@@ -457,6 +507,7 @@ def do_update(ctx, opts, t0):
                  json.dumps(dict(contracts, schema=SCHEMA, svc=ctx.svc), ensure_ascii=False, indent=1, sort_keys=True) + "\n")
     write_atomic(os.path.join(ctx.idx, "files.json"),
                  json.dumps({"schema": SCHEMA, "files": dict(sorted(files.items())), "dirty": dirty_now}, indent=1) + "\n")
+    write_variation(ctx, all_files, head)
     if os.environ.get("CLAUDEHUT_INDEX_TEST_FAIL") == "before-meta":
         raise RuntimeError("injected failure before meta.json")
     new_meta = {"schema": SCHEMA, "indexed_commit": head, "indexed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1076,7 +1127,7 @@ def cmd_uninstall_hooks(ctx, opts):
 
 # ---------------------------------------------------------------- main ---------------------------------------
 COMMANDS = {"status": cmd_status, "brief": cmd_brief, "find": cmd_find, "svc": cmd_svc, "links": cmd_links,
-            "update": cmd_update, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
+            "update": cmd_update, "variation": cmd_variation, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
             "uninstall-git-hooks": cmd_uninstall_hooks, "hub-sync": cmd_hub_sync, "hub-scan": cmd_hub_scan}
 VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo", "--hub",
           "--module"}

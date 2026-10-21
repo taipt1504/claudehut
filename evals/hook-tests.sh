@@ -1166,7 +1166,7 @@ chk "AC6: $N_RUNS hook runs — zero contract violations (exit≠0, >1 object, i
 # The regression suites (other state-writer and script regressions) run after the contract + behavior core.
 # Each runs as its own process; its "N passed, M failed" line is folded into this suite's totals.
 if [ "$FAST" = 0 ]; then
-  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests state-diff-tests state-lock-tests tasklog-tests packs-tests dist-tests; do
+  for rs in state-tests script-tests doclint-tests review-pack-tests index-tests hub-tests verify-tests eval-harness-tests plane-layout-tests state-diff-tests state-lock-tests tasklog-tests packs-tests dist-tests variation-tests; do
     f="$ROOT/evals/regress/$rs.sh"; [ -f "$f" ] || { bad "regress/$rs.sh is missing (expected regression suite)"; continue; }
     echo "== regress/$rs.sh =="
     ro="$(EVAL_COUNT_DIR= REVIEW_PACK_NO_MUTANTS=1 INDEX_NO_MUTANTS=1 INDEX_NO_EWALLET=1 HUB_NO_EWALLET=1 HUB_NO_DASHBOARD=1 HUB_UA_ROOT=/nonexistent bash "$f" 2>&1)"; rr=$?   # rule-removal mutants: run the suite alone

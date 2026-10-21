@@ -25,7 +25,8 @@
     "scripts/lint-reuse.sh",
     ".lsp.json",
     "templates/LANGUAGE.md.tmpl",
-    "templates/architecture.md.tmpl"
+    "templates/architecture.md.tmpl",
+    "scripts/index/variation.py"
   ],
   "rules": {
     "root": "templates/rules"

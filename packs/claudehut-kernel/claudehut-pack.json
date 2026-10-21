@@ -13,7 +13,6 @@
     "scripts/kernel/**",
     "scripts/lib/**",
     "scripts/legacy/**",
-    "scripts/index/**",
     "hooks/hooks.json",
     "scripts/bootstrap.sh",
     "scripts/maintain.sh",
@@ -37,7 +36,12 @@
     "commands/**",
     "templates/LANGUAGE.generic.md.tmpl",
     "templates/architecture.generic.md.tmpl",
-    "packs/claudehut-pack.schema.json"
+    "packs/claudehut-pack.schema.json",
+    "scripts/index/claudehut_index.py",
+    "scripts/index/extract.py",
+    "scripts/index/hub.py",
+    "scripts/index/memory.py",
+    "scripts/index/planepath.py"
   ],
   "guides": [],
   "sensors": [],
