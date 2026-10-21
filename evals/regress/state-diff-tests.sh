@@ -143,7 +143,12 @@ s2|set-plan @T@/task.md
 s2|set-complexity huge
 s2|set-complexity full
 s2|set-profile nope
-s2|set-profile bugfix"
+s2|set-profile bugfix
+s2|set-tier T5
+s2|set-tier T2 --reason new provider family
+s2|set-tier T1
+s2|set-tier T1 --user-decision ok, it is only a rename
+s2|status"
 
 compare sessions-and-resume "
 s3|set-phase spec

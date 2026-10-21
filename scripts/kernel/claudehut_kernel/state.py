@@ -30,7 +30,7 @@ import time
 
 from . import events, gates, plane, tasklog
 
-VERBS = ("start set-route set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review "
+VERBS = ("start set-route set-tier set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review "
          "set-enforcement set-outstanding set-findings end resume status cost-report "
          "set-bypass set-complexity set-profile mark-skill pause rename route").split()
 PHASES = ("discover", "brainstorm", "spec", "plan", "implement", "review", "learn")
@@ -45,7 +45,8 @@ VERB_EVENT = {"set-route": "route.set", "set-complexity": "route.set", "set-phas
               "set-reuse-scan": "artifact.rev", "set-brainstorm": "artifact.rev", "set-spec": "artifact.rev",
               "set-plan": "artifact.rev", "set-findings": "artifact.rev", "set-plan-review": "plan_review.verdict",
               "set-review": "review.verdict", "set-profile": "profile.set", "set-enforcement": "enforcement.set",
-              "set-outstanding": "outstanding.set"}
+              "set-outstanding": "outstanding.set", "set-tier": "tier.set"}
+TIERS = ("T0", "T1", "T2", "T3")
 ARTIFACT_KIND = {"set-reuse-scan": "reuse-scan", "set-brainstorm": "brainstorm", "set-spec": "spec", "set-plan": "plan",
                  "set-findings": "findings"}
 
@@ -425,7 +426,7 @@ class State:
         ph = self.arg0()
         sub = self.sub
         if sub in ("set-reuse-scan", "set-brainstorm", "set-spec", "set-plan", "set-plan-review", "set-enforcement",
-                   "set-complexity", "set-profile", "set-route"):
+                   "set-complexity", "set-profile", "set-route", "set-tier"):
             return True
         if sub == "set-phase":
             if ph == "learn":
@@ -634,7 +635,7 @@ class State:
         out = {"schema": 2, "session": self.session, "active_task": self.active or None, "task": None}
         if self.task is not None:
             t = self.task
-            keys = ("id", "route", "profile", "phase", "plan_approved", "review", "plan_review_round", "doc_schema",
+            keys = ("id", "route", "tier", "profile", "phase", "plan_approved", "review", "plan_review_round", "doc_schema",
                     "status", "scope")
             sel = {k: t.get(k) for k in keys}
             sel["enforcement_set"] = alt(t.get("enforcement_set"), [])
@@ -798,6 +799,23 @@ class State:
         if r not in ("light", "full"):
             self.err("set-route needs light|full")
         self.task["route"] = r
+
+    def v_set_tier(self):
+        """Deliberation tier (appendix a2 §1): T0..T3 with the reason. Lowering it needs the user's consent."""
+        t = self.arg0()
+        if t not in TIERS:
+            self.err("set-tier needs T0|T1|T2|T3 [--reason \"<trigger>\"]")
+        old = alt(self.task.get("tier"), "")
+        ud = self.flag("--user-decision")
+        if old in TIERS and TIERS.index(t) < TIERS.index(old) and not ud:
+            self.err(f"set-tier: lowering {old} → {t} needs the user's consent — ask (AskUserQuestion), then re-run with "
+                     f"--user-decision \"<their answer>\".")
+        self.task["tier"] = t
+        reason = self.flag("--reason")
+        if reason:
+            self.task["tier_reasons"] = [reason]
+        if ud:
+            self.task["tier_user_decision"] = ud
 
     def v_set_phase(self):
         phase = self.arg0()

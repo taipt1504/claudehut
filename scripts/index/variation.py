@@ -294,7 +294,7 @@ def mine(vps):
             continue
         if "multi-impl" in kinds and kinds.keys() & set(SELECTOR_KINDS):
             sel = next((kinds[k] for k in ("factory", "registry", "conditional") if k in kinds and k in SELECTOR_KINDS), None)
-            inst.append({"anchor": a, "variants": len(kinds["multi-impl"].get("variants", [])),
+            inst.append({"id": f"port-selector/{a}", "anchor": a, "variants": len(kinds["multi-impl"].get("variants", [])),
                          "selector": (sel or {}).get("selector") or {"kind": "conditional"},
                          "variant_dir": os.path.dirname(kinds["multi-impl"]["variants"][0]["file"])})
     if not inst:

@@ -52,10 +52,20 @@ tempts you to cut one of these, you are on the wrong rung.
 | bespoke `/health`, metrics counters | **Actuator** + **Micrometer** (2) | floor item — observability, free |
 | getters/setters/builder boilerplate on DTOs | **`record`**, else Lombok (1) | never `@Data`/`@Builder` on `@Entity` (see `jpa.md`) |
 
+## Protected Variation — the one case the ladder does NOT cut (two-way rule, pack deliberation)
+
+Minimalism is one direction only if you forget the code that already exists. An interface/port/strategy is
+**required**, not speculative, when at least one holds (name which):
+(a) the code already has ≥2 concrete variants of this concern (`kb_variation_points`); (b) the request/contract
+commits a 2nd variant (an endpoint parameter `bank`, a ticket naming the next vendor); (c) the repo already has a
+pattern for this concern (`kb_patterns`; confirmed > candidate). "Quick", "minimal" or "like X" in the request does
+not switch it off. Otherwise: write directly and record the deferred variation point. Full rule:
+`skills/deliberate/SKILL.md` §4.
+
 ## DON'T over-engineer — speculative complexity to cut
 
-- **Single-implementation interface** "for testing/flexibility." Spring mocks concrete classes; add the interface
-  when the *second* implementation arrives, not before.
+- **Single-implementation interface** "for testing/flexibility" with none of (a)/(b)/(c). Spring mocks concrete
+  classes; add the interface when the *second* implementation arrives, not before.
 - **Generics / type parameters** a caller never varies. Concrete first.
 - **Config knobs / strategy patterns / feature flags** nobody asked for. YAGNI — the request defines the scope.
 - **A new utility class** for a one-liner that lives fine inline (rung 5).

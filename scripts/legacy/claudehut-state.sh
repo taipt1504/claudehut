@@ -10,7 +10,7 @@ err() { echo "claudehut-state: $*" >&2; exit 1; }
 note() { echo "claudehut-state: $*" >&2; }
 command -v jq >/dev/null 2>&1 || err "jq is required but not found on PATH"
 
-VERBS=" start set-route set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review \
+VERBS=" start set-route set-tier set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review \
 set-enforcement set-outstanding set-findings end resume status cost-report \
 set-bypass set-complexity set-profile mark-skill pause rename route "
 is_verb() { case "$VERBS" in *" $1 "*) return 0 ;; esac; return 1; }
@@ -261,7 +261,7 @@ if [ "$sub" = "status" ]; then
   jq -nc --arg s "$SESSION" --arg a "$ACTIVE" --argjson legacy "$LEGACY" --argjson t "${TASK:-null}" \
     --arg f "$FOREIGN" --arg o "$FOREIGN_OWNER" '
     {schema:2, session:$s, active_task:(if $a=="" then null else $a end),
-     task:(if $t==null then null else ($t | {id, route, profile, phase, plan_approved, review, plan_review_round, doc_schema, status, scope,
+     task:(if $t==null then null else ($t | {id, route, tier, profile, phase, plan_approved, review, plan_review_round, doc_schema, status, scope,
                    enforcement_set: (.enforcement_set // []), outstanding, reuse_scan_artifact, brainstorm_path,
                    spec_path, plan_path, plan_review_evidence, plan_review_user_decision, review_evidence, findings_path}) end)}
     + (if $legacy then {legacy_state_ignored:true} else {} end)
@@ -568,7 +568,7 @@ finished_kind() {
 new_request_verb() { # $1 finished kind → 0 when $sub (with its phase argument) belongs to a new request
   local ph="${shift_args[0]:-}"
   case "$sub" in
-    set-reuse-scan|set-brainstorm|set-spec|set-plan|set-plan-review|set-enforcement|set-complexity|set-profile|set-route) return 0 ;;
+    set-reuse-scan|set-brainstorm|set-spec|set-plan|set-plan-review|set-enforcement|set-complexity|set-profile|set-route|set-tier) return 0 ;;
     set-phase) case "$ph" in learn) return 1 ;; review) [ "$1" = done ] && return 0; return 1 ;; esac; return 0 ;;
     set-outstanding) [ "$1" = done ] && return 0 ;;
     set-review) [ "$ph" = pass ] && own_evidence && return 1; [ "$1" = done ] && return 0; [ "$ph" = pass ] && return 0 ;;
@@ -674,6 +674,19 @@ case "$sub" in
     r="${shift_args[0]:-}"
     case "$r" in light|full) ;; *) err "set-route needs light|full" ;; esac
     tset --arg v "$r" '.route=$v'
+    ;;
+  set-tier)
+    tr_="${shift_args[0]:-}"
+    case "$tr_" in T0|T1|T2|T3) ;; *) err "set-tier needs T0|T1|T2|T3 [--reason \"<trigger>\"]" ;; esac
+    old_="$(jq -r '.tier // empty' <<<"$TASK")"; ud_="$(flag --user-decision)"
+    case "$old_" in T0|T1|T2|T3)
+      if [ "${tr_#T}" -lt "${old_#T}" ] && [ -z "$ud_" ]; then
+        err "set-tier: lowering $old_ → $tr_ needs the user's consent — ask (AskUserQuestion), then re-run with --user-decision \"<their answer>\"."
+      fi ;;
+    esac
+    tset --arg v "$tr_" '.tier=$v'
+    rs_="$(flag --reason)"; [ -z "$rs_" ] || tset --arg v "$rs_" '.tier_reasons=[$v]'
+    [ -z "$ud_" ] || tset --arg v "$ud_" '.tier_user_decision=$v'
     ;;
   set-phase)
     phase="${shift_args[0]:-}"

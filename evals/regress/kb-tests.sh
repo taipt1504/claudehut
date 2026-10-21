@@ -89,7 +89,7 @@ ups() { printf '%s' "{\"session_id\":\"u1\",\"prompt\":\"$2\"}" | CLAUDE_PROJECT
 mkdir -p "$J/.claudehut/state"
 h="$(ups "$J" "Add a ZNS sender via GapOne for OTP messages")"
 check "B7: an 'add a sender' prompt in an indexed repo gets ONE kb line naming the port-selector instances" \
-  'jq -e ".hookSpecificOutput.additionalContext | test(\"port \\\\+ selector: .*SmsProvider\") and test(\"kb_patterns\")" <<<"$h" >/dev/null'
+  'jq -e ".hookSpecificOutput.additionalContext | test(\"port \\\\+ selector: .*SmsProvider\") and test(\"rule \\\\(c\\\\)\")" <<<"$h" >/dev/null'
 check "B7: … and the endpoint that takes the variant (bank)" 'jq -r ".hookSpecificOutput.additionalContext" <<<"$h" | grep -q "export(bank)"'
 q="$(ups "$J" "explain the refund flow")"
 check "B7: a prompt that adds nothing gets no hint" '! grep -q "kb: this repo" <<<"$q"'
@@ -128,6 +128,24 @@ check "B8: a never-indexed small repo is indexed at the write and the note still
   '[ -f "$NI/.claudehut/index/variation.json" ] && grep -q "looks like a new variant" <<<"$w6"'
 w5="$(aw "$PY" w5 "$PY/src/main/java/x/FooClient.java")"
 check "B8: no applicable variation index → silent" '[ -z "$w5" ]'
+
+# B9 — owner decisions on mined patterns (claudehut-index patterns confirm|reject, M3d)
+pc="$("$IDX" patterns confirm port-selector/demo.qr.QrStrategy --plane "$J/.claudehut" 2>&1)"
+check "B9: confirm without --by is refused (who decided is part of the fact)" 'grep -q -- "--by <owner> is required" <<<"$pc" && [ ! -f "$J/.claudehut/patterns.json" ]'
+"$IDX" patterns confirm port-selector/demo.qr.QrStrategy --by "tech lead" --plane "$J/.claudehut" >/dev/null
+"$IDX" patterns reject port-selector/demo.notify.sms.SmsProvider --by lead --plane "$J/.claudehut" >/dev/null 2>&1
+check "B9: reject without --note is refused" '! jq -e ".decisions[\"port-selector/demo.notify.sms.SmsProvider\"]" "$J/.claudehut/patterns.json" >/dev/null 2>&1'
+"$IDX" patterns reject port-selector/demo.push.PushSender --by lead --note "a profile switch" --plane "$J/.claudehut" >/dev/null
+pk="$(call "$J" kb_patterns '{}')"
+check "B9: kb_patterns lists the confirmed instance first, hides the rejected one" \
+  '[ "$(jq -r ".results[0].instances[0].status" <<<"$pk")" = confirmed ] && ! jq -r ".results[0].instances[].anchor" <<<"$pk" | grep -q PushSender'
+hh="$(rm -f "$J/.claudehut/state/"*.nudged* 2>/dev/null; ups "$J" "add a new sms provider")"
+check "B9: the prompt hint marks the confirmed family and drops the rejected one" \
+  'grep -q "QrStrategy (2 variants, confirmed)" <<<"$hh" && ! grep -q PushSender <<<"$hh"'
+wa="$(aw "$J" w9 "$J/src/main/java/demo/notify/zns/AnyZnsClient.java")"
+check "B9: the write advisory puts the confirmed family first, with who confirmed it" \
+  'jq -r ".hookSpecificOutput.additionalContext" <<<"$wa" | grep -q "variants as port + selector — QrStrategy (2 variants in src/main/java/demo/qr, selector QrRouter, confirmed by tech lead)"'
+check "B9: an unknown id is refused with the known ids" '"$IDX" patterns confirm port-selector/nope --by x --plane "$J/.claudehut" | grep -q "unknown id"'
 
 echo "KB: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

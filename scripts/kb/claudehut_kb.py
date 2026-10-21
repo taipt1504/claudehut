@@ -185,21 +185,39 @@ def kb_variation_points(args):
     return out
 
 
+STATUS_ORDER = {"confirmed": 0, "candidate": 1, "deprecated": 2}
+
+
+def decisions():
+    """Owner decisions on pattern instances (<plane>/patterns.json, `claudehut-index patterns confirm|reject|deprecate`)."""
+    d = kplane.read_json(os.path.join(kplane.plane_dir(project_dir()), "patterns.json"), {}) or {}
+    return d.get("decisions") if isinstance(d.get("decisions"), dict) else {}
+
+
 def kb_patterns(args):
     doc, st = index_state()
     if doc is None:
         return st
     ts = terms(args.get("concern"))
+    dec = decisions()
     pats = []
     for p in doc.get("patterns", []):
-        inst = sorted(p.get("instances", []), key=lambda i: (-score(i, ts), i["anchor"]))
+        inst = []
+        for i in p.get("instances", []):
+            d = dec.get(i.get("id")) or {}
+            if d.get("status") == "rejected":   # an owner said this is not the pattern: never offered again
+                continue
+            inst.append(dict(i, status=d.get("status", "candidate"), **({"decided_by": d["by"]} if d.get("by") else {})))
+        inst = sorted(inst, key=lambda i: (STATUS_ORDER.get(i["status"], 9), -score(i, ts), i["anchor"]))
         pats.append({"id": p["id"], "name": p["name"], "status": p["status"], "canonical": p.get("canonical"),
                      "recipe": p.get("recipe"),
-                     "instances": [{"anchor": i["anchor"], "variants": i.get("variants"),
+                     "instances": [{"id": i.get("id"), "status": i["status"], "anchor": i["anchor"], "variants": i.get("variants"),
                                     "variant_dir": i.get("variant_dir"),
                                     "selector": (i.get("selector") or {}).get("fqn") or "condition"} for i in inst]})
     return dict(st, status="ok" if pats else "none_found", results=clean(pats, 600),
-                note="candidate = mined, not yet confirmed by an owner: a strong hint, not a rule")
+                note="confirmed = an owner confirmed this family: it counts for rule (c) (follow it, or say why not). "
+                     "candidate = mined, not yet confirmed: a strong hint, not a rule. Owners decide with "
+                     "`claudehut-index patterns confirm|reject <id> --by <owner>`.")
 
 
 def kb_brief(args):

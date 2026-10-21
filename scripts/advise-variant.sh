@@ -27,11 +27,13 @@ esac
 VJ="$PLANE/index/variation.json"
 [ -f "$VJ" ] || hc_index_first_build   # a never-indexed repo: built now when small (the decision is happening now)
 [ -f "$VJ" ] || exit 0
-line="$(jq -r --arg c "$cls" 'select(.applicable == true)
-  | [.patterns[]?.instances[]? | select((.anchor | split(".") | last) != $c)
-     | "\(.anchor | split(".") | last) (\(.variants) variants in \(.variant_dir), selector \((.selector.fqn // "a condition") | split(".") | last))"]
-  | .[:3] | select(length > 0) | join("; ")' "$VJ" 2>/dev/null | head -c 420)"
+PD="$PLANE/patterns.json"; [ -f "$PD" ] || PD=/dev/null   # owner decisions: rejected never shown, confirmed first
+line="$(jq -r --arg c "$cls" --slurpfile dec "$PD" '(($dec[0] // {}).decisions // {}) as $d | select(.applicable == true)
+  | [.patterns[]?.instances[]? | select((.anchor | split(".") | last) != $c) | select(($d[.id].status // "") != "rejected")
+     | {c: (($d[.id].status // "") == "confirmed"),
+        t: "\(.anchor | split(".") | last) (\(.variants) variants in \(.variant_dir), selector \((.selector.fqn // "a condition") | split(".") | last)\(if ($d[.id].status // "") == "confirmed" then ", confirmed by \($d[.id].by)" else "" end))"}]
+  | sort_by(if .c then 0 else 1 end) | map(.t) | .[:3] | select(length > 0) | join("; ")' "$VJ" 2>/dev/null | head -c 420)"
 [ -n "$line" ] || exit 0
 hc_once "advise-variant" || exit 0
-hc_ctx PreToolUse "ClaudeHut kb (data from the index): $cls looks like a new variant. This repo adds variants as port + selector — $line. If $cls is a variant of a concern, add it as an implementation behind a port with a selector the same way (kb_patterns has the recipe) instead of calling it directly from domain code. Not blocked; said once per session."
+hc_ctx PreToolUse "ClaudeHut kb (data from the index): $cls looks like a new variant. This repo adds variants as port + selector — $line. Protected Variation rule (c): if $cls belongs to one of those concerns (e.g. another outbound message vendor), add it as an implementation behind a port with a selector the same way (kb_patterns has the recipe), not as a class domain code calls directly — even for a quick change. Not blocked; said once per session."
 exit 0

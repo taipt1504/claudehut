@@ -30,7 +30,7 @@ import subprocess
 
 from . import packs
 
-PUBLIC_PACKS = ("claudehut-kernel", "workflow-standard", "review", "lang-java-spring", "lang-python-shell")
+PUBLIC_PACKS = ("claudehut-kernel", "workflow-standard", "review", "deliberation", "lang-java-spring", "lang-python-shell")
 ROOT_META = (".claude-plugin/plugin.json", "README.md", "LICENSE", "CHANGELOG.md")
 VENDORED = {"claudehut-org-summer": ["scripts/index/extract.py"]}
 

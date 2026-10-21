@@ -412,6 +412,68 @@ def write_variation(ctx, all_files, head):
     write_atomic(os.path.join(ctx.idx, "variation.json"), json.dumps(doc, ensure_ascii=False, indent=1, sort_keys=True) + "\n")
 
 
+PATTERN_STATUSES = ("confirmed", "rejected", "deprecated")
+
+
+def pattern_decisions(ctx):
+    """<plane>/patterns.json — owner decisions on mined pattern instances (05 §2: candidate → confirmed). Durable
+    and human-authored, so it lives in the plane, not in index/ (which is regenerated and gitignored)."""
+    d = read_json(os.path.join(ctx.plane, "patterns.json"), {}) or {}
+    return d.get("decisions") if isinstance(d.get("decisions"), dict) else {}
+
+
+def with_status(doc, decisions):
+    """Stamp every pattern instance with its owner status (default candidate); confirmed instances first."""
+    for p in doc.get("patterns", []) or []:
+        for i in p.get("instances", []):
+            dec = decisions.get(i.get("id")) or {}
+            i["status"] = dec.get("status", "candidate")
+            for k in ("by", "at", "note"):
+                if dec.get(k):
+                    i[k] = dec[k]
+        order = {"confirmed": 0, "candidate": 1, "deprecated": 2, "rejected": 3}
+        p["instances"] = sorted(p.get("instances", []), key=lambda i: (order.get(i["status"], 9), i["anchor"]))
+    return doc
+
+
+def cmd_patterns(ctx, opts):
+    """patterns [--json] | patterns confirm|reject|deprecate <id> --by <owner> [--note <why>]: the owner step that
+    turns a mined `candidate` into `confirmed` (only confirmed instances count for rule (c), a2 §3). Every decision
+    keeps who, when and why; re-deciding overwrites with a new timestamp."""
+    args = opts.get("args") or []
+    doc = read_json(os.path.join(ctx.idx, "variation.json"), None)
+    decisions = pattern_decisions(ctx)
+    if args and args[0] in ("confirm", "reject", "deprecate"):
+        verb = args[0]
+        pid = args[1] if len(args) > 1 else ""
+        known = {i.get("id") for p in (doc or {}).get("patterns", []) or [] for i in p.get("instances", [])}
+        if not pid:
+            return out_line(opts, {"ok": False, "error": "id required"}, "patterns: usage: patterns %s <id> --by <owner> [--note <why>]" % verb)
+        if pid not in known and pid not in decisions:
+            return out_line(opts, {"ok": False, "error": "unknown id", "known": sorted(known)},
+                            "patterns: unknown id %s — known: %s" % (pid, ", ".join(sorted(known)) or "none (run claudehut-index update)"))
+        if not opts.get("by"):
+            return out_line(opts, {"ok": False, "error": "--by required"}, "patterns: --by <owner> is required (who decided)")
+        if verb != "confirm" and not opts.get("note"):
+            return out_line(opts, {"ok": False, "error": "--note required"}, "patterns: --note <why> is required to %s" % verb)
+        status = {"confirm": "confirmed", "reject": "rejected", "deprecate": "deprecated"}[verb]
+        decisions[pid] = {k: v for k, v in (("status", status), ("by", opts["by"]), ("note", opts.get("note")),
+                                            ("at", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+                                            ("indexed_commit", (doc or {}).get("indexed_commit"))) if v}
+        write_atomic(os.path.join(ctx.plane, "patterns.json"),
+                     json.dumps({"schema": 1, "decisions": dict(sorted(decisions.items()))}, ensure_ascii=False, indent=1) + "\n")
+        return out_line(opts, {"ok": True, "id": pid, "status": status}, "patterns: %s → %s (by %s)" % (pid, status, opts["by"]))
+    if doc is None or not doc.get("applicable"):
+        return cmd_variation(ctx, opts)
+    with_status(doc, decisions)
+    lines = []
+    for p in doc.get("patterns", []):
+        lines.append("pattern %s — %s" % (p["id"], p["name"]))
+        for i in p["instances"]:
+            lines.append("  %-10s %s  (%s variants)" % (i["status"], i["id"], i.get("variants")))
+    return out_line(opts, {"patterns": doc.get("patterns", [])}, "\n".join(lines) or "patterns: none found")
+
+
 def cmd_variation(ctx, opts):
     """variation [--json]: the variation points and candidate patterns of the last update (read-only)."""
     doc = read_json(os.path.join(ctx.idx, "variation.json"), None)
@@ -426,8 +488,9 @@ def cmd_variation(ctx, opts):
         if v["kind"] == "extension-point":
             continue
         lines.append("  %-14s %s  (%s:%s)" % (v["kind"], v["anchor"], v.get("file"), v.get("line")))
+    with_status(doc, pattern_decisions(ctx))
     for p in doc.get("patterns", []):
-        lines.append("  pattern %s [%s]: %s" % (p["id"], p["status"], ", ".join(i["anchor"] for i in p["instances"])))
+        lines.append("  pattern %s: %s" % (p["id"], ", ".join("%s [%s]" % (i["anchor"], i["status"]) for i in p["instances"])))
     return out_line(opts, doc, "\n".join(lines))
 
 
@@ -1146,10 +1209,10 @@ def cmd_uninstall_hooks(ctx, opts):
 
 # ---------------------------------------------------------------- main ---------------------------------------
 COMMANDS = {"status": cmd_status, "brief": cmd_brief, "find": cmd_find, "svc": cmd_svc, "links": cmd_links,
-            "update": cmd_update, "variation": cmd_variation, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
+            "update": cmd_update, "variation": cmd_variation, "patterns": cmd_patterns, "memory": cmd_memory, "install-git-hooks": cmd_install_hooks,
             "uninstall-git-hooks": cmd_uninstall_hooks, "hub-sync": cmd_hub_sync, "hub-scan": cmd_hub_scan}
 VALUED = {"--plane", "--budget", "--task", "--kind", "--limit", "--svc", "--service", "--type", "--repo", "--hub",
-          "--module"}
+          "--module", "--by", "--note"}
 
 
 def parse(argv):

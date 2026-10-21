@@ -1,0 +1,21 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "deliberation",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "quality",
+  "description": "Design deliberation: tier, variation probe, two-way Protected Variation rule, decision record, design-reviewer (appendix a2).",
+  "detect": {
+    "always": true
+  },
+  "owns": [
+    "skills/deliberate/**",
+    "agents/claudehut-design-reviewer.md"
+  ],
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": [
+    "evals/suites/decision/*"
+  ]
+}

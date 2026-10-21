@@ -48,13 +48,16 @@ if [[ $lc =~ $VAR_ADD_RE ]] && [[ $lc =~ $VAR_NOUN_RE ]]; then
   VJ="$PLANE/index/variation.json"
   [ -f "$VJ" ] || hc_index_first_build   # never indexed: built now when small, so this very prompt gets the hint
   if [ -f "$VJ" ]; then
-    vh="$(jq -r 'select(.applicable == true)
-      | ([.patterns[]?.instances[]? | "\(.anchor | split(".") | last) (\(.variants) variants)"] | .[:4] | join(", ")) as $p
+    PD="$PLANE/patterns.json"; [ -f "$PD" ] || PD=/dev/null   # owner decisions: rejected never shown, confirmed said
+    vh="$(jq -r --slurpfile dec "$PD" '(($dec[0] // {}).decisions // {}) as $d | select(.applicable == true)
+      | ([.patterns[]?.instances[]? | select(($d[.id].status // "") != "rejected")
+          | "\(.anchor | split(".") | last) (\(.variants) variants\(if ($d[.id].status // "") == "confirmed" then ", confirmed" else "" end))"]
+         | .[:4] | join(", ")) as $p
       | ([.variation_points[]? | select(.kind == "contract-param") | (.anchor | split(".") | last)] | .[:2] | join(", ")) as $c
       | if ($p == "" and $c == "") then empty else
         "kb: this repo already selects among variants" + (if $p != "" then " — port + selector: " + $p else "" end)
         + (if $c != "" then "; endpoint takes the variant: " + $c else "" end)
-        + ". Check kb_patterns / kb_variation_points (MCP) before adding a one-off class." end' "$VJ" 2>/dev/null | head -c 400)"
+        + ". Protected Variation rule (c): a new variant of an existing concern follows that pattern even when the request says quick or like X (claudehut:deliberate)." end' "$VJ" 2>/dev/null | head -c 400)"
     [ -n "$vh" ] && fact="${fact:+$fact$'\n'}$vh"
   fi
 fi

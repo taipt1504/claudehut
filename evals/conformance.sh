@@ -33,7 +33,7 @@ skill_dirs() {
   printf '%s\n' "$out" | grep -v '^$' || true
 }
 SK=$(skill_dirs | grep -c . | tr -d ' ')
-[ "$SK" = "10" ] && ok "10 skills present (tracked)" || bad "expected 10 tracked skills, found $SK"
+[ "$SK" = "11" ] && ok "11 skills present (tracked; 0.20 M4 adds deliberate)" || bad "expected 11 tracked skills, found $SK"
 UNTRACKED_SKILLS="$(comm -13 <(skill_dirs) <(for d in "$ROOT"/skills/*/; do [ -d "$d" ] && basename "$d"; done | sort -u) 2>/dev/null | tr '\n' ' ')"
 [ -z "${UNTRACKED_SKILLS// /}" ] \
   && ok "no untracked skill directories" \
@@ -58,7 +58,7 @@ chain review capture-learnings
 # C4 — exactly 12 agents, each with name + description
 # (v0.12 M4, 08 §5: review roster 7→5 — perf folded into db-reviewer, observability into contract-reviewer)
 AG=$(ls -1 "$ROOT"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AG" = "12" ] && ok "12 agents present" || bad "expected 12 agents, found $AG"
+[ "$AG" = "13" ] && ok "13 agents present (0.20 M4 adds claudehut-design-reviewer)" || bad "expected 13 agents, found $AG"
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q '^name:' && fm "$f" | grep -q -E '^description:'; then ok "agent frontmatter: $n"; else bad "agent frontmatter: $n"; fi
 done

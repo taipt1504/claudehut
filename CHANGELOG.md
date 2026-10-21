@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — 0.20 M4 (deliberation)
+
+- **Pack `deliberation`, M4a** (appendix a2): skill `claudehut:deliberate` — tier T0–T3, the variation probe
+  answered by the kb tools, the **two-way Protected Variation rule** (an interface is required when (a) ≥2
+  variants exist, (b) a 2nd variant is committed, or (c) the repo has a pattern for the concern; otherwise write
+  directly and record the deferred point), ≥2 options, a MADR-style `decision.md`; agent
+  `claudehut-design-reviewer` (rubric R1–R6, APPROVE/REVISE). `minimalism.md` now carries the two-way rule; the
+  digest, the prompt hint and the write advisory name rule (c) and the skill ("quick" / "like X" does not switch
+  the rule off).
+- `claudehut-state set-tier T0|T1|T2|T3 [--reason R] [--user-decision D]` (event `tier.set`; lowering a tier needs
+  the user's decision), in both writers; `status` shows the tier.
+
 ## Unreleased — 0.20 M3 (knowledge plane)
 
 - **Variation-point detectors and pattern miner, M3a** (pack lang-java-spring, `scripts/index/variation.py`,
@@ -28,6 +40,10 @@
   keeps an incremental update of a 1,221-file service at ~1.0 s (3.0 s without).
 - `evals/plugin-eval-signals.py <results dir>`: per run, real kb `tool_use` calls and whether the hint / advisory
   were injected — read from the session log, not `trace.jsonl` (which holds only SessionStart hook events).
+- **Owner step for mined patterns, M3d:** `claudehut-index patterns [--json]` and `patterns confirm|reject|deprecate
+  <id> --by <owner> [--note <why>]` (reject/deprecate need the note) → `<plane>/patterns.json` (who, when, why,
+  indexed commit). Pattern instances have stable ids (`port-selector/<anchor>`). Confirmed instances come first
+  in `kb_patterns`, the hint and the advisory; rejected ones are never offered again.
 - Ground truth frozen before the detectors (`evals/fixtures/variation/expected.json`, 11 VPs, 8 negatives) plus
   documented post-freeze additions; `regress/variation-tests.sh`: precision 1.0 / recall 1.0 on the fixture, the zns
   and bank-export eval scaffolds, and a rule-deletion pass where all 15 tagged rules carry weight.

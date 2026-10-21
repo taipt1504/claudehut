@@ -20,6 +20,7 @@
 #                                     pre_dirty per repo; ≥2 git toplevels → cross_service:true. The workspace/
 #                                     hub plane is for cross-service tasks only (a notice, never a refusal).
 #   set-route light|full              change the route
+#   set-tier T0|T1|T2|T3 [--reason R] [--user-decision D]   deliberation tier (pack deliberation); lowering needs --user-decision
 #   set-phase <discover|brainstorm|spec|plan|implement|review|learn> [--spec P] [--plan P]
 #   set-reuse-scan --artifact P       (reuse-scan table must carry Fit/Impact + a decision)
 #   set-brainstorm P | set-spec P     doclint gate (M3, 06 §4): a STRUCTURAL violation refuses (exit 1, nothing
