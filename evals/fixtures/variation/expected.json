@@ -1,0 +1,40 @@
+{
+  "_doc": "Ground truth for the variation-point detectors (docs/v0.20 05 §2, M3a). Frozen BEFORE any detector code. Match rule: one VP = (anchor fqn, kind). kinds: multi-impl (D1), registry (D2), factory (D3), conditional (D4), contract-param (D8). `negatives` are anchors that must not appear with ANY kind. `external` are fixtures written for another purpose (the decision eval scaffolds), so they cannot be tuned to the detector.",
+  "repo": "repo",
+  "variation_points": [
+    {"anchor": "demo.notify.sms.SmsProvider", "kind": "multi-impl"},
+    {"anchor": "demo.notify.sms.SmsProvider", "kind": "registry"},
+    {"anchor": "demo.notify.sms.SmsProvider", "kind": "factory"},
+    {"anchor": "demo.payment.refund.RefundHandler", "kind": "multi-impl"},
+    {"anchor": "demo.payment.refund.RefundHandler", "kind": "registry"},
+    {"anchor": "demo.qr.QrStrategy", "kind": "multi-impl"},
+    {"anchor": "demo.qr.QrStrategy", "kind": "registry"},
+    {"anchor": "demo.push.PushSender", "kind": "multi-impl"},
+    {"anchor": "demo.push.PushSender", "kind": "conditional"},
+    {"anchor": "demo.export.AbstractBankExporter", "kind": "multi-impl"},
+    {"anchor": "demo.settlement.api.PaymentFileController#export(bank)", "kind": "contract-param"}
+  ],
+  "negatives": [
+    "demo.user.UserService",
+    "demo.time.ClockSource",
+    "demo.config.LabelConfig",
+    "demo.report.Report",
+    "demo.report.ReportFactory",
+    "demo.shape.Shape",
+    "demo.settlement.api.PaymentFileController#one(id)",
+    "demo.settlement.api.PaymentFileController#one(size)"
+  ],
+  "patterns": {
+    "_doc": "port + selector: an interface/abstract type with >=2 production bean variants AND a selector (registry, factory or conditional). The miner must group exactly these anchors.",
+    "port-selector": ["demo.notify.sms.SmsProvider", "demo.payment.refund.RefundHandler", "demo.qr.QrStrategy", "demo.push.PushSender"]
+  },
+  "external": {
+    "evals/suites/decision/zns-follows-provider-pattern/scaffold.sh": {
+      "must_include": [{"anchor": "demo.infra.outbound.sms.SmsProvider", "kind": "multi-impl"}, {"anchor": "demo.infra.outbound.sms.SmsProvider", "kind": "registry"}],
+      "pattern_includes": "demo.infra.outbound.sms.SmsProvider"
+    },
+    "evals/suites/decision/bank-export-follows-param/scaffold.sh": {
+      "must_include": [{"anchor": "demo.settlement.api.PaymentFileController#export(bank)", "kind": "contract-param"}]
+    }
+  }
+}
