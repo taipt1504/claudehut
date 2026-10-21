@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: end-refused-without-review
+tags: [process, smoke, invariant]
+context:
+  scaffold_script: scaffold.sh

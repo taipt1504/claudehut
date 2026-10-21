@@ -141,7 +141,7 @@ OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
     # always-on rule is NOT working — re-inject it (boosted in the score below) so the agent sees it again.
     # D5: an entry with an empty body (v0.11 `text`-keyed candidates) is noise in the block — skip it until
     # merge-learnings repairs the store.
-    | map(select(((.status // "") != "superseded") and ((.promoted != true) or ((.recurrence // 0) > 0))
+    | map(select(((.status // "") | IN("superseded","retracted") | not) and ((.promoted != true) or ((.recurrence // 0) > 0))
                  and (((.learning // "") | tostring | length) > 0)))
     | map(select((.id // "") as $i | ($exids | index($i)) == null))
     # score only what survived the filters (the per-entry date parse + exp is the costly part of the pass)

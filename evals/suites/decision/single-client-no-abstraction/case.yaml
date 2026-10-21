@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: single-client-no-abstraction
+tags: [decision, should-not-abstract]
+context:
+  scaffold_script: scaffold.sh

@@ -112,7 +112,7 @@ def topics(entries):
     """Top (category, trigger-token) pairs by number of live entries: a pointer an agent can jq for."""
     counts = {}
     for e in entries:
-        if e.get("status") == "superseded":
+        if e.get("status") in ("superseded", "retracted"):
             continue
         if not str(e.get("learning") or e.get("text") or "").strip():
             continue
@@ -132,7 +132,7 @@ def topics(entries):
 
 
 def live_count(entries):
-    return sum(1 for e in entries if e.get("status") != "superseded" and str(e.get("learning") or e.get("text") or "").strip())
+    return sum(1 for e in entries if e.get("status") not in ("superseded", "retracted") and str(e.get("learning") or e.get("text") or "").strip())
 
 
 def build_block(plane, plugin_root, name):

@@ -715,7 +715,7 @@ mksvc() { mkdir -p "$W/$1/.claude/claudehut"
   printf '{"schema":1,"mode":"microservice","service":"%s","hub":"%s"}\n' "$1" "${2:-../kb}" > "$W/$1/.claude/claudehut/topology.json"; }
 mksvc a-ms; mksvc b-ms; mksvc c-ms
 cat > "$W/cand.jsonl" <<'C'
-{"category":"pitfall","trigger":"kafka, idempotent, producer","learning":"Set `enable.idempotence=true` on every KafkaProducer config","evidence":"Producer.java:12","confidence":0.8,"scope":"fleet"}
+{"category":"pitfall","trigger":"kafka, idempotent, producer","learning":"Set `enable.idempotence=true` on every KafkaProducer config","evidence":"Producer.java:12","confidence":0.8,"scope":"fleet","verified_by":"ProducerIdempotenceTest"}
 {"category":"convention","trigger":"dto, mapper, naming","learning":"Name MapStruct mappers `XxxMapper` next to the DTO","evidence":"Mapper.java:3","scope":"service"}
 C
 R="$(CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --candidates "$W/cand.jsonl" --ts 2026-10-01T00:00:00Z)"
@@ -734,10 +734,18 @@ R3="$(CLAUDE_PROJECT_DIR="$W/b-ms" "$SH" --candidates "$W/cand.jsonl" --ts 2026-
   && ok "fleet: the same lesson from a second service adds a source, not a row (dedup across services)" \
   || bad "fleet: cross-service dedup wrong ($R3 / $(cat "$FL"))"
 # a fleet candidate that folds into an existing service-scoped entry makes that entry fleet
-printf '%s\n' '{"category":"convention","trigger":"mapper, dto, naming","learning":"Name MapStruct mappers `XxxMapper` next to the DTO","evidence":"Mapper.java:3","scope":"fleet"}' > "$W/c2.jsonl"
+printf '%s\n' '{"category":"convention","trigger":"mapper, dto, naming","learning":"Name MapStruct mappers `XxxMapper` next to the DTO","evidence":"Mapper.java:3","scope":"fleet","verified_by":"commit 1a2b3c4"}' > "$W/c2.jsonl"
 CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --candidates "$W/c2.jsonl" --ts 2026-10-01T02:00:00Z >/dev/null
 [ "$(jq -sc 'map(select(.category=="convention")) | [length, .[0].sources[0].id]' "$FL")" = '[1,"L-0002"]' ] \
   && ok "fleet: a fleet candidate merged into local L-0002 lands in the hub under that id" || bad "fleet: merged fleet candidate not copied ($(cat "$FL"))"
+# 0.12.7 promotion gate (docs/v0.20 05 §7, KNW-2): a fleet candidate without verified_by stays local
+cp "$FL" "$W/fl.before"
+printf '%s\n' '{"category":"pitfall","trigger":"spring, list, binding","learning":"Relaxed env names replace a whole list","evidence":"x.yml:1","scope":"fleet"}' > "$W/c3.jsonl"
+R5="$(CLAUDE_PROJECT_DIR="$W/a-ms" "$SH" --candidates "$W/c3.jsonl" --ts 2026-10-01T02:30:00Z)"
+{ [ "$(jq -r '.fleet_held_unverified' <<<"$R5")" = 1 ] && cmp -s "$FL" "$W/fl.before" \
+  && [ "$(jq -sc 'map(select(.trigger|test("binding")))|.[0].scope' "$W/a-ms/.claude/claudehut/learnings.jsonl")" = '"fleet"' ]; } \
+  && ok "fleet gate: an unverified fleet lesson stays local (scope kept), the hub is untouched, the report counts it" \
+  || bad "fleet gate: unverified lesson reached the hub ($R5)"
 # inject: c-ms (no local store) sees fleet rows, labelled, confidence x0.7
 O="$(CLAUDE_PROJECT_DIR="$W/c-ms" bash "$INJ" --top 5)"
 { grep -q '^- \[pitfall\] \[fleet\] Set `enable.idempotence' <<<"$O" && grep -q 'conf 0.56,' <<<"$O"; } \

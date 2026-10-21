@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.12.6** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.12.7** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
 path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
@@ -494,15 +494,15 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1654 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1721 assertions, all green on the release commit
 evals/conformance.sh              # 294  structural + behavioural wiring checks
-evals/hook-tests.sh               # 922  advisory hook contract, fault injection, replays, state schema 2,
-                                  #       then evals/regress/{state,script,doclint,review-pack,index,hub}-tests.sh (--fast: the first part only);
+evals/hook-tests.sh               # 988  advisory hook contract, fault injection, replays, state schema 2,
+                                  #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 119 there (mutants + ewallet off), 162 alone with mutants and the va-ms part;
                                   #       hub-tests counts 107 there (ewallet, dashboard and UA validator off), 119 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 149  claudehut-init: detection, plane generation, migrations
-evals/merge-learnings-tests.sh    # 104  learnings merge, prune, injection, federation
+evals/merge-learnings-tests.sh    # 105  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list
 evals/trigger-eval.sh --validate  #  25  skill-description trigger fixtures
@@ -513,7 +513,8 @@ evals/migrate-tests.sh            #  61  claudehut-migrate: dry-run writes nothi
 scripts/lint-prompt-length.sh     #       prompt budgets + provenance (--self-test to check the linter)
 
 # live (drives Claude headlessly; costs tokens) — NOT in CI
-evals/run.sh [--live]             # scenario runner over fixtures (answer-key-leak guarded; dry-runs without --live)
+evals/run.sh [--live]             # scenario runner over fixtures (answer-key-leak guarded; dry-runs without --live);
+                                  #       --mode both adds the no-plugin arm, --auth plan|api|auto; evals/summarize.sh → Δ
 evals/trigger-eval.sh --skill X   # does a skill's DESCRIPTION actually trigger it? 16 queries x 3 runs
 evals/bootstrap-acceptance.sh     # one real session, one ordinary request: did SessionStart fire at all?
 evals/playbook-read-probe.sh      # create-time playbook-read behaviour

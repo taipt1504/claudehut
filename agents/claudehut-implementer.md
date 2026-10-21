@@ -70,7 +70,8 @@ at create-time the playbook is the only carrier of the standard (security deny-b
 idempotency, …). The component-type → playbook table is in the implement skill body you were preloaded with.
 
 `isolation: worktree` keeps a failed attempt from corrupting the working tree — branch is discarded if you
-make no useful change.
+make no useful change. The worktree guard refuses a command a hook rewrote or cannot verify: one simple command
+per Bash call, git by absolute path (`/usr/bin/git`), edit files with Edit, never `sed -i`.
 
 ## Status protocol (report back to the main thread)
 

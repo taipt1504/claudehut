@@ -95,7 +95,8 @@ Before reading another service's code, ask `claudehut-index svc <name>` or `link
 The optional profile names the deliverable: `audit`/`investigation` end with a `findings.md` recorded by
 `set-findings`, the others with `review==pass`. A task that changes shape mid-flow runs `set-profile` on the
 open task; one that changes shape after it finished (findings recorded, review `pass`, phase `learn`) is a
-new request: `start --profile <new>`. Close a completed task with `end --status done`.
+new request: `start --profile <new>`. Close a completed task with `end --status done`: it needs a review pass
+(or capped) whose verdict still matches the tree; otherwise review again or end `--status abandoned`.
 
 ## Dispatch
 

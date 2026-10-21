@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.12.7 — 2026-10-21
+
+Track Q of the 0.20 harness design (`.claude/docs/v0.20/`, 09 §2.1): small fixes for S1 problems, built as the
+first modules of the Python kernel (ADR K-11, python3 stdlib, `scripts/kernel/`, shims `bin/claudehut-kernel`,
+`bin/claudehut-verify`). No change to services or hub data (phase B).
+
+- **Gate engine + task event log (K1/K2, ADR K-03/K-05).** Invariants are checked only at explicit transitions.
+  Mode `CLAUDEHUT_GATE_MODE` > `topology.json .gates.mode` > `warn`: `warn` records and proceeds, `block` refuses
+  (task.json byte-identical) unless `--override "<reason>"`. Every outcome is an event in
+  `tasks/<id>/events.jsonl` (`gate.warned|blocked|overridden`, `review.verdict`, `task.ended`, `budget.exceeded`).
+  python3 missing → the gate is skipped with a notice.
+- **`end --status done` invariant (STA-1).** Done needs review `pass|capped`; after a pass, the verdict must still
+  match: `set-review pass` stores a `review_binding` (content fingerprint of the change since the task base +
+  spec/plan sha256). An edit after review is `tree-changed`; committing the reviewed change is not.
+- **`claudehut-verify` (VER-1).** `claims` resolves every cited `path` / `path:line` (repo roots, project dir,
+  unique suffix/basename, `.claude/` rules and skills; deleted-at-base files and URLs are not judged), `findings`
+  (task.outstanding, `open` table rows), `verdict`. `set-review pass` runs claims + findings as a gate.
+- **Host probe (ENV-1, ACI-2, ADR K-17).** maintain.sh (async) runs `claudehut-kernel probe` under a 2 s deadline:
+  every foreign PreToolUse Bash hook is tested with synthetic payloads (cached a day per hook; disabled hooks never
+  run; `CLAUDEHUT_PROBE_HOOKS=0` disables) and bootstrap.sh reads the result (`--cached`); a rewrite
+  (`git status` → `rtk git status`) adds one advisory line; `state/env-profile.json` records it plus the auth mode
+  (plan | api | bedrock | vertex | foundry). The implementer prompt now says: one simple command per Bash call,
+  git by absolute path, Edit instead of `sed -i`.
+- **Learning truth maintenance (KNW-2).** `claudehut-kernel learn retract <id> --reason R` / `learn verify <id> --by X`
+  (plane or `--hub` store, merge-learnings' lock). Retracted entries are skipped by the injector, scoring and
+  MEMORY counts. A fleet copy now needs `verified_by`; an unverified fleet lesson stays local
+  (`fleet_held_unverified` in the merge report). The learner is told so.
+- **Selftest canaries (VER-3).** `claudehut-kernel selftest` runs every hooks.json command with a synthetic payload
+  (exit 0, ≤1 JSON object) plus 4 behavioural canaries (gate refuses, claims catches, failure recorder keeps exit
+  code + stderr, probe answers); a dead control exits 1.
+- **Budget overrun is an event (PLN-3).** A spec/plan/task over its doclint total budget records
+  `budget.exceeded` and tells the model the overrun in percent; still never a refusal.
+- **Eval harness (EVL-1).** `evals/run.sh`: the `.is_error // true` jq trap (every false read as true) is fixed;
+  `--mode both` runs the no-plugin arm per trial; `--auth plan|api|auto` (plan = subscription login, no `--bare`;
+  api = `--bare` + key); per-task `budget` file, default $12; budget/turn kills are `aborted` and not scored; rows
+  carry `auth_mode`, `claude_version`, `env_profile`. `evals/summarize.sh` reports pass rate and Δ per task × auth.
+- Tests: `evals/regress/verify-tests.sh` (53) and `eval-harness-tests.sh` (13) run inside hook-tests.sh;
+  merge-learnings +1. Deterministic total 1654 → 1721. A fresh-context review of this change found 12 defects
+  (fingerprint vs staging, probe on the sync path, crash read as refusal, retracted ignored by merge, …); all are
+  fixed with regression tests (docs/v0.20/10-implementation-log.md).
+- `claude plugin eval` suites under `evals/suites/` (process 2, decision 3, outcome 1) and `evals/plugin-eval.sh`
+  (copies the plugin outside $HOME: sandboxed Bash cannot read it). M0 of the 0.20 roadmap; smoke-validated.
+
 ## 0.12.6 — 2026-10-04
 
 Summer KB: opt in module docs a service does not depend on yet, so a fleet-wide rollout (DR, feature flags) can

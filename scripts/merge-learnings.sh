@@ -261,7 +261,7 @@ STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts 
       | ( [ .arr | to_entries[] | select(.value._k as $k | $ks | index([$k])) | .key ] | first ) as $exact
       | ( if ($exact != null or $c.supersedes) then null
           else ( [ .arr | to_entries[]
-                   | select((.value.category // "note") == $cat and ((.value.status // "") != "superseded"))
+                   | select((.value.category // "note") == $cat and ((.value.status // "") | IN("superseded","retracted") | not))
                    | select(((.value._f | nums) as $a | ($cf | nums) as $b
                              | (($a | length) == 0 or ($b | length) == 0 or $a == $b)))
                    | {key, j: jac($cf; .value._f)} | select(.j >= 0.5) ]
@@ -280,6 +280,9 @@ STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts 
           }
           # scope=fleet is kept on the entry; the FLEET step below copies it to the hub (07 §8.2 "Fleet").
           + (if (($c.scope // "") | IN("service", "fleet")) then { scope: $c.scope } else {} end)
+          # 0.12.7 (docs/v0.20 05 §7): proof the lesson is TRUE — a test name, commit, or library source file.
+          # Only a verified entry may be copied to the hub (FLEET step); unverified fleet lessons stay local.
+          + (if (($c.verified_by // "") != "") then { verified_by: $c.verified_by } else {} end)
           # v0.7: a candidate may declare it refines an earlier learning (mattpocock Learning Records).
           + (if ($c.supersedes) then { supersedes: $c.supersedes, status: "refines" } else {} end)
           # The rule-file mapping reads the trigger BEFORE the service-name drop: in auth-ms, "auth" is a
@@ -296,6 +299,7 @@ STATE="$(jq -n --argjson existing "$EXISTING" --argjson cands "$CANDS" --arg ts 
           | .arr[$idx].evidence = evmerge(.arr[$idx].evidence; $c.evidence)
           # a fleet candidate that folds into a local entry makes that entry fleet (copied to the hub below)
           | (if (($c.scope // "") == "fleet") then .arr[$idx].scope = "fleet" else . end)
+          | (if (($c.verified_by // "") != "") then .arr[$idx].verified_by = $c.verified_by else . end)
           | (if ($exact == null) then .fuzzy += 1 else . end)
           # v0.7 EFFECTIVENESS (Issue 7): a pitfall already PROMOTED into a rule that resurfaces as a fresh
           # candidate means the rule did not stop it — the negative RL signal. Count it on the entry + report.
@@ -370,7 +374,7 @@ while IFS=$'\t' read -r id trigger; do
   rel="$(promote_target "$trigger")"
   if [ -z "$rel" ] || [ ! -f "$RULES_DIR/$rel" ]; then UNMAPPED=$((UNMAPPED+1)); continue; fi
   PROMOTED_IDS+=("$id")
-done < <(jq -r '.[] | select(.category=="pitfall" and ((.hits//0)>=5) and ((.confidence//0)>=0.85) and ((.promoted//false)|not) and ((.status//"")!="superseded")) | [.id,(.trigger_src // .trigger)] | @tsv' <<<"$ARR")
+done < <(jq -r '.[] | select(.category=="pitfall" and ((.hits//0)>=5) and ((.confidence//0)>=0.85) and ((.promoted//false)|not) and ((.status//"") | IN("superseded","retracted") | not)) | [.id,(.trigger_src // .trigger)] | @tsv' <<<"$ARR")
 PROMOTED_COUNT="${#PROMOTED_IDS[@]}"
 if [ "$PROMOTED_COUNT" -gt 0 ]; then
   IDS_JSON="$(printf '%s\n' "${PROMOTED_IDS[@]}" | jq -R . | jq -s '.')"
@@ -389,7 +393,7 @@ if [ -d "$RULES_DIR" ]; then
       && mv -f "$file.regen.$$" "$file" 2>/dev/null || rm -f "$file.regen.$$" 2>/dev/null
   done < <(find "$RULES_DIR" -name '*.md' 2>/dev/null)
   MAP="$(mktemp)"
-  jq -r '.[] | select((.promoted//false) and ((.status//"")!="superseded")) | [(.trigger_src // .trigger),.trigger,.learning,.ts,.evidence] | @tsv' <<<"$ARR" > "$MAP" 2>/dev/null || true
+  jq -r '.[] | select((.promoted//false) and ((.status//"") | IN("superseded","retracted") | not)) | [(.trigger_src // .trigger),.trigger,.learning,.ts,.evidence] | @tsv' <<<"$ARR" > "$MAP" 2>/dev/null || true
   while IFS= read -r rel; do
     [ -n "$rel" ] || continue
     file="$RULES_DIR/$rel"; [ -f "$file" ] || continue   # never create a stray rule file
@@ -416,7 +420,7 @@ ARR="$(jq -c --argjson now "$NOW" '
     | ( ($now - ((.ts // "1970-01-01T00:00:00Z") | tostring | (if test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") then . + "T00:00:00Z" else . end) | fromdateiso8601? // 0)) / 86400 ) as $age
     | (if ((.promoted // false) and ((.recurrence // 0) > 0) and ($age > 60)) then .recurrence = 0 else . end)
     | select(
-        (((.promoted // false)) and (((.status // "") != "superseded")))
+        (((.promoted // false)) and ((((.status // "") | IN("superseded","retracted") | not))))
         or ( ($age <= 180) and ( ((.hits//1) >= 2) or ((.confidence//0) >= 0.25) or ($age <= 90) ) )
       )
   ]' <<<"$ARR")"
@@ -492,8 +496,8 @@ if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then
     def issrc($i): any((.sources // [])[]; .service == $svc and .id == $i);
     reduce ($arr[] | select((.scope // "") == "fleet" and ((.learning // "") != ""))) as $e (
       { f: $fex, n: ([ $fex[] | (.id // "") | tostring | capture("F-(?<n>[0-9]+)")? | .n | tonumber ] | max // 0),
-        c: 0 };
-      ( $e | ffz ) as $ef | (($e.status // "") == "superseded") as $sup
+        c: 0, held: 0 };
+      ( $e | ffz ) as $ef | (($e.status // "") | IN("superseded","retracted")) as $sup
       | ( [ .f | to_entries[] | select(.value | issrc($e.id)) | .key ] | first ) as $own
       | if $own != null then
           ( .f[$own] ) as $o
@@ -507,9 +511,10 @@ if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then
               else $o end ) as $u
           | if $u != $o then .f[$own] = $u | .c += 1 else . end
         elif $sup then .
+        elif (($e.verified_by // "") == "") then .held += 1   # promotion gate: no proof, no fleet copy (KNW-2)
         else
           ( [ .f | to_entries[]
-              | select((.value.category // "note") == ($e.category // "note") and ((.value.status // "") != "superseded"))
+              | select((.value.category // "note") == ($e.category // "note") and ((.value.status // "") | IN("superseded","retracted") | not))
               | {key, j: jac($ef; (.value | ffz))} | select(.j >= 0.5) ] | sort_by(-.j, .key) | first | .key ) as $fz
           | if $fz != null then
               .f[$fz].sources = ((.f[$fz].sources // []) + [{service: $svc, id: $e.id}])
@@ -524,7 +529,7 @@ if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then
               | .c += 1
             end
         end )
-    | {c, f: (.f | if length > 400 then sort_by(-((.confidence // 0.5) * (.hits // 1))) | .[0:400] else . end)}
+    | {c, held, f: (.f | if length > 400 then sort_by(-((.confidence // 0.5) * (.hits // 1))) | .[0:400] else . end)}
   ' 2>/dev/null || true)"
   FCOUNT=0
   if jq -e '(.f | type) == "array"' <<<"$FOUT" >/dev/null 2>&1; then
@@ -535,7 +540,8 @@ if [ -n "$FLEET_DIR" ] && [ -w "$FLEET_DIR" ]; then
     fi
   fi
   [ "$_fheld" = 1 ] && rm -rf "$FLOCK" 2>/dev/null
-  REPORT="$(jq -c --argjson fl "${FCOUNT:-0}" '. + {fleet: $fl}' <<<"$REPORT")"
+  FHELD="$(jq -r '.held // 0' <<<"$FOUT" 2>/dev/null || echo 0)"
+  REPORT="$(jq -c --argjson fl "${FCOUNT:-0}" --argjson h "${FHELD:-0}" '. + {fleet: $fl} + (if $h > 0 then {fleet_held_unverified: $h} else {} end)' <<<"$REPORT")"
 fi
 
 # WS-6: per-session learn-receipt — proves a Learn pass actually RAN this session (v0.11's Stop gate checked its

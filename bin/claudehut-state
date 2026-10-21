@@ -33,9 +33,17 @@
 #   set-plan P                        records the plan and sets plan_approved=true. Light route: P may be task.md.
 #                                     Full route: a plan with ≥5 T-rows, a sensitive path in a T-row's Files cell,
 #                                     or profile=migration needs a fresh plan-review APPROVE of the same bytes
-#   set-review pass|pending|capped [--evidence P]   pass requires review.md evidence
+#   set-review pass|pending|capped [--evidence P] [--override "<reason>"]
+#                                     pass requires review.md evidence; then the kernel gate checks every cited
+#                                     path:line resolves and no finding is open (claudehut-verify), and stores the
+#                                     review binding (content fingerprint + spec/plan hash) for the end gate
 #   set-enforcement --skills a,b --rules x.md,y.md | set-outstanding <json-array> | set-findings P
-#   end --status done|abandoned       close the task; active_task=null
+#   end --status done|abandoned [--override "<reason>"]
+#                                     close the task; active_task=null. Invariant (0.12.7, gate engine): done needs
+#                                     review pass|capped and, after a pass, an unchanged tree/spec/plan (the binding
+#                                     stored at set-review pass). Gate mode warn (default) records and proceeds;
+#                                     block refuses unless --override. Mode: $CLAUDEHUT_GATE_MODE > topology.json
+#                                     .gates.mode > warn. Every outcome is an event in tasks/<id>/events.jsonl.
 #   resume <id>                       attach an existing task to this session (new session or fork); the task is
 #                                     then that session's: the previous owner's pointer is cleared, and every verb of
 #                                     another session treats it as no task (a notice, nothing written, exit 0)
@@ -470,6 +478,14 @@ doclint_gate() { # $1 kind (spec|plan|task|brainstorm|plan-review)  $2 artifact 
   if [ -f "$DOCLINT" ]; then out="$(bash "$DOCLINT" "${a[@]}" "$p" 2>&1)" && rc=0 || rc=$?
   else out=""; rc=127; fi
   [ -z "$out" ] || printf '%s\n' "$out" >&2
+  # PLN-3 (0.12.7): a total over budget is an event (metric), never a refusal — budgets stay advisory.
+  local bw bb
+  read -r bw bb <<<"$(sed -n 's/^budget: total \([0-9][0-9]*\)\/\([0-9][0-9]*\).*/\1 \2/p' <<<"$out" | head -1)"
+  if [ -n "${bw:-}" ] && [ -n "${bb:-}" ] && [ "$bb" -gt 0 ] && [ "$bw" -gt "$bb" ] && [ -n "${ACTIVE:-}" ]; then
+    "$KERNEL" event --task "$TASKS_DIR/$ACTIVE" --type budget.exceeded \
+      --data "$(jq -nc --arg k "$kind" --argjson w "$bw" --argjson b "$bb" '{kind:$k, words:$w, budget:$b}')" 2>/dev/null || true
+    note "$kind is ${bw} words against a budget of ${bb} (+$(( (bw - bb) * 100 / bb ))%): recorded as budget.exceeded. Cut it to the template's sections before review."
+  fi
   case "$rc" in
     0) return 0 ;;
     1) err "$kind rejected: $2 has structural violation(s) — the 'blocking' lines above. Fix them in place and re-run $sub (budget lines are advisory and never block)." ;;
@@ -500,7 +516,28 @@ plan_kind() { # $1 path → task|plan
 }
 # Content hash (portable; empty when no hasher) — plan-review freshness by bytes, not mtime.
 plan_hash() { shasum "$1" 2>/dev/null | awk '{print $1}' || cksum "$1" 2>/dev/null | awk '{print $1"-"$2}' || echo ""; }
-tset() { TASK="$(jq -c "$@" <<<"$TASK")"; }   # mutate the loaded task: tset --arg v x '.field=$v'
+tset() { TASK="$(jq -c "$@" <<<"$TASK")"; }
+# Kernel gate (0.12.7, docs/v0.20 04 §2, ADR K-05): invariants checked at THIS transition only. The kernel prints
+# one JSON object and the human lines; in gate mode warn a violation is recorded and the transition proceeds,
+# in block it is refused unless --override "<reason>" is given. python3 missing → the gate is skipped (noted).
+KERNEL="$(cd "$(dirname "$0")" && pwd)/claudehut-kernel"
+gate_call() { # $1 gate name, rest: extra args → JSON on stdout; returns 1 when the transition is refused
+  local g="$1" out rc ovr; shift
+  ovr="$(flag --override)"
+  set +e
+  out="$("$KERNEL" gate "$g" --project "$PROJECT_DIR" --task "$TASKS_DIR/$ACTIVE" ${ovr:+"--override=$ovr"} "$@")"
+  rc=$?
+  set -e
+  # Refuse ONLY on an explicit block decision: a crash or a usage error must neither block nor pass silently.
+  if [ "$rc" = 1 ] && [ "$(jq -r '.decision // empty' <<<"$out" 2>/dev/null)" = block ]; then
+    note "$g refused by the invariant(s) above (gate mode block). Fix them, or re-run with --override \"<reason>\" (recorded)."
+    return 1
+  fi
+  if [ "$rc" = 0 ]; then printf '%s' "$out"; return 0; fi
+  note "gate $g skipped: kernel unavailable or failed (exit $rc) — transition proceeds, check \`claudehut-kernel selftest\`"
+  "$KERNEL" event --task "$TASKS_DIR/$ACTIVE" --type gate.skipped --data "{\"gate\":\"$g\",\"rc\":$rc}" >/dev/null 2>&1 || true
+  printf '{}' 
+}   # mutate the loaded task: tset --arg v x '.field=$v'
 write_atomic() { # $1 file  $2 json
   local tmp; tmp="$(mktemp "$(dirname "$1")/.state.XXXXXX")"
   printf '%s\n' "$2" >"$tmp"
@@ -687,6 +724,7 @@ case "$sub" in
   end)
     es="$(flag --status)"
     case "$es" in done|abandoned) ;; *) err "end needs --status done|abandoned" ;; esac
+    kout="$(gate_call end --status "$es")" || exit 1
     tset --arg v "$es" --arg ts "$TS" '.status=$v | .ended=$ts'
     write_atomic "$TFILE" "$TASK"
     set_pointer ""
@@ -840,6 +878,9 @@ case "$sub" in
         done < <(jq -r '.file // empty' "$SUS" 2>/dev/null | sort -u)
         [ -z "$miss" ] || err "set-review pass: lint-reuse staged reuse-suspect(s) [$miss ] not RESOLVED in $ev — each suspect's coverage row must carry a resolution token (resolved | extracted-util | adopted-commons | reused | false-positive:<reason>)."
       fi
+      kout="$(gate_call review-pass --evidence "$evp")" || exit 1
+      kb="$(jq -c '.binding // empty' <<<"$kout" 2>/dev/null || true)"
+      [ -z "$kb" ] || tset --argjson b "$kb" '.review_binding=$b'
       tset --arg v "$ev" '.review_evidence=$v'
     fi
     tset --arg v "$r" '.review=$v'

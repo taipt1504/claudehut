@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# claudehut-kernel — shim for the Python kernel (docs/v0.20/04-kernel-control.md §7, ADR K-11: python3 stdlib, no pip).
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+_root="$(cd "$_d/.." 2>/dev/null && pwd)" || _root=""
+_py="${CLAUDEHUT_PYTHON:-python3}"
+if [ -z "$_root" ] || ! command -v "$_py" >/dev/null 2>&1; then
+  echo "claudehut-kernel: unavailable (python3 not found)" >&2
+  exit 3
+fi
+PYTHONDONTWRITEBYTECODE=1 exec "$_py" -B "$_root/scripts/kernel/cli.py" "$@"

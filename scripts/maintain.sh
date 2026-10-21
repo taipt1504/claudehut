@@ -123,4 +123,11 @@ if hc_plane_initialized && [ -x "$IDX_CLI" ]; then
     ( cd "$PROJECT_DIR" && exec "$IDX_CLI" update --detach --plane "$PLANE" ) </dev/null >/dev/null 2>&1 || hc_log "claudehut-index update failed"
   fi
 fi
+
+# 6. host probe (0.12.7, docs/v0.20 04 §5.1): test foreign Bash hooks for input rewriting under a 2 s deadline and
+#    write state/env-profile.json; bootstrap.sh reads it next session (--cached). Off with CLAUDEHUT_HOST_PROBE=0.
+KCLI="$PLUGIN_ROOT/bin/claudehut-kernel"
+if [ "${CLAUDEHUT_HOST_PROBE:-1}" != 0 ] && [ -x "$KCLI" ]; then
+  "$KCLI" probe --write --project "$PROJECT_DIR" </dev/null >/dev/null 2>&1 || hc_log "host probe failed"
+fi
 exit 0

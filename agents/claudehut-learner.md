@@ -51,7 +51,8 @@ existing lines followed by yours (Write replaces the whole file):
      identifiers and paths stay as they are.
    - `evidence`: a `file:line` or test name. `confidence`: 0–1 (omit → 0.6).
    - `scope` (optional): `service` (default) or `fleet` for a lesson that holds for every service in the hub;
-     the merge copies a fleet lesson to the hub's `fleet-learnings.jsonl` (no hub → it stays local).
+     the hub copy needs `verified_by` (a test name, commit sha or library source file that PROVES it; without
+     it the lesson stays local). Never record a workaround for a tool or checker bug as a lesson.
    - `supersedes` (optional): `"L-####"` when this learning **refines/corrects an earlier one**; the merge keeps
      both and marks the old one superseded instead of folding them together.
    - **Gate:** `merge-learnings.sh` rejects a candidate under 20 chars, equal to its evidence, or scoring <0.4

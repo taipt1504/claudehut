@@ -28,3 +28,7 @@ evals/tasks/_fixtures/*/bin/
 evals/tasks/*/repo/bin/
 
 # eval harness: keep committed reference rows, ignore nothing by default (rows are small evidence)
+
+# claude plugin eval output (report.html, traces) — large, per run
+evals/results/plugin-eval/
+evals/suites/**/results/

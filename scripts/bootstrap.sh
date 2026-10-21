@@ -45,6 +45,13 @@ if [ "$HC_LANG" = vi ]; then
 else
   ctx="$ctx"$'\n'"Language: en — reply and write artifacts in English; identifiers, code, commands unchanged"
 fi
+# Host adapter (0.12.7, docs/v0.20 04 §5.1): a foreign PreToolUse hook that REWRITES Bash makes worktree agents
+# refuse their own commands (ENV-1). maintain.sh (async) runs the probe and writes state/env-profile.json; this sync
+# hook only READS it (--cached, nothing executed) and prints one advisory line when a rewrite was seen.
+if [ "${CLAUDEHUT_HOST_PROBE:-1}" != 0 ] && [ -x "$PLUGIN_ROOT/bin/claudehut-kernel" ]; then
+  host_line="$("$PLUGIN_ROOT/bin/claudehut-kernel" probe --cached --advice --project "$PROJECT_DIR" 2>/dev/null)" || host_line=""
+  [ -n "$host_line" ] && ctx="$ctx"$'\n'"$host_line"
+fi
 if hc_active_task; then
   read -r t_route t_phase <<<"$(jq -r '"\(.route // "?") \(.phase // "?")"' <<<"$HC_TASK")"
   if [ "$HC_LANG" = vi ]; then t_label="Task đang mở"; else t_label="Open task"; fi

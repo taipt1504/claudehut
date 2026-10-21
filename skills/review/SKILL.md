@@ -133,8 +133,8 @@ Write `.claude/claudehut/tasks/NNNN-<slug>/review.md` with these sections:
 claudehut-state --session ${CLAUDE_SESSION_ID} set-review pass --evidence .claude/claudehut/tasks/NNNN-<slug>/review.md
 ```
 
-`set-review pass` refuses a `review.md` without a coverage table, a test line with counts, a locus on each `✓`
-row, or a resolution for each reuse suspect. A task that skips Learn (a light task with nothing novel, or an
+`set-review pass` refuses a `review.md` without a coverage table, test counts, a locus per `✓`, a resolution per reuse
+suspect, a cited `path:line` that does not exist, or an `open` row (pre-check: `claudehut-verify claims <review.md>`). A task that skips Learn (a light task with nothing novel, or an
 audit/investigation stopping at `set-findings`) ends here: `claudehut-state --session ${CLAUDE_SESSION_ID} end --status done`.
 
 **Out-of-workflow review** (no active task, or a direct-route request the user asked to review): run
