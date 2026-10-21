@@ -1,0 +1,30 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "lang-python-shell",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "stack",
+  "description": "Python and shell: path-scoped rules for scripts and tooling repos.",
+  "detect": {
+    "any": [
+      "pyproject.toml",
+      "setup.py",
+      "setup.cfg",
+      "requirements.txt",
+      "*.py",
+      "*/*.py",
+      "*.sh",
+      "*/*.sh"
+    ]
+  },
+  "owns": [
+    "packs/lang-python-shell/rules/**"
+  ],
+  "rules": {
+    "root": "packs/lang-python-shell/rules"
+  },
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": []
+}

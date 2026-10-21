@@ -1,0 +1,34 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "workflow-standard",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "workflow",
+  "description": "Phases discover → spec → plan → implement → review → learn; templates, router rubric, phase agents.",
+  "detect": {
+    "always": true
+  },
+  "owns": [
+    "skills/claudehut-workflow/**",
+    "skills/discover/**",
+    "skills/brainstorm/**",
+    "skills/write-spec/**",
+    "skills/write-plan/**",
+    "skills/implement/**",
+    "skills/review/**",
+    "skills/capture-learnings/**",
+    "skills/claudehut-init/**",
+    "agents/claudehut-brainstormer.md",
+    "agents/claudehut-planner.md",
+    "agents/claudehut-plan-reviewer.md",
+    "agents/claudehut-implementer.md",
+    "agents/claudehut-explorer.md",
+    "agents/claudehut-reuse-scanner.md",
+    "agents/claudehut-learner.md",
+    "agents/claudehut-test-runner.md"
+  ],
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": []
+}

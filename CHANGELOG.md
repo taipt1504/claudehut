@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — 0.20 M2a (packs, logical)
+
+- **Pack manifests and K10 activation** (docs/v0.20 07 §1-§2): `packs/<name>/claudehut-pack.json` for
+  `claudehut-kernel`, `workflow-standard`, `review`, `lang-java-spring`, `lang-python-shell`, `org-summer`
+  (schema `packs/claudehut-pack.schema.json`). Every shipped file belongs to exactly one pack. Still one plugin; the
+  physical split is M2b. `claudehut-kernel packs [--project] [--json] [--owner …]` shows which packs apply and why
+  (`detect`: always / literal or one-level paths / build-file substrings, never a recursive walk);
+  `CLAUDEHUT_PACKS="+x,-y"` forces one.
+- **claudehut-init is pack-gated (DOM-1):** a repo lang-java-spring does not detect gets no Java rule, no
+  Controller/Service identity rules and generic plane templates (`PROJECT/LANGUAGE/architecture.generic.md.tmpl`);
+  the active packs' own rules are emitted (new `lang-python-shell`: `shell/strict-mode`, `shell/portability`,
+  `python/stdlib-tools`). An existing Java tree whose pack went inactive is reported stale on `--refresh-rules`
+  and removed only with `--retire-inactive`. No kernel → the 0.12 behaviour (Java pack on). `--detect` reports packs.
+
 ## 0.20.0-dev.1 — 2026-10-21 · 0.20 M1 (kernel K1/K2 in Python; a dev build, not a release)
 
 - **State writer ported to the Python kernel** (docs/v0.20 04 §7, strangler step 1): `bin/claudehut-state` is a shim

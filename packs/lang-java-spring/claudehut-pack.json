@@ -1,0 +1,42 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "lang-java-spring",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "stack",
+  "description": "Java / Spring Boot: stack-gated rule tree, project identity rules, Java formatter, reuse lint, jdtls.",
+  "detect": {
+    "any": [
+      "pom.xml",
+      "build.gradle",
+      "build.gradle.kts",
+      "settings.gradle",
+      "settings.gradle.kts",
+      "*/pom.xml",
+      "*/build.gradle",
+      "*/build.gradle.kts",
+      "src/main/java"
+    ]
+  },
+  "owns": [
+    "templates/rules/**",
+    "templates/PROJECT.md.tmpl",
+    "scripts/format-java.sh",
+    "scripts/lint-reuse.sh",
+    ".lsp.json",
+    "templates/LANGUAGE.md.tmpl",
+    "templates/architecture.md.tmpl"
+  ],
+  "rules": {
+    "root": "templates/rules"
+  },
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": [],
+  "plane_templates": {
+    "PROJECT.md": "templates/PROJECT.md.tmpl",
+    "LANGUAGE.md": "templates/LANGUAGE.md.tmpl",
+    "architecture.md": "templates/architecture.md.tmpl"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "org-summer",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "org",
+  "description": "Summer Framework KB for consumer services (install, self-heal, always-on pointer).",
+  "detect": {
+    "deps": [
+      "io.f8a.summer"
+    ]
+  },
+  "owns": [
+    "skills/summer-kb-setup/**"
+  ],
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": []
+}

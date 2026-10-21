@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClaudeHut pack manifest (docs/v0.20 07 §1)",
+  "type": "object",
+  "required": ["pack", "version", "kernel", "kind", "detect", "owns"],
+  "properties": {
+    "pack": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "description": "equals the pack's directory name"},
+    "version": {"type": "string"},
+    "kernel": {"type": "string", "description": "semver range of claudehut-kernel the pack works with"},
+    "kind": {"enum": ["kernel", "workflow", "quality", "stack", "template", "org", "domain", "bundle"]},
+    "description": {"type": "string"},
+    "detect": {
+      "type": "object",
+      "properties": {
+        "always": {"type": "boolean"},
+        "any": {"type": "array", "items": {"type": "string"}, "description": "root or one-level globs; no recursion"},
+        "deps": {"type": "array", "items": {"type": "string"}, "description": "substrings of root/one-level build files"}
+      },
+      "additionalProperties": false
+    },
+    "owns": {"type": "array", "items": {"type": "string"}, "description": "plugin-relative paths/globs this pack ships"},
+    "rules": {"type": "object", "properties": {"root": {"type": "string"}}, "required": ["root"]},
+    "plane_templates": {"type": "object", "additionalProperties": {"type": "string"}},
+    "guides": {"type": "array"},
+    "sensors": {"type": "array"},
+    "invariants": {"type": "array"},
+    "evals": {"type": "array"}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "../claudehut-pack.schema.json",
+  "pack": "review",
+  "version": "0.20.0-dev.1",
+  "kernel": "~0.20",
+  "kind": "quality",
+  "description": "Review lanes chosen from the diff, review-pack, reviewer roster.",
+  "detect": {
+    "always": true
+  },
+  "owns": [
+    "agents/claudehut-reviewer.md",
+    "agents/claudehut-contract-reviewer.md",
+    "agents/claudehut-db-reviewer.md",
+    "agents/claudehut-security-auditor.md",
+    "scripts/review-pack.sh"
+  ],
+  "guides": [],
+  "sensors": [],
+  "invariants": [],
+  "evals": []
+}

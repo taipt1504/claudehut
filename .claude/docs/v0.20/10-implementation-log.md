@@ -193,3 +193,26 @@ Sau review của advisor:
 - **Shim fallback.** Nếu `python3` có trên PATH nhưng không chạy được (stub CLT của macOS, venv hỏng, shim trong sandbox), bản cũ làm mọi verb fail với exit 1, và exit 1 bị hiểu là "refused". Shim giờ dùng `CLAUDEHUT_PYTHON` (cùng interpreter với kernel), kiểm tra trước rằng interpreter chạy được và là ≥3.8, nếu không thì chuyển sang bash. Test G18b chạy trên đường mặc định và fail với shim cũ.
 - **Version dev `0.20.0-dev.1`.** `run-meta.json` của các eval sau sẽ phân biệt được với 0.12.8 (bản chỉ có K-18).
 - **Câu hỏi cho user (Q6):** gate mode mặc định vẫn là `warn` (quyết định từ Track Q), trong khi Q6 chốt bất biến kernel là `block` có override. Mọi case process đều tự set `block`, nên mặc định đang ship chưa từng được đo.
+
+## M2a — pack logic trong một plugin (2026-10-21)
+
+**Nghiên cứu host** (claude-code-guide, docs code.claude.com, 2026-10-21):
+- `dependencies` trong `plugin.json` có hỗ trợ semver. Bundle là plugin chỉ có `dependencies` (pattern có trong docs).
+- Hai marketplace có thể trỏ hai ref của cùng một repo (stable/canary).
+- `bin/` của plugin nằm trên PATH của **Bash tool**.
+- `${CLAUDE_PLUGIN_DATA}` giữ nguyên qua các lần update.
+- Plugin không được tham chiếu file của plugin khác: path không được thoát khỏi plugin root.
+- `claude plugin details` báo "Projected token cost" (always-on).
+- `claude plugin eval` chỉ nhận một target.
+- Hook của mọi plugin chạy song song; tất cả `additionalContext` đều được ghép, thứ tự không xác định.
+
+**Thực nghiệm:** `bin/` của plugin A **không** có trên PATH của hook của plugin B. Cũng không có thư mục plugin nào trên PATH của hook. Kiểm bằng `claude -p` với `--plugin-dir` ×2, 2.1.306. Vì vậy thiết kế 07 §1.1 (`claudehut-kernel register` gọi qua PATH) không chạy được. Đã sửa design: pack tự ghi registry vào `<plane>/state/packs/`.
+
+| Thiết kế | Đã build | Lệch |
+|---|---|---|
+| Pack = plugin riêng + `claudehut-pack.json` | **M2a:** 6 manifest trong `packs/`, vẫn ship trong một plugin. Mọi file ship thuộc đúng một pack (test K2) | Tách vật lý là M2b. Làm theo kiểu strangler: hơn 1.700 assertion đang tham chiếu path trong repo |
+| K10 `detect` | `claudehut_kernel/packs.py`: `always`, path literal (một lần stat), glob ở root hoặc sâu một cấp, chuỗi con trong build file. Không walk đệ quy | Pack `deliberation` và `domain-ewallet` chưa có manifest, vì chưa có nội dung (M4, phase B) |
+| Pack không khớp thì không nạp rule (DOM-1) | init gate theo pack. Repo không Java: 0 rule Java, template plane generic, rule riêng của pack | Tree Java của một repo đã thôi là Java chỉ bị báo stale; chỉ xoá khi có `--retire-inactive` |
+| Pack `lang-python-shell` (mới) | 3 rule rút từ bài học của chính repo này: bash 3.2 với mảng rỗng, bẫy `//` của jq, BSD/GNU, `__pycache__`, exit code | — |
+
+**Exit criterion M2 (1/2):** init trên bản copy của repo này (bash + Python) cho ra 0 rule Java (test K5). Tiêu chí (2/2), bundle cài sạch từ marketplace canary, thuộc M2b.

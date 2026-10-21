@@ -30,8 +30,8 @@ Pack là **một Claude Code plugin** (dùng nguyên cơ chế host) phụ thu�
 ### 1.1 Khám phá pack (registry)
 
 Kernel **không** đọc file nội bộ của host (`installed_plugins.json`, cấu trúc cache) vì chúng có thể đổi bất kỳ lúc nào. Thay vào đó:
-- Mỗi pack ship một hook `SessionStart` nhỏ. Hook này biết `${CLAUDE_PLUGIN_ROOT}` của chính nó và gọi CLI kernel (có trên PATH qua `bin/` của kernel): `claudehut-kernel register --manifest "${CLAUDE_PLUGIN_ROOT}/claudehut-pack.json" --version <v>`.
-- Registry ghi `{pack, version, root, manifest_hash}` vào `${CLAUDE_PLUGIN_DATA}` của kernel theo phiên. Sensor dùng `{pack_root}` lấy từ đây.
+- ~~Mỗi pack ship một hook `SessionStart` gọi `claudehut-kernel register` qua PATH.~~ **Đã kiểm thực nghiệm (Claude Code 2.1.306, 2026-10-21): `bin/` của plugin KHÔNG có trên PATH của hook.** Docs chỉ hứa điều này cho Bash tool. Hook của plugin B gọi `probe-a-tool` (nằm trong `bin/` của plugin A) thì nhận `NOT FOUND`, và trong PATH của hook không có thư mục plugin nào. Plugin cũng không được đọc file của plugin khác: path không được thoát khỏi plugin root.
+- **Thiết kế thay thế:** mỗi pack ship một hook `SessionStart` nhỏ, tự chứa, không gọi kernel. Hook này ghi `{pack, version, root: ${CLAUDE_PLUGIN_ROOT}, manifest_hash}` vào `<plane>/state/packs/<pack>.json` của project; plane `.claudehut/` ghi được, theo K-18. Kernel đọc registry từ plane. Sensor dùng `{pack_root}` lấy từ đây.
 - Pack không đăng ký, ví dụ hook bị tắt, sẽ hiện trong `claudehut status` là `unregistered`, không bị bỏ qua âm thầm (VER-3).
 
 ## 2. Danh mục pack đề xuất

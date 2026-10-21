@@ -10,6 +10,8 @@
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
   claudehut-kernel event --task DIR --type T [--data JSON]
+  claudehut-kernel packs [--project DIR] [--json] [--owner PATH…]   K10: which packs are active for the project (and
+                                                 why); --owner prints the pack owning each plugin-relative path
   claudehut-kernel replay --task DIR [--check]   project tasks/<id>/events.jsonl → the task record (K1); --check exits 1
                                                  when it differs from task.json (exit 0 with a note: no state events yet)
 
@@ -27,7 +29,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import events, gates, learn, plane, probe, selftest, tasklog, verify  # noqa: E402
+from claudehut_kernel import events, gates, learn, packs, plane, probe, selftest, tasklog, verify  # noqa: E402
 
 
 def _project(a):
@@ -164,6 +166,23 @@ def cmd_event(a):
     return 0 if events.append(os.path.abspath(a.task), a.type, data, source=a.source) else 1
 
 
+def cmd_packs(a):
+    manifests, errors = packs.load()
+    if a.owner:
+        rows = {p: packs.owners_of(p, manifests) for p in a.owner}
+        print(json.dumps(rows, ensure_ascii=False))
+        return 0 if all(len(v) == 1 for v in rows.values()) else 1
+    res = packs.evaluate(_project(a), manifests)
+    if a.json:
+        print(json.dumps({"packs": res, "errors": errors}, ensure_ascii=False))
+    else:
+        for r in res:
+            print(f"{'on ' if r['active'] else 'off'}  {r['pack']:<20} {r['why']}")
+        for e in errors:
+            print(f"ERR  {e['pack']:<20} {e['error']}", file=sys.stderr)
+    return 1 if errors else 0
+
+
 def cmd_replay(a):
     task_dir = os.path.abspath(a.task)
     proj, rev = tasklog.project(events.read(task_dir))
@@ -241,6 +260,12 @@ def main(argv):
     e.add_argument("--data")
     e.add_argument("--source", default="cli")
     e.set_defaults(fn=cmd_event)
+
+    pk = sub.add_parser("packs")
+    pk.add_argument("--project")
+    pk.add_argument("--json", action="store_true")
+    pk.add_argument("--owner", nargs="+")
+    pk.set_defaults(fn=cmd_packs)
 
     rp = sub.add_parser("replay")
     rp.add_argument("--task", required=True)

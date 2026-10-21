@@ -187,8 +187,24 @@ fi
 ARCH_DECLARED="$(grep -m1 -oE '^- Architecture style: *[a-z]+' "$CHD/PROJECT.md" 2>/dev/null | sed -E 's/.*: *//')"
 ARCH="${CLAUDEHUT_ARCH:-${ARCH_DECLARED:-none}}"
 case "$ARCH" in ddd|hexagonal|cqrs|none) : ;; *) echo "  warn: CLAUDEHUT_ARCH/PROJECT.md architecture style '$ARCH' is not ddd|hexagonal|cqrs — emitting no architecture rule"; ARCH=none ;; esac
+# K10 (docs/v0.20 07 §1, M2a): which packs apply to this repo, decided by the kernel from packs/*/claudehut-pack.json.
+# The Java/Spring rule tree, its identity rules and the Java plane templates belong to lang-java-spring: a repo the
+# pack does not detect (Python, shell, docs) gets none of them (DOM-1). No kernel (python3 missing) → the 0.12
+# behaviour, the Java pack on. CLAUDEHUT_PACKS="+name,-name" forces a pack (reported by `claudehut-kernel packs`).
+PACKS_JSON="$("$PLUGIN_ROOT/bin/claudehut-kernel" packs --project "$PWD" --json 2>/dev/null)" || PACKS_JSON=""
+if [ -n "$PACKS_JSON" ] && jq -e '.packs | type=="array"' >/dev/null 2>&1 <<<"$PACKS_JSON"; then
+  PACKS="$(jq -r '[.packs[] | select(.active) | .pack] | join(" ")' <<<"$PACKS_JSON")"
+else
+  PACKS="claudehut-kernel workflow-standard review lang-java-spring"
+fi
+pack_on() { case " $PACKS " in *" $1 "*) return 0 ;; esac; return 1; }
+JAVA=false; pack_on lang-java-spring && JAVA=true
+if ! $JAVA; then   # the Java detections above describe nothing here: neutral values for the generic plane templates
+  VERIFY="(unknown — record the command that proves a change)"; TEST_STRATEGY="(record it)"
+  LAYER_CONVENTION="(record the real layout)"; ENTRY_POINTS="(record them)"; MODULE_LIST="- (record the components)"
+fi
 # --detect prints JSON to stdout and nothing else may go there, or every parser of it breaks.
-if [ "$ARCH" = none ] && ! $DETECT && ! $AUDIT; then
+if $JAVA && [ "$ARCH" = none ] && ! $DETECT && ! $AUDIT; then
   echo "  note: no architecture style declared — set 'Architecture style:' in $CHD/PROJECT.md (ddd|hexagonal|cqrs) to activate the matching rule"
 fi
 
@@ -220,8 +236,8 @@ if $DETECT; then
       [ "$_p" = "$(pwd -P)" ] || [ "$_p" = "$d_habs" ] || [ -d "$_s/.claudehut/hub" ] || [ -d "$_s/.claude/claudehut/hub" ] && continue
       [ -e "$_s/.git" ] && [ ! -f "$(ch_plane_dir "$_s")/topology.json" ] && { _n="${_s%/}"; d_np+=("${_n##*/}"); }
     done
-    jq -c --arg h "$d_habs" --arg hl "$d_hl" --arg dh "$d_par/${d_base:-workspace}-knowledge" \
-      '. + {hub:(if $h=="" then null else $h end), hub_language:(if $hl=="" then null else $hl end),
+    jq -c --arg pk "$PACKS" --arg h "$d_habs" --arg hl "$d_hl" --arg dh "$d_par/${d_base:-workspace}-knowledge" \
+      '. + {packs:($pk | split(" ") | map(select(length > 0))), hub:(if $h=="" then null else $h end), hub_language:(if $hl=="" then null else $hl end),
             default_hub:$dh, siblings_without_plane:($ARGS.positional)}' --args ${d_np[@]+"${d_np[@]}"} <<<"$d_json" \
       || printf '%s\n' "$d_json"
   else
@@ -243,7 +259,7 @@ add ARCH "$ARCH"; add TEST_STRATEGY "$TEST_STRATEGY"; add MODULE_LIST "$MODULE_L
 add CONTROLLER_TERM controller; add SERVICE_TERM service; add REPOSITORY_TERM repository
 add CONTROLLER_MEANING "inbound web adapter; thin"; add SERVICE_MEANING "application/use-case layer; owns the transaction"
 add REPOSITORY_MEANING "persistence port"; add ADAPTER_MEANING "concrete impl of a port"; add AGGREGATE_MEANING "DDD root (if used)"
-add TERM ""; add MEANING ""; add PLANE "$CHD"
+add TERM ""; add MEANING ""; add PLANE "$CHD"; add PACKS "$PACKS"
 add DEPENDENCY_DIRECTION "$TBD"; add TX_STRATEGY "$TBD"; add ERROR_MAPPING "$TBD"; add MESSAGING_TOPOLOGY "$TBD"
 
 ACTIVE="web=$WEB orm=$ORM db=$DB messaging=$MSG cache=$CACHE mapper=$MAPPER arch=$ARCH test=$TEST java=$JAVA_BUCKET"
@@ -264,7 +280,8 @@ if $AUDIT; then
     rel="${f#$TPL/rules/}"; dest="$A_RULES/$rel"
     tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
     hit=true
-    if [ -n "$tag" ]; then
+    if ! $JAVA; then hit=false   # lang-java-spring inactive: none of its rules applies
+    elif [ -n "$tag" ]; then
       hit=false; ax="${tag%%=*}"
       IFS=',' read -r -a alts <<< "$tag"
       for one in "${alts[@]}"; do
@@ -342,9 +359,15 @@ echo "claudehut-init: project=$PROJECT_NAME stack[web=$WEB orm=$ORM db=$DB msg=$
 if ! $RULES_ONLY; then
 mkdir -p "$CHD/state" "$CHD/tasks"   # tasks/: one dir per task (NNNN-<slug>/ holds reuse-scan, spec, plan, review)
 render MEMORY.md.tmpl        "$CHD/MEMORY.md"
-render PROJECT.md.tmpl       "$CHD/PROJECT.md"
-render LANGUAGE.md.tmpl      "$CHD/LANGUAGE.md"
-render architecture.md.tmpl  "$CHD/architecture.md"
+if $JAVA; then
+  render PROJECT.md.tmpl       "$CHD/PROJECT.md"
+  render LANGUAGE.md.tmpl      "$CHD/LANGUAGE.md"
+  render architecture.md.tmpl  "$CHD/architecture.md"
+else
+  render PROJECT.generic.md.tmpl      "$CHD/PROJECT.md"
+  render LANGUAGE.generic.md.tmpl     "$CHD/LANGUAGE.md"
+  render architecture.generic.md.tmpl "$CHD/architecture.md"
+fi
 render reuse-index.json.tmpl "$CHD/reuse-index.json"
 [ -f "$CHD/learnings.jsonl" ] || { : > "$CHD/learnings.jsonl"; echo "  created: $CHD/learnings.jsonl"; }   # never clobbered
 fi
@@ -374,12 +397,16 @@ gone() { case "$GONE" in *"|$1|"*) echo "  keep deleted: $RULES/$1 (removed by h
 # silently installs the wrong rule. Default emits NONE, which is strictly better than emitting all three.
 # Opt in per project: CLAUDEHUT_ARCH=ddd|hexagonal|cqrs claudehut-init …
 # always-on project-identity rules (substituted)
-gone project-structure.md || render rules/project-structure.md "$RULES/project-structure.md"
-gone vocabulary.md        || render rules/vocabulary.md        "$RULES/vocabulary.md"
+# (lang-java-spring's: their terms are Controller/Service/Repository and a base package)
+if $JAVA; then
+  gone project-structure.md || render rules/project-structure.md "$RULES/project-structure.md"
+  gone vocabulary.md        || render rules/vocabulary.md        "$RULES/vocabulary.md"
+fi
 # domain rules: copy untagged always; copy stack-tagged only when the tag is active
 find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
   rel="${f#$TPL/rules/}"; dest="$RULES/$rel"
   tag="$(grep -m1 '^stack:' "$f" 2>/dev/null | sed -E 's/^stack: *//; s/"//g' | tr -d "'")"
+  $JAVA || tag="pack=lang-java-spring"   # the pack is off: every rule of its tree is inactive (report/retire below)
   if [ -n "$tag" ]; then
     # A tag may list ALTERNATIVES (`stack: "cache=redis,caffeine"`) — the rule applies if ANY of them is
     # active. Matching the whole string as one token meant such a rule could never fire.
@@ -427,11 +454,41 @@ find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do
     cp -f "$f" "$dest"
   fi
 done
-echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated)"
+# Rules of the other active packs (manifest `rules.root`, e.g. lang-python-shell): path-scoped, no stack tags. The same
+# keep-deleted and learned-pitfall rules as above; an inactive pack's copies are reported on --refresh-rules, never
+# removed here.
+PACK_RULE_ROOTS=""
+if [ -n "$PACKS_JSON" ]; then
+  for _pk in $(jq -r '.packs[].pack' <<<"$PACKS_JSON" 2>/dev/null); do
+    [ "$_pk" = lang-java-spring ] && continue
+    _rr="$(jq -r '.rules.root // empty' "$PLUGIN_ROOT/packs/$_pk/claudehut-pack.json" 2>/dev/null)"
+    [ -n "$_rr" ] && [ -d "$PLUGIN_ROOT/$_rr" ] || continue
+    PACK_RULE_ROOTS="$PACK_RULE_ROOTS $PLUGIN_ROOT/$_rr"
+    while IFS= read -r f; do
+      rel="${f#"$PLUGIN_ROOT/$_rr"/}"; dest="$RULES/$rel"
+      if ! pack_on "$_pk"; then
+        $RULES_REFRESH && [ -e "$dest" ] && echo "  stale: $rel (pack $_pk not active)"
+        continue
+      fi
+      gone "$rel" && continue
+      if [ -f "$dest" ] && ! $RULES_REFRESH; then continue; fi
+      mkdir -p "$(dirname "$dest")"
+      if [ -f "$dest" ] && grep -q '^## Learned pitfalls' "$dest" 2>/dev/null; then
+        lp="$(awk '/^## Learned pitfalls/,0' "$dest")"; cp -f "$f" "$dest"; printf '\n%s\n' "$lp" >> "$dest"
+      else
+        cp -f "$f" "$dest"
+      fi
+    done < <(find "$PLUGIN_ROOT/$_rr" -mindepth 2 -name '*.md' 2>/dev/null | sort)
+  done
+fi
+echo "  rules: emitted $(find "$RULES" -name '*.md' | wc -l | tr -d ' ') files (stack-gated; packs: $PACKS)"
 if ! $RULES_ONLY; then   # a bare plane gets nothing outside .claude/rules
   { cat "$EMITTED" 2>/dev/null; printf '%s\n' "$GONE" | tr '|' '\n'
     for r in project-structure.md vocabulary.md; do [ -e "$RULES/$r" ] && echo "$r"; done
     find "$TPL/rules" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do r="${f#$TPL/rules/}"; [ -e "$RULES/$r" ] && echo "$r"; done
+    for _rr in $PACK_RULE_ROOTS; do
+      find "$_rr" -mindepth 2 -name '*.md' 2>/dev/null | while read -r f; do r="${f#"$_rr"/}"; [ -e "$RULES/$r" ] && echo "$r"; done
+    done
   } | sed '/^$/d' | { grep -vxF -f "$RETIRED_F" || :; } | LC_ALL=C sort -u > "$RETIRED_F.new"
   cmp -s "$RETIRED_F.new" "$EMITTED" || { chmod 644 "$RETIRED_F.new"; mv -f "$RETIRED_F.new" "$EMITTED"; }
   rm -f "$RETIRED_F.new"
