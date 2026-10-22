@@ -14,6 +14,8 @@
   claudehut-kernel profile [--level L0|L1|L2|L3] [--write SETTINGS.json]   K5 autonomy (printed unless --write)
   claudehut-kernel telemetry --task DIR… --out FILE   K9 bridge: GenAI-shaped spans, local file only
   claudehut-kernel campaign create|template|status|list|pending|mirror [<id>] [--hub H] …   K8 campaigns (04 §6)
+  claudehut-kernel tournament schedule --options O0,O1[,…] | aggregate FILE [--json]   T3 design tournament (a2 §4.4):
+                                                 both orders per pair; a pair counts only when the two orders agree
   claudehut status [--project DIR] [--selftest] [--json] [--campaign ID]   (= claudehut-kernel status) K9 state surface, 08 §2
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
   claudehut-kernel event --task DIR --type T [--data JSON]
@@ -39,6 +41,7 @@ import time  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from claudehut_kernel import campaign, dist, events, gates, learn, packs, plane, probe, profile, runner, selftest, status, tasklog, telemetry, vendorleak, verify  # noqa: E402
+from claudehut_kernel import tournament  # noqa: E402
 
 
 def _project(a):
@@ -249,6 +252,28 @@ def cmd_telemetry(a):
     return 0
 
 
+def cmd_tournament(a):
+    try:
+        if a.action == "schedule":
+            print(json.dumps(tournament.schedule([o.strip() for o in (a.options or "").split(",") if o.strip()])))
+            return 0
+        if not a.file:
+            print("tournament aggregate needs FILE", file=sys.stderr)
+            return 2
+        res = tournament.aggregate(tournament.load(a.file))
+    except (OSError, ValueError) as exc:
+        print(f"tournament: {exc}", file=sys.stderr)
+        return 2
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        c = res["counts"]
+        print(f"tournament: {res['status']}" + (f" — {res['winner']}" if res["winner"] else "")
+              + f" · pairs agreed {c['agreed']}, split {c['split']}, missing {c['missing']}"
+              + " · the user confirms the option (T3)")
+    return 0 if res["status"] == "winner" else 1
+
+
 def cmd_status(a):
     project = _project(a)
     if a.campaign:
@@ -413,6 +438,13 @@ def main(argv):
     tl.add_argument("--task", action="append", required=True)
     tl.add_argument("--out", required=True)
     tl.set_defaults(fn=cmd_telemetry)
+
+    tn = sub.add_parser("tournament", help="T3 design tournament: pair schedule (both orders) and order-agreed verdict")
+    tn.add_argument("action", choices=["schedule", "aggregate"])
+    tn.add_argument("file", nargs="?")
+    tn.add_argument("--options", help="schedule: comma-separated option ids")
+    tn.add_argument("--json", action="store_true")
+    tn.set_defaults(fn=cmd_tournament)
 
     cp = sub.add_parser("campaign")
     cp.add_argument("action", choices=["create", "template", "status", "list", "pending", "mirror"])

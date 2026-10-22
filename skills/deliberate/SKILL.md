@@ -27,7 +27,7 @@ flowchart LR
 | T0 | The diff is one sentence and touches no trigger | nothing more |
 | T1 | Behaviour changes, no trigger | the probe (§2), answered by tools |
 | T2 | ≥1 trigger (§3) | probe → options → rule → decision record → design review (full route) |
-| T3 | T2 + cross-service, money path, public contract, SDK/BOM bump or data migration | T2 + ask the user to confirm the option |
+| T3 | T2 + cross-service, money path, public contract, SDK/BOM bump or data migration | T2 + ask the user to confirm the option; opt-in tournament: `references/tournament.md` |
 
 Lower a tier only with the user's consent. Headless (`-p`, no user): never self-approve T3 — record the
 assumption with a risk flag in the decision and say so in the final reply.

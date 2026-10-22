@@ -58,7 +58,7 @@ chain review capture-learnings
 # C4 — exactly 12 agents, each with name + description
 # (v0.12 M4, 08 §5: review roster 7→5 — perf folded into db-reviewer, observability into contract-reviewer)
 AG=$(ls -1 "$ROOT"/agents/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AG" = "13" ] && ok "13 agents present (0.20 M4 adds claudehut-design-reviewer)" || bad "expected 13 agents, found $AG"
+[ "$AG" = "14" ] && ok "14 agents present (0.20 M4 adds claudehut-design-reviewer, M6 claudehut-tournament-judge)" || bad "expected 14 agents, found $AG"
 for f in "$ROOT"/agents/*.md; do n=$(basename "$f" .md)
   if fm "$f" | grep -q '^name:' && fm "$f" | grep -q -E '^description:'; then ok "agent frontmatter: $n"; else bad "agent frontmatter: $n"; fi
 done

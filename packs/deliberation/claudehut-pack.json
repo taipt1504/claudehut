@@ -4,13 +4,14 @@
   "version": "0.20.0-dev.1",
   "kernel": "~0.20",
   "kind": "quality",
-  "description": "Design deliberation: tier, variation probe, two-way Protected Variation rule, decision record, design-reviewer (appendix a2).",
+  "description": "Design deliberation: tier, variation probe, two-way Protected Variation rule, decision record, design-reviewer, opt-in T3 tournament (appendix a2).",
   "detect": {
     "always": true
   },
   "owns": [
     "skills/deliberate/**",
-    "agents/claudehut-design-reviewer.md"
+    "agents/claudehut-design-reviewer.md",
+    "agents/claudehut-tournament-judge.md"
   ],
   "guides": [],
   "sensors": [
