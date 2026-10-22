@@ -543,3 +543,5 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
   - Thêm test CP15–CP18.
 - `claudehut status` thường giờ có dòng `campaign` cho các campaign nhắm vào repo (08 §2). Thêm test CP11b.
 - **Điểm thiết kế cho phase B:** mirror là file trong working tree của bản clone hub ở máy local. Với hub host trên git dùng chung, `status --campaign` của tech lead chỉ thấy những gì đã được mirror và đẩy lên. Cần chọn nhịp commit/pull, hoặc gitignore cộng một kênh truyền khác.
+- **Suite process trên `940fba1`** (`--tag process --runs 3 --ablation none`, plan, $1,88): end-refused-without-review 3/3, review-pass-fixes-bad-citation 3/3, review-pass-new-plane 3/3, tức **9/9**. Lần chạy này có cả câu chữ mới của các dòng gate warn/plan. Không có lần nào gọi `--override` tự bịa (grader `no-invented-override` đạt cả 3/3).
+- Chi phí model của đợt M4c–M5: mining summarize $0,17, một case eval $0,40, suite process $1,88; tổng khoảng **$2,45** (giá list, quota plan). `~/.claude/plugins/data` không đổi.
