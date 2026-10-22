@@ -670,3 +670,4 @@ User chốt: "merge và resolve ở local luôn, các issues khác theo recommen
   - Headless: theo rule và nói lý do trong một dòng.
   - Decision suite chạy headless nên nhánh tương tác chưa đo được.
 - **Đã chốt, không đổi code:** gate mặc định `warn`; `claudehut-migrate-plane` là script riêng. Các chỗ "chờ user" ở trên coi như đã đóng.
+- **Suite process trên `b424a1a`** (`--tag process --runs 3 --ablation none`, plan, $2,76): end-refused-without-review 3/3, review-locus-first-try 3/3, review-pass-fixes-bad-citation 3/3, review-pass-new-plane 3/3, tức **12/12**. Lần chạy này phủ cả bản sửa header ở gate `review-pass` lẫn câu chữ mới. Chi phí model của M6 cộng phần sau M6: $4,51 + $2,76 = **$7,27** (giá list, quota plan).
