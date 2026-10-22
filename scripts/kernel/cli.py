@@ -10,7 +10,7 @@
   claudehut-kernel gate end --project DIR --task DIR --status done|abandoned [--override TEXT]
   claudehut-kernel probe [--project DIR] [--write] [--advice]
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
-  claudehut-run eval|mining|drift [--auth plan|api|auto] [--dry-run] [--out DIR] [--json] …   (= claudehut-kernel run)
+  claudehut-run eval|mining|drift|propose [--auth plan|api|auto] [--dry-run] [--out DIR] [--json] …   (= claudehut-kernel run)
   claudehut-kernel profile [--level L0|L1|L2|L3] [--write SETTINGS.json]   K5 autonomy (printed unless --write)
   claudehut-kernel telemetry --task DIR… --out FILE   K9 bridge: GenAI-shaped spans, local file only
   claudehut-kernel campaign create|template|status|list|pending|mirror [<id>] [--hub H] …   K8 campaigns (04 §6)
@@ -391,12 +391,12 @@ def main(argv):
     su.add_argument("--campaign", help="the campaign's aggregate instead (repos done / in progress / blocked …)")
     su.set_defaults(fn=cmd_status)
 
-    rn = sub.add_parser("run", help="claudehut-run: offline jobs (eval | mining | drift), read-only, report only")
-    rn.add_argument("job", choices=["eval", "mining", "drift"])
+    rn = sub.add_parser("run", help="claudehut-run: offline jobs (eval | mining | drift | propose), read-only, report only")
+    rn.add_argument("job", choices=["eval", "mining", "drift", "propose"])
     rn.add_argument("--auth", default="auto", choices=["plan", "api", "auto"])
     rn.add_argument("--out", help="report dir (default: a temp dir; never a repo)")
     rn.add_argument("--dry-run", action="store_true", help="resolve auth and print the command; run and write nothing")
-    rn.add_argument("--projects-dir", help="mining: transcripts root (default ~/.claude/projects)")
+    rn.add_argument("--projects-dir", help="mining/propose: transcripts root (default ~/.claude/projects)")
     rn.add_argument("--since-days", type=float)
     rn.add_argument("--summarize", action="store_true", help="mining: ask the model about the counts")
     rn.add_argument("--project", action="append", help="drift: a project dir (repeat)")

@@ -18,6 +18,9 @@ Jobs:
           by class. Counts and classes only: no excerpt, no path, no project name leaves the scan. --summarize asks
           the model (in the chosen auth mode) for a short reading of the COUNTS.
   drift   per project: index freshness and vendor-leak findings (deterministic, no model).
+  propose the improvement loop's first step (08 §5, EVL-4): mining counts → ONE proposal for the top harness class
+          that has a known plugin-side change and a linked eval case. Writes proposal.md/json to the report dir; it
+          never edits a pack (a change goes through a PR, the eval vs baseline, then canary).
 """
 import glob
 import json
@@ -50,6 +53,24 @@ ERROR_CLASSES = (   # first match wins; the order puts the specific ahead of the
 )
 # Classes that are not harness failures: excluded from harness_errors / harness_error_rate (the rate the loop tracks).
 NOT_HARNESS = ("bash-exit", "user-rejected")
+# A state-cli error is one of the plugin's own refusals: split by which check refused (our message text, not the
+# user's), so the loop can point at the check the agent keeps tripping.
+STATE_CHECKS = (
+    ("review-no-locus", r"has no evidence locus"),
+    ("review-no-tests", r"no fresh test evidence"),
+    ("review-no-table", r"has no coverage table"),
+    ("review-suspect", r"not RESOLVED in"),
+    ("review-no-evidence", r"requires --evidence|evidence file not found"),
+    ("plan", r"claudehut-state: set-plan"),
+)
+# Known plugin-side changes per (sub)class: the pack that owns the file, and the eval case that measures it. A class
+# without an eval case is never proposed (no change without an eval, 08 §5).
+PROPOSALS = {
+    "review-no-locus": {"pack": "workflow-standard", "file": "skills/review/SKILL.md",
+                        "eval": "process/review-locus-first-try",
+                        "change": "name the locus forms set-review accepts in the Coverage section (File.ext:NN, a "
+                                  "FooTest class, Class#method) and the refused ones (a bare `symbol()`, a directory)"},
+}
 # Tool and command names are reported only from these lists: an MCP tool name carries its server's name and a
 # command's first word can be a path, so anything else is bucketed (mcp, other-tool, other-cmd).
 TOOLS = ("Bash", "Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "Agent", "Task", "AskUserQuestion", "WebFetch",
@@ -133,6 +154,9 @@ def mine(projects_dir, since_days=None, now=None):
     counts = {k: 0 for k, _ in ERROR_CLASSES}
     counts["other"] = 0
     by_tool, by_cmd = {}, {}
+    by_check = {k: 0 for k, _ in STATE_CHECKS}
+    by_check["other-check"] = 0
+    crx = [(k, re.compile(p)) for k, p in STATE_CHECKS]
     files = sorted(glob.glob(os.path.join(projects_dir, "*", "*.jsonl")))
     tool_calls = errors = sessions = 0
     rx = [(k, re.compile(p)) for k, p in ERROR_CLASSES]
@@ -173,11 +197,30 @@ def mine(projects_dir, since_days=None, now=None):
                         if k == "bash-exit":
                             b = _bucket_cmd(cmd)
                             by_cmd[b] = by_cmd.get(b, 0) + 1
+                        elif k == "state-cli":
+                            by_check[next((ck for ck, r in crx if r.search(text)), "other-check")] += 1
     harness = errors - sum(counts[k] for k in NOT_HARNESS)
     return {"sessions": sessions, "tool_calls": tool_calls, "tool_errors": errors,
             "error_rate": round(errors / tool_calls, 4) if tool_calls else 0.0,
             "harness_errors": harness, "harness_error_rate": round(harness / tool_calls, 4) if tool_calls else 0.0,
-            "by_class": counts, "by_tool": by_tool, "bash_exit_by_command": by_cmd}
+            "by_class": counts, "by_tool": by_tool, "bash_exit_by_command": by_cmd,
+            "state_cli_by_check": by_check}
+
+
+def propose(m):
+    """→ the proposal for the largest (sub)class with a PROPOSALS entry, or None. Ranks only; changes nothing."""
+    flat = {k: v for k, v in m["by_class"].items() if k not in NOT_HARNESS}
+    flat.update(m.get("state_cli_by_check") or {})
+    ranked = sorted(((n, k) for k, n in flat.items() if k in PROPOSALS and n > 0), reverse=True)
+    if not ranked:
+        return None
+    n, k = ranked[0]
+    return dict(PROPOSALS[k], **{"class": k, "count": n, "harness_errors": m["harness_errors"],
+                                "steps": ["branch improve/" + k + " with the change and a PR body (no push without "
+                                          "the user)", "eval vs baseline: claudehut-run eval -- --case "
+                                          + PROPOSALS[k]["eval"].split("/")[-1] + " --runs 3 on both trees",
+                                          "canary: dist --channel canary, install in a scratch CLAUDE_CONFIG_DIR, "
+                                          "selftest + the eval case against the installed copy"]})
 
 
 def _bucket_tool(name):
@@ -260,12 +303,18 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
                 except ValueError:
                     rep["summary"] = None
                     rep["error"] = (p.stderr or "").strip()[-300:]
+    elif job == "propose":
+        pd = projects_dir or os.path.join(os.path.expanduser("~"), ".claude", "projects")
+        rep["mining"] = mine(pd, since_days)
+        rep["proposal"] = propose(rep["mining"])
+        if rep["proposal"] is None:
+            rep["questions"].append("no harness class with a known change and an eval case: nothing to propose")
     elif job == "drift":
         if not projects:
             return 2, dict(rep, error="drift needs --project DIR (repeat)")
         rep["drift"] = drift(projects)
     else:
-        return 2, dict(rep, error=f"unknown job {job} (eval | mining | drift)")
+        return 2, dict(rep, error=f"unknown job {job} (eval | mining | drift | propose)")
     prof = plane.read_json(os.path.join(plane.plane_dir(os.getcwd()), "state", "env-profile.json"), {}) or {}
     rep["env_profile"] = {"auth_mode": prof.get("auth_mode"), "rewriters": prof.get("rewriters")} if prof else None
     if not dry_run:
@@ -273,6 +322,13 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
         with open(os.path.join(out, "report.json"), "w", encoding="utf-8") as f:
             json.dump(rep, f, ensure_ascii=False, indent=1)
         rep["report"] = os.path.join(out, "report.json")
+        if rep.get("proposal"):
+            pr = rep["proposal"]
+            with open(os.path.join(out, "proposal.md"), "w", encoding="utf-8") as f:
+                f.write(f"# Proposal: {pr['class']} ({pr['count']} of {pr['harness_errors']} harness errors)\n\n"
+                        f"- Pack: `{pr['pack']}` · file: `{pr['file']}`\n- Change: {pr['change']}\n"
+                        f"- Eval case: `{pr['eval']}`\n\n## Steps\n" + "".join(f"1. {x}\n" for x in pr["steps"])
+                        + "\nThis file is a proposal. Nothing in a pack was changed.\n")
         for d in (config_dir, work):
             if os.path.isdir(d) and not os.listdir(d):
                 shutil.rmtree(d, ignore_errors=True)

@@ -8,6 +8,8 @@
 #   RN8-RN9  --summarize sends counts only, through the chosen auth; the report records auth_mode + claude_version
 #   RN10     eval builds evals/plugin-eval.sh --auth <mode> + pass-through args (dry run)
 #   RN11     drift: index state + vendor-leak per project, read-only (the project tree is unchanged)
+#   RN12-RN13 model calls from an empty dir; apiKeyHelper counts as api
+#   RN14-RN15 propose: mining → one proposal (class, pack, file, eval case) in the report dir, no pack edit
 # Prints "RUNNER: N passed, M failed"; exit 1 on failure.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -86,6 +88,16 @@ out="$("$RUN" mining --projects-dir "$TX" --summarize --dry-run --json)"
 check "RN13: apiKeyHelper in settings → auto picks api and passes the helper via --settings; --auth plan is refused (rc=$rc)" \
   'jq -e ".auth_mode==\"api\" and (.argv|index(\"--settings\"))!=null" <<<"$out" >/dev/null && [ "$rc" = 2 ] && grep -q "apiKeyHelper is configured" "$TMP/err"'
 rm -f "$TMP/cfg/settings.json"
+
+# RN14-RN15 (M6b): propose ranks the mined classes and writes a proposal to the report dir only — never a pack edit
+out="$("$RUN" propose --projects-dir "$TX" --out "$TMP/o6" --json)"
+check "RN14: no class with a known change + eval case → no proposal, a question instead" \
+  'jq -e ".proposal==null and (.questions|length)==1 and .mining.state_cli_by_check.plan==1" <<<"$out" >/dev/null && [ ! -e "$TMP/o6/proposal.md" ]'
+g0="$(git -C "$ROOT" status --porcelain -- packs skills agents | shasum)"
+out="$("$RUN" propose --projects-dir "$ROOT/evals/fixtures/transcripts-loop" --out "$TMP/o7" --json)"
+g1="$(git -C "$ROOT" status --porcelain -- packs skills agents | shasum)"
+check "RN15: two locus refusals → proposal review-no-locus (pack, file, eval case) in proposal.md; no pack file touched" \
+  'jq -e ".proposal.class==\"review-no-locus\" and .proposal.count==2 and .proposal.pack==\"workflow-standard\" and .proposal.eval==\"process/review-locus-first-try\"" <<<"$out" >/dev/null && grep -q "Nothing in a pack was changed" "$TMP/o7/proposal.md" && ! grep -q "SECRET-MARKER-7f3a" "$TMP/o7/proposal.md" "$TMP/o7/report.json" && [ "$g0" = "$g1" ] && [ -d "$ROOT/evals/suites/process/review-locus-first-try" ]'
 
 echo "RUNNER: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
