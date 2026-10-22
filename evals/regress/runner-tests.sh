@@ -3,7 +3,8 @@
 # `claude` on PATH records its argv and whether a credential reached it.
 #   RN1-RN4  auth: auto → plan without a credential (no --bare, keys stripped), → api with one (--bare, --plugin-dir,
 #            scratch CLAUDE_CONFIG_DIR); --auth api without a credential is refused; a secret value is never printed
-#   RN5-RN7  mining on synthetic transcripts: exact counts by class, no excerpt in the report, unparsable lines skipped
+#   RN5-RN7  mining on synthetic transcripts: exact counts by class, harness rate (bash-exit/user-rejected excluded),
+#            by tool and by command through allowlists, no excerpt or name in the report, unparsable lines skipped
 #   RN8-RN9  --summarize sends counts only, through the chosen auth; the report records auth_mode + claude_version
 #   RN10     eval builds evals/plugin-eval.sh --auth <mode> + pass-through args (dry run)
 #   RN11     drift: index state + vendor-leak per project, read-only (the project tree is unchanged)
@@ -41,9 +42,13 @@ check "RN3: the secret value is never printed (shown as <set>)" '[[ "$out" != *"
 check "RN4: --auth api without a credential is refused with the reason (rc=$rc)" '[ "$rc" = 2 ] && grep -q "needs ANTHROPIC_API_KEY" "$TMP/err"'
 
 "$RUN" mining --projects-dir "$TX" --out "$TMP/o1" --json >"$TMP/m.json"; rc=$?
-check "RN5: mining counts by class (zsh-glob 2, permission 1, edit 1, not-read 1, state-cli 1, other 1; 8 calls, 7 errors)" \
-  '[ "$rc" = 0 ] && jq -e ".mining.tool_calls==8 and .mining.tool_errors==7 and .mining.by_class[\"zsh-glob\"]==2 and .mining.by_class[\"permission-denied\"]==1 and .mining.by_class[\"edit-mismatch\"]==1 and .mining.by_class[\"file-not-read\"]==1 and .mining.by_class[\"state-cli\"]==1 and .mining.by_class.other==1" "$TMP/m.json" >/dev/null'
-check "RN6: the report holds counts only — no excerpt, no project dir name" '! grep -q "SECRET-MARKER-7f3a" "$TMP/o1/report.json" && ! grep -q "proj-a" "$TMP/o1/report.json" && [ -f "$TMP/o1/report.json" ]'
+check "RN5: mining counts by class (zsh-glob 2, bash-exit 2, other 2, permission/edit/not-read/state-cli/modified/rejected 1; 13 calls, 12 errors)" \
+  '[ "$rc" = 0 ] && jq -e ".mining.tool_calls==13 and .mining.tool_errors==12 and .mining.by_class[\"zsh-glob\"]==2 and .mining.by_class[\"bash-exit\"]==2 and .mining.by_class[\"permission-denied\"]==1 and .mining.by_class[\"edit-mismatch\"]==1 and .mining.by_class[\"file-not-read\"]==1 and .mining.by_class[\"state-cli\"]==1 and .mining.by_class[\"file-modified\"]==1 and .mining.by_class[\"user-rejected\"]==1 and .mining.by_class.other==2" "$TMP/m.json" >/dev/null'
+check "RN5b: harness errors exclude bash-exit and user-rejected (9 of 13 calls)" \
+  'jq -e ".mining.harness_errors==9 and .mining.harness_error_rate==0.6923" "$TMP/m.json" >/dev/null'
+check "RN5c: by tool (mcp__* bucketed as mcp) and bash-exit by command (allowlist, else other-cmd)" \
+  'jq -e ".mining.by_tool==({\"Bash\":10,\"mcp\":1,\"Edit\":1}) and .mining.bash_exit_by_command==({\"git\":1,\"other-cmd\":1})" "$TMP/m.json" >/dev/null'
+check "RN6: the report holds counts only — no excerpt, no project dir, tool-server or command-path name" '! grep -q "SECRET-MARKER-7f3a" "$TMP/o1/report.json" && ! grep -q "proj-a" "$TMP/o1/report.json" && ! grep -q "acme-internal" "$TMP/o1/report.json" && [ -f "$TMP/o1/report.json" ]'
 check "RN7: a dry run writes nothing" '[ ! -e "$TMP/o-api" ]'
 
 : >"$STUB_LOG"

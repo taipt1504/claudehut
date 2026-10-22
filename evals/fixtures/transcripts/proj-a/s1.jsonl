@@ -14,4 +14,14 @@
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t6", "is_error": false, "content": "ok output"}]}}
 {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t7", "name": "Bash", "input": {"command": "x"}}]}}
 {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t7", "is_error": true, "content": "zsh:1: no matches found: *.md"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t8", "name": "Bash", "input": {"command": "GIT_PAGER=cat git status --short"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t8", "is_error": true, "content": "Exit code 1\nfatal: SECRET-MARKER-7f3a"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t9", "name": "Bash", "input": {"command": "/opt/acme-internal-tools/bin/runit --x"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t9", "is_error": true, "content": "Exit code 2\nSECRET-MARKER-7f3a"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t10", "name": "mcp__acme-internal-srv__lookup", "input": {"q": "x"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t10", "is_error": true, "content": "MCP lookup failed SECRET-MARKER-7f3a"}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t11", "name": "Edit", "input": {"file_path": "a"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t11", "is_error": true, "content": "File has been modified since read, either by the user or by a linter."}]}}
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t12", "name": "Bash", "input": {"command": "rm x"}}]}}
+{"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t12", "is_error": true, "content": "The user doesn't want to proceed with this tool use."}]}}
 not json

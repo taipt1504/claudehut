@@ -43,7 +43,20 @@ ERROR_CLASSES = (   # first match wins; the order puts the specific ahead of the
     ("file-not-read", r"has not been read yet|[Rr]ead it first"),
     ("timeout", r"timed out|[Tt]imeout"),
     ("not-found", r"command not found|No such file or directory|ENOENT"),
+    ("file-modified", r"modified since (?:it was )?read|has been modified"),
+    ("input-validation", r"InputValidationError|Invalid tool parameters"),
+    ("user-rejected", r"user doesn't want to proceed|[Tt]he user (?:has )?(?:rejected|denied|interrupted)|Request interrupted"),
+    ("bash-exit", r"^Exit code \d+"),   # last: a command that ran and failed — the tool, not the harness
 )
+# Classes that are not harness failures: excluded from harness_errors / harness_error_rate (the rate the loop tracks).
+NOT_HARNESS = ("bash-exit", "user-rejected")
+# Tool and command names are reported only from these lists: an MCP tool name carries its server's name and a
+# command's first word can be a path, so anything else is bucketed (mcp, other-tool, other-cmd).
+TOOLS = ("Bash", "Read", "Edit", "MultiEdit", "Write", "Grep", "Glob", "Agent", "Task", "AskUserQuestion", "WebFetch",
+         "WebSearch", "NotebookEdit", "Skill", "Workflow", "TaskOutput", "TodoWrite", "EnterWorktree", "ExitWorktree")
+COMMANDS = ("git", "gh", "grep", "rg", "find", "ls", "cat", "sed", "awk", "jq", "python3", "python", "pip", "node",
+            "npm", "npx", "bash", "sh", "zsh", "make", "gradle", "gradlew", "mvn", "mvnw", "java", "curl", "docker",
+            "kubectl", "claude", "diff", "test", "cd", "rm", "mv", "cp", "mkdir", "shasum", "wc", "head", "tail", "rtk")
 
 
 def api_key_helper(env, project=None):
@@ -119,6 +132,7 @@ def mine(projects_dir, since_days=None, now=None):
     now = now or time.time()
     counts = {k: 0 for k, _ in ERROR_CLASSES}
     counts["other"] = 0
+    by_tool, by_cmd = {}, {}
     files = sorted(glob.glob(os.path.join(projects_dir, "*", "*.jsonl")))
     tool_calls = errors = sessions = 0
     rx = [(k, re.compile(p)) for k, p in ERROR_CLASSES]
@@ -130,6 +144,7 @@ def mine(projects_dir, since_days=None, now=None):
         except OSError:
             continue
         sessions += 1
+        names = {}
         with fh:
             for line in fh:
                 if '"tool_use"' not in line and '"tool_result"' not in line:
@@ -144,14 +159,40 @@ def mine(projects_dir, since_days=None, now=None):
                         continue
                     if c.get("type") == "tool_use":
                         tool_calls += 1
+                        names[c.get("id")] = (c.get("name"), (c.get("input") or {}).get("command")
+                                              if isinstance(c.get("input"), dict) else None)
                     elif c.get("type") == "tool_result" and c.get("is_error"):
                         errors += 1
                         text = c.get("content")
                         text = text if isinstance(text, str) else json.dumps(text, ensure_ascii=False)
                         k = next((k for k, r in rx if r.search(text)), "other")
                         counts[k] += 1
+                        name, cmd = names.get(c.get("tool_use_id"), (None, None))
+                        t = _bucket_tool(name)
+                        by_tool[t] = by_tool.get(t, 0) + 1
+                        if k == "bash-exit":
+                            b = _bucket_cmd(cmd)
+                            by_cmd[b] = by_cmd.get(b, 0) + 1
+    harness = errors - sum(counts[k] for k in NOT_HARNESS)
     return {"sessions": sessions, "tool_calls": tool_calls, "tool_errors": errors,
-            "error_rate": round(errors / tool_calls, 4) if tool_calls else 0.0, "by_class": counts}
+            "error_rate": round(errors / tool_calls, 4) if tool_calls else 0.0,
+            "harness_errors": harness, "harness_error_rate": round(harness / tool_calls, 4) if tool_calls else 0.0,
+            "by_class": counts, "by_tool": by_tool, "bash_exit_by_command": by_cmd}
+
+
+def _bucket_tool(name):
+    if not isinstance(name, str):
+        return "unknown"
+    return "mcp" if name.startswith("mcp__") else name if name in TOOLS else "other-tool"
+
+
+def _bucket_cmd(cmd):
+    """The command's first word (after VAR=value prefixes), by basename, from COMMANDS only."""
+    words = cmd.split() if isinstance(cmd, str) else []
+    while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+        words.pop(0)
+    w = os.path.basename(words[0]) if words else ""
+    return w if w in COMMANDS else "other-cmd"
 
 
 def drift(projects):
