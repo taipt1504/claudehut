@@ -112,7 +112,7 @@ Write `<plane>/tasks/NNNN-<slug>/review.md` with these sections:
   `OUTSTANDING` carry into round 2. Write words here, not `✓`.
 - **Findings** — `| Severity | file:line | Quote | Lane | Reporters | Status |`.
 - **Coverage** — the merged rows: `| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |`. Every `✓` row
-  names a locus; the reviewer's floor rows keep this section non-empty on every route.
+  names a locus that `set-review pass` accepts: `path/File.ext:NN`, a `FooTest` class or `Class#method` — a bare `` `save()` ``, a directory or prose is refused (write `OrderService.java:42`, not `` `save()` persists it ``); the reviewer's floor rows keep this section non-empty on every route.
 - **Pre-existing** · **Tests** (exact command and counts, e.g. `./gradlew test — 42 passed`) ·
   **Deferrals** (each MED with its justification) · **Verdict**.
 
