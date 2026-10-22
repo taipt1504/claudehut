@@ -1,0 +1,2 @@
+ALTER TABLE sms_log ADD COLUMN provider_ref VARCHAR(64);
+ALTER TABLE sms_log ADD COLUMN cmc_ref VARCHAR(64);

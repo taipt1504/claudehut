@@ -1,0 +1,7 @@
+notify:
+  sms:
+    providers:
+      fpt:
+        url: https://sms.example.test
+      cmc:
+        url: https://cmc.example.test

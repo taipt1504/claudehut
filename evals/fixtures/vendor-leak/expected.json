@@ -1,0 +1,25 @@
+{
+  "_doc": "Ground truth for the vendor-leak sensor (docs/v0.20 06 §2 `vendor-leak`, a2 R3; M4). Frozen BEFORE any sensor code. A finding = (file, kind, vendor). Vendors come from (1) the owner's list <plane>/vendors.txt and (2) the variant classes of external-looking port families in variation.json (implementation name minus the port name: CmcSmsProvider − SmsProvider → cmc). Only production code under src/main and SQL migrations are scanned. `negatives` are files that must produce no finding.",
+  "repo": "repo",
+  "vendors": ["apns", "cmc", "fcm", "fpt", "napas"],
+  "not_vendors": ["static", "dynamic", "noop", "sms", "push"],
+  "findings": [
+    {"file": "src/main/java/demo/notify/domain/SmsRoute.java", "kind": "enum-constant", "vendor": "cmc"},
+    {"file": "src/main/java/demo/notify/domain/SmsRoute.java", "kind": "enum-constant", "vendor": "fpt"},
+    {"file": "src/main/java/demo/notify/domain/SmsLog.java", "kind": "column", "vendor": "fpt"},
+    {"file": "src/main/java/demo/notify/domain/SmsLog.java", "kind": "field", "vendor": "fpt"},
+    {"file": "src/main/java/demo/notify/config/SmsProperties.java", "kind": "field", "vendor": "cmc"},
+    {"file": "src/main/java/demo/payment/config/TransferProperties.java", "kind": "properties-prefix", "vendor": "napas"},
+    {"file": "src/main/java/demo/payment/domain/napas/TransferOrder.java", "kind": "package", "vendor": "napas"},
+    {"file": "src/main/resources/db/migration/V2__sms_log.sql", "kind": "column", "vendor": "cmc"}
+  ],
+  "negatives": [
+    "src/main/java/demo/notify/sms/impl/CmcSmsProvider.java",
+    "src/main/java/demo/notify/sms/impl/FptSmsProvider.java",
+    "src/main/java/demo/notify/sms/impl/FptStatus.java",
+    "src/main/java/demo/qr/QrType.java",
+    "src/main/java/demo/notify/channel/Channel.java",
+    "src/main/resources/application.yml",
+    "src/test/java/demo/notify/SmsRouteTest.java"
+  ]
+}
