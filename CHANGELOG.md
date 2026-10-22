@@ -18,6 +18,13 @@
   repo (per-session context, not the digest). `claudehut status --campaign <id>`: done / waiting-approval /
   blocked / in-progress / not-started per repo, and DRIFTED children after a template change. The campaign carries
   no approval. Python writer only (the bash writer refuses `--campaign`).
+- **`claudehut-run eval|mining|drift`, M5d** (09 §5 B): offline, read-only, report-only jobs; `--auth plan|api|auto`
+  (plan = `claude -p` without `--bare` and with API keys stripped; api = `--bare --plugin-dir` with a scratch
+  `CLAUDE_CONFIG_DIR`); secrets shown as `<set>`; reports record auth mode and claude version. Mining counts tool
+  errors by class with no excerpts. Verified: mining and one eval case on plan; api by dry run only.
+- **Autonomy profile and telemetry bridge, M5e:** `claudehut-kernel profile --level L0..L3` prints the permission
+  block (writes only with `--write <file>`, merging); `claudehut-kernel telemetry` writes GenAI-shaped spans of
+  task event logs to a local file.
 
 ## Unreleased — 0.20 M4 (deliberation)
 

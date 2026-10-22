@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# claudehut-run — the offline runner (docs/v0.20 09 §5 option B): eval | mining | drift, read-only, report only.
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+exec "$_d/claudehut-kernel" run "$@"

@@ -10,6 +10,9 @@
   claudehut-kernel gate end --project DIR --task DIR --status done|abandoned [--override TEXT]
   claudehut-kernel probe [--project DIR] [--write] [--advice]
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
+  claudehut-run eval|mining|drift [--auth plan|api|auto] [--dry-run] [--out DIR] [--json] …   (= claudehut-kernel run)
+  claudehut-kernel profile [--level L0|L1|L2|L3] [--write SETTINGS.json]   K5 autonomy (printed unless --write)
+  claudehut-kernel telemetry --task DIR… --out FILE   K9 bridge: GenAI-shaped spans, local file only
   claudehut-kernel campaign create|template|status|list|pending|mirror [<id>] [--hub H] …   K8 campaigns (04 §6)
   claudehut status [--project DIR] [--selftest] [--json] [--campaign ID]   (= claudehut-kernel status) K9 state surface, 08 §2
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
@@ -35,7 +38,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import campaign, dist, events, gates, learn, packs, plane, probe, selftest, status, tasklog, vendorleak, verify  # noqa: E402
+from claudehut_kernel import campaign, dist, events, gates, learn, packs, plane, probe, profile, runner, selftest, status, tasklog, telemetry, vendorleak, verify  # noqa: E402
 
 
 def _project(a):
@@ -210,6 +213,42 @@ def cmd_campaign(a):
     return 0
 
 
+def cmd_run(a):
+    rc, rep = runner.run(a.job, auth=a.auth, out=a.out, dry_run=a.dry_run, extra=a.rest, projects_dir=a.projects_dir,
+                         since_days=a.since_days, summarize=a.summarize, projects=a.project)
+    if a.json:
+        print(json.dumps(rep, ensure_ascii=False))
+    else:
+        if rep.get("error"):
+            print(f"claudehut-run: {rep['error']}", file=sys.stderr)
+        else:
+            print(f"claudehut-run {a.job}: auth {rep['auth_mode']}"
+                  + (" (dry run)" if a.dry_run else f", report {rep.get('report')}"), file=sys.stderr)
+    return rc
+
+
+def cmd_profile(a):
+    if a.level not in profile.LEVELS:
+        for k, v in profile.LEVELS.items():
+            print(f"{k}  {v['desc']}")
+        return 0 if not a.level else 2
+    if a.write:   # only when the user runs it: the harness issues no grants (K-08, HIL-3)
+        cur = profile.merge_into(a.write, a.level)
+        print(f"profile {a.level} merged into {a.write} (defaultMode {cur['permissions']['defaultMode']})",
+              file=sys.stderr)
+    else:
+        print(json.dumps(profile.settings_for(a.level), indent=2))
+        print(f"profile {a.level}: printed only. To apply it yourself: claudehut-kernel profile --level {a.level} "
+              f"--write <settings.json>", file=sys.stderr)
+    return 0
+
+
+def cmd_telemetry(a):
+    n = telemetry.export([os.path.abspath(t) for t in a.task], a.out)
+    print(f"telemetry: {n} span(s) → {a.out} (local file; nothing sent)", file=sys.stderr)
+    return 0
+
+
 def cmd_status(a):
     project = _project(a)
     if a.campaign:
@@ -352,6 +391,29 @@ def main(argv):
     su.add_argument("--campaign", help="the campaign's aggregate instead (repos done / in progress / blocked …)")
     su.set_defaults(fn=cmd_status)
 
+    rn = sub.add_parser("run", help="claudehut-run: offline jobs (eval | mining | drift), read-only, report only")
+    rn.add_argument("job", choices=["eval", "mining", "drift"])
+    rn.add_argument("--auth", default="auto", choices=["plan", "api", "auto"])
+    rn.add_argument("--out", help="report dir (default: a temp dir; never a repo)")
+    rn.add_argument("--dry-run", action="store_true", help="resolve auth and print the command; run and write nothing")
+    rn.add_argument("--projects-dir", help="mining: transcripts root (default ~/.claude/projects)")
+    rn.add_argument("--since-days", type=float)
+    rn.add_argument("--summarize", action="store_true", help="mining: ask the model about the counts")
+    rn.add_argument("--project", action="append", help="drift: a project dir (repeat)")
+    rn.add_argument("--json", action="store_true")
+    rn.set_defaults(rest=[])   # eval: everything after `--` goes to evals/plugin-eval.sh
+    rn.set_defaults(fn=cmd_run)
+
+    pf = sub.add_parser("profile", help="K5 autonomy L0-L3 → permission settings (printed; --write only on request)")
+    pf.add_argument("--level")
+    pf.add_argument("--write", help="a settings JSON file to merge the level into")
+    pf.set_defaults(fn=cmd_profile)
+
+    tl = sub.add_parser("telemetry", help="K9: task event logs → GenAI-shaped spans in a local file")
+    tl.add_argument("--task", action="append", required=True)
+    tl.add_argument("--out", required=True)
+    tl.set_defaults(fn=cmd_telemetry)
+
     cp = sub.add_parser("campaign")
     cp.add_argument("action", choices=["create", "template", "status", "list", "pending", "mirror"])
     cp.add_argument("id", nargs="?")
@@ -392,7 +454,13 @@ def main(argv):
     rp.add_argument("--check", action="store_true")
     rp.set_defaults(fn=cmd_replay)
 
+    rest = []
+    if argv[:1] == ["run"] and "--" in argv:   # `claudehut-run eval … -- <plugin-eval.sh args>` pass through verbatim
+        i = argv.index("--")
+        argv, rest = argv[:i], argv[i + 1:]
     a = ap.parse_args(argv)
+    if a.cmd == "run":
+        a.rest = list(a.rest or []) + rest
     return a.fn(a)
 
 

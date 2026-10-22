@@ -486,3 +486,43 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
   - Mirror chạy lại để hub giữ nguyên từng byte. Lease xung đột bị từ chối. Bash writer từ chối `--campaign`.
   - Mutation 7/7 bị giết; mutant sống sót (pending không im khi task con đã xong) đã được giết bằng CP8b.
 - Chưa có: phụ thuộc giữa repo (SDK trước) ngoài thứ tự `order`; câu hỏi mở gom ở campaign (`questions` có field nhưng chưa có verb); escalation event.
+
+## M5d–M5e — runner `claudehut-run`, autonomy profile, telemetry bridge (2026-10-22)
+
+**M5d: `claudehut-run eval|mining|drift`** (09 §5 phương án B, Q1).
+- Chỉ đọc. Mỗi job chỉ ghi vào thư mục báo cáo của nó (mặc định là thư mục temp, không bao giờ là repo).
+- **Auth (K-17):**
+  - `plan`: `claude -p`, không `--bare`, và xoá key khỏi env của tiến trình con để không lỡ tính tiền API.
+  - `api`: `claude --bare -p --plugin-dir`, với `CLAUDE_CONFIG_DIR` scratch nằm trong thư mục báo cáo.
+  - `auto`: chọn `api` khi env có credential.
+  - Secret chỉ in ra dưới dạng `<set>`.
+  - Báo cáo ghi `auth_mode`, `claude_version`, env-profile.
+- **Các job:**
+  - `eval` uỷ quyền cho `evals/plugin-eval.sh`; chỉ chạy được từ checkout nguồn.
+  - `mining` chỉ đếm lỗi tool theo lớp, không có trích đoạn, không tên project. `--summarize` hỏi model về các con số đếm.
+  - `drift` báo index và vendor-leak cho từng project (đặt tên `project-N`).
+- Test RN1–RN11 dùng stub `claude` và transcript tổng hợp `evals/fixtures/transcripts`.
+
+**Exit M5 phần runner, chạy thật:**
+
+| Job | Auth | Kết quả |
+|---|---|---|
+| `mining` (30 ngày, counts-only, báo cáo ở scratch) | plan, không gọi model | 212 session, 15.891 tool call, 448 lỗi (2,8%). zsh-glob 30, not-found 41, state-cli 27, timeout 12, edit-mismatch 7, file-not-read 4, permission 2, **other 325 (73%)**: bộ phân loại còn yếu, là việc tiếp theo |
+| `mining --summarize` | plan | chạy được, $0,17. Model cũng chỉ ra rằng `other` quá lớn |
+| `eval --case end-refused-without-review --runs 1 --ablation none` | plan | 1.00, $0,40, 65 s |
+| `eval` | **api** | **chỉ dry-run** (không có API key và không thêm secret): argv `plugin-eval.sh --auth api …`, env có `ANTHROPIC_API_KEY=<set>`, `CLAUDE_CONFIG_DIR=<set>`. **Arm api: đạt một phần, chưa đo thật** |
+
+- `~/.claude/plugins/data` không có thư mục mới sau các lần chạy.
+
+**M5e (mỏng, vì không nằm trong tiêu chí exit):**
+- `claudehut-kernel profile [--level L0..L3] [--write FILE]` ánh xạ thang autonomy sang `permissions` (defaultMode, allow, deny).
+  - Mặc định chỉ in ra. Chỉ ghi khi user chạy `--write <file>`, và khi đó merge, giữ entry của user.
+  - Không level nào cho merge PR hay force push.
+- `claudehut-kernel telemetry --task … --out FILE`: span dạng OTel GenAI.
+  - Một task là một `invoke_workflow`; gate là `execute_tool` con; các event khác là span event.
+  - Mapping nằm trong một bảng duy nhất. Chỉ ghi file local, attribute ở dạng map phẳng, chưa theo dạng typed của OTLP.
+- Test PF1–PF5, TL1–TL4. Chưa có: tích hợp profile vào `claudehut-init` (đề xuất khi init, có hỏi đồng ý).
+
+**Tiêu chí exit M5:**
+- Campaign mô phỏng trên ≥3 fixture repo: **đạt** (`campaign-tests`).
+- Runner chạy job eval/mining ở plan: **đạt**. Ở api: **một phần**, chỉ đến bước chọn auth và dựng lệnh.
