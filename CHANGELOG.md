@@ -10,6 +10,14 @@
 - **`claudehut status`, M5b** (08 §2): version, packs, active tasks (phase, tier, last event, STALE past
   `topology.json .ttl_days`, default 7), index and hub freshness, host profile; `--selftest` adds the canaries
   (exit 1 on a dead one); `--json`. New `bin/claudehut` routes `status`.
+- **Campaigns, M5c** (K8, 04 §6): `claudehut-kernel campaign create|template|status|list|pending|mirror` over the
+  hub (`campaigns/<id>/campaign.json`; the template is referenced by path + sha256, never copied).
+  `claudehut-state start --campaign <id>` opens a normal child task (`campaign_id`, `campaign_template_rev`) under a
+  soft per-repo lease (one writer session; expired leases are taken over; released at `end`); every transition —
+  a refused one too — is mirrored to the hub idempotently. SessionStart pulls one line when a campaign targets the
+  repo (per-session context, not the digest). `claudehut status --campaign <id>`: done / waiting-approval /
+  blocked / in-progress / not-started per repo, and DRIFTED children after a template change. The campaign carries
+  no approval. Python writer only (the bash writer refuses `--campaign`).
 
 ## Unreleased — 0.20 M4 (deliberation)
 

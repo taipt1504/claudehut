@@ -57,6 +57,13 @@ if hc_active_task; then
   if [ "$HC_LANG" = vi ]; then t_label="Task đang mở"; else t_label="Open task"; fi
   ctx="$ctx"$'\n'"$t_label: $HC_TASK_ID ($t_route, phase $t_phase)"
 fi
+# Campaigns (K8, docs/v0.20 04 §6, M5c): pull, not push — one line when a hub campaign targets this repo and its
+# child here is unfinished. Only a project with a hub pays for the kernel start; the line is per-session context,
+# never part of the digest (cache prefix). The hook only SAYS it: `claudehut-state start --campaign` makes the task.
+if { [ -n "${CLAUDEHUT_HUB:-}" ] || grep -q '"hub"' "$PLANE/topology.json" 2>/dev/null; } && [ -x "$PLUGIN_ROOT/bin/claudehut-kernel" ]; then
+  camp_line="$("$PLUGIN_ROOT/bin/claudehut-kernel" campaign pending --project "$PROJECT_DIR" 2>/dev/null)" || camp_line=""
+  [ -n "$camp_line" ] && ctx="$ctx"$'\n'"$camp_line"
+fi
 
 if [ -s "$PLANE/learnings.jsonl" ]; then
   n_learn="$(grep -c '' "$PLANE/learnings.jsonl" 2>/dev/null)" || n_learn="?"

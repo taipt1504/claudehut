@@ -460,3 +460,29 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
   - host: lấy từ `env-profile.json`.
 - Test: `status-tests` ST1–ST11, dưới cả hai writer.
 - Chưa có: dòng campaign (M5c). Dòng "session cũ hơn bản đã cài" vẫn là `unknown`.
+
+## M5c — campaign (K8) (2026-10-22)
+
+- **Lệnh kernel:** `campaign create|template|status|list|pending|mirror`, chạy trên hub.
+  - `campaign.json` tham chiếu template bằng path và sha256, không copy (MAO-2).
+  - Mỗi repo có `repos/<repo>/{events.jsonl, state.json, lease.json}`.
+- **Task con:** `claudehut-state start --campaign <id>` (chỉ Python writer).
+  - Kiểm repo có phải đích của campaign không, rồi lấy lease mềm. Lease tạo bằng exclusive create, hạn 4h. Session thứ hai bị từ chối; lease hết hạn thì session khác lấy được.
+  - Task ghi `campaign_id`, `campaign_repo`, `campaign_template_rev`. Lease được nhả ở `end`.
+- **Mirror:**
+  - Chạy trong `commit()` của writer, và cả ở đường refuse, để `gate.blocked` cũng lên hub.
+  - Idempotent theo (task, JSON chuẩn hoá của event). Fail-open: hub hỏng không làm hỏng task.
+- **Trạng thái tổng** (`claudehut status --campaign <id>`):
+  - `done` / `abandoned`;
+  - `blocked`: kết quả mới nhất là refuse hoặc escalation, chưa có transition thành công nào sau đó;
+  - `waiting-approval`: review đã pass, chờ owner duyệt trong repo của mình (Q10);
+  - `in-progress` / `not-started`;
+  - `DRIFTED`: task con chưa xong mà template đã đổi.
+- **Pull:** `bootstrap.sh` gọi `campaign pending` chỉ khi có hub (env hoặc `topology.json`), và thêm một dòng vào khối context theo session, không vào digest.
+- **Lệch so với 09 §6 bước 2, có chủ ý:** SessionStart chỉ *nói* có việc; task con do state CLI tạo. Lý do: K1 quy định writer duy nhất là state CLI, hook chỉ làm giàu.
+- **Mô phỏng exit M5** (`campaign-tests`, 17 test): 3 repo copy từ `evals/fixtures/hub/{a,b,c}-ms` ở HEAD (vào temp, không ghi vào fixture), một hub tạm, 4 session.
+  - Kết quả tổng: a-ms done, b-ms waiting-approval, c-ms blocked.
+  - Template đổi thì b-ms và c-ms bị đánh DRIFTED; a-ms đã xong thì không.
+  - Mirror chạy lại để hub giữ nguyên từng byte. Lease xung đột bị từ chối. Bash writer từ chối `--campaign`.
+  - Mutation 7/7 bị giết; mutant sống sót (pending không im khi task con đã xong) đã được giết bằng CP8b.
+- Chưa có: phụ thuộc giữa repo (SDK trước) ngoài thứ tự `order`; câu hỏi mở gom ở campaign (`questions` có field nhưng chưa có verb); escalation event.

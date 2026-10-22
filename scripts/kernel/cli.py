@@ -10,7 +10,8 @@
   claudehut-kernel gate end --project DIR --task DIR --status done|abandoned [--override TEXT]
   claudehut-kernel probe [--project DIR] [--write] [--advice]
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
-  claudehut status [--project DIR] [--selftest] [--json]   (= claudehut-kernel status) K9 state surface, 08 §2
+  claudehut-kernel campaign create|template|status|list|pending|mirror [<id>] [--hub H] …   K8 campaigns (04 §6)
+  claudehut status [--project DIR] [--selftest] [--json] [--campaign ID]   (= claudehut-kernel status) K9 state surface, 08 §2
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
   claudehut-kernel event --task DIR --type T [--data JSON]
   claudehut-kernel packs [--project DIR] [--json] [--owner PATH…]   K10: which packs are active for the project (and
@@ -34,7 +35,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, status, tasklog, vendorleak, verify  # noqa: E402
+from claudehut_kernel import campaign, dist, events, gates, learn, packs, plane, probe, selftest, status, tasklog, vendorleak, verify  # noqa: E402
 
 
 def _project(a):
@@ -167,8 +168,53 @@ def cmd_learn(a):
     return 0
 
 
+def cmd_campaign(a):
+    project = _project(a)
+    hub = campaign.hub_of(project, a.hub)
+    if a.action == "pending":   # SessionStart: one line or nothing, never an error
+        try:
+            line = campaign.pending_line(project) if hub else ""
+        except (OSError, ValueError):
+            line = ""
+        if line:
+            print(line)
+        return 0
+    if not hub:
+        print("campaign: no hub (pass --hub, set CLAUDEHUT_HUB or topology.json .hub)", file=sys.stderr)
+        return 2
+    try:
+        if a.action == "create":
+            repos = [(r.split("=", 1)[0], r.split("=", 1)[1] if "=" in r else None) for r in a.repo or []]
+            if not (a.id and a.goal and a.template and repos and a.owner):
+                print("campaign create <id> --goal G --template PATH --repo NAME[=PATH]… --owner O", file=sys.stderr)
+                return 2
+            c = campaign.create(hub, a.id, a.goal, a.template, repos, a.owner)
+            print(json.dumps(c, ensure_ascii=False))
+        elif a.action == "template":
+            c, moved = campaign.update_template(hub, a.id)
+            print(f"campaign {a.id}: template {'moved to' if moved else 'unchanged at'} {c['template']['rev'][7:14]}",
+                  file=sys.stderr)
+        elif a.action == "status":
+            ag = campaign.aggregate(hub, a.id)
+            print(json.dumps(ag, ensure_ascii=False) if a.json else campaign.render(ag))
+        elif a.action == "list":
+            for c in campaign.campaigns(hub):
+                print(f"{c['id']}: {c.get('goal')} ({len(c.get('repos') or [])} repos, owner {c.get('owner')})")
+        elif a.action == "mirror":
+            t = plane.load_task(os.path.abspath(a.task))
+            n = campaign.mirror(hub, t["campaign_id"], t["campaign_repo"], os.path.abspath(a.task))
+            print(f"campaign mirror: {n} event(s) appended", file=sys.stderr)
+    except (ValueError, KeyError) as exc:
+        print(f"campaign: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_status(a):
     project = _project(a)
+    if a.campaign:
+        a.action, a.id, a.hub = "status", a.campaign, None
+        return cmd_campaign(a)
     res = None
     if a.selftest:
         res = selftest.run(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -303,7 +349,21 @@ def main(argv):
     su.add_argument("--project")
     su.add_argument("--selftest", action="store_true", help="also run every canary (each hook runs once)")
     su.add_argument("--json", action="store_true")
+    su.add_argument("--campaign", help="the campaign's aggregate instead (repos done / in progress / blocked …)")
     su.set_defaults(fn=cmd_status)
+
+    cp = sub.add_parser("campaign")
+    cp.add_argument("action", choices=["create", "template", "status", "list", "pending", "mirror"])
+    cp.add_argument("id", nargs="?")
+    cp.add_argument("--project")
+    cp.add_argument("--hub")
+    cp.add_argument("--goal")
+    cp.add_argument("--template", help="a file under the hub root, referenced (never copied) by every child task")
+    cp.add_argument("--repo", action="append", help="NAME or NAME=PATH, in rollout order (repeat)")
+    cp.add_argument("--owner")
+    cp.add_argument("--task", help="mirror: the child task dir")
+    cp.add_argument("--json", action="store_true")
+    cp.set_defaults(fn=cmd_campaign)
 
     st = sub.add_parser("selftest")
     st.add_argument("--json", action="store_true")

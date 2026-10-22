@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-from . import events, gates, plane, tasklog
+from . import campaign, events, gates, plane, tasklog
 
 VERBS = ("start set-route set-tier set-phase set-reuse-scan set-brainstorm set-spec set-plan set-plan-review set-review "
          "set-enforcement set-outstanding set-findings end resume status cost-report "
@@ -183,6 +183,7 @@ class State:
         for a refused transition: every check runs before this."""
         out = tasklog.commit(os.path.dirname(tfile), old, new, etype, data, session=self.session)
         self.write_atomic(tfile, out)
+        self.campaign_sync(os.path.dirname(tfile), out)
         if os.environ.get("CLAUDEHUT_STATE_SELFCHECK") == "1":
             proj, _ = tasklog.project(events.read(os.path.dirname(tfile)))
             if proj != read_json(tfile):
@@ -307,6 +308,7 @@ class State:
             print(f"claudehut-kernel: internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
             rc, out = 3, None
         if rc == 1 and (out or {}).get("decision") == "block":
+            self.campaign_sync(self.task_dir(), self.task)   # the refusal is campaign state too (blocked)
             self.note(f"{which} refused by the invariant(s) above (gate mode block). Fix them, or re-run with "
                       f"--override \"<reason>\" (recorded).")
             raise Exit(1)
@@ -526,7 +528,7 @@ class State:
             out.append(path)
         return out
 
-    def new_task(self, tid, route, profile, repos, cross):
+    def new_task(self, tid, route, profile, repos, cross, extra=None):
         pabs = os.path.realpath(self.project)
         base, dirty = {}, {}
         for r in repos:
@@ -544,9 +546,47 @@ class State:
                "status": "active", "session": self.session, "created": self.ts}
         if cross:
             rec["cross_service"] = True
+        rec.update(extra or {})
         self.commit(os.path.join(self.tasks_dir, tid, "task.json"), None, rec, "task.started")
         self.supersede_active(tid)
         self.set_pointer(tid)
+
+    # ── campaigns (K8, 04 §6) ──────────────────────────────────────────────────────────────────────────────
+    def campaign_start(self):
+        """start --campaign <id>: the repo must be a target; the soft lease must be free (P10). → task fields."""
+        cid = self.flag("--campaign")
+        if not cid:
+            self.err("start --campaign needs <id> (claudehut status --campaign <id> lists the campaign)")
+        hub = campaign.hub_of(self.project)
+        if not hub:
+            self.err("start --campaign: no hub (set CLAUDEHUT_HUB or topology.json .hub)")
+        try:
+            c = campaign.load(hub, cid)
+        except ValueError as exc:
+            self.err(f"start --campaign: {exc}")
+        r = campaign.repo_entry(c, self.project)
+        if not r:
+            self.err(f"start --campaign: this repo ({os.path.basename(os.path.realpath(self.project))}) is not a "
+                     f"target of {cid}")
+        branch = (self.git(self.project, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()
+        ok, holder = campaign.acquire(hub, cid, r["repo"], self.session, branch)
+        if not ok:
+            self.err(f"start --campaign: {r['repo']} in {cid} is leased by session {holder.get('session')} until "
+                     f"{holder.get('expires_at')} (one writer per repo). Continue in that session, or wait for the "
+                     f"lease to expire; the campaign carries no authority to take it over.")
+        self.note(f"campaign {cid}: template {c['template']['path']}@{c['template']['rev'][7:14]} (read it, do not "
+                  f"copy it){'; addendum: ' + r['addendum'] if r.get('addendum') else ''}")
+        return {"campaign_id": cid, "campaign_repo": r["repo"], "campaign_template_rev": c["template"]["rev"]}
+
+    def campaign_sync(self, task_dir, task):
+        """Mirror a campaign child's events to the hub (idempotent). Fail-open: the task is the source of truth."""
+        if not (task or {}).get("campaign_id"):
+            return
+        try:
+            campaign.mirror(campaign.hub_of(self.project), task["campaign_id"], task.get("campaign_repo"), task_dir)
+        except (OSError, ValueError, TypeError) as exc:
+            self.note(f"campaign mirror skipped ({type(exc).__name__}: {exc}); the hub catches up at the next "
+                      f"transition")
 
     # ── main ─────────────────────────────────────────────────────────────────────────────────────────────────
     def run(self):
@@ -742,9 +782,10 @@ class State:
         elif not ws_plane and cross:
             self.note(f"placement: cross-service task ({len(tops)} repos) recorded in this service's plane with a base "
                       f"per repo; a session at the workspace/hub is where cross-service tasks normally live")
+        extra = self.campaign_start() if self.flag("--campaign") or "--campaign" in sa else None
         os.makedirs(self.tasks_dir, exist_ok=True)
         tid = self.claim_id(slug)
-        self.new_task(tid, route, profile, repos, cross)
+        self.new_task(tid, route, profile, repos, cross, extra)
         self.note(f"start -> {self.tasks_dir}/{tid}/task.json ({route}{', ' + profile if profile else ''}); write every "
                   f"artifact of this task into that dir")
         sys.stdout.write(f"{tid}\n{self.plane_rel}/tasks/{tid}/\n")
@@ -790,6 +831,12 @@ class State:
         self.task["status"] = es
         self.task["ended"] = self.ts
         self.commit(self.tfile, old, self.task, "task.ended", {"status": es, "gate": self.gate_decision})
+        if self.task.get("campaign_id"):
+            try:
+                campaign.release(campaign.hub_of(self.project), self.task["campaign_id"], self.task.get("campaign_repo"),
+                                 self.session)
+            except (OSError, ValueError, TypeError):
+                pass
         self.set_pointer("")
         self.note(f"end -> {self.tfile} ({es})")
         return 0

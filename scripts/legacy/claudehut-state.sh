@@ -598,6 +598,7 @@ fi
 case "$sub" in
   start)
     route="$(flag --route)"; slug="$(flag --slug)"; profile="$(flag --profile)"
+    case " ${shift_args[*]:-} " in *" --campaign "*) err "start --campaign needs the Python state writer (unset CLAUDEHUT_STATE_IMPL; campaigns, M5c)" ;; esac
     case "$route" in light|full) ;; *) err "start needs --route light|full (the direct route opens no task)" ;; esac
     [ -n "$slug" ] || err "start needs --slug <short-name> (it names tasks/NNNN-<slug>/)"
     slug="$(printf '%s' "$slug" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | sed 's/--*/-/g; s/^-//; s/-$//' | cut -c1-48)"
