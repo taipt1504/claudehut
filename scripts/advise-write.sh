@@ -2,9 +2,9 @@
 # PreToolUse hook (matcher: Write|Edit|NotebookEdit) — ADVISORY, never a gate (05 §3, ADR-H2, ADR-R3).
 #
 # Replaces v0.11 gate-write.sh, whose deny path did more harm than good: Bash still wrote src/main (70
-# commands, B8), the fast lane counted the whole dirty working tree (343 files, core-ledger 2e70d1d8, A1/B5),
+# commands, B8), the fast lane counted the whole dirty working tree (343 files in one pilot service, A1/B5),
 # and an armed-by-default state denied scratchpad and .understand-anything/ writes in sessions that were not
-# doing workflow work at all (report-service 652fab55, A9).
+# doing workflow work at all (a pilot service, A9).
 #
 # Speaks only when the full predicate holds, and then once per task:
 #   plane ∧ active task (schema 2) ∧ route=full ∧ plan_approved=false ∧ path ∈ task.scope ∧ not yet nudged

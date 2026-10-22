@@ -17,7 +17,7 @@ from . import plane
 EXT = (r"java|kt|kts|ts|tsx|js|jsx|mjs|py|go|rb|rs|sql|md|ya?ml|xml|gradle|sh|bash|properties|json|toml"
        r"|txt|conf|cfg|ini|html|css|proto|avsc|graphql")
 # A path-like token with a known extension, optionally followed by :line or :line-line. The look-behind keeps
-# us from starting mid-token (URLs, package names like io.f8a.Foo are excluded because they have no extension).
+# us from starting mid-token (URLs, package names like io.acme.Foo are excluded because they have no extension).
 CLAIM_RE = re.compile(
     r"(?<![\w/.@~$-])((?:\.{0,2}/)?(?:[\w@.+-]+/)*[\w@+-][\w@.+-]*\.(?:" + EXT + r"))(?::(\d+)(?:\s*[-–]\s*(\d+))?)?(?![\w/])")
 URL_RE = re.compile(r"[a-z][a-z0-9+.-]*://\S+", re.I)

@@ -44,7 +44,7 @@ if [ -d "$PROJECT_DIR/$CH_PLANE_NEW" ]; then PLANE_D="$PROJECT_DIR/$CH_PLANE_NEW
 FILE="$PLANE_D/learnings.jsonl"
 
 # IDEA-F4: federation. Fifteen sibling services in one workspace learn the same lesson fifteen times —
-# each store starts empty and stays local, so a pitfall proven in core-ledger-ms is invisible to wallet-ms.
+# each store starts empty and stays local, so a pitfall proven in ledger-ms is invisible to wallet-ms.
 # Opt-in only, via CLAUDEHUT_FEDERATION_ROOT: a sibling's learnings are someone else's project knowledge,
 # and adopting them silently would be worse than not sharing at all.
 #
@@ -159,7 +159,7 @@ OUT="$(jq -nR -r --arg filter "$FILTER" --argjson top "$TOP" \
               * (if ((.promoted // false) and ((.recurrence // 0) > 0)) then 2.5 else 1 end) ) }
       )
     | sort_by(-._score)
-    # LRN-6: diversity. Measured on the real payment-gateway-ms store (360 entries, 167 of them pitfalls),
+    # LRN-6: diversity. Measured on a real pilot service store (360 entries, 167 of them pitfalls),
     # a pure top-12 by score returned 8 pitfalls, 3 conventions and 1 finding — two thirds of the always-
     # loaded block spent on one category, and the conventions/decisions/reuse a fresh session most needs
     # for orientation squeezed out. Take at most 3 per category, in score order, then fill any remaining

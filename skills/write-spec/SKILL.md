@@ -60,7 +60,7 @@ flowchart TB
    ```
 
 **Summer KB (when the project has `.claude/summer-kb/`):** every AC row and decision that touches Summer
-(`io.f8a.summer` wiring, `f8a.*`/`summer.*` properties, gates, `Ufid`/`Txid` annotations, Kafka contracts,
+(wiring, properties (prefixes in the KB `INDEX.md`), gates, `Ufid`/`Txid` annotations, Kafka contracts,
 Summer types) cites `.claude/summer-kb/<module>.md §<section>`, uses only names that appear there, and the
 enforcement set includes `--rules summer-kb.md`. A fact the KB cannot verify is written `[unverified]`.
 

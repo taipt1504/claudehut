@@ -8,7 +8,7 @@
 #
 # Machine-generated turns get nothing: task-notifications, teammate / agent messages and cross-session
 # messages open a turn of their own and used to receive the same injection (51% of all UPS bytes, F-6). The
-# filter is a superset of the two prefixes measured on ewallet transcripts plus <agent-message; if the format
+# filter is a superset of the two prefixes measured on pilot-workspace transcripts plus <agent-message; if the format
 # changes the cost is an extra injection, never a missing one on a human turn.
 
 case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac

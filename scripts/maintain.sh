@@ -4,7 +4,7 @@
 # so every step is idempotent and records its marker (.plugin-version) only after the step succeeded.
 #
 #   1. rules: re-emit .claude/rules when .plugin-version differs from the plugin; report drift as systemMessage
-#   2. Summer KB: zero-touch install for a Summer consumer; a stale stamp (summerCommit vs java-common-ms HEAD or the
+#   2. Summer KB: zero-touch install for a Summer consumer; a stale stamp (summerCommit vs the Summer source repo's HEAD or the
 #      bundle, or a newer build file) starts a detached refresh
 #   3. sweep: session sidecars and v0.11 state files older than 7 days (never the current session's)
 #   4. hook-errors.log: keep the newest 32 KB once it passes 64 KB

@@ -254,7 +254,7 @@ ground every service before the dependency lands.
 - maintain.sh is unchanged: it still compares stamps only (summerCommit, build-file mtime). The installer's own
   module-set check compares against the stamped union and opt-in set, so a second `--if-stale` is `up-to-date`
   (no refresh loop); stamps without `optInModules` stay current. The bundled snapshot has no `dr.md` /
-  `featureflag.md`, so `--with dr` needs the sibling java-common-ms KB.
+  `featureflag.md`, so `--with dr` needs the sibling Summer source repo's KB.
 - migrate-tests §8 pins `--with`, `--if-stale` keeping it, `--without`, an unknown module, a `-core`-only consumer
   and the INDEX marker.
 
@@ -274,10 +274,10 @@ Hub: a user decision can now close a link the hub cannot decide on its own.
 ## 0.12.4 — 2026-10-02
 
 Hub: `unresolved` now means only "the hub could not decide". Rows the hub can explain move to two new buckets,
-`ignored` and `dynamic`, and every row there carries a `reason`, so nothing disappears silently. On the ewallet
+`ignored` and `dynamic`, and every row there carries a `reason`, so nothing disappears silently. On the pilot workspace
 hub, 60 unresolved rows go down to 3 (60 ignored, 19 dynamic), and 276 edges become 311: 43 are added and 8
 removed. The removed ones are two report-ms datasource "http" edges (now db edges), three targets corrected by
-the manifest and profile rules, and three UI links (auth-ms placeholders `backoffice.com` / `merchant.portal.com`, report-ms
+the manifest and profile rules, and three UI links (auth-service placeholders `backoffice.com` / `merchant.portal.com`, report-ms
 `pay.winmoney.com.vn`).
 
 - **Deploy manifests.** `aliases.json` takes `"manifests": "<dir>"` (relative to the hub root). The hub reads
@@ -300,14 +300,14 @@ the manifest and profile rules, and three UI links (auth-ms placeholders `backof
 - **UI links by use.** A URL key whose every `src/main` use is UI model data (`put`/`Map.of` with a literal key, a
   Mail/Notification/Template argument, via an `@Value` field or a `@ConfigurationProperties` getter chain) and
   none an HTTP client (`baseUrl`/`uri`/WebClient/RestTemplate/RestClient/HttpClient/Feign) goes to `ignored` as
-  "UI link", before manifests and hosts are consulted. On ewallet this removes auth-ms `APP_BACKOFFICE_URL` /
+  "UI link", before manifests and hosts are consulted. On the pilot workspace this removes the auth service's `APP_BACKOFFICE_URL` /
   `APP_MERCHANT_PORTAL_URL` (4 manifest edges + the 2 placeholder hosts) and report-ms `TGTT_SERVICE_CHANNEL_URL`.
   A portal-named key with an HTTP-client use is never a UI link.
 - **Nothing dropped silently.** A prefix the publisher bypasses (its topics routed explicitly, e.g. aml-service
   `aml.`) keeps a `dynamic` row naming the routed topics; a prefix-composed `saveEvent` topic cites the prefix
   line on its edge. A topic a service produces and consumes itself, a static topic no registered consumer names,
   and a client address naming its own service go to `ignored`. `links` keeps its totals line when clipped. On
-  ewallet every input row is accounted for.
+  the pilot workspace every input row is accounted for.
 - `aliases.env` values may be `external:<host>`. Any user edit, including `manifests`, makes `aliases.json`
   user-owned. `links` and HUB.md show the three buckets, and `hub-sync` prints them as
   `N unresolved, N ignored, N dynamic`.
@@ -332,10 +332,10 @@ Prompt audit of the v0.12.2 prompt surface (111 findings), and a hub brief fix.
 
 ## 0.12.2 — 2026-10-01
 
-Summer library (java-common-ms) support in the index, the hub and `claudehut-migrate`.
+Summer library (the Summer source repo) support in the index, the hub and `claudehut-migrate`.
 
 - **Per-module lib edges.** The hub draws one `lib` edge per (service, library module) instead of one
-  `summer lib via io.f8a.summer:*` edge per service. Each edge carries the module, the version and where it came
+  `summer lib via io.acme.summer:*` edge per service. Each edge carries the module, the version and where it came
   from (`explicit`, `property`, `catalog`, or `bom` = the service's platform/BOM version), and `scope: test` for
   test-only deps. The dependency parser reads string, map-style (`group:/name:/version:`) and version-catalog
   (`libs.x.y`, `version.ref`) declarations, resolves `${var}` from `gradle.properties` / `ext`, and ignores comments.
@@ -348,16 +348,16 @@ Summer library (java-common-ms) support in the index, the hub and `claudehut-mig
   `autoconfig` rows from `META-INF/spring/*AutoConfiguration.imports` and `spring.factories`, `properties` rows
   (`@ConfigurationProperties` prefix + kebab-case keys, nested types expanded), public `annotation` / `spi` types and
   `@Bean` factories, each tagged with its module. A service's own `@interface`s stay unindexed.
-- **Summer KB stays current.** `java-common-ms/.claude/summer-kb/` gets its own `.summer-kb-meta.json` stamped with
+- **Summer KB stays current.** `<summer-source-repo>/.claude/summer-kb/` gets its own `.summer-kb-meta.json` stamped with
   the library's git HEAD. `install_summer_kb.py --if-stale` installs a missing KB, refreshes one whose summerCommit or
   module set moved, and otherwise writes nothing; it reads the build with the hub's parser, so a KB's modules are the
-  service's `lib` edges. `claudehut-migrate` runs it for every service (java-common-ms first) and reports
+  service's `lib` edges. `claudehut-migrate` runs it for every service (the Summer source repo first) and reports
   `summer-kb: refresh N, install M, up-to-date K`; SessionStart starts a detached refresh on a stale stamp. A
   hand-edited `.claude/rules/summer-kb.md` is never rewritten.
 
 ## 0.12.1 — 2026-10-01
 
-Fixes found while migrating the real ewallet workspace.
+Fixes found while migrating the real pilot workspace.
 
 - **One hub entry per repo.** `claudehut-migrate` hub-scans a repo without a plane under its dir name
   (`ekyc-int-ms`). A later `claudehut-init --mode microservice --hub` registered it again under its build name
@@ -390,15 +390,15 @@ Measurements: [`evals/results/v012/README.md`](evals/results/v012/README.md).
 ### M2 — Router and digest
 - Three routes: `direct`, `light` and `full`, plus `ask`. The digest is 2,400 B, down from 4,331 B in v0.11.
   "skip workflow" never opens a task.
-- On 22 labelled ewallet prompts with sonnet, the v0.12 digest scores 18/22 against 10/22 for the v0.11 digest,
+- On 22 labelled pilot-workspace prompts with sonnet, the v0.12 digest scores 18/22 against 10/22 for the v0.11 digest,
   with 0 full→direct and 0 direct/light→full (v0.11: 6).
 
 ### M3 — Artifact standards and doclint
 - `scripts/doclint.sh` checks the structure of spec, plan, brainstorm, plan-review and task.md, plus word
   budgets. Budgets are advisory and scale ×1.4 for `vi`. The check runs at `set-spec` and `set-plan` and inside
   the planner, through `doclint-advise.sh`.
-- A replay over 244 v0.11 task dirs catches all three targets: va-ms 0008 (L4, over budget), va-ms 0024 (L2,
-  AMENDMENT) and party-ms 0002 (L6, a 2,685-character table cell).
+- A replay over 244 v0.11 task dirs catches all three targets: service A 0008 (L4, over budget), service A 0024 (L2,
+  AMENDMENT) and service B 0002 (L6, a 2,685-character table cell).
 
 ### M4 — Review from the diff
 - `scripts/review-pack.sh` picks lanes from the changed paths and hunks. The roster went from 7 to 5 review
@@ -417,8 +417,8 @@ Measurements: [`evals/results/v012/README.md`](evals/results/v012/README.md).
 - `bin/claudehut-index` runs a deterministic extractor (python3 stdlib, 24 rules) with these commands: `status`,
   `brief`, `find`, `svc`, `links`, `update` and `memory`. The index is stamped with the commit it was built
   from. Optional git hooks refresh it after pull, rebase or checkout.
-- On va-ms: 149 components, 149 of them pass `test -f`, and read commands change no mtime.
-- MEMORY.md now has a generated part of at most 2 KB. party-ms went from 105,333 B to 1,207 B, and a new plane
+- On service A: 149 components, 149 of them pass `test -f`, and read commands change no mtime.
+- MEMORY.md now has a generated part of at most 2 KB. service B went from 105,333 B to 1,207 B, and a new plane
   starts at 831 B.
 - Init asks for the language (`vi` or `en`). SessionStart is 3,556 B at worst, against a target of ≤4,000 B and
   8,999 B median in v0.11.
@@ -431,7 +431,7 @@ Measurements: [`evals/results/v012/README.md`](evals/results/v012/README.md).
   each edge.
 - The hub also writes a service-level understand-anything graph: 0 `validateGraph` issues, and the dashboard
   returns HTTP 200.
-- ewallet clone: 5 services, 22 edges, 0 of 71 evidence paths missing.
+- pilot-workspace clone: 5 services, 22 edges, 0 of 71 evidence paths missing.
 - `hint-explore.sh` points a cross-service Read or Grep to the index. p95 is 23.2 ms on an idle machine.
 - Fleet learnings live in `<hub>/fleet-learnings.jsonl` and are injected at ×0.7 confidence.
 
@@ -439,7 +439,7 @@ Measurements: [`evals/results/v012/README.md`](evals/results/v012/README.md).
 - `bin/claudehut-migrate --workspace --hub --language [--git-hooks safe|none] (--dry-run | --apply | --restore)`
   migrates a v0.11 workspace. It backs every repo up first and verifies each tar listing, never edits
   `.gitignore`, and never commits. `evals/migrate-tests.sh` covers it.
-- Dry-run on the 13-service ewallet workspace: 0 bytes written to it. Rehearsed on a copy, a re-apply changes
+- Dry-run on the 13-service pilot workspace: 0 bytes written to it. Rehearsed on a copy, a re-apply changes
   nothing, and restore gives back every backed-up file byte for byte.
 - `claudehut-init --no-extras` never adds `.worktreeinclude` or the marketplace entry. The unattended
   `--refresh-rules` behaves the same way.

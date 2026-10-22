@@ -56,7 +56,7 @@ thread records your verdict with `claudehut-state set-plan-review <verdict> --ev
 
 ## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-Ground every `io.f8a.summer` claim (deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+Ground every Summer framework claim (deps, properties (prefixes in `INDEX.md`), auto-config gates, `Ufid`/`Txid`
 annotations, Kafka contracts, Summer types) in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
 §<section>`. A Summer T-row that cites nothing is a HIGH finding. Use only names that appear in the KB; write
 `[unverified]` when the KB and its cited source cannot confirm a fact.

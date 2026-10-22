@@ -60,7 +60,7 @@ not here.
 
 ## Summer KB grounding (when `.claude/summer-kb/` exists)
 
-Ground every `io.f8a.summer` claim (deps, `f8a.*`/`summer.*` properties, auto-config gates, `Ufid`/`Txid`
+Ground every Summer framework claim (deps, properties (prefixes in `INDEX.md`), auto-config gates, `Ufid`/`Txid`
 annotations, Kafka contracts, Summer types) in `.claude/summer-kb/` (start `INDEX.md`), cited as `<module>.md
 §<section>` in the option row. Use only names that appear there; write `[unverified]` when the KB and its
 cited source cannot confirm a fact. An option built on invented Summer properties is not a valid option.

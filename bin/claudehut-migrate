@@ -32,7 +32,7 @@
 # migration) → merge-learnings --repair → claudehut-index update (--full when there is no index yet) →
 # claudehut-init --mode microservice --hub <hub> --no-extras → git hooks (safe only) → .gitignore patch printed when
 # the plane is ignored (.gitignore is never edited). Then the Summer KB of every service (install_summer_kb.py
-# --if-stale; the java-common-ms source stamp first): "summer-kb: refresh N, install M, up-to-date K". Then the hub:
+# --if-stale; the Summer source repo's stamp first): "summer-kb: refresh N, install M, up-to-date K". Then the hub:
 # hub-scan of git repos without a plane that carry a build manifest, hub-sync. Then the workspace root plane: memory,
 # repair, topology.json → hub, valid learnings moved to <hub>/fleet-learnings.jsonl (old file renamed .migrated),
 # CLAUDE.md @imports only PROJECT.md + the hub's HUB.md.
@@ -368,7 +368,7 @@ migrate_all() {
       log "      .claude/*  !.claude/claudehut/  !.claude/rules/  .claude/claudehut/state/  .claude/claudehut/ledger/  .claude/claudehut/index/  .claude/claudehut/tasks/"
     fi
   done
-  # 3b. Summer KB, every service: the KB home (java-common-ms) first so its source stamp is at HEAD, then each
+  # 3b. Summer KB, every service: the KB home (the Summer source repo) first so its source stamp is at HEAD, then each
   #     consumer — refreshed when its summerCommit or module set moved, installed when missing (all under .claude/,
   #     so the backups above cover it). install_summer_kb.py --if-stale writes nothing when up to date.
   log "== summer-kb"

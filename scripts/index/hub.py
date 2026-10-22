@@ -4,7 +4,7 @@ python3 stdlib only. The hub aggregates per-service contracts into cross-service
 service repos and never writes into them (no .claude/, no .understand-anything/, no git lock: every git call runs
 with GIT_OPTIONAL_LOCKS=0).
 
-Layout (<HUB> is the hub root, e.g. <workspace>/ewallet-knowledge; H = <HUB>/.claudehut/hub, legacy <HUB>/.claude/claudehut/hub):
+Layout (<HUB> is the hub root, e.g. <workspace>/team-knowledge; H = <HUB>/.claudehut/hub, legacy <HUB>/.claude/claudehut/hub):
   H/hub.json              {schema:1, language?}      init writes language; the hub only creates {schema:1}
   H/services.json         {"<svc>": {path, remote, indexed_commit, synced_at, has_plane}}  path relative to <HUB>
   H/aliases.json          {env:{}, topic_owner:{}, db_owner:{}, lib_owner:{}, ignore:{}, manifests?, _suggested:{…}}
@@ -42,7 +42,7 @@ Join rules (07 §4.3 table):
          names → ignored. aliases.ignore (unscoped or <svc>:) beats every rule but the test/local profile. Every input row ends in an edge or exactly one bucket row (hub-tests `account`).
   lib    one edge per (service, library module): a dependency whose group a registered library publishes (a repo
          extract.library_info detects as a multi-module publisher), or aliases.lib_owner / a gradle `group=` only one
-         service declares / io.f8a.summer → owner, high. The edge carries module, version and version_src (explicit,
+         service declares / a DEFAULT_LIB_OWNER group → owner, high. The edge carries module, version and version_src (explicit,
          property, catalog, or bom = the version of the service's platform/BOM of that group; bom_version always).
   db     one database name in ≥2 services → shared-db edge non-owner → owner (aliases.db_owner, else the only
          service with Flyway migrations): medium; no single owner: low. Reflects in-repo defaults only.
@@ -983,9 +983,9 @@ def host_of(url):
 
 
 def match_name(x, svcs, me=None):
-    """x == <name> or <name>-ms → (svc, 'high'); a unique whole-token substring either way (core-ledger in
-    pgms-core-ledger, ledger in core-ledger-ms) → (svc, 'medium'). svcs: service keys, or {name: key} where the
-    names also carry each repo's dir (payment-gateway-ms for the key pg-ms). The caller's own service never matches."""
+    """x == <name> or <name>-ms → (svc, 'high'); a unique whole-token substring either way (ledger-core in
+    pgms-ledger-core, ledger in ledger-core-ms) → (svc, 'medium'). svcs: service keys, or {name: key} where the
+    names also carry each repo's dir (gateway-ms for the key gw-ms). The caller's own service never matches."""
     if not x:
         return None, None
     names = svcs if isinstance(svcs, dict) else {s: s for s in svcs}
@@ -1040,7 +1040,7 @@ def http_target(hc, svcs, aliases, me=None):
 
 def repo_dir(link, svc):
     """The repo's directory name (the services.json path basename): the evidence prefix, and a second name for the
-    service when init keyed it by its build name (payment-gateway-ms keyed pg-ms)."""
+    service when init keyed it by its build name (gateway-ms keyed gw-ms)."""
     return os.path.basename((link.get("path") or svc).rstrip("/")) or svc
 
 
@@ -1307,7 +1307,7 @@ def join(links, aliases, man=None):
     for s in svcs:
         if links[s].get("group"):
             decl.setdefault(links[s]["group"], []).append(s)
-    for g, ss in decl.items():  # a group every service declares (io.f8a) names no owner
+    for g, ss in decl.items():  # a group every service declares (the org's root group) names no owner
         if len(ss) == 1:
             owners[g] = ss[0]
             sugg["lib_owner"][g] = ss[0]

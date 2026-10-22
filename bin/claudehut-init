@@ -142,7 +142,7 @@ PROJECT_NAME="$(grep -m1 -oE '<artifactId>[^<]+' pom.xml 2>/dev/null | sed 's/<a
 SRC_ROOTS="$(find . -mindepth 1 -maxdepth 4 -type d -path '*/src/main/java' \
   -not -path '*/build/*' -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null | head -40)"
 [ -n "$SRC_ROOTS" ] || SRC_ROOTS="src/main/java"
-# strip each source root's own prefix, so io/f8a/x under svc-a and under svc-b compare as the same package
+# strip each source root's own prefix, so io/acme/x under svc-a and under svc-b compare as the same package
 src_find() { printf '%s\n' "$SRC_ROOTS" | while IFS= read -r r; do [ -n "$r" ] && find "$r" "$@" 2>/dev/null; done; }
 
 # base package = deepest common package prefix of all main sources (survives a single file)
@@ -161,7 +161,7 @@ TEST_STRATEGY="JUnit 5"; has 'testcontainers' && TEST_STRATEGY="$TEST_STRATEGY +
 # RULE-06 — DERIVE the layer convention; never assert one. This lands in project-structure.md, which is an
 # ALWAYS-ON rule, so a wrong value is read on every turn and pushes the model to create packages that do not
 # exist. The old hardcoded "web -> service -> domain -> persistence" was wrong for every real install checked:
-# party-ms and auth-ms have api/handler/service/domain/repository and no `web` or `persistence` package at all.
+# two pilot services have api/handler/service/domain/repository and no `web` or `persistence` package at all.
 # Probe each slot for the names actually used in the tree, in dependency order, and emit only what is present.
 _lc=""
 for _slot in "web|api|controller|rest|handler|adapter" "service|application|usecase" "domain|model|core" \
@@ -313,7 +313,7 @@ fi
 # ---------------- MEM-1: move per-task history out of the always-loaded index ----------------
 # CLAUDE.md @imports MEMORY.md WHOLE, so every byte is re-read every turn. claudehut-learner appended a
 # "## Reuse additions (task-NNNN, date)" / "## Topics (task-NNNN)" block per completed task, unbounded:
-# party-ms reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
+# one pilot service reached 468 lines / 98,809 B, of which the index is 1,362 B (1.4%) and these blocks are 97,447 B.
 #
 # One migration path (07 §8.1): this delegates to `claudehut-index memory` (scripts/index/memory.py), the same
 # code maintain.sh runs. It MOVES, never truncates: only template/learner headings go to MEMORY-history.md
@@ -378,7 +378,7 @@ mkdir -p "$RULES"
 # rules-emitted.txt lists every plugin-owned rule this plane has received. One that is listed but absent was removed
 # by hand, so neither a re-init nor the unattended --refresh-rules (maintain.sh, every version bump) brings it back;
 # an explicit --refresh restores it. A plane initialized before the list existed is seeded once: every version since
-# v0.2.0 emitted the two always-on rules, so a missing one there was deleted by hand (va-ms dropped vocabulary.md).
+# v0.2.0 emitted the two always-on rules, so a missing one there was deleted by hand (one pilot service dropped vocabulary.md).
 # GONE is decided before any rule write; the record is rebuilt from disk after the loop (the loop is a subshell).
 EMITTED="$CHD/rules-emitted.txt"; GONE="|"; RETIRED_F="$(mktemp)"; trap 'rm -f "$RETIRED_F"' EXIT
 if ! $REFRESH && ! $RULES_ONLY; then

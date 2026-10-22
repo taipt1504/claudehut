@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # dist-tests.sh — the split distribution (claudehut-kernel dist, docs/v0.20 07 §2-§3, M2b):
 #   D1  the build gives two directory marketplaces: public claudehut[-canary] and internal claudehut-internal[-canary]
-#   D2  nothing of org-summer reaches the public marketplace; files still naming the internal org are counted in a
-#       note (the scrub is a separate user decision)
+#   D2  nothing of org-summer reaches the public marketplace; D2b: no internal org, workspace, pilot-service name or
+#       home path in the public plugin, except 2 behavioural lines deferred to phase B
 #   D3  plugin names are unique; the bundle carries only dependencies; dependency ranges accept the prerelease line
 #   D7  the pack registry across the split: org-summer registers itself, the public kernel sees it as foreign
 #   D4  org-summer runs standalone: its installer imports the vendored extract.py and dry-runs on a consumer
@@ -31,8 +31,13 @@ check "D1: marketplace names carry the channel; the internal one allows deps on 
 
 check "D2: no org-summer file in the public plugin (skill, manifest, KB snapshot)" \
   '[ ! -e "$CH/skills/summer-kb-setup" ] && [ ! -e "$CH/packs/org-summer" ] && ! grep -rq "summer-kb-setup" "$PUB/.claude-plugin"'
-n="$(grep -rlI 'f8a' "$PUB" 2>/dev/null | wc -l | tr -d ' ')"
-echo "      note: $n public file(s) still name the internal org (scrub pending a user decision; not shipped anywhere by this test)"
+# D2b: the public plugin names no internal org, workspace, pilot service or home path. Deferred to phase B, each
+# behavioural (removing it changes what the real hub/migrate does): hub.py DEFAULT_LIB_OWNER (move to the hub's
+# aliases.json lib_owner) and claudehut-migrate's Summer KB home check (read the KB home from the hub).
+MARK='f8a|newera|ewallet|taiphan|va-ms|payment-gateway|payment-orchestrator|core-ledger|party-ms|report-service|java-common-ms|notification-ms'
+leak="$( { grep -rnIiE "$MARK" "$PUB"; grep -rnI '/Users/[a-z]' "$PUB"; } 2>/dev/null | sed "s|^$PUB/||" \
+  | grep -vE '^plugins/claudehut/scripts/index/hub\.py:[0-9]+:DEFAULT_LIB_OWNER = |^plugins/claudehut/bin/claudehut-migrate:[0-9]+: .*= java-common-ms \]' )"
+check "D2b: no internal name in the public plugin except the 2 deferred phase-B lines ($(printf '%s' "$leak" | grep -c . | tr -d ' ') other)" '[ -z "$leak" ]'
 
 names="$(for f in "$CH" "$OS" "$BJ"; do jq -r .name "$f/.claude-plugin/plugin.json"; done | sort | uniq -d)"
 check "D3: plugin names are unique (claudehut, claudehut-org-summer, claudehut-backend-jvm)" '[ -z "$names" ]'

@@ -25,10 +25,10 @@
 #       line and exactly one language line (<=120 B); "worst" must carry all its branch lines and an index
 #       card <=500 B; "empty" (no index) must carry no card.
 #       Optional extra "realistic": read-only COPY of learnings.jsonl + .summer-kb-meta.json from
-#       CLAUDEHUT_PAYLOAD_SOURCE (default ewallet-workspace/va-ms; skipped if absent).
+#       CLAUDEHUT_PAYLOAD_SOURCE (a service dir; no default, skipped when unset or absent).
 #   lint-prompt-length.sh --payload-transcripts [--json]
 #       Median SessionStart additionalContext bytes as RECORDED in transcripts (hook_additional_context
-#       attachments). Glob: CLAUDEHUT_TRANSCRIPT_GLOB (default: ewallet-workspace-* main transcripts).
+#       attachments). Glob: CLAUDEHUT_TRANSCRIPT_GLOB (no default; SKIP when unset).
 #       "raw" = bytes of the recorded content (a >~10 KB context is recorded as a <persisted-output> preview,
 #       which is what the audit measured); "resolved" swaps each preview for the size of its saved file.
 #   lint-prompt-length.sh --payload-self-test   # synthetic fixtures for the two modes above
@@ -146,8 +146,8 @@ self_test() {
 
 # ---------------- payload measurement (M0) ----------------
 # Defaults; the CLAUDEHUT_* env vars override them at call time (the self-test relies on that).
-DEFAULT_TRANSCRIPT_GLOB="$HOME/.claude/projects/-Users-taiphan-Documents-Projects-ewallet-workspace-*/*.jsonl"
-DEFAULT_PAYLOAD_SOURCE="$HOME/Documents/Projects/ewallet-workspace/va-ms"
+DEFAULT_TRANSCRIPT_GLOB=""   # e.g. "$HOME/.claude/projects/<workspace-project>-*/*.jsonl"
+DEFAULT_PAYLOAD_SOURCE=""    # e.g. a service checkout with a plane
 PAYLOAD_PROMPT='cần thêm filter support cho display name ở api dynamic va view'
 PAYLOAD_SID='payload-fixture-0001'
 

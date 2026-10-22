@@ -181,10 +181,10 @@ CANDS="$(jq -c "$JQ_BODY"'
 
 [ -n "$PROJECT" ] || PROJECT="$(jq -r 'map(.project // empty) | (first // "unknown")' <<<"$EXISTING" 2>/dev/null || echo unknown)"
 
-# Service-name tokens never belong in a trigger (07 §8.2): every entry of a party-ms store is "about party",
+# Service-name tokens never belong in a trigger (07 §8.2): every entry of a customer-ms store is "about customer",
 # so the token only inflates Jaccard between unrelated lessons. From the project tag, the repo dir name and
-# topology.json.service: a single-token stem ("party" of party-ms) plus the joined forms ("partyms"). A
-# multi-token stem (payment-gateway-ms) drops only its joined forms — "payment" alone is a real keyword.
+# topology.json.service: a single-token stem ("customer" of customer-ms) plus the joined forms ("customerms"). A
+# multi-token stem (payment-router-ms) drops only its joined forms — "payment" alone is a real keyword.
 SVC_NAMES="$(printf '%s\n' "$PROJECT" "$(basename "$PROJECT_DIR")" "$(jq -r '.service // empty' "$DIR/topology.json" 2>/dev/null)")"
 SVC_TOK="$(jq -Rsc '
   [ split("\n")[] | ascii_downcase | select(length > 0 and . != "unknown")
@@ -427,7 +427,7 @@ ARR="$(jq -c --argjson now "$NOW" '
   ]' <<<"$ARR")"
 # LRN-7: the TTL alone does not bound the store. Every surviving predicate is satisfiable indefinitely —
 # a promoted entry never expires, and anything touched in the last 90 days is kept unconditionally — so a
-# busy repo grows without limit (payment-gateway-ms is at 360 entries and climbing, party-ms at 280).
+# busy repo grows without limit (one pilot service is at 360 entries and climbing, another at 280).
 # Add a hard cap by score, applied AFTER the TTL so age still wins first. Promoted entries are exempt:
 # they are the audit trail for a rule that already shipped.
 ARR="$(jq -c --argjson now "$NOW" --argjson cap 400 '

@@ -252,11 +252,11 @@ Code's `disableAllHooks` setting.
   read-only check behind a Suspected item when a matching server is connected, and records it as inferred
   when none is.
 - **Summer KB** (`skills/summer-kb-setup/`) — service-scoped knowledge base for the Summer Framework
-  (`io.f8a.summer`). The SessionStart hook auto-installs it into any consumer project (Summer deps
+  (the org's Summer group). The SessionStart hook auto-installs it into any consumer project (Summer deps
   detected, no `.claude/summer-kb/`), self-heals it when the plugin ships a newer bundle (`summerCommit`
   mismatch), and injects a mandatory grounding block into every session's context. Manual install/refresh:
   `/claudehut:summer-kb-setup`. Refresh pipeline (maintainer): regenerate the canonical KB in
-  `java-common-ms/.claude/summer-kb/` → copy into `skills/summer-kb-setup/references/summer-kb/` + update its
+  `<summer-source-repo>/.claude/summer-kb/` → copy into `skills/summer-kb-setup/references/summer-kb/` + update its
   `.bundle-meta.json` `summerCommit` → bump the plugin version.
 
 > **Note:** `bin/kafka-mcp` ships as a documented **stub** (a real implementation needs a language
@@ -392,7 +392,7 @@ already registers `-data` with a default and synthesizes the `-configuration` eq
 converts a working default into a definitely-broken literal path.
 
 One conditional caveat: the default workspace directory is keyed on the sha1 of `basename(getcwd())`, so
-two checkouts whose directory basenames match — `~/work/ewallet` and `~/archive/ewallet` — would share
+two checkouts whose directory basenames match — `~/work/shop` and `~/archive/shop` — would share
 one workspace index, against the server's own "unique per workspace/project" requirement. Nothing
 documents which cwd Claude Code spawns an LSP server with, so treat this as conditional. If you want
 per-project isolation explicitly:
@@ -498,8 +498,8 @@ Claude Code headlessly and cost tokens.
 evals/conformance.sh              # 305  structural + behavioural wiring checks
 evals/hook-tests.sh               # 1245 advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness,plane-layout,state-diff,state-lock,tasklog,packs,dist,variation,kb,vendorleak,status,campaign,runner,profile-telemetry,tournament}-tests.sh (--fast: the first part only);
-                                  #       index-tests counts 119 there (mutants + ewallet off), 162 alone with mutants and the va-ms part;
-                                  #       hub-tests counts 107 there (ewallet, dashboard and UA validator off), 119 alone with all three
+                                  #       index-tests counts 119 there (mutants + workspace off), 162 alone with mutants and the local-service part;
+                                  #       hub-tests counts 107 there (workspace, dashboard and UA validator off), 119 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
 evals/init-tests.sh               # 153  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    # 105  learnings merge, prune, injection, federation

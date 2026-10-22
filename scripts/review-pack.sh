@@ -519,10 +519,10 @@ write_pack() { # $1 lane → prints "<path> <lines>"
         done
       fi
     fi
-    if grep -qE "io\.f8a\.summer|summer\." "$HUNKS" 2>/dev/null; then
+    if grep -qE "summer\." "$HUNKS" 2>/dev/null; then
       echo; echo "## Summer KB"
       if [ -d "$REPO/.claude/summer-kb" ]; then ls "$REPO/.claude/summer-kb" | head -10 | sed 's#^#- .claude/summer-kb/#'
-      else echo "diff touches io.f8a.summer / summer.* — no local .claude/summer-kb/ (see summer-kb-setup)"; fi
+      else echo "diff touches summer.* — no local .claude/summer-kb/ (see summer-kb-setup)"; fi
     fi
     if [ "$lane" = test ] || { [ "$lane" = reviewer ] && [ "$ROUTE" = light ]; }; then
       echo; echo "## Test command"; test_command

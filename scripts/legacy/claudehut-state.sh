@@ -525,7 +525,7 @@ new_task() { # $1 id  $2 route  $3 profile ; repos[] set by the caller. Writes t
   pabs="$(cd "$PROJECT_DIR" && pwd -P)"
   # base + pre_dirty per repo, keyed by the repo path relative to the project ('.' = the project itself), so
   # two repos with the same basename never collapse into one key. Review diffs against base and excludes the
-  # files that were already dirty (343 files in core-ledger 2e70d1d8 no longer count as the task's change).
+  # files that were already dirty (343 files in one pilot service no longer count as the task's change).
   for r in "${repos[@]}"; do
     case "$r" in /*) : ;; *) r="$PROJECT_DIR/$r" ;; esac
     [ -d "$r" ] || err "start: --repo $r is not a directory"

@@ -927,7 +927,7 @@ def cmd_svc(ctx, opts):
     if dbs:
         L.append("DB: " + ", ".join(dbs))
     libs = contracts.get("libs", [])
-    if libs:  # a library group with ≥2 artifacts here (io.f8a.summer) first, then the rest by group
+    if libs:  # a library group with ≥2 artifacts here (e.g. io.acme.summer) first, then the rest by group
         groups = {}
         for x in libs:
             groups.setdefault(x["coord"].split(":")[0], set()).add(x["coord"].split(":", 1)[-1])
@@ -1061,7 +1061,7 @@ def hook_block(hook, cmd):
 
 def own_hooks_path(repo, hp):
     """True when core.hooksPath names the repo's own <git-common-dir>/hooks — the default location spelled out
-    (ewallet: party-ms, payment-gateway-ms, report-service-ms), which no hook manager owns."""
+    (three services of the pilot workspace), which no hook manager owns."""
     top = (git(repo, "rev-parse", "--show-toplevel") or "").strip() or repo
     common = (git(repo, "rev-parse", "--git-common-dir") or "").strip()
     if not common:
