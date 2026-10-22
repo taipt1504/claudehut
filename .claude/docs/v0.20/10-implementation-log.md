@@ -649,3 +649,24 @@ SCIP là tuỳ chọn (05 §3), chỉ có ích trên service JVM thật, mà pha
 - Quét marker trên diff M6 và các file mới: sạch.
 - PR body: `.claude/reviews/PR-improve-review-no-locus.md` (untracked, không push).
 - Regression sau bản vá C8 và tournament: conformance 305; hook-tests 1245 (Python writer), 1237 (bash writer); reference-check 23/23; lint prompt xanh. README: 1994 assertion.
+
+### Sau M6: merge, scrub và các quyết định đã chốt (2026-10-23)
+
+User chốt: "merge và resolve ở local luôn, các issues khác theo recommend của em luôn". Không push.
+
+- **Merge:** `improve/review-no-locus` → `feat/v0.20-harness`, merge commit `7d2d34c`. Không có conflict, vì hai bên sửa file khác nhau.
+- **Scrub** (`721e9be`): plugin public không còn tên tổ chức, workspace, service pilot hay đường dẫn home.
+  - Comment, docstring, README và CHANGELOG dùng tên trung tính.
+  - `lint-prompt-length.sh` không còn default; chỉ lấy từ env, và SKIP khi không set.
+  - `review-pack.sh` chỉ còn match `summer.*`. Pattern này vốn đã bao cả group của org.
+  - Câu grounding Summer ở 5 agent và 2 skill trỏ tới `INDEX.md` của KB để lấy prefix. KB của org-summer có liệt kê group và property prefix.
+  - `dist-tests` D2b giờ assert điều này. Mutation: thêm một marker vào thì D2b fail.
+  - **Hoãn sang phase B** (đổi hành vi thật):
+    - `hub.py` `DEFAULT_LIB_OWNER`: chuyển vào `aliases.json` `lib_owner` của hub;
+    - check KB home Summer của `claudehut-migrate`: đọc từ hub.
+  - `evals/` và fixture không ship nên chưa scrub.
+- **Chính sách "giống X"** (`66cc1cd`, deliberate §4):
+  - Tương tác, khi X khác pattern của repo cho cùng concern: hỏi một AskUserQuestion, nêu X, pattern và rule, đề xuất pattern.
+  - Headless: theo rule và nói lý do trong một dòng.
+  - Decision suite chạy headless nên nhánh tương tác chưa đo được.
+- **Đã chốt, không đổi code:** gate mặc định `warn`; `claudehut-migrate-plane` là script riêng. Các chỗ "chờ user" ở trên coi như đã đóng.
