@@ -1083,6 +1083,8 @@ printf '# Review\n| x | ✓ satisfied | A.java:1 |\n' > "$ev"
 chk "reject: no test evidence" '! cs --session s set-review pass --evidence "$ev" 2>/dev/null'
 printf '# Review\n| x | ✓ satisfied | looks fine |\n./gradlew test — 3 passed\n' > "$ev"
 chk "reject: a ✓ row with no evidence locus" '! cs --session s set-review pass --evidence "$ev" 2>/dev/null'
+printf '# Review\n| item | ✓ satisfied / ✗ violated | locus "quote" |\n|---|---|---|\n./gradlew test — 3 passed\n' > "$ev"
+chk "reject: a header-only table (the row template as header) is no coverage table" '! cs --session s set-review pass --evidence "$ev" 2>&1 | grep -q "has no coverage table" && ! cs --session s set-review pass --evidence "$ev" 2>/dev/null'
 printf '| x | ✓ | A.java:1 |\n./gradlew test 5 passed\n' > "$W/bad-review.md"
 chk "reject: evidence outside .claude/claudehut/" '! cs --session s set-review pass --evidence "$W/bad-review.md" 2>/dev/null'
 printf '{"file":"src/main/java/U.java","kind":"duplicate"}\n' > "$P/.claude/claudehut/state/0001-x.suspects.jsonl"
@@ -1091,6 +1093,8 @@ chk "reject: a staged reuse suspect not resolved in review.md" '! cs --session s
 printf '| src/main/java/U.java | ✓ satisfied resolved | U.java:3 |\n' >> "$ev"
 chk "set-review pending needs no evidence" 'cs --session s set-review pending 2>/dev/null && jq -e ".review==\"pending\"" "$TD/task.json" >/dev/null'
 chk "accept: valid review.md → review=pass + review_evidence in task.json" 'cs --session s set-review pass --evidence "$ev" 2>/dev/null && jq -e ".review==\"pass\" and (.review_evidence|type==\"string\")" "$TD/task.json" >/dev/null'
+printf '# Review\n| item | ✓ satisfied / ✗ violated | locus "quote" |\n| :--- | --- | --- |\n| x | ✓ satisfied | A.java:1 |\n| src/main/java/U.java | ✓ satisfied resolved | U.java:3 |\n./gradlew test — 3 passed\n' > "$ev"
+chk "accept: the row template as a table header is not a coverage row (M6 loop finding)" 'cs --session s set-review pass --evidence "$ev" 2>/dev/null'
 
 echo "== doclint-advise: advisory lint of a task artifact after Write|Edit (06 §4, AC-10) =="
 P="$(new_plane da)"; mk_task "$P" S 0001-x full false; DT="$P/.claude/claudehut/tasks/0001-x"

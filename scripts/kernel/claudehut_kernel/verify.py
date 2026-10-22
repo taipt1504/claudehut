@@ -86,15 +86,20 @@ def _line_count(path):
         return None
 
 
+TABLE_SEP = re.compile(r"^[ \t]*\|[ \t:|-]*-[ \t:|-]*\|[ \t]*$")
+
 def extract_claims(text):
     """Yield (lineno, path, start, end, context_line) for each cited file outside URLs."""
     fenced = False
-    for n, line in enumerate(text.splitlines(), 1):
+    lines = text.splitlines()
+    for n, line in enumerate(lines, 1):
         if line.lstrip().startswith(("```", "~~~")):
             fenced = not fenced
             continue
         if fenced:  # stack traces and logs cite frames, not evidence
             continue
+        if line.lstrip().startswith("|") and n < len(lines) and TABLE_SEP.match(lines[n]):
+            continue  # a table header names columns (`File.java:NN "quote"`), it cites nothing
         scrub = URL_RE.sub(" ", line)
         for m in CLAIM_RE.finditer(scrub):
             path = m.group(1)

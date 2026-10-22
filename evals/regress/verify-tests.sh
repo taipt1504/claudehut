@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # verify-tests.sh — regression tests for the 0.12.7 kernel gates (docs/v0.20 06 §3, 04 §2; ADR K-05, K-13):
-#   C*  claudehut-verify claims: a cited path must exist and its line must be in range; URLs, deleted-at-base files
+#   C*  claudehut-verify claims: a cited path must exist and its line must be in range; URLs, table header rows, deleted-at-base files
 #       and ambiguous basenames are not judged
 #   F*  findings: task.outstanding and open table rows are reported
 #   G*  gate engine through claudehut-state: mode warn records + proceeds, block refuses with task.json byte-identical,
@@ -65,6 +65,10 @@ git -C "$P" -c user.email=t@t -c user.name=t commit -qm rm 2>/dev/null
 # base was taken at start (after git rm, before commit) → HEAD still has Gone.java at base
 out="$(CLAUDE_PROJECT_DIR="$P" "$CV" claims "$TMP/gone.md" --task "$P/.claude/claudehut/tasks/$id" --json)"
 check "C6: a file deleted by the task (present at base) is not a problem" '[ "$(jq ".problems|length" <<<"$out")" = 0 ]'
+printf '| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |\n|---|---|---|\n| x | ✓ | Nope.java:1 |\n' >"$TMP/hdr.md"
+out="$(CLAUDE_PROJECT_DIR="$P" "$CV" claims "$TMP/hdr.md" --json)"
+check "C7: a table header row names columns, cites nothing (File.java:NN in a header is no claim; the row below is)" \
+  '[ "$(jq ".problems|length" <<<"$out")" = 1 ] && jq -e ".problems[0].path==\"Nope.java\"" <<<"$out" >/dev/null'
 
 # ── F: findings ────────────────────────────────────────────────────────────────────────────────────────────
 TD="$P/.claude/claudehut/tasks/$id"

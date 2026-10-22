@@ -38,6 +38,7 @@ PROFILES = ("feature", "bugfix", "audit", "migration", "investigation")
 SESSION_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 SP = r"[ \t\n\r\f\v]"   # [[:space:]]
+TABLE_SEP = re.compile(r"^[ \t]*\|[ \t:|-]*-[ \t:|-]*\|[ \t]*$")
 LOCK_STALE = 30
 LOCK_WAIT = 10
 # The state event of each record-only verb (04 §1 list; profile/enforcement/outstanding/plan_review are additions).
@@ -1086,6 +1087,10 @@ class State:
                 self.err(f"set-review pass: evidence file not found at {ev} — write review.md (merged coverage table + "
                          f"test evidence) before passing.")
             lines = file_lines(evp)
+            # A table's header row (the row a |---| separator follows) is not a coverage row: the skill's own row
+            # template, copied as a header, carries "✓ satisfied" and no real locus.
+            lines = [ln for i, ln in enumerate(lines)
+                     if not (re.match(r"^" + SP + r"*\|", ln) and i + 1 < len(lines) and TABLE_SEP.match(lines[i + 1]))]
             if not any(re.search(r"^" + SP + r"*\|.*(✓|✗|satisfied|violated|n-?/?a)", ln, re.I) for ln in lines):
                 self.err(f"set-review pass: {ev} has no coverage table — expected markdown rows like '| <item> | ✓ "
                          f"satisfied | file:line |'.")
