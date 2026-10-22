@@ -25,21 +25,33 @@ J
 cat > src/test/java/demo/AccountTest.java <<'J'
 package demo;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import org.junit.jupiter.api.Test;
+
 class AccountTest {
+  @Test
   void holderNameIsKept() {
-    assert new Account("An").holderName().equals("An");
+    assertEquals("An", new Account("An").holderName());
   }
 
+  @Test
   void blankHolderNameIsRejected() {
-    try {
-      new Account(" ");
-      assert false;
-    } catch (IllegalArgumentException expected) {
-    }
+    assertThrows(IllegalArgumentException.class, () -> new Account(" "));
   }
 }
 J
-printf '$ ./gradlew test\n> Task :test\nAccountTest > holderNameIsKept() PASSED\nAccountTest > blankHolderNameIsRejected() PASSED\nBUILD SUCCESSFUL — 2 tests passed\n' > build/test-output.txt
+cat > build.gradle <<'G'
+plugins { id 'java' }
+repositories { mavenCentral() }
+dependencies {
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+  testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+test { useJUnitPlatform() }
+G
+printf '$ gradle test\n> Task :compileJava\n> Task :compileTestJava\n> Task :test\nAccountTest > holderNameIsKept() PASSED\nAccountTest > blankHolderNameIsRejected() PASSED\nBUILD SUCCESSFUL in 4s — 2 tests passed\n' > build/test-output.txt
 printf '{"schema":1,"mode":"mono","language":"en","gates":{"mode":"block"}}\n' > .claudehut/topology.json
 git init -q . && git -c user.email=e@e -c user.name=e add -A && git -c user.email=e@e -c user.name=e commit -qm base
 base="$(git rev-parse --short HEAD)"
