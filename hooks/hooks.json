@@ -12,6 +12,12 @@
         "hooks": [
           { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/maintain.sh\"", "async": true }
         ]
+      },
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/register-packs.sh\"", "timeout": 5 }
+        ]
       }
     ],
     "UserPromptSubmit": [

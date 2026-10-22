@@ -14,8 +14,11 @@ A pack with several keys is active when ANY key matches. CLAUDEHUT_PACKS="+name,
 (the user's override; recorded in the result so it is never silent).
 """
 import fnmatch
+import hashlib
 import json
 import os
+
+from . import plane
 
 REQUIRED = {"pack", "version", "kernel", "kind", "detect", "owns"}
 KEYS = REQUIRED | {"$schema", "description", "rules", "plane_templates", "guides", "sensors", "invariants", "evals"}
@@ -140,6 +143,55 @@ def evaluate(project, manifests):
         res.append({"pack": name, "active": active, "why": why or "no detect key matched",
                     "kind": m.get("kind"), "version": m.get("version")})
     return res
+
+
+def registry(project):
+    """<plane>/state/packs/<pack>.json, written by each pack-shipping plugin's SessionStart hook (register-packs.sh,
+    07 §1.1) → {pack: entry + status}. status: ok | stale (that root or its manifest is gone, or the manifest
+    changed since it registered — the session runs an older install than the one on disk)."""
+    d = os.path.join(plane.plane_dir(project), "state", "packs")
+    out = {}
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        if not f.endswith(".json"):
+            continue
+        e = plane.read_json(os.path.join(d, f))
+        if not isinstance(e, dict) or e.get("pack") != f[:-5] or not isinstance(e.get("root"), str):
+            continue
+        mp = os.path.join(e["root"], "packs", e["pack"], "claudehut-pack.json")
+        status = "ok"
+        if not os.path.isfile(mp):
+            status = "stale"
+        elif e.get("manifest_hash"):
+            with open(mp, "rb") as fh:
+                if hashlib.sha256(fh.read()).hexdigest() != e["manifest_hash"]:
+                    status = "stale"
+        out[e["pack"]] = dict(e, status=status)
+    return out
+
+
+def load_all(project, root=None):
+    """This plugin's manifests plus the packs other plugins registered for the project (a split install).
+    → (manifests, errors, registration {pack: registered|unregistered|stale|foreign}). A pack this plugin carries
+    always loads from here; a foreign one loads from its registered root while that entry is ok."""
+    root = root or plugin_root()
+    manifests, errors = load(root)
+    reg = registry(project)
+    status = {}
+    for name in manifests:
+        e = reg.get(name)
+        status[name] = "unregistered" if not e else ("stale" if e["status"] == "stale" else "registered")
+    for name, e in reg.items():
+        if name in manifests:
+            continue
+        if e["status"] != "ok":
+            status[name] = "stale"
+            continue
+        other, errs = load(e["root"])
+        if name in other:
+            manifests[name] = other[name]
+            status[name] = "foreign"
+        errors += [x for x in errs if x.get("pack") == name]
+    return manifests, errors, status
 
 
 def active_names(project, root=None):

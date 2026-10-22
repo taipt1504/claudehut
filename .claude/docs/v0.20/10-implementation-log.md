@@ -437,3 +437,26 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
 - **Giới hạn đã biết:** nguồn `vendors.txt` của pack và `pack_invariants()` đều đọc `packs.load()` ở root plugin của kernel. Trong bản cài tách, `org-summer`/`domain-ewallet` là plugin khác mà kernel không đọc được (07 §1.1). Vì vậy hai nguồn này chưa hoạt động cho đến khi có registry, mục đầu tiên của M5.
 
 **Sửa roadmap:** tournament T3 thuộc **M6** (09 §2.2), không phải M4. Ghi nhầm ở mục M4 phía trên.
+
+## M5a–M5b — pack registry, `claudehut status`, TTL (2026-10-22)
+
+**M5a: pack registry (07 §1.1).**
+- Hook SessionStart `scripts/register-packs.sh` (`startup|resume`, sync 5 s) ghi `{pack, version, root, manifest_hash}` vào `<plane>/state/packs/<pack>.json` cho mỗi manifest mà plugin đó mang theo.
+  - Hook tự chứa: không dùng hook-common, không gọi kernel, không cần PATH. Vì vậy chính file đó được vendor vào plugin `claudehut-org-summer` cùng một entry `hooks.json`.
+  - Không tạo plane, chỉ ghi khi entry đổi, không in gì, luôn exit 0.
+  - Được miễn hai kiểm tra một cách tường minh: contract hook-common (conformance) và quy tắc không hard-code plane (plane-layout G). Lý do ghi tại chỗ.
+- Kernel: `packs.registry()` và `packs.load_all()`. Trạng thái mỗi pack: `registered`, `unregistered`, `foreign` (load từ root của plugin khác) hoặc `stale` (root mất, hoặc manifest đổi so với lúc đăng ký).
+  - Gate pack-invariant và vendor-leak giờ đọc `load_all`, nên `vendors.txt` và invariant của pack ngoại hoạt động trong bản cài tách.
+- Test: packs RG1–RG10; dist D7. Trên bản dist, kernel public thấy `org-summer` là `foreign`.
+
+**M5b: `claudehut status` (08 §2) và TTL (04 §1).**
+- Có `bin/claudehut` (chỉ route `status`) và `claudehut-kernel status [--selftest] [--json]`. Tên lệnh giữ đúng như tài liệu.
+- Các dòng:
+  - version: kernel và root. Session đang chạy là `unknown`, vì không đọc file nội bộ của host.
+  - packs: kèm unregistered/stale.
+  - task: từng task active, với phase/route/tier/review và tuổi của event cuối. STALE khi quá `topology.json .ttl_days` (mặc định 7). Task của bash writer không có log nên dùng `.updated`.
+  - knowledge: index current hay behind HEAD, có `variation.json` không, số service của hub và lần sync mới nhất.
+  - sensors: chỉ có với `--selftest`; exit 1 khi có canary chết.
+  - host: lấy từ `env-profile.json`.
+- Test: `status-tests` ST1–ST11, dưới cả hai writer.
+- Chưa có: dòng campaign (M5c). Dòng "session cũ hơn bản đã cài" vẫn là `unknown`.

@@ -16,6 +16,7 @@
     "hooks/hooks.json",
     "scripts/bootstrap.sh",
     "scripts/maintain.sh",
+    "scripts/register-packs.sh",
     "scripts/inject-phase.sh",
     "scripts/advise-write.sh",
     "scripts/record-*.sh",

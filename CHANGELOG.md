@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased — 0.20 M5 (coordination, status)
+
+- **Pack registry, M5a** (07 §1.1): SessionStart hook `register-packs.sh` writes `<plane>/state/packs/<pack>.json`
+  (`pack, version, root, manifest_hash`) for every pack its plugin carries; it is self-contained and vendored into
+  the split `claudehut-org-summer` plugin. The kernel loads foreign packs from the registry
+  (`claudehut-kernel packs` shows `registered | unregistered | foreign | stale`), so their `vendors.txt` and
+  invariants work in a split install.
+- **`claudehut status`, M5b** (08 §2): version, packs, active tasks (phase, tier, last event, STALE past
+  `topology.json .ttl_days`, default 7), index and hub freshness, host profile; `--selftest` adds the canaries
+  (exit 1 on a dead one); `--json`. New `bin/claudehut` routes `status`.
+
 ## Unreleased — 0.20 M4 (deliberation)
 
 - **Pack `deliberation`, M4a** (appendix a2): skill `claudehut:deliberate` — tier T0–T3, the variation probe

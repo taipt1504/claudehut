@@ -4,6 +4,7 @@
 #   D2  nothing of org-summer reaches the public marketplace; files still naming the internal org are counted in a
 #       note (the scrub is a separate user decision)
 #   D3  plugin names are unique; the bundle carries only dependencies; dependency ranges accept the prerelease line
+#   D7  the pack registry across the split: org-summer registers itself, the public kernel sees it as foreign
 #   D4  org-summer runs standalone: its installer imports the vendored extract.py and dry-runs on a consumer
 #   D5  only tracked files are shipped (no plane, eval results, local docs, __pycache__)
 #   D6  M2 exit 2/2 (when the `claude` CLI is present; CLAUDEHUT_DIST_INSTALL=0 skips): every dir validates, and the
@@ -68,6 +69,14 @@ SV="$TMP/sv"; mkdir -p "$SV/.claudehut/state"; : >"$SV/.claudehut/PROJECT.md"
 printf "dependencies { implementation 'io.f8a.summer:summer-core:1.0' }\n" >"$SV/build.gradle"
 CLAUDE_PROJECT_DIR="$SV" bash "$OS/skills/summer-kb-setup/scripts/kb-maintain.sh"; rc=$?
 check "D4: dist org-summer kb-maintain.sh runs self-contained and installs the KB (rc=$rc)" '[ "$rc" = 0 ] && [ -f "$SV/.claude/summer-kb/INDEX.md" ]'
+
+# D7 (M5a): the pack registry across a split install — each plugin's own SessionStart hook registers its packs in the
+# project's plane, and the kernel in the PUBLIC plugin then sees org-summer (another plugin) as a foreign pack.
+RG="$TMP/rg"; mkdir -p "$RG/.claudehut"
+for pr in "$CH" "$OS"; do CLAUDE_PLUGIN_ROOT="$pr" CLAUDE_PROJECT_DIR="$RG" bash "$pr/scripts/register-packs.sh" </dev/null; done
+check "D7: org-summer's hooks.json registers its pack (register-packs.sh vendored)" '[ -x "$OS/scripts/register-packs.sh" ] && jq -e "[.hooks.SessionStart[].hooks[].command | select(test(\"register-packs.sh\"))] | length == 1" "$OS/hooks/hooks.json" >/dev/null'
+reg="$("$CH/bin/claudehut-kernel" packs --project "$RG" --json | jq -r '[.packs[] | "\(.pack)=\(.registration)"] | join(" ")')"
+check "D7: the public kernel sees org-summer as foreign and its own packs as registered ($reg)" '[[ "$reg" == *"org-summer=foreign"* ]] && [[ "$reg" == *"workflow-standard=registered"* ]] && [[ "$reg" != *"unregistered"* ]]'
 
 tracked="$(git -C "$ROOT" ls-files)"
 extra="$(cd "$CH" && find . -type f ! -path './.claude-plugin/plugin.json' | sed 's#^\./##' | while read -r f; do grep -qxF "$f" <<<"$tracked" || echo "$f"; done)"

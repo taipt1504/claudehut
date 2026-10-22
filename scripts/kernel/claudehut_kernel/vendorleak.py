@@ -55,7 +55,7 @@ def vendors(project):
     found, adapters = {}, set()
     for name in _read_list(os.path.join(pd, "vendors.txt")):
         found.setdefault(name.lower(), "vendors.txt")
-    manifests, _ = packs.load()
+    manifests, _, _ = packs.load_all(project)   # registered packs of a split install too (07 §1.1)
     for r in packs.evaluate(project, manifests):
         if r["active"]:
             for name in _read_list(os.path.join(manifests[r["pack"]]["_dir"], "vendors.txt")):

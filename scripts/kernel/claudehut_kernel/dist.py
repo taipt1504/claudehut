@@ -7,8 +7,9 @@ The source stays ONE plugin (every suite runs against it, and it remains install
     plugins/claudehut/                   kernel + workflow-standard + review + lang-java-spring + lang-python-shell:
                                          every tracked file those packs own, plus the plugin's root metadata
   <out>/claudehut-internal[-canary]/     internal marketplace (never listed publicly, Q9)
-    plugins/claudehut-org-summer/        org-summer's files, its own SessionStart hook, and the one kernel file its
-                                         installer imports (scripts/index/extract.py) vendored at the same path
+    plugins/claudehut-org-summer/        org-summer's files, its own SessionStart hooks, and two kernel files vendored
+                                         at the same path: the installer's import (scripts/index/extract.py) and the
+                                         pack-registry hook (scripts/register-packs.sh)
     plugins/claudehut-backend-jvm/       bundle: only `dependencies` (claudehut from the public marketplace +
                                          org-summer), the documented bundle pattern
 
@@ -32,7 +33,7 @@ from . import packs
 
 PUBLIC_PACKS = ("claudehut-kernel", "workflow-standard", "review", "deliberation", "lang-java-spring", "lang-python-shell")
 ROOT_META = (".claude-plugin/plugin.json", "README.md", "LICENSE", "CHANGELOG.md")
-VENDORED = {"claudehut-org-summer": ["scripts/index/extract.py"]}
+VENDORED = {"claudehut-org-summer": ["scripts/index/extract.py", "scripts/register-packs.sh"]}
 
 
 def _tracked(root):
@@ -111,7 +112,10 @@ def build(out, channel="stable", root=None):
     _write_json(os.path.join(sdir, "hooks", "hooks.json"), {"hooks": {"SessionStart": [{
         "matcher": "startup",
         "hooks": [{"type": "command", "async": True,
-                   "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/summer-kb-setup/scripts/kb-maintain.sh\""}]}]}})
+                   "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/summer-kb-setup/scripts/kb-maintain.sh\""}]}, {
+        "matcher": "startup|resume",   # the pack registry (07 §1.1): how the kernel plugin learns this pack's root
+        "hooks": [{"type": "command", "timeout": 5,
+                   "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/register-packs.sh\""}]}]}})
     with open(os.path.join(sdir, "README.md"), "w", encoding="utf-8") as f:
         f.write("# claudehut-org-summer\n\nClaudeHut pack `org-summer`: the Summer Framework KB for consumer services "
                 "(skill `summer-kb-setup`, install and self-heal at session start). Requires the `claudehut` plugin.\n")

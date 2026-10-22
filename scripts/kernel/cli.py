@@ -10,6 +10,7 @@
   claudehut-kernel gate end --project DIR --task DIR --status done|abandoned [--override TEXT]
   claudehut-kernel probe [--project DIR] [--write] [--advice]
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
+  claudehut status [--project DIR] [--selftest] [--json]   (= claudehut-kernel status) K9 state surface, 08 §2
   claudehut-kernel selftest [--json]       liveness canaries for every hook and gate (exit 1 when one is dead)
   claudehut-kernel event --task DIR --type T [--data JSON]
   claudehut-kernel packs [--project DIR] [--json] [--owner PATH…]   K10: which packs are active for the project (and
@@ -33,7 +34,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, tasklog, vendorleak, verify  # noqa: E402
+from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, status, tasklog, vendorleak, verify  # noqa: E402
 
 
 def _project(a):
@@ -166,6 +167,16 @@ def cmd_learn(a):
     return 0
 
 
+def cmd_status(a):
+    project = _project(a)
+    res = None
+    if a.selftest:
+        res = selftest.run(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    st = status.collect(project, res)
+    print(json.dumps(st, ensure_ascii=False) if a.json else status.render(st))
+    return 1 if st.get("sensors", {}).get("dead") else 0
+
+
 def cmd_selftest(a):
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     res = selftest.run(root)
@@ -190,12 +201,17 @@ def cmd_packs(a):
         rows = {p: packs.owners_of(p, manifests) for p in a.owner}
         print(json.dumps(rows, ensure_ascii=False))
         return 0 if all(len(v) == 1 for v in rows.values()) else 1
+    manifests, errors, reg = packs.load_all(_project(a))
     res = packs.evaluate(_project(a), manifests)
+    for r in res:
+        r["registration"] = reg.get(r["pack"], "unregistered")
+    res += [{"pack": n, "active": False, "why": "registered root or manifest is gone", "registration": st}
+            for n, st in sorted(reg.items()) if n not in manifests]
     if a.json:
         print(json.dumps({"packs": res, "errors": errors}, ensure_ascii=False))
     else:
         for r in res:
-            print(f"{'on ' if r['active'] else 'off'}  {r['pack']:<20} {r['why']}")
+            print(f"{'on ' if r['active'] else 'off'}  {r['pack']:<20} {r['registration']:<12} {r['why']}")
         for e in errors:
             print(f"ERR  {e['pack']:<20} {e['error']}", file=sys.stderr)
     return 1 if errors else 0
@@ -282,6 +298,12 @@ def main(argv):
     ln.add_argument("--hub", help="hub dir: act on its fleet-learnings.jsonl instead of the plane store")
     ln.add_argument("--project")
     ln.set_defaults(fn=cmd_learn)
+
+    su = sub.add_parser("status")
+    su.add_argument("--project")
+    su.add_argument("--selftest", action="store_true", help="also run every canary (each hook runs once)")
+    su.add_argument("--json", action="store_true")
+    su.set_defaults(fn=cmd_status)
 
     st = sub.add_parser("selftest")
     st.add_argument("--json", action="store_true")

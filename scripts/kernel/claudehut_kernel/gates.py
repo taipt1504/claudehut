@@ -33,7 +33,7 @@ def pack_mode(project_dir, declared):
 
 def pack_invariants(project_dir, at):
     """[(pack, entry)] declared for transition `at` by the packs active on this project."""
-    manifests, _ = packs.load()
+    manifests, _, _ = packs.load_all(project_dir)   # registered packs of a split install too (07 §1.1)
     active = {r["pack"] for r in packs.evaluate(project_dir, manifests) if r["active"]}
     return [(n, e) for n in sorted(active) for e in manifests[n].get("invariants") or []
             if isinstance(e, dict) and e.get("at") == at]

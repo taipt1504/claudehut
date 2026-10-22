@@ -80,7 +80,7 @@ b="$TMP/both"; mkdir -p "$b/.claudehut" "$b/.claude/claudehut"
 
 echo "== G: no new hard-coded legacy plane paths in runtime code =="
 # Every runtime site goes through the resolver; the files listed here handle the legacy layout on purpose.
-ALLOW='scripts/lib/plane-path.sh|scripts/kernel/claudehut_kernel/plane.py|bin/claudehut-migrate-plane|bin/claudehut-migrate$|bin/claudehut-init|scripts/lib/hook-common.sh'
+ALLOW='scripts/lib/plane-path.sh|scripts/kernel/claudehut_kernel/plane.py|bin/claudehut-migrate-plane|bin/claudehut-migrate$|bin/claudehut-init|scripts/lib/hook-common.sh|scripts/register-packs.sh'   # register-packs: self-contained, vendored (07 §1.1)
 hits="$(cd "$ROOT" && grep -rlE --exclude-dir=__pycache__ '\.claude/claudehut|"\.claude", *"claudehut"' bin scripts hooks 2>/dev/null | grep -vE "^($ALLOW)" \
   | while read -r f; do grep -nE '\.claude/claudehut|"\.claude", *"claudehut"' "$f" | grep -vE '^[0-9]+: *#|legacy|LEGACY|\.claudehut' | sed "s|^|$f:|"; done)"
 [ -z "$hits" ] && ok "G: runtime code reaches the plane only through the resolver" || bad "G: hard-coded plane path(s):

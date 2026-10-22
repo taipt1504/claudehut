@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# claudehut — the user-facing entry (docs/v0.20 08 §2): `claudehut status [...]`. Other verbs live in the
+# claudehut-* tools (state, index, verify, kernel); this shim only routes the documented ones to the kernel.
+case "$0" in */*) _d="${0%/*}" ;; *) _d="." ;; esac
+case "${1:-}" in
+  status) exec "$_d/claudehut-kernel" "$@" ;;
+  *) echo "usage: claudehut status [--project DIR] [--selftest] [--json]" >&2; exit 2 ;;
+esac
