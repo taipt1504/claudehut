@@ -12,7 +12,7 @@ the rule (§4) nor the user's confirmation.
    brief and the two sketch paths (FIRST, SECOND). Collect each JSON line into `tournament.json`:
    `{"options": [{"id": "O0", "title": "…"}, …], "judgments": [<judge lines>]}`.
 4. **Aggregate.** `claudehut-kernel tournament aggregate <task dir>/tournament.json`. A pair counts only when its
-   two orders agree. A `split` pair is a judge that preferred whatever it read first, so it gets no verdict.
+   two orders agree. A `split` pair is a judge that preferred whatever it read first, so it gets no verdict. Do not re-judge a split pair: every judgment counts, and a re-asked order that changes its answer stays `split`.
    - `winner` means the option that beats every other option on agreed pairs.
    - `no-winner` or `incomplete` means: show the agreed pairs and the splits, and do not pick one yourself.
 5. **Confirm.**

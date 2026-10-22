@@ -7,13 +7,15 @@ tie): a judge that prefers whatever it reads first disagrees with itself and the
 Input (tournament.json):
   {"options": [{"id": "O0", "title": "..."}, ...],
    "judgments": [{"first": "O0", "second": "O1", "winner": "first|second|tie", "reason": "..."}, ...]}
-Output: per pair `agreed` / `split` / `missing`, the Condorcet winner over agreed pairs (beats every other option),
+Every judgment counts: repeats of one order that disagree make the pair split. Output: per pair `agreed` / `split` /
+`missing`, the Condorcet winner over agreed pairs (beats every other option),
 or none. A T3 choice is never final here: `needs_user_confirmation` is always true (the user confirms the option).
 """
 import itertools
 import json
 
 WINNERS = ("first", "second", "tie")
+CONFLICT = "<conflict>"   # repeated judgments of one order that disagree
 
 
 def schedule(option_ids):
@@ -56,11 +58,16 @@ def aggregate(doc):
     ids = [o["id"] for o in doc["options"]]
     seen = {}
     for j in doc.get("judgments") or []:
-        seen[(j["first"], j["second"])] = _picked(j)   # a later judgment of the same order replaces an earlier one
+        seen.setdefault((j["first"], j["second"]), set()).add(_picked(j))
+    # Every judgment is kept: re-asking a split pair until the orders agree would hide the position bias the swap
+    # exists to catch, so repeats of one order that disagree make that order (and the pair) split.
+    one = {k: (next(iter(v)) if len(v) == 1 else CONFLICT) for k, v in seen.items()}
     pairs, beats = [], {i: set() for i in ids}
     for a, b in itertools.combinations(ids, 2):
-        ab, ba = seen.get((a, b)), seen.get((b, a))
-        if ab is None or ba is None:
+        ab, ba = one.get((a, b)), one.get((b, a))
+        if CONFLICT in (ab, ba):
+            state, verdict = "split", None
+        elif ab is None or ba is None:
             state, verdict = "missing", None
         elif ab == ba:
             state, verdict = "agreed", ab

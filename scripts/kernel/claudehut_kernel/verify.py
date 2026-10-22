@@ -98,10 +98,13 @@ def extract_claims(text):
             continue
         if fenced:  # stack traces and logs cite frames, not evidence
             continue
-        if line.lstrip().startswith("|") and n < len(lines) and TABLE_SEP.match(lines[n]):
-            continue  # a table header names columns (`File.java:NN "quote"`), it cites nothing
+        # A table header names columns (`File.java:NN "quote"`): only a citation with a real line number in it is
+        # judged, so a data row placed above the |---| separator cannot hide a false citation.
+        header = line.lstrip().startswith("|") and n < len(lines) and TABLE_SEP.match(lines[n]) is not None
         scrub = URL_RE.sub(" ", line)
         for m in CLAIM_RE.finditer(scrub):
+            if header and not m.group(2):
+                continue
             path = m.group(1)
             if path.startswith(("http", "www.")):
                 continue

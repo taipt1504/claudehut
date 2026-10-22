@@ -601,13 +601,19 @@ Mutation: 3/4 bị giết. Mutant sống là bỏ `^` của `bash-exit`; nó tư
    - Branch `improve/review-no-locus`, gồm hai commit (`8daf1c6` vòng 1, `0298e54` vòng 2).
    - PR body nằm ở scratchpad. Chưa push và chưa mở PR, vì cần quyền của user.
 4. **Eval so với baseline** (plan, n=3, `--ablation none`).
-   - **Vòng 1:** baseline `cd9ad2f` 1.00 (3/3), canary 0.83 (2/3), nên **giữ lại**.
+   - **Vòng 1:** baseline `cd9ad2f` 1.00 (3/3), canary 0.83 (2/3), nên **giữ lại**. Canary vòng 1 build từ `6174352`, SHA trước rebase; bản đã rebase là `8daf1c6`.
      - Run hỏng đã copy template dòng của skill làm header bảng: `| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |`.
      - `claims` báo `File.java`. Sau khi đổi tên, `set-review` từ chối chính header vì là dòng ✓ không có locus.
    - **Lỗi kernel do vòng lặp tìm ra** (`b1d7c9a`): hàng header của bảng (hàng có separator `|---|` ngay sau) không còn bị tính là dòng coverage.
      - Áp dụng ở cả hai writer và ở `claims`.
      - Bảng chỉ có header vẫn bị từ chối.
-     - Test mới ở `hook-tests` và C7. Code trước khi sửa làm hỏng cả hai test.
+     - Test mới ở `hook-tests` và C7.
+     - Mutation (tắt `TABLE_SEP` ở từng writer): cả hai shape đều đổi kết quả, ở cả hai writer. Header-only không còn ra "no coverage table", còn header template thì bị từ chối.
+     - **Lỗ hổng mà bản sửa đầu mở ra, đã vá:** một dòng dữ liệu đặt ở vị trí header (ngay trên `|---|`) có thể giấu một citation sai.
+       - Giờ `claims` vẫn chấm citation có số dòng trong header; `File.java:NN` của template không có số nên vẫn được bỏ qua.
+       - Thêm test C8.
+       - Probe trên cả hai writer: `set-review pass` bị gate `review-pass` từ chối.
+       - **Giới hạn chấp nhận:** check locus không phân biệt được một dòng thiếu locus với tên cột khi dòng đó nằm ở vị trí header.
    - **Vòng 2:** baseline `b1d7c9a` 1.00 (3/3), canary `0298e54` 1.00 (3/3).
      - Cả 3 run canary dùng header tường minh `| Item | Status | Locus |`.
      - Số turn trung bình giảm từ 10,7 xuống 7,7 và chi phí giảm từ $0,91 xuống $0,74. Với n=3 thì đây chỉ là quan sát, chưa phải kết luận.
@@ -628,7 +634,8 @@ Mutation: 3/4 bị giết. Mutant sống là bỏ `^` của `bash-exit`; nó tư
   - `needs_user_confirmation` luôn là true.
 - Agent `claudehut-tournament-judge`: sonnet, chỉ đọc, trả về một dòng JSON cho mỗi cặp có thứ tự.
 - Reference `skills/deliberate/references/tournament.md`. Dòng T3 trong skill trỏ tới reference này; skill workflow không đổi.
-- Test TN1–TN8. Mutation 5/5 bị giết.
+- Mọi judgment đều được giữ. Hai lần chấm cùng một thứ tự mà ra khác nhau thì cặp đó là `split`, nên không thể hỏi lại một cặp split cho tới khi hai thứ tự khớp.
+- Test TN1–TN8. Mutation: 6/7 bị giết. Mutant sống là bỏ nhánh kiểm tra `CONFLICT`; nó tương đương, vì `CONFLICT` không bao giờ bằng một lựa chọn thật.
 - **Chưa chạy với model.** Tournament là opt-in, và decision suite chưa có case T3.
 
 ### SCIP: hoãn
@@ -640,4 +647,5 @@ SCIP là tuỳ chọn (05 §3), chỉ có ích trên service JVM thật, mà pha
 - Model: 6 lần chạy eval (n=1 debug, cộng 5 arm × n=3, trong đó có arm v1 không hợp lệ), tổng **$4,51** (giá list, quota plan).
 - `~/.claude/plugins/data` không đổi. `known_marketplaces.json` của user không có canary.
 - Quét marker trên diff M6 và các file mới: sạch.
-- Regression trên `cf140bf`: conformance 305; hook-tests 1244 (Python writer), 1236 (bash writer); reference-check 23/23; lint prompt xanh. README: 1993 assertion.
+- PR body: `.claude/reviews/PR-improve-review-no-locus.md` (untracked, không push).
+- Regression sau bản vá C8 và tournament: conformance 305; hook-tests 1245 (Python writer), 1237 (bash writer); reference-check 23/23; lint prompt xanh. README: 1994 assertion.

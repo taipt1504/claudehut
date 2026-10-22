@@ -3,7 +3,8 @@
 #   TN1      schedule: every unordered pair in both orders (3 options → 6), <2 options refused
 #   TN2-TN3  a pair counts only when both orders agree; a judge that prefers whatever it reads first splits
 #   TN4      a Condorcet winner over agreed pairs; a cycle → no-winner (exit 1)
-#   TN5      a missing order → incomplete; a later judgment of the same order replaces the earlier
+#   TN5      a missing order → incomplete; repeats of one order that disagree split the pair (no re-asking until
+#            the orders agree); repeats that agree are fine
 #   TN6      ties agree with ties and give no win
 #   TN7      malformed input (unknown id, bad winner, duplicate ids) → exit 2 with the reason
 #   TN8      needs_user_confirmation is always true (T3: the user confirms the option)
@@ -41,8 +42,9 @@ check "TN4: A beats B and C on agreed pairs → winner A; a cycle A>B>C>A → no
 
 doc "A B" "$(j A B first)" >"$TMP/miss.json"
 doc "A B" "$(j A B second)" "$(j B A second)" "$(j A B first)" >"$TMP/redo.json"
-check "TN5: one order missing → incomplete; a re-judged order replaces the earlier one" \
-  'jq -e ".status==\"incomplete\" and .pairs[0].state==\"missing\"" <<<"$(agg "$TMP/miss.json")" >/dev/null && jq -e ".winner==\"A\"" <<<"$(agg "$TMP/redo.json")" >/dev/null'
+doc "A B" "$(j A B first)" "$(j B A second)" "$(j A B first)" >"$TMP/same.json"
+check "TN5: one order missing → incomplete; a re-asked order that changes its answer splits; one that repeats it agrees" \
+  'jq -e ".status==\"incomplete\" and .pairs[0].state==\"missing\"" <<<"$(agg "$TMP/miss.json")" >/dev/null && jq -e ".pairs[0].state==\"split\" and .winner==null" <<<"$(agg "$TMP/redo.json")" >/dev/null && jq -e ".winner==\"A\"" <<<"$(agg "$TMP/same.json")" >/dev/null'
 
 doc "A B" "$(j A B tie)" "$(j B A tie)" >"$TMP/tie.json"
 check "TN6: tie in both orders → agreed tie, no win, no winner" \

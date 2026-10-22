@@ -69,6 +69,10 @@ printf '| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |\n|---|---
 out="$(CLAUDE_PROJECT_DIR="$P" "$CV" claims "$TMP/hdr.md" --json)"
 check "C7: a table header row names columns, cites nothing (File.java:NN in a header is no claim; the row below is)" \
   '[ "$(jq ".problems|length" <<<"$out")" = 1 ] && jq -e ".problems[0].path==\"Nope.java\"" <<<"$out" >/dev/null'
+printf '| AC-1 | ✓ satisfied | src/main/java/a/Missing.java:10 |\n|---|---|---|\n| x | ✓ | src/main/java/a/Foo.java:3 |\n' >"$TMP/hdr2.md"
+out="$(CLAUDE_PROJECT_DIR="$P" "$CV" claims "$TMP/hdr2.md" --json)"
+check "C8: a citation with a line number in the header position is still judged (a false one cannot hide above |---|)" \
+  'jq -e ".problems|length==1 and .[0].kind==\"missing\"" <<<"$out" >/dev/null'
 
 # ── F: findings ────────────────────────────────────────────────────────────────────────────────────────────
 TD="$P/.claude/claudehut/tasks/$id"
