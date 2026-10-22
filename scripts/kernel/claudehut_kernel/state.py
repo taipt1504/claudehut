@@ -472,6 +472,7 @@ class State:
         if gate:
             data["gate"] = gate
         self.commit(self.tfile, self.task, t, "task.superseded", data)
+        self.campaign_release(t)
         if gate == "block":
             self.note(f"task {self.active} had finished but cannot close as done (the end invariant above, gate mode "
                       f"block): closed as superseded by {by}, recorded. To close it as done: claudehut-state resume "
@@ -577,6 +578,39 @@ class State:
         self.note(f"campaign {cid}: template {c['template']['path']}@{c['template']['rev'][7:14]} (read it, do not "
                   f"copy it){'; addendum: ' + r['addendum'] if r.get('addendum') else ''}")
         return {"campaign_id": cid, "campaign_repo": r["repo"], "campaign_template_rev": c["template"]["rev"]}
+
+    def campaign_resume_lease(self, rt):
+        """resume of a campaign child takes its lease. Another live session's lease refuses the resume unless the user
+        decided a takeover (--user-decision "<their words>"), which is recorded on the task.resumed event."""
+        if not rt.get("campaign_id"):
+            return None
+        hub = campaign.hub_of(self.project)
+        if not hub:
+            self.note("resume: campaign task but no hub configured — lease not checked")
+            return None
+        ud = self.flag("--user-decision")
+        branch = (self.git(self.project, "rev-parse", "--abbrev-ref", "HEAD") or "").strip()
+        cur = campaign.holder(hub, rt["campaign_id"], rt.get("campaign_repo")) or {}
+        ok, h = campaign.acquire(hub, rt["campaign_id"], rt.get("campaign_repo"), self.session, branch, force=bool(ud))
+        if not ok:
+            self.err(f"resume: {rt.get('campaign_repo')} in {rt['campaign_id']} is leased by session {h.get('session')} "
+                     f"until {h.get('expires_at')} (one writer per repo). Continue there, or ask the user and re-run "
+                     f"with --user-decision \"<their decision>\" to take it over (recorded).")
+        if ud and cur.get("session") and cur.get("session") != self.session:
+            return {"lease_takeover": {"from": cur.get("session"), "user_decision": ud}}
+        return None
+
+    def campaign_release(self, task):
+        """Free the lease a campaign child holds, whichever session took it (end, supersede)."""
+        if not (task or {}).get("campaign_id"):
+            return
+        try:
+            hub = campaign.hub_of(self.project)
+            for s_ in dict.fromkeys([self.session, task.get("session") or ""]):
+                if s_:
+                    campaign.release(hub, task["campaign_id"], task.get("campaign_repo"), s_)
+        except (OSError, ValueError, TypeError):
+            pass
 
     def campaign_sync(self, task_dir, task):
         """Mirror a campaign child's events to the hub (idempotent). Fail-open: the task is the source of truth."""
@@ -786,6 +820,9 @@ class State:
         os.makedirs(self.tasks_dir, exist_ok=True)
         tid = self.claim_id(slug)
         self.new_task(tid, route, profile, repos, cross, extra)
+        if extra:   # new_task superseded this session's previous task, whose release may have freed this same lease
+            campaign.acquire(campaign.hub_of(self.project), extra["campaign_id"], extra["campaign_repo"], self.session,
+                             (self.git(self.project, "rev-parse", "--abbrev-ref", "HEAD") or "").strip())
         self.note(f"start -> {self.tasks_dir}/{tid}/task.json ({route}{', ' + profile if profile else ''}); write every "
                   f"artifact of this task into that dir")
         sys.stdout.write(f"{tid}\n{self.plane_rel}/tasks/{tid}/\n")
@@ -803,6 +840,7 @@ class State:
         st = self._jqr(alt(rt.get("status"), "active"))
         if st in ("done", "abandoned"):
             self.err(f"resume: task {tid} is {st}; start a new task instead")
+        data = self.campaign_resume_lease(rt)   # refuses before anything is written when another session holds it
         if self.task and self.active != tid:
             self.supersede_active(tid)
         nt = dict(rt)
@@ -810,7 +848,7 @@ class State:
         nt["session"] = self.session
         nt.pop("superseded_by", None)
         nt.pop("ended", None)
-        self.commit(rf, rt, nt, "task.resumed")
+        self.commit(rf, rt, nt, "task.resumed", data)
         self.set_pointer(tid)
         po = alt(rt.get("session"), "")
         po = po if isinstance(po, str) else ""
@@ -831,12 +869,7 @@ class State:
         self.task["status"] = es
         self.task["ended"] = self.ts
         self.commit(self.tfile, old, self.task, "task.ended", {"status": es, "gate": self.gate_decision})
-        if self.task.get("campaign_id"):
-            try:
-                campaign.release(campaign.hub_of(self.project), self.task["campaign_id"], self.task.get("campaign_repo"),
-                                 self.session)
-            except (OSError, ValueError, TypeError):
-                pass
+        self.campaign_release(self.task)
         self.set_pointer("")
         self.note(f"end -> {self.tfile} ({es})")
         return 0

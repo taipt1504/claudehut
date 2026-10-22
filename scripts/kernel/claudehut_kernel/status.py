@@ -14,7 +14,7 @@ import os
 import subprocess
 import time
 
-from . import packs, plane
+from . import campaign, packs, plane
 
 TTL_DAYS = 7
 
@@ -117,6 +117,14 @@ def collect(project, selftest_results=None, now=None):
            "packs": pk, "pack_errors": errors, "tasks": ts, "ttl_days": ttl, "knowledge": knowledge(project),
            "host": {"auth_mode": prof.get("auth_mode") or "unknown",
                     "rewriters": prof.get("rewriters") if prof else "unknown", "profile_at": prof.get("at")}}
+    out["campaigns"] = []
+    try:
+        hub = campaign.hub_of(project)
+        for c in campaign.campaigns(hub) if hub else []:
+            if campaign.repo_entry(c, project):
+                out["campaigns"].append(campaign.aggregate(hub, c["id"]))
+    except (OSError, ValueError, KeyError):
+        pass
     if selftest_results is not None:
         dead = [r["control"] for r in selftest_results if not r["ok"]]
         out["sensors"] = {"controls": len(selftest_results), "alive": len(selftest_results) - len(dead), "dead": dead}
@@ -157,6 +165,8 @@ def render(s):
                      + (f" — DEAD: {', '.join(se['dead'])}" if se["dead"] else ""))
     else:
         lines.append("sensors   : not checked (claudehut status --selftest runs every canary)")
+    for ag in s.get("campaigns") or []:
+        lines.append(campaign.render(ag).splitlines()[0])
     h = s["host"]
     lines.append(f"host      : auth {h['auth_mode']}, Bash-rewriting hooks {h['rewriters']}"
                  + (f" (probed {h['profile_at']})" if h["profile_at"] else " (not probed yet)"))

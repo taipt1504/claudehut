@@ -526,3 +526,20 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
 **Tiêu chí exit M5:**
 - Campaign mô phỏng trên ≥3 fixture repo: **đạt** (`campaign-tests`).
 - Runner chạy job eval/mining ở plan: **đạt**. Ở api: **một phần**, chỉ đến bước chọn auth và dựng lệnh.
+
+### Sửa sau review của advisor (M5)
+
+- **Runner chạy model ở thư mục rỗng trong report** (`<out>/cwd`). Trước đó `claude -p` chạy ở cwd của caller, nên khi đứng trong một repo có plane sẽ nạp hook của repo đó: `register-packs`, `bootstrap`, và `maintain` (update index). Transcript cũng bị ghi vào project đó, nên lần mining sau đếm cả lệnh gọi của chính runner (15.891 → 15.892). Thêm test RN12.
+- **`apiKeyHelper` được tính là credential api** (09 §7):
+  - `auto` chọn `api`, và helper được chuyển qua `--settings`, vì config dir scratch không mang helper theo;
+  - `--auth plan` bị từ chối, vì `claude -p` sẽ tính tiền API và báo cáo sẽ bị gắn nhãn sai.
+  - Thêm test RN13. Các test runner cô lập `CLAUDE_CONFIG_DIR`.
+- **Lease đi trọn vòng đời của task:**
+  - `resume` lấy lease. Nếu một session còn sống đang giữ lease thì từ chối, trừ khi có `--user-decision`; khi đó ghi `lease_takeover` vào `task.resumed`.
+  - `end` và supersede nhả lease của task, dù session nào đã lấy nó.
+  - Task con bị supersede được tính lại là `not-started`.
+  - Sửa luôn một lỗi thứ tự: `start --campaign` trong cùng session supersede task con cũ, và việc nhả lease của task cũ xoá mất lease vừa lấy. Giờ lease được lấy lại sau `new_task`.
+  - Race đã chấp nhận và ghi tại chỗ: hai session cùng chiếm một lease hết hạn đúng cùng lúc thì có thể cả hai thành công (khoá mềm). Lease còn sống không bao giờ bị chiếm nếu không có quyết định của user.
+  - Thêm test CP15–CP18.
+- `claudehut status` thường giờ có dòng `campaign` cho các campaign nhắm vào repo (08 §2). Thêm test CP11b.
+- **Điểm thiết kế cho phase B:** mirror là file trong working tree của bản clone hub ở máy local. Với hub host trên git dùng chung, `status --campaign` của tech lead chỉ thấy những gì đã được mirror và đẩy lên. Cần chọn nhịp commit/pull, hoặc gitignore cộng một kênh truyền khác.

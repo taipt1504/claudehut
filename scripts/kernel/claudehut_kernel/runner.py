@@ -7,7 +7,8 @@ Questions it cannot ask a person go into the report.
 Auth (09 §7) is independent of the job: `plan` = the subscription login (`claude -p`, never `--bare`: bare "doesn't
 use your subscription login"), `api` = ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN or a cloud provider
 (`claude --bare -p --plugin-dir <root>`, with a scratch CLAUDE_CONFIG_DIR so nothing lands in the user's config),
-`auto` = api when such a credential is in the environment, else plan. Every report records auth_mode,
+`auto` = api when such a credential is in the environment or an apiKeyHelper is configured (which also makes an
+explicit `plan` an error: the CLI would bill the API), else plan. Model calls run from an empty dir under the report. Every report records auth_mode,
 claude_version and the env-profile, and secrets are only ever printed as `<set>`.
 
 Jobs:
@@ -45,9 +46,31 @@ ERROR_CLASSES = (   # first match wins; the order puts the specific ahead of the
 )
 
 
-def resolve_auth(want, env):
+def api_key_helper(env, project=None):
+    """(scope, command) of an apiKeyHelper in the settings `claude` would load, else (None, None). 09 §7 counts it as
+    an api credential: with one configured, a plain `claude -p` bills the API, not the plan."""
+    user_dir = env.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    srcs = [("user", os.path.join(user_dir, "settings.json"))]
+    if project:
+        srcs += [("project", os.path.join(project, ".claude", "settings.json")),
+                 ("local", os.path.join(project, ".claude", "settings.local.json"))]
+    srcs += [("managed", "/Library/Application Support/ClaudeCode/managed-settings.json"),
+             ("managed", "/etc/claude-code/managed-settings.json")]
+    for scope, path in srcs:
+        d = plane.read_json(path)
+        if isinstance(d, dict) and d.get("apiKeyHelper"):
+            return scope, d["apiKeyHelper"]
+    return None, None
+
+
+def resolve_auth(want, env, project=None):
     """→ (mode, error). mode ∈ plan | api."""
-    has_cred = any(env.get(v) for v in KEY_VARS) or any(env.get(v) in ("1", "true") for v in PROVIDER_VARS)
+    helper_scope, _ = api_key_helper(env, project)
+    has_cred = (any(env.get(v) for v in KEY_VARS) or any(env.get(v) in ("1", "true") for v in PROVIDER_VARS)
+                or bool(helper_scope))
+    if want == "plan" and helper_scope:
+        return None, (f"--auth plan: an apiKeyHelper is configured ({helper_scope} settings), so `claude -p` would "
+                      f"bill the API and the report would be mislabelled. Use --auth api, or remove the helper")
     if want == "auto":
         return ("api" if has_cred else "plan"), None
     if want == "api" and not has_cred:
@@ -68,10 +91,13 @@ def child_env(mode, env, config_dir):
     return e
 
 
-def model_argv(mode, prompt, plugin_root):
+def model_argv(mode, prompt, plugin_root, helper=None):
     if mode == "plan":
         return ["claude", "-p", prompt, "--output-format", "json"]
-    return ["claude", "--bare", "-p", prompt, "--output-format", "json", "--plugin-dir", plugin_root]
+    argv = ["claude", "--bare", "-p", prompt, "--output-format", "json", "--plugin-dir", plugin_root]
+    if helper:   # the scratch config dir does not carry the user's helper: pass the command (not a secret) along
+        argv += ["--settings", json.dumps({"apiKeyHelper": helper})]
+    return argv
 
 
 def masked_env(env):
@@ -79,9 +105,9 @@ def masked_env(env):
     return {v: "<set>" for v in KEY_VARS + PROVIDER_VARS + ("CLAUDE_CONFIG_DIR",) if env.get(v)}
 
 
-def claude_version(env):
+def claude_version(env, cwd=None):
     try:
-        p = subprocess.run(["claude", "--version"], capture_output=True, text=True, env=env, timeout=20)
+        p = subprocess.run(["claude", "--version"], capture_output=True, text=True, env=env, timeout=20, cwd=cwd)
         return (p.stdout.strip().splitlines() or ["unknown"])[0]
     except (OSError, subprocess.TimeoutExpired):
         return "unavailable"
@@ -145,11 +171,15 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
     """→ (rc, report). The report is also written to <out>/report.json unless dry_run."""
     env = dict(env if env is not None else os.environ)
     plugin_root = plugin_root or os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    mode, err = resolve_auth(auth, env)
+    mode, err = resolve_auth(auth, env, os.getcwd())
     if err:
         return 2, {"error": err}
+    _, helper = api_key_helper(env, os.getcwd())
     out = out or os.path.join(tempfile.gettempdir(), "claudehut-run", f"{job}-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}")
     config_dir = os.path.join(out, "claude-config")
+    # Every model call runs from an empty dir under the report: from a repo it would load that repo's hooks (which
+    # write its plane) and add a transcript under that project (which later mining would count).
+    work = os.path.join(out, "cwd")
     cenv = child_env(mode, env, config_dir)
     rep = {"job": job, "auth_mode": mode, "requested_auth": auth, "env": masked_env(cenv), "dry_run": dry_run,
            "read_only": True, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "questions": []}
@@ -162,8 +192,9 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
             return 2, dict(rep, error="eval needs a source checkout of the plugin (the distributed plugin ships no "
                                       "evals/): run claudehut-run from the repo")
         if not dry_run:
-            rep["claude_version"] = claude_version(cenv)
-            p = subprocess.run(argv, env=cenv, capture_output=True, text=True)
+            os.makedirs(work, exist_ok=True)
+            rep["claude_version"] = claude_version(cenv, work)
+            p = subprocess.run(argv, env=cenv, capture_output=True, text=True, cwd=work)
             rc = p.returncode
             m = re.search(r"results: (\S+)", p.stdout or "")
             rep.update(exit=rc, results_dir=m.group(1) if m else None, tail=(p.stdout or "").strip().splitlines()[-3:])
@@ -174,11 +205,12 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
             prompt = ("Below are COUNTS of tool errors by class from Claude Code transcripts (no excerpts). In at most "
                       "5 bullet points, say which classes matter most and one plugin-side change worth testing for "
                       "each. Counts: " + json.dumps(rep["mining"]))
-            argv = model_argv(mode, prompt, plugin_root)
+            argv = model_argv(mode, prompt, plugin_root, helper if mode == "api" else None)
             rep["argv"] = argv[:2] + ["<prompt: counts only>"] + argv[3:]
             if not dry_run:
-                rep["claude_version"] = claude_version(cenv)
-                p = subprocess.run(argv, env=cenv, capture_output=True, text=True, timeout=600)
+                os.makedirs(work, exist_ok=True)
+                rep["claude_version"] = claude_version(cenv, work)
+                p = subprocess.run(argv, env=cenv, capture_output=True, text=True, timeout=600, cwd=work)
                 rc = p.returncode
                 try:
                     res = json.loads(p.stdout)
@@ -200,6 +232,7 @@ def run(job, auth="auto", out=None, dry_run=False, extra=None, projects_dir=None
         with open(os.path.join(out, "report.json"), "w", encoding="utf-8") as f:
             json.dump(rep, f, ensure_ascii=False, indent=1)
         rep["report"] = os.path.join(out, "report.json")
-        if os.path.isdir(config_dir) and not os.listdir(config_dir):
-            shutil.rmtree(config_dir, ignore_errors=True)
+        for d in (config_dir, work):
+            if os.path.isdir(d) and not os.listdir(d):
+                shutil.rmtree(d, ignore_errors=True)
     return rc, rep

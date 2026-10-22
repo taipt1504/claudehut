@@ -129,8 +129,10 @@ def campaigns(hub):
 
 
 # ── lease ───────────────────────────────────────────────────────────────────────────────────────────────────────
-def acquire(hub, cid, repo, session, branch="", now=None, ttl=LEASE_S):
-    """→ (ok, holder). Exclusive create; an expired lease, or one this session already holds, is replaced."""
+def acquire(hub, cid, repo, session, branch="", now=None, ttl=LEASE_S, force=False):
+    """→ (ok, holder). Exclusive create; an expired lease, one this session already holds, or `force` (a recorded
+    user decision) replaces it. Accepted race (a soft lock, P10): two sessions taking over the SAME expired lease at
+    the same instant can both succeed; a live lease is never taken without `force`."""
     now = now or time.time()
     p = os.path.join(_cdir(hub, cid), "repos", repo, "lease.json")
     os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -144,7 +146,7 @@ def acquire(hub, cid, repo, session, branch="", now=None, ttl=LEASE_S):
             return True, lease
         except FileExistsError:
             cur = plane.read_json(p, {}) or {}
-            if cur.get("session") == session or float(cur.get("expires") or 0) < now:
+            if force or cur.get("session") == session or float(cur.get("expires") or 0) < now:
                 try:
                     os.remove(p)
                 except FileNotFoundError:
@@ -152,6 +154,10 @@ def acquire(hub, cid, repo, session, branch="", now=None, ttl=LEASE_S):
                 continue
             return False, cur
     return False, plane.read_json(p, {}) or {}
+
+
+def holder(hub, cid, repo):
+    return plane.read_json(os.path.join(_cdir(hub, cid), "repos", repo, "lease.json"))
 
 
 def release(hub, cid, repo, session):
@@ -235,6 +241,8 @@ def repo_status(summary):
     st = summary.get("status")
     if st in ("done", "abandoned"):
         return st
+    if st == "superseded":   # the child was closed by another task in its session: the repo needs a task again
+        return "not-started"
     if summary.get("blocked"):
         return "blocked"
     if summary.get("review") in ("pass", "capped"):

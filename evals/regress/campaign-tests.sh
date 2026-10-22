@@ -80,6 +80,8 @@ check "CP9: b-ms waiting-approval (review passed; approval stays with its owner)
 check "CP10: c-ms blocked (the refused end was mirrored)" '[[ "$st" == *"c-ms=blocked"* ]]'
 txt="$("$ROOT/bin/claudehut" status --campaign ff)"
 check "CP11: claudehut status --campaign: 1/3 done, 1 blocked, 1 waiting-approval" '[[ "$txt" == "campaign  : ff 1/3 done, 1 blocked, 1 waiting-approval"* ]]'
+plain="$(CLAUDE_PROJECT_DIR="$TMP/ws/b-ms" "$ROOT/bin/claudehut" status --project "$TMP/ws/b-ms")"
+check "CP11b: plain claudehut status in a target repo carries the campaign line (08 §2)" '[[ "$plain" == *"campaign  : ff 1/3 done"* ]]'
 
 printf '# Feature flag rollout\n1. add the flag\n2. and its kill switch\n' >"$H/prompts/featureflag.md"
 "$K" campaign template ff 2>/dev/null
@@ -90,6 +92,18 @@ before="$(cd "$C" && find . -type f | sort | xargs cat | shasum)"
 "$K" campaign mirror --task "$TMP/ws/c-ms/.claudehut/tasks/$idc" 2>/dev/null
 after="$(cd "$C" && find . -type f | sort | xargs cat | shasum)"
 check "CP13: a mirror retry leaves the hub byte-identical" '[ "$before" = "$after" ]'
+
+# CP15-CP18: the lease beyond start — resume, takeover by user decision, end after resume, supersede.
+idc2="$(cs c-ms sd start --route light --slug ff-again --campaign ff 2>/dev/null | head -1)"   # sd holds c-ms
+cs c-ms se resume "$idc2" 2>"$TMP/err"; rc=$?
+check "CP15: resume of a campaign child leased by another live session is refused (rc=$rc), task untouched" '[ "$rc" != 0 ] && grep -q "leased by session sd" "$TMP/err" && [ "$(tj c-ms "$idc2" | jq -r .session)" = sd ]'
+cs c-ms se resume "$idc2" --user-decision "sd crashed, take over" 2>/dev/null; rc=$?
+check "CP16: a takeover by the user's decision proceeds and is recorded on task.resumed (rc=$rc)" '[ "$rc" = 0 ] && jq -e ".session==\"se\"" "$C/repos/c-ms/lease.json" >/dev/null && grep -q "\"lease_takeover\"" "$TMP/ws/c-ms/.claudehut/tasks/$idc2/events.jsonl"'
+cs c-ms se end --status abandoned 2>/dev/null
+check "CP17: end from the resuming session frees the lease" '[ ! -e "$C/repos/c-ms/lease.json" ]'
+idc3="$(cs c-ms sf start --route light --slug ff-3 --campaign ff 2>/dev/null | head -1)"
+cs c-ms sf start --route light --slug unrelated 2>/dev/null >/dev/null   # same session, a new task supersedes the child
+check "CP18: a superseded campaign child frees its lease and counts as needing a task again" '[ ! -e "$C/repos/c-ms/lease.json" ] && "$K" campaign status ff --json | jq -e ".repos[]|select(.repo==\"c-ms\" and .status==\"not-started\")" >/dev/null'
 
 CLAUDEHUT_STATE_IMPL=bash cs other o2 start --route light --slug y --campaign ff 2>"$TMP/err"; rc=$?
 check "CP14: the bash writer refuses --campaign and names the way out (rc=$rc)" '[ "$rc" != 0 ] && grep -q "needs the Python state writer" "$TMP/err"'

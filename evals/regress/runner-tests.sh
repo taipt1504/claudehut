@@ -23,11 +23,13 @@ mkdir -p "$TMP/bin"
 cat >"$TMP/bin/claude" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = --version ]; then echo "9.9.9 (stub)"; exit 0; fi
-{ printf 'argv:'; printf ' [%s]' "$@"; echo; echo "key:${ANTHROPIC_API_KEY:+set}"; echo "config:${CLAUDE_CONFIG_DIR:-}"; } >>"$STUB_LOG"
+{ printf 'argv:'; printf ' [%s]' "$@"; echo; echo "key:${ANTHROPIC_API_KEY:+set}"; echo "config:${CLAUDE_CONFIG_DIR:-}"; echo "pwd:$PWD"; } >>"$STUB_LOG"
 echo '{"result":"stub summary","total_cost_usd":0.01}'
 EOF
 chmod +x "$TMP/bin/claude"
 export PATH="$TMP/bin:$PATH" STUB_LOG="$TMP/stub.log"
+mkdir -p "$TMP/cfg"; export CLAUDE_CONFIG_DIR="$TMP/cfg"   # isolate from the user's settings (an apiKeyHelper there)
+cd "$TMP" || exit 1
 TX="$ROOT/evals/fixtures/transcripts"
 
 out="$("$RUN" mining --projects-dir "$TX" --summarize --dry-run --json)"
@@ -46,7 +48,7 @@ check "RN7: a dry run writes nothing" '[ ! -e "$TMP/o-api" ]'
 
 : >"$STUB_LOG"
 ANTHROPIC_API_KEY="$SECRET" "$RUN" mining --auth plan --projects-dir "$TX" --summarize --out "$TMP/o2" >/dev/null 2>&1
-check "RN8a: plan strips the key before calling claude (no --bare, no key, no config override)" 'grep -q "^key:$" "$STUB_LOG" && ! grep -q "\[--bare\]" "$STUB_LOG" && grep -q "^config:$" "$STUB_LOG"'
+check "RN8a: plan strips the key before calling claude (no --bare, no key, no config override)" 'grep -q "^key:$" "$STUB_LOG" && ! grep -q "\[--bare\]" "$STUB_LOG" && grep -q "^config:$TMP/cfg$" "$STUB_LOG"'
 check "RN8b: the prompt carries counts, never an excerpt" '! grep -q "SECRET-MARKER-7f3a" "$STUB_LOG" && grep -q "zsh-glob" "$STUB_LOG"'
 : >"$STUB_LOG"
 ANTHROPIC_API_KEY="$SECRET" "$RUN" mining --auth api --projects-dir "$TX" --summarize --out "$TMP/o3" >/dev/null 2>&1
@@ -63,6 +65,22 @@ h0="$(cd "$P" && find . -path ./.git -prune -o -type f -print | sort | xargs sha
 "$RUN" drift --project "$P" --out "$TMP/o4" --json >"$TMP/d.json"
 h1="$(cd "$P" && find . -path ./.git -prune -o -type f -print | sort | xargs shasum | shasum)"
 check "RN11: drift reports index state and vendor findings per project, read-only" 'jq -e ".drift.projects[0].vendor_findings==1 and .drift.projects[0].index==\"none\" and .drift.projects[0].project==\"project-1\"" "$TMP/d.json" >/dev/null && [ "$h0" = "$h1" ]'
+
+# RN12: a model call never runs in the caller's repo (its hooks would write the plane, its transcript would be mined)
+PP="$TMP/plane-repo"; mkdir -p "$PP/.claudehut/state"; printf '{}' >"$PP/.claudehut/topology.json"
+git -C "$PP" init -q
+hp0="$(cd "$PP" && find . -path ./.git -prune -o -type f -print | sort | xargs shasum | shasum)"
+: >"$STUB_LOG"
+( cd "$PP" && "$RUN" mining --auth plan --projects-dir "$TX" --summarize --out "$TMP/o5" >/dev/null 2>&1 )
+hp1="$(cd "$PP" && find . -path ./.git -prune -o -type f -print | sort | xargs shasum | shasum)"
+check "RN12: the model call runs from an empty dir under the report, the caller's repo is byte-identical" 'grep -q "^pwd:.*/o5/cwd$" "$STUB_LOG" && ! grep -q "plane-repo" "$STUB_LOG" && [ "$hp0" = "$hp1" ]'
+# RN13: an apiKeyHelper is an api credential (09 §7): auto → api with the helper passed along; plan is refused
+printf '{"apiKeyHelper":"/usr/bin/true"}\n' >"$TMP/cfg/settings.json"
+out="$("$RUN" mining --projects-dir "$TX" --summarize --dry-run --json)"
+"$RUN" mining --auth plan --projects-dir "$TX" --dry-run >/dev/null 2>"$TMP/err"; rc=$?
+check "RN13: apiKeyHelper in settings → auto picks api and passes the helper via --settings; --auth plan is refused (rc=$rc)" \
+  'jq -e ".auth_mode==\"api\" and (.argv|index(\"--settings\"))!=null" <<<"$out" >/dev/null && [ "$rc" = 2 ] && grep -q "apiKeyHelper is configured" "$TMP/err"'
+rm -f "$TMP/cfg/settings.json"
 
 echo "RUNNER: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]
