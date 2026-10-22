@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased — 0.20 M6 (improvement loop, tournament)
+
+- **Mining classifier, M6a** (08 §3, §5):
+  - New classes `bash-exit` (a command that ran and failed) and `user-rejected`, both outside the new
+    `harness_errors` / `harness_error_rate`. Also new: `file-modified` and `input-validation`.
+  - Errors are counted by tool. `mcp__*` is bucketed as `mcp`; other names outside the built-in list count as
+    `other-tool`.
+  - `bash-exit` is counted by command through an allowlist; anything else counts as `other-cmd`.
+  - `state-cli` refusals are split by the check that refused.
+  - Counts only: no tool-server, path or project name leaves the scan.
+- **`claudehut-run propose`, M6b** (EVL-4): mining counts go to one proposal (class, count, owning pack, file,
+  linked eval case) for the top class that has a known change and an eval case. It writes `proposal.md` and
+  `report.json` to the report dir and never edits a pack.
+- **A table header row is not a coverage row:** `set-review pass` (both writers) and `claudehut-verify claims`
+  skip the row followed by a `|---|` separator. A header-only table is still "no coverage table". The loop's
+  canary arm found this.
+- **Eval case `process/review-locus-first-try`:** the agent writes `review.md` and records the pass. The case
+  fails when `set-review` refuses a row without a locus.
+- **T3 design tournament, M6c** (appendix a2 §4.4; pack `deliberation`, opt-in):
+  - `claudehut-kernel tournament schedule|aggregate` judges each pair in both orders. A verdict counts only when
+    the two orders agree, and the winner is the option that beats every other on agreed pairs.
+  - `needs_user_confirmation` is always true.
+  - New agent `claudehut-tournament-judge` (sonnet, read-only, one JSON line per ordered pair) and reference
+    `skills/deliberate/references/tournament.md`.
+
 ## Unreleased — 0.20 M5 (coordination, status)
 
 - **Pack registry, M5a** (07 §1.1): SessionStart hook `register-packs.sh` writes `<plane>/state/packs/<pack>.json`

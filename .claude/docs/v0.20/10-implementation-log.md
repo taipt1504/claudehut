@@ -545,3 +545,99 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
 - **Điểm thiết kế cho phase B:** mirror là file trong working tree của bản clone hub ở máy local. Với hub host trên git dùng chung, `status --campaign` của tech lead chỉ thấy những gì đã được mirror và đẩy lên. Cần chọn nhịp commit/pull, hoặc gitignore cộng một kênh truyền khác.
 - **Suite process trên `940fba1`** (`--tag process --runs 3 --ablation none`, plan, $1,88): end-refused-without-review 3/3, review-pass-fixes-bad-citation 3/3, review-pass-new-plane 3/3, tức **9/9**. Lần chạy này có cả câu chữ mới của các dòng gate warn/plan. Không có lần nào gọi `--override` tự bịa (grader `no-invented-override` đạt cả 3/3).
 - Chi phí model của đợt M4c–M5: mining summarize $0,17, một case eval $0,40, suite process $1,88; tổng khoảng **$2,45** (giá list, quota plan). `~/.claude/plugins/data` không đổi.
+
+## M6 — vòng cải tiến, tournament T3 (2026-10-22)
+
+**Tiêu chí exit:** một thay đổi pack đi hết vòng PR → eval → canary trong repo plugin. **Đạt**, với hai giới hạn:
+- PR chỉ chuẩn bị local, chưa push và chưa mở;
+- việc lên stable chờ metric pilot ở phase B.
+
+### M6a: bộ phân loại mining
+
+Lớp mới:
+- `bash-exit`: lệnh đã chạy và thất bại. Đây là lỗi của tool, không phải của harness.
+- `user-rejected`.
+- `file-modified`.
+- `input-validation`.
+
+`harness_errors` và `harness_error_rate` không tính hai lớp đầu.
+
+Breakdown, đều qua allowlist:
+- theo tool: `mcp__*` gộp thành `mcp`, tên ngoài danh sách thành `other-tool`;
+- `bash-exit` theo lệnh: tên ngoài danh sách thành `other-cmd`.
+
+Trên transcript local (30 ngày, chỉ đếm):
+
+| | Trước | Sau |
+|---|---|---|
+| Phạm vi | 212 session, 448 lỗi | 214 session, 16.294 tool call, 454 lỗi |
+| `other` | 73% | 69 (15%) |
+| `bash-exit` | — | 238 |
+| Lỗi harness | — | 211 (1,29%) |
+
+`state-cli` được tách theo check đã từ chối: `review-no-locus` 12, `review-suspect` 4, `plan` 3, `review-no-table` 2, `other-check` 6.
+
+Mutation: 3/4 bị giết. Mutant sống là bỏ `^` của `bash-exit`; nó tương đương trên fixture.
+
+### M6b: vòng EVL-4 trên một thay đổi
+
+1. **Mine → propose.**
+   - `claudehut-run propose` chọn `review-no-locus` (12 trên 211). Đề xuất trỏ tới pack `workflow-standard`, file `skills/review/SKILL.md`, case `process/review-locus-first-try`.
+   - Lớp `zsh-glob` (32) lớn hơn nhưng không được đề xuất, vì không có eval case chạy được: run eval chặn zsh (xem M0).
+   - `PROPOSALS` hiện chỉ có một entry.
+   - Hình dạng của các dòng bị từ chối trong 4 lần có Write nhìn thấy được:
+
+     | Hình dạng | Số dòng |
+     |---|---|
+     | backtick symbol | 4 |
+     | prose | 4 |
+     | thư mục | 2 |
+     | header | 0 |
+
+2. **Case.** Viết và freeze trước khi đổi code.
+   - Bản v1 không hợp lệ: test trong fixture không có `@Test`, nên agent từ chối pass một cách trung thực.
+   - Bản sửa có JUnit 5 thật và `build.gradle`.
+3. **PR.**
+   - Branch `improve/review-no-locus`, gồm hai commit (`8daf1c6` vòng 1, `0298e54` vòng 2).
+   - PR body nằm ở scratchpad. Chưa push và chưa mở PR, vì cần quyền của user.
+4. **Eval so với baseline** (plan, n=3, `--ablation none`).
+   - **Vòng 1:** baseline `cd9ad2f` 1.00 (3/3), canary 0.83 (2/3), nên **giữ lại**.
+     - Run hỏng đã copy template dòng của skill làm header bảng: `| item | ✓ satisfied / ✗ violated | File.java:NN "quote" |`.
+     - `claims` báo `File.java`. Sau khi đổi tên, `set-review` từ chối chính header vì là dòng ✓ không có locus.
+   - **Lỗi kernel do vòng lặp tìm ra** (`b1d7c9a`): hàng header của bảng (hàng có separator `|---|` ngay sau) không còn bị tính là dòng coverage.
+     - Áp dụng ở cả hai writer và ở `claims`.
+     - Bảng chỉ có header vẫn bị từ chối.
+     - Test mới ở `hook-tests` và C7. Code trước khi sửa làm hỏng cả hai test.
+   - **Vòng 2:** baseline `b1d7c9a` 1.00 (3/3), canary `0298e54` 1.00 (3/3).
+     - Cả 3 run canary dùng header tường minh `| Item | Status | Locus |`.
+     - Số turn trung bình giảm từ 10,7 xuống 7,7 và chi phí giảm từ $0,91 xuống $0,74. Với n=3 thì đây chỉ là quan sát, chưa phải kết luận.
+     - **Kết luận: không regression.** Case baseline đã đạt trần, nên chưa đo được mức cải thiện.
+5. **Canary.**
+   - `dist --channel canary` từ đầu branch (`source_sha` 0298e54, tree sạch).
+   - Cài `claudehut@claudehut-canary` vào `CLAUDE_CONFIG_DIR` scratch, không đụng `~/.claude`. Bản cài có câu chữ mới và bản sửa kernel.
+   - `selftest` 22/22.
+   - Case eval chạy trên bản đã cài, qua `--plugin-root`. `run-meta` của arm này ghi `source_sha: unknown` vì bản cài không có `.git`. SHA thật là 0298e54, lấy từ báo cáo dist.
+6. **Lên stable** (08 §5): suite liên quan không tụt, đạt. Metric pilot là số `review-no-locus` ở lần mining sau khi pilot dùng bản canary, việc của phase B.
+
+### M6c: tournament T3 (opt-in, pack `deliberation`)
+
+- `claudehut-kernel tournament schedule|aggregate`:
+  - mỗi cặp được chấm theo cả hai thứ tự;
+  - verdict chỉ được tính khi hai thứ tự khớp nhau; judge thiên vị vị trí sẽ ra `split`;
+  - winner theo Condorcet trên các cặp đã khớp; có chu trình thì ra `no-winner`; thiếu một thứ tự thì ra `incomplete`;
+  - `needs_user_confirmation` luôn là true.
+- Agent `claudehut-tournament-judge`: sonnet, chỉ đọc, trả về một dòng JSON cho mỗi cặp có thứ tự.
+- Reference `skills/deliberate/references/tournament.md`. Dòng T3 trong skill trỏ tới reference này; skill workflow không đổi.
+- Test TN1–TN8. Mutation 5/5 bị giết.
+- **Chưa chạy với model.** Tournament là opt-in, và decision suite chưa có case T3.
+
+### SCIP: hoãn
+
+SCIP là tuỳ chọn (05 §3), chỉ có ích trên service JVM thật, mà phase A không được index. Nó không chặn exit.
+
+### Chi phí và an toàn
+
+- Model: 6 lần chạy eval (n=1 debug, cộng 5 arm × n=3, trong đó có arm v1 không hợp lệ), tổng **$4,51** (giá list, quota plan).
+- `~/.claude/plugins/data` không đổi. `known_marketplaces.json` của user không có canary.
+- Quét marker trên diff M6 và các file mới: sạch.
+- Regression trên `cf140bf`: conformance 305; hook-tests 1244 (Python writer), 1236 (bash writer); reference-check 23/23; lint prompt xanh. README: 1993 assertion.
