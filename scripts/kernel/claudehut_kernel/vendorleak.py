@@ -11,7 +11,8 @@ Vendors come from two places, never from a hard-coded list (the public plugin sh
      name (CmcSmsProvider − SmsProvider → cmc). A port is external-looking when its name ends in Provider, Client,
      Sender, Gateway, Adapter, Exporter, Connector, Notifier or Integration; QrStrategy's Static/Dynamic are not
      vendors. A variant whose name does not end in the port name, or whose rest is a stop word, gives nothing.
-The derived families' variant dirs are the adapters: files there are not neutral. Only src/main code and *.sql files
+The adapters are not neutral: the derived families' variant dirs, and a package named after a vendor outside
+domain/model/entity/core (how an owner-listed vendor's adapter is recognised). Only src/main code and *.sql files
 are scanned; tests never are.
 """
 import json
@@ -109,6 +110,8 @@ def scan_java(rel, text, vset):
     m = re.search(r"^\s*package\s+([\w.]+)\s*;", text, re.M)
     if m:
         segs = m.group(1).split(".")
+        if not NEUTRAL_PKG & set(segs) and any(x.lower() in vset for x in segs):
+            return []   # a package named after the vendor, outside domain/model/…: that vendor's adapter
         if NEUTRAL_PKG & set(segs):
             for s in segs:
                 if s.lower() in vset:

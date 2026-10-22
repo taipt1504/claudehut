@@ -68,5 +68,10 @@ check "V10: a vendor package segment outside domain/model/entity/core is the ada
 check "V11: fields are judged only in entity / @ConfigurationProperties classes (NotifyService.fptFallback is not)" '! jq -e ".findings[]|select(.file|endswith(\"NotifyService.java\"))" "$TMP/add.json" >/dev/null'
 check "V12: CREATE TABLE fpt_callback is a table finding" '[ "$(jq -c "[.findings[]|select(.file|endswith(\"V3__cb.sql\"))|.kind]" "$TMP/add.json")" = "[\"table\"]" ]'
 
+# V13 added after the code (advisor review): an owner-listed vendor's own adapter package is not neutral either.
+printf 'package demo.payment.napas;\n\nenum NapasStatus {\n  NAPAS_OK\n}\n' >"$J/payment/napas/NapasStatus.java"
+vl "$P" src/main/java/demo/payment/napas >"$TMP/adp.json"; rc=$?
+check "V13: an enum inside the vendor-named adapter package (demo.payment.napas) is not a finding (rc=$rc)" '[ "$rc" = 0 ] && jq -e ".findings == []" "$TMP/adp.json" >/dev/null'
+
 echo "VENDORLEAK: $PASS passed, $FAIL failed"
 [ "$FAIL" = 0 ]

@@ -432,4 +432,8 @@ Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi
 - Có canary selftest. Skill `deliberate` và rubric R3 của design-reviewer gọi sensor sau khi viết code.
 - Chưa nối vào gate hay hook. Chưa chạy trên service thật, vì service thật cần `variation.json` mà phase A không index vào repo thật.
 
+**Sau review của advisor:**
+- Vendor do owner liệt kê không có thư mục adapter suy được, nên enum trong chính adapter của nó (`demo.payment.napas.NapasStatus`) từng bị flag. Đã sửa: package mang tên vendor và nằm ngoài domain/model/entity/core được coi là adapter. Thêm V13, viết sau code.
+- **Giới hạn đã biết:** nguồn `vendors.txt` của pack và `pack_invariants()` đều đọc `packs.load()` ở root plugin của kernel. Trong bản cài tách, `org-summer`/`domain-ewallet` là plugin khác mà kernel không đọc được (07 §1.1). Vì vậy hai nguồn này chưa hoạt động cho đến khi có registry, mục đầu tiên của M5.
+
 **Sửa roadmap:** tournament T3 thuộc **M6** (09 §2.2), không phải M4. Ghi nhầm ở mục M4 phía trên.
