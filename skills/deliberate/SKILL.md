@@ -63,6 +63,8 @@ Revisit when a 3rd variant appears or (b)/(c) becomes true.
   `SmsProvider` + factory is the same concern (outbound message vendor).
 - A request phrased as "quick", "minimal" or "like X" does not switch the rule off. Follow the rule, keep the
   change small inside the pattern, and say in one line why you did not copy X.
+  - Interactive, and X differs from the repo's pattern for the concern: one AskUserQuestion naming X, the
+    pattern and the rule, with the pattern as the recommended option. Headless: the rule, plus that one line.
 - **Vendor names in neutral places** (enum, column, shared properties, domain package) are a separate finding
   even with one vendor: name the column/enum by the role (`provider_message_id`), keep the vendor as data.
   After writing: `claudehut-verify vendor-leak <changed paths>` (advisory; vendors from the index and `vendors.txt`).
