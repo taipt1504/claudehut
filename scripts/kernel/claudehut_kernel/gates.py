@@ -3,11 +3,15 @@
 Mode: CLAUDEHUT_GATE_MODE env > topology.json .gates.mode > "warn". In "warn" a violation is recorded and
 reported but the transition proceeds; in "block" it is refused unless the caller passes an override reason.
 Every outcome is an event in the task log so metrics can count warn/block/override (08 §3).
+
+Pack invariants (04 §2, Q6) are declared in an active pack's manifest `invariants` and checked here; their mode is
+topology.json .gates.pack_mode > the manifest entry's "mode" > "warn". The kernel switch (env, .gates.mode) never
+escalates them: a pack invariant blocks only when the project asks for that explicitly.
 """
 import os
 import sys
 
-from . import events, plane, verify
+from . import events, packs, plane, verify
 
 MODES = ("warn", "block")
 
@@ -21,9 +25,36 @@ def mode(project_dir):
     return m if m in MODES else "warn"
 
 
-def decide(project_dir, task_dir, gate, violations, override=None):
+def pack_mode(project_dir, declared):
+    g = (plane.topology(project_dir).get("gates") or {})
+    m = str(g.get("pack_mode") or "").strip().lower() if isinstance(g, dict) else ""
+    return m if m in MODES else (declared if declared in MODES else "warn")
+
+
+def pack_invariants(project_dir, at):
+    """[(pack, entry)] declared for transition `at` by the packs active on this project."""
+    manifests, _ = packs.load()
+    active = {r["pack"] for r in packs.evaluate(project_dir, manifests) if r["active"]}
+    return [(n, e) for n in sorted(active) for e in manifests[n].get("invariants") or []
+            if isinstance(e, dict) and e.get("at") == at]
+
+
+def tier_needs_decision(task, task_dir):
+    """plan.tier-needs-decision (deliberation pack, a2 §1): tier T2/T3 needs the decision record before the plan."""
+    tier = task.get("tier") or ""
+    if tier in ("T2", "T3") and not os.path.isfile(os.path.join(task_dir, "decision.md")):
+        return [{"kind": "decision-missing", "at": f"tier {tier}",
+                 "fix": f"a {tier} task records its design decision before the plan: run the claudehut:deliberate "
+                        f"skill, which writes <plane>/tasks/{os.path.basename(task_dir)}/decision.md."}]
+    return []
+
+
+PACK_CHECKS = {"plan.tier-needs-decision": tier_needs_decision}
+
+
+def decide(project_dir, task_dir, gate, violations, override=None, m=None):
     """Return a decision dict and record the matching event. decision ∈ pass|warn|override|block."""
-    m = mode(project_dir)
+    m = m or mode(project_dir)
     if not violations:
         decision = "pass"
     elif m == "warn":
@@ -81,12 +112,21 @@ def run(which, project, task_dir, evidence=None, status="done", override=None, t
         d = decide(project, task_dir, "end", violations, override)
         if d["decision"] != "block" and record:
             events.append(task_dir, "task.ended", {"status": status, "gate": d["decision"]})
+    elif which == "plan":
+        violations, declared = [], "warn"
+        if (task.get("tier") or "") in ("T2", "T3"):   # the only pack check at set-plan; skip pack detection otherwise
+            for pack, e in pack_invariants(project, "set-plan"):
+                check = PACK_CHECKS.get(e.get("id"))
+                if check:
+                    violations += [dict(p, invariant=e["id"], pack=pack) for p in check(task, task_dir)]
+                    declared = e.get("mode") or declared
+        d = decide(project, task_dir, "plan", violations, override, m=pack_mode(project, declared))
     else:
         print(f"unknown gate {which}", file=sys.stderr)
         return 2, {}
     out.update(d)
     if d["violations"]:
-        label = {"warn": "WARN (gate mode warn, recorded)", "override": "OVERRIDDEN (recorded)",
+        label = {"warn": "WARN (recorded; the transition proceeds, no --override needed)", "override": "OVERRIDDEN (recorded)",
                  "block": "BLOCKED"}[d["decision"]]
         _human(d["violations"], f"gate {which} {label}")
     return (1 if d["decision"] == "block" else 0), out

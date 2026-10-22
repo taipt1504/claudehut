@@ -760,6 +760,9 @@ case "$sub" in
         fi
       fi
     fi
+    # Pack invariants at this transition (tier T2/T3 ⇒ decision.md, deliberation pack); default warn. Only a T2/T3
+    # task has one, so other plans do not pay for a python start.
+    case "$(jq -r '.tier // empty' <<<"$TASK")" in T2|T3) gate_call plan >/dev/null || exit 1 ;; esac
     tset --arg v "$p" '.plan_path=$v | .plan_approved=true'
     ;;
   set-plan-review)

@@ -15,6 +15,15 @@
   New should-not guard `decision/internal-client-beside-family` (the hint fires there); diagnostic
   `diagnostic/zns-forced-deliberate` (not scored). Decision suite on 1ace782, with vs without, n=3:
   should-abstract 8/9, should-not 6/6 (zns +0.67, bank-export +0.50, vendor-neutral +0.17, guards 0).
+- **Pack invariant, M4c:** `set-plan` on a T2/T3 task without `<task>/decision.md` is warned and recorded
+  (`gate.warned`, invariant `plan.tier-needs-decision`, declared in the deliberation manifest). Pack invariants
+  have their own mode, `topology.json .gates.pack_mode` (default `warn`); the kernel switch never escalates them.
+  The warn line now says the transition proceeds and no `--override` is needed.
+- **Sensor `claudehut-verify vendor-leak`, M4e** (advisory): vendor names in enum constants, columns/tables,
+  entity or `@ConfigurationProperties` fields, properties prefixes, domain packages and SQL migrations. Vendors
+  come from `<plane>/vendors.txt` / an active pack's `vendors.txt` and from the variants of external-looking port
+  families in the index; adapters, tests and YAML are not scanned. Frozen fixture: precision 1.0, recall 1.0.
+  Selftest canaries for it and for the plan gate. Route rubric: a new vendor integration is at least `light`.
 - `claudehut-state set-tier T0|T1|T2|T3 [--reason R] [--user-decision D]` (event `tier.set`; lowering a tier needs
   the user's decision), in both writers; `status` shows the tier.
 

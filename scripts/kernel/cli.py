@@ -4,7 +4,9 @@
   claudehut-verify claims <file.md>… [--project DIR] [--task DIR] [--json]
   claudehut-verify findings --task DIR [--evidence review.md] [--json]
   claudehut-verify verdict --task DIR [--json]
+  claudehut-verify vendor-leak [PATH…] [--project DIR] [--json]   vendor names in neutral places (advisory sensor)
   claudehut-kernel gate review-pass --project DIR --task DIR --evidence FILE [--override TEXT]
+  claudehut-kernel gate plan --project DIR --task DIR [--override R]   pack invariants at set-plan (default warn)
   claudehut-kernel gate end --project DIR --task DIR --status done|abandoned [--override TEXT]
   claudehut-kernel probe [--project DIR] [--write] [--advice]
   claudehut-kernel learn retract <id> --reason R [--hub DIR] | learn verify <id> --by X [--hub DIR]
@@ -31,7 +33,7 @@ import time  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, tasklog, verify  # noqa: E402
+from claudehut_kernel import dist, events, gates, learn, packs, plane, probe, selftest, tasklog, vendorleak, verify  # noqa: E402
 
 
 def _project(a):
@@ -85,6 +87,20 @@ def cmd_verdict(a):
     else:
         _human(problems, "verdict")
     return 1 if problems else 0
+
+
+def cmd_vendor_leak(a):
+    project = _project(a)
+    res = vendorleak.scan(project, a.paths)
+    if a.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        for h in res["findings"]:
+            print(f"vendor-leak: {h['file']}:{h['line']} {h['kind']} {h['text']} — {h['fix']}", file=sys.stderr)
+        fam = "" if res["families"] == "ok" else " (index missing: only vendors.txt was used — run claudehut-index update)"
+        print(f"vendor-leak: {len(res['vendors'])} vendor(s) known, {len(res['findings'])} finding(s){fam}",
+              file=sys.stderr)
+    return 1 if res["findings"] else 0
 
 
 def cmd_gate(a):
@@ -236,9 +252,14 @@ def main(argv):
     r.add_argument("--project")
     r.add_argument("--json", action="store_true")
     r.set_defaults(fn=cmd_verdict)
+    vl = vs.add_parser("vendor-leak")
+    vl.add_argument("paths", nargs="*")
+    vl.add_argument("--project")
+    vl.add_argument("--json", action="store_true")
+    vl.set_defaults(fn=cmd_vendor_leak)
 
     g = sub.add_parser("gate")
-    g.add_argument("which", choices=["review-pass", "end"])
+    g.add_argument("which", choices=["review-pass", "end", "plan"])
     g.add_argument("--project")
     g.add_argument("--task", required=True)
     g.add_argument("--evidence")

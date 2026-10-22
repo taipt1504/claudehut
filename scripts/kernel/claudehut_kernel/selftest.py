@@ -104,6 +104,8 @@ def run(plugin_root):
         results.append(_canary_replay(plugin_root, env, proj))
         results.append(_canary_claims(plugin_root, env, proj, tmp))
         results.append(_canary_probe(plugin_root, env, proj))
+        results.append(_canary_plan_gate(plugin_root, env, proj, tmp))
+        results.append(_canary_vendor_leak(plugin_root, env, tmp))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     return results
@@ -178,3 +180,47 @@ def _canary_probe(root, env, proj):
         mode = None
     ok = mode in ("plan", "api", "bedrock", "vertex", "foundry")
     return {"control": "canary host probe answers", "ok": ok, "why": "" if ok else f"exit {p.returncode}"}
+
+
+def _canary_plan_gate(root, env, proj, tmp):
+    """Pack invariant at set-plan: a T2 task without decision.md is warned (recorded), never refused by default."""
+    cs = os.path.join(root, "bin", "claudehut-state")
+    ok_lint = os.path.join(tmp, "doclint-ok")
+    with open(ok_lint, "w") as f:
+        f.write("#!/bin/sh\nexit 0\n")
+    os.chmod(ok_lint, 0o755)
+    e = dict(env, CLAUDEHUT_DOCLINT=ok_lint)
+    e.pop("CLAUDEHUT_PACKS", None)
+    p = subprocess.run([cs, "--session", "selftest-plan", "start", "--route", "light", "--slug", "plan-canary"],
+                       capture_output=True, env=e, cwd=proj, timeout=30)
+    td = (p.stdout.decode().strip().splitlines() or [""])[0]
+    subprocess.run([cs, "--session", "selftest-plan", "set-tier", "T2", "--reason", "canary"], capture_output=True,
+                   env=e, cwd=proj, timeout=30)
+    plan_md = os.path.join(plane.plane_dir(proj), "tasks", td, "task.md")
+    if td and os.path.isdir(os.path.dirname(plan_md)):
+        with open(plan_md, "w") as f:
+            f.write("# Task\n")
+    p = subprocess.run([cs, "--session", "selftest-plan", "set-plan", plan_md], capture_output=True, env=e, cwd=proj,
+                       timeout=30)
+    ok = p.returncode == 0 and b"plan.tier-needs-decision" not in p.stdout and b"decision-missing" in p.stderr
+    return {"control": "canary gate plan warns a T2 plan without decision.md", "ok": ok,
+            "why": "" if ok else f"exit {p.returncode}: {p.stderr.decode()[-160:]}"}
+
+
+def _canary_vendor_leak(root, env, tmp):
+    proj = os.path.join(tmp, "vendor-canary")
+    os.makedirs(os.path.join(proj, ".claudehut"))
+    os.makedirs(os.path.join(proj, "src", "main", "java", "demo", "domain"))
+    with open(os.path.join(proj, ".claudehut", "vendors.txt"), "w") as f:
+        f.write("Acme\n")
+    with open(os.path.join(proj, "src", "main", "java", "demo", "domain", "Route.java"), "w") as f:
+        f.write("package demo.domain;\n\npublic enum Route {\n  ACME,\n  OTHER\n}\n")
+    p = subprocess.run([os.path.join(root, "bin", "claudehut-verify"), "vendor-leak", "--project", proj, "--json"],
+                       capture_output=True, env=dict(env, CLAUDE_PROJECT_DIR=proj), cwd=proj, timeout=30)
+    try:
+        found = json.loads(p.stdout.decode()).get("findings", [])
+    except ValueError:
+        found = []
+    ok = p.returncode == 1 and [(x.get("kind"), x.get("vendor")) for x in found] == [("enum-constant", "acme")]
+    return {"control": "canary verify vendor-leak reports a vendor enum constant", "ok": ok,
+            "why": "" if ok else f"exit {p.returncode}, findings {found[:2]}"}

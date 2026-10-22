@@ -65,6 +65,7 @@ Revisit when a 3rd variant appears or (b)/(c) becomes true.
   change small inside the pattern, and say in one line why you did not copy X.
 - **Vendor names in neutral places** (enum, column, shared properties, domain package) are a separate finding
   even with one vendor: name the column/enum by the role (`provider_message_id`), keep the vendor as data.
+  After writing: `claudehut-verify vendor-leak <changed paths>` (advisory; vendors from the index and `vendors.txt`).
 - The rule also forbids: an interface with one implementation and no (a)/(b)/(c) "to be future-proof".
 
 ## 5. Options (T2+, ≥2)

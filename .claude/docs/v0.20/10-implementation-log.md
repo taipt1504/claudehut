@@ -398,3 +398,38 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
 | Độ chính xác của keyword gate (miễn phí) | Trên `deliberate.json`: fire 7/8 positive, 0/8 negative. Nhưng trên guard thật ("add … through the party client") gate có fire, và câu hint "this request adds a variant" khi đó là sai. Cả hai guard vẫn 1.00 nên chưa sửa câu chữ |
 
 Vấn đề chính sách còn mở: skill bảo agent theo pattern ngay cả khi user nói rõ "like X". Ở headless, đó là hành vi a2 đã duyệt. Trong session tương tác, hỏi một AskUserQuestion có lẽ hợp lý hơn. Chờ user quyết.
+
+## M4c–M4e — invariant tier/decision, route rubric, sensor vendor-leak (2026-10-22)
+
+**M4c: invariant pack `plan.tier-needs-decision`.**
+- Pack `deliberation` khai báo trong manifest: `{"id": "plan.tier-needs-decision", "at": "set-plan", "mode": "warn"}`. Kernel kiểm ở `set-plan` qua `gates.run("plan")`, ở cả hai writer. Bash chỉ gọi kernel khi tier là T2/T3, nên plan khác không tốn thêm một lần start python.
+- Điều kiện: pack đang active, tier T2/T3, `<task>/decision.md` không tồn tại. Chỉ kiểm file có tồn tại; "DEC có Confirmation" là invariant khác, chưa làm.
+- **Mode riêng cho invariant pack (Q6):** `topology.json .gates.pack_mode` > `mode` trong manifest > `warn`. `CLAUDEHUT_GATE_MODE` và `.gates.mode` (công tắc của kernel) không nâng nó lên block (GP1, GP12).
+- Dòng warn giờ ghi "recorded; the transition proceeds, no --override needed" và nêu tên skill, vì agent từng bịa `--override` khi dòng gate trông giống refuse.
+- Test GP1–GP12 trong `verify-tests` chạy dưới cả hai writer. Mutation 5: 4 bị giết. Mutant sống sót (bỏ lọc `at`) tương đương với manifest hiện tại, vì chỉ có một invariant.
+- Selftest có canary `gate plan warns a T2 plan without decision.md`.
+
+**M4d: route rubric.** Hàng `light` trong `claudehut-workflow/SKILL.md` thêm "a new vendor integration". Digest không đổi (chỉ còn 9 B), SKILL.md 6684/6700 B.
+
+**M4e: sensor `claudehut-verify vendor-leak`** (advisory, exit 1 khi có finding như các lệnh verify khác).
+- **Nguồn vendor**, không hard-code (plugin public không ship tên vendor):
+  - danh sách của owner `<plane>/vendors.txt`, hoặc `vendors.txt` trong pack đang active;
+  - suy từ `variation.json`: variant của họ port trông giống external (Provider, Client, Sender, Gateway, Adapter, Exporter, Connector, Notifier, Integration) trừ tên port, ví dụ `CmcSmsProvider − SmsProvider → cmc`. Có stop-list (`noop`, `static`, `default`, các danh từ concern…). Strategy/Handler không được suy.
+- **Chỗ quét:**
+  - enum constant, `@Column`/`@JoinColumn`/`@Table` name;
+  - field của class entity hoặc `@ConfigurationProperties`;
+  - prefix `@ConfigurationProperties`;
+  - segment package nằm trong domain/model/entity/core;
+  - SQL `ADD COLUMN`, `CREATE TABLE` (tên bảng và cột).
+- **Không quét:**
+  - thư mục variant của họ đã suy (adapter);
+  - test;
+  - YAML, vì `providers.<vendor>.*` là vendor ở dạng data, đúng chỗ.
+- **Đo:**
+  - Fixture `evals/fixtures/vendor-leak` (8 positive, 7 file negative) freeze ở `d593625`, trước code: **precision 1.0, recall 1.0 ngay lần chạy đầu**. Fixture và code cùng một người viết, nên chưa phải bằng chứng độc lập.
+  - Fixture `variation` (viết cho detector, không cho sensor này): suy đúng 7 vendor, 0 finding.
+- Mutation 9/9 bị giết. 3 mutant đầu sống sót (lọc package trung lập, giới hạn field theo class data, finding bảng) nên thêm V10–V12; ba test này ghi rõ là viết sau code.
+- Có canary selftest. Skill `deliberate` và rubric R3 của design-reviewer gọi sensor sau khi viết code.
+- Chưa nối vào gate hay hook. Chưa chạy trên service thật, vì service thật cần `variation.json` mà phase A không index vào repo thật.
+
+**Sửa roadmap:** tournament T3 thuộc **M6** (09 §2.2), không phải M4. Ghi nhầm ở mục M4 phía trên.

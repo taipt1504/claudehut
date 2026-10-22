@@ -13,8 +13,12 @@
     "agents/claudehut-design-reviewer.md"
   ],
   "guides": [],
-  "sensors": [],
-  "invariants": [],
+  "sensors": [
+    {"id": "vendor-leak", "run": "claudehut-verify vendor-leak", "mode": "advisory"}
+  ],
+  "invariants": [
+    {"id": "plan.tier-needs-decision", "at": "set-plan", "mode": "warn"}
+  ],
   "evals": [
     "evals/suites/decision/*"
   ]

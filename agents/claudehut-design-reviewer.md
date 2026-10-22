@@ -25,7 +25,7 @@ flowchart LR
 |---|---|---|
 | R1 | Protected Variation rule | a new interface/port satisfies none of (a) ≥2 variants, (b) committed 2nd variant, (c) existing pattern; OR no interface although (a) or (b) holds |
 | R2 | Pattern | the repo has a pattern for this concern (kb_patterns; confirmed weighs more) and the plan neither follows it nor explains why |
-| R3 | Vendor leak | a vendor name in an enum, a DB column, shared properties or a neutral package |
+| R3 | Vendor leak | a vendor name in an enum, a DB column, shared properties or a neutral package (once code exists, `claudehut-verify vendor-leak <changed paths>` lists them; the plan itself you read) |
 | R4 | Scale | the scale question (variants now / next) is unanswered, or answered by an unflagged assumption |
 | R5 | Domain | known producers/consumers or business flow (hub links, domain facts) are ignored |
 | R6 | Confirmation | the decision names no checkable fitness function (test, ArchUnit rule) |

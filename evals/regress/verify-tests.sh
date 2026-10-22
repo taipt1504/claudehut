@@ -274,6 +274,45 @@ out="$("$CP/bin/claudehut-kernel" selftest --json)"; rc=$?
 check "S3: a hook printing two JSON objects is reported DEAD (rc=$rc)" '[ "$rc" = 1 ] && jq -e ".results[]|select(.control|test(\"hint-explore\"))|select(.ok==false)" <<<"$out" >/dev/null'
 check "S4: a silent no-op failure recorder is reported DEAD" 'jq -e ".results[]|select(.control|test(\"record-failure keeps\"))|select(.ok==false)" <<<"$out" >/dev/null'
 
+# ── GP: pack invariant at set-plan (M4, 04 §2, Q6): tier T2/T3 ⇒ decision.md, declared by the deliberation pack.
+#    Default warn; the kernel switch (env / .gates.mode) never escalates it; only .gates.pack_mode=block does.
+STUB="$TMP/doclint-ok"; printf '#!/bin/sh\nexit 0\n' >"$STUB"; chmod +x "$STUB"
+gp_task() { # $1 repo  $2 session  $3 tier (or "-") → task id with a plan file; the doclint is stubbed (not under test)
+  local id; id="$(cs "$1" "$2" start --route light --slug p 2>/dev/null | head -1)"
+  [ "$3" = - ] || cs "$1" "$2" set-tier "$3" --reason "new vendor" 2>/dev/null
+  printf '# Task\n' >"$1/.claude/claudehut/tasks/$id/task.md"
+  printf '%s' "$id"
+}
+gp_plan() { local p="$1" s="$2" id="$3"; shift 3; CLAUDEHUT_DOCLINT="$STUB" cs "$p" "$s" set-plan ".claude/claudehut/tasks/$id/task.md" "$@"; }
+gp_n() { ev "$1" "$2" | jq -s "[.[]|select(.type|startswith(\"gate.\"))|select(.data.gate==\"plan\")]|length"; }
+P="$(newrepo gp)"
+id="$(gp_task "$P" gp1 T2)"
+CLAUDEHUT_GATE_MODE=block gp_plan "$P" gp1 "$id" 2>"$TMP/err"; rc=$?
+check "GP1: T2 without decision.md warns and proceeds even under CLAUDEHUT_GATE_MODE=block (rc=$rc)" '[ "$rc" = 0 ] && [ "$(tj "$P" "$id" | jq -r .plan_approved)" = true ]'
+check "GP2: recorded as gate.warned plan.tier-needs-decision from the deliberation pack" 'ev "$P" "$id" | jq -se "map(select(.type==\"gate.warned\" and .data.gate==\"plan\" and .data.violations[0].invariant==\"plan.tier-needs-decision\" and .data.violations[0].pack==\"deliberation\"))|length==1" >/dev/null'
+check "GP3: the warning says it proceeds and names the skill (not a refusal)" 'grep -q "transition proceeds, no --override needed" "$TMP/err" && grep -q "claudehut:deliberate" "$TMP/err"'
+: >"$P/.claude/claudehut/tasks/$id/decision.md"
+gp_plan "$P" gp1 "$id" 2>/dev/null
+check "GP4: with decision.md the gate passes (no new gate event)" '[ "$(gp_n "$P" "$id")" = 1 ]'
+id="$(gp_task "$P" gp2 T3)"; gp_plan "$P" gp2 "$id" 2>/dev/null
+check "GP5: T3 is checked too" '[ "$(gp_n "$P" "$id")" = 1 ]'
+id="$(gp_task "$P" gp3 T1)"; gp_plan "$P" gp3 "$id" 2>/dev/null
+check "GP6: T1 is not checked" '[ "$(gp_n "$P" "$id")" = 0 ]'
+id="$(gp_task "$P" gp4 -)"; gp_plan "$P" gp4 "$id" 2>/dev/null
+check "GP7: no tier is not checked" '[ "$(gp_n "$P" "$id")" = 0 ]'
+id="$(gp_task "$P" gp5 T2)"; CLAUDEHUT_PACKS="-deliberation" gp_plan "$P" gp5 "$id" 2>/dev/null
+check "GP8: deliberation pack off → silent" '[ "$(gp_n "$P" "$id")" = 0 ]'
+P2="$(newrepo gpb)"; printf '{"gates":{"pack_mode":"block"}}' >"$P2/.claude/claudehut/topology.json"
+id="$(gp_task "$P2" gp6 T2)"; before="$(tj "$P2" "$id")"
+gp_plan "$P2" gp6 "$id" 2>/dev/null; rc=$?
+check "GP9: .gates.pack_mode=block refuses (rc=$rc), task.json byte-identical" '[ "$rc" = 1 ] && [ "$(tj "$P2" "$id")" = "$before" ]'
+check "GP10: refusal recorded as gate.blocked" 'ev "$P2" "$id" | jq -se "map(select(.type==\"gate.blocked\" and .data.gate==\"plan\"))|length==1" >/dev/null'
+gp_plan "$P2" gp6 "$id" --override "decided in the design review of PR 7" 2>/dev/null; rc=$?
+check "GP11: --override proceeds and is recorded (rc=$rc)" '[ "$rc" = 0 ] && ev "$P2" "$id" | jq -se "map(select(.type==\"gate.overridden\" and .data.gate==\"plan\"))|length==1" >/dev/null'
+printf '{"gates":{"mode":"block"}}' >"$P2/.claude/claudehut/topology.json"
+id="$(gp_task "$P2" gp7 T2)"; gp_plan "$P2" gp7 "$id" 2>/dev/null; rc=$?
+check "GP12: .gates.mode=block (the kernel switch) does not escalate the pack invariant (rc=$rc)" '[ "$rc" = 0 ]'
+
 # ── SU: supersede goes through the end invariant (M1b-c; 0.12 closed a finished task as done with no gate). Python
 #    writer only: the 0.12 bash writer is the unchanged fallback. start/resume are never refused for the old task.
 if [ "${CLAUDEHUT_STATE_IMPL:-py}" != bash ]; then

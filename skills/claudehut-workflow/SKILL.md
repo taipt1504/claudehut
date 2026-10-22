@@ -17,7 +17,7 @@ imagine" are not signals.
 |---|---|---|
 | No file change: question, explanation, RCA, audit | `direct` | No task, no artifact, no review unless the user asks |
 | Diff you can state in one sentence, inside one module, no risk signal | `direct` | Edit, run the related tests; look up the index, hub or graph before Grep |
-| Clear intent, one obvious approach, needs new tests or several files in one service | `light` | `task.md` (Approach + Tasks), test-first, one reviewer |
+| Clear intent, one obvious approach, needs new tests or several files in one service; a new vendor integration | `light` | `task.md` (Approach + Tasks), test-first, one reviewer |
 | Unclear intent, or 2+ materially different approaches | `full` | Full phase chain below |
 | API/Kafka contract, schema/migration, authn/authz, or cross-service change | `full` | Full phase chain; review by lane |
 

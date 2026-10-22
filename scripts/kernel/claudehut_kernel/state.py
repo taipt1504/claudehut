@@ -930,6 +930,8 @@ class State:
                         self.err(f"set-plan: {p} differs from the plan that was reviewed (content hash mismatch). "
                                  f"Re-dispatch claudehut:claudehut-plan-reviewer and re-record set-plan-review APPROVE "
                                  f"before set-plan.")
+        if alt(self.task.get("tier"), "") in ("T2", "T3"):   # pack invariants here (T2/T3 ⇒ decision.md); default warn
+            self.gate_call("plan")
         self.task["plan_path"] = p
         self.task["plan_approved"] = True
 
