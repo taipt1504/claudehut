@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: payout-tournament-t3
+tags: [diagnostic, tournament, t3]
+context:
+  scaffold_script: scaffold.sh
