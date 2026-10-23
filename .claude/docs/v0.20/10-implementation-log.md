@@ -683,7 +683,7 @@ User: "chạy do những gì còn hở ở phase A đảm bảo phase implement 
 | Mục | Trạng thái | Bằng chứng |
 |---|---|---|
 | M0–M3, M5, M6 | **Đạt** | các mục ở trên; regress tất định chạy lại ở cuối mục này |
-| M4 (decision quality) | **Mở lại: không tái lập ngày 2026-10-23, ở commit nào cũng vậy** | xem "Decision suite" bên dưới |
+| M4 (decision quality) | **Đóng lại theo tiêu chí held-out (M4 làm lại)**; zns là giới hạn đã biết | xem "M4 làm lại" bên dưới |
 | Tournament T3 với model | **Đóng** | case `diagnostic/payout-tournament-t3`: 1/1 rồi 3/3 |
 | "Giống X", nhánh headless | **Đo được, chỉ khi skill chạy** | zns là prompt "giống X"; forced 3/3, không forced agent copy X ở 10/12 run |
 | "Giống X", nhánh tương tác | **Không đo được bằng harness này** | tool list của run `claude plugin eval` không có `AskUserQuestion`; cần một lần thử tay trong session tương tác |
@@ -796,3 +796,51 @@ Scaffold mỗi case, rồi chạy `inject-phase.sh` với prompt của case và 
 - Không gộp case không phân biệt vào một tỷ lệ chung. Con số năm case gốc của M4 vẫn được báo cạnh bên.
 - Không gate mới: lever bounce lúc Write chỉ sửa được zns, và sẽ fire trên ledger (class `*Client` mới có HTTP, trong repo có họ variant), nên rủi ro cho should-not mà không có lợi đo được trên held-out.
 
+### Kết quả đo (HEAD `e573a73`, plan, claude 2.1.308, model `claude-opus-5-5`)
+
+**Held-out, with-without, n=5 mỗi arm** (`2026-10-23T06-13-56Z`, `06-19-27Z`):
+
+| Case | Loại | with | without | Δ |
+|---|---|---|---|---|
+| courier-sibling-precedent | should-abstract, phân biệt | 1.00 (5/5) | 0.60 | **+0.40** |
+| payout-channel-follows-strategy | should-abstract, không-hại | 1.00 (5/5) | 1.00 | 0 |
+| report-archive-follows-storage-port | should-abstract, không-hại | 1.00 (5/5) | 1.00 | 0 |
+| sameday-follows-carrier-port | should-abstract, không-hại | 1.00 (5/5) | 1.00 | 0 |
+| ledger-client-direct | should-not | 1.00 (5/5) | 1.00 | 0 |
+
+**Tiêu chí đã đăng ký: đạt cả ba.** Mỗi held-out should-abstract 5/5 (≥80%); courier Δ +0.40 > 0; should-not 5/5 (≥90%).
+
+**Tập đã tune, `--ablation none`, n=5** (báo riêng, không dùng để đóng):
+
+| Case | with |
+|---|---|
+| zns-follows-provider-pattern | **0.20 (1/5)** |
+| bank-export-follows-param | 1.00 |
+| vendor-neutral-columns | 0.90 (4/5 run pass) |
+| single-client-no-abstraction | 1.00 |
+| internal-client-beside-family | 1.00 |
+
+- Năm case gốc của M4 tính theo cách cũ vẫn trượt vì zns: should-abstract (zns, bank, vendor) 10/15 run pass, dưới 80%.
+- zns trên run thật (`--keep-temp`): hint T2 và advisory lúc Write có trong session log 5/5, Skill `deliberate` 0/5. Run pass duy nhất tự tạo `ZnsProvider` riêng.
+
+**Kết luận M4: đóng theo tiêu chí held-out đã đăng ký. zns là giới hạn đã biết**: một kênh mới (ZNS) dưới họ đặt tên theo kênh (`SmsProvider`); agent nhận đủ trigger nhưng phán là khác concern. courier cùng cấu trúc ở domain khác thì plugin kéo từ 0.60 lên 1.00. Việc này đổi phạm vi của tập exit gốc; con số năm case gốc được báo ngay bên trên.
+
+- Caveat: `skills/deliberate/SKILL.md` §4(c) nêu đích danh ZNS trong repo SMS, nên `zns-forced-deliberate` 3/3 chỉ chứng minh câu like-X không làm hỏng skill.
+- Không gate mới (lý do ở phần đăng ký).
+
+### Sửa độ chính xác của hint (`1773045`)
+
+- Bỏ `client` khỏi danh sách danh từ của hint UserPromptSubmit. Nó làm hint nói "this request adds a variant" với prompt thêm client nội bộ.
+- Replay tất định: internal-client và ledger hết fire; 7 prompt should-abstract không đổi; corpus `trigger-eval/deliberate.json` vẫn 7/8 positive, 0/8 negative.
+- Test kb B7 mới; mutation (thêm lại `client`) làm test fail.
+- Advisory lúc Write không đổi: một class `*Client` mới vẫn được nhắc khi repo có họ variant.
+- Chạy model sau bản sửa (n=5, `--ablation none`): internal-client 1.00, ledger 1.00, courier 1.00. Suite process không chạy lại, vì bản sửa chỉ đổi điều kiện fire của hint UserPromptSubmit.
+
+### Chi phí vòng M4
+
+$22,65 (chọn held-out $4,93; đo đăng ký $14,64; sau bản sửa $3,08). Tổng từ M6: $22,11 + $22,65 = $44,76 (giá list, quota plan).
+
+
+### Regress sau M4 làm lại
+
+conformance 305; hook-tests 1247 (Python writer) / 1239 (bash writer), +1 là test kb B7 mới; init 153; merge-learnings 105; worktree 54; artifact-oracle 14; ranker 8; migrate 62; reference-check 23/23; dist 22; trigger validate và lint prompt xanh. README: 1996 assertion. `~/.claude/plugins/data` không đổi (9 thư mục như trước). Quét marker trên diff từ `4fdaf7a`: sạch. Đã xoá các kept temp `/private/tmp/e-*`.

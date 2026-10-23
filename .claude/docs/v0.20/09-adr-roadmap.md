@@ -83,7 +83,7 @@ Q6 đã chốt, nên Q-a và Q-b là `block` có `--override`. Khi bật, chạy
   - SCIP (tuỳ chọn, 05 §3): chỉ có ích trên service JVM thật, mà phase A không index repo thật.
   - Hai dòng scrub đổi hành vi hub: `hub.py` `DEFAULT_LIB_OWNER` → `aliases.json` `lib_owner`; check KB home Summer của `claudehut-migrate` đọc từ hub.
   - Metric pilot `review-no-locus` để đưa bản canary lên stable.
-  - Trigger recall của deliberation (M4 mở lại), nếu user không chọn làm ngay.
+  - Giới hạn đã biết của M4: kênh mới dưới họ variant đặt tên theo kênh (zns). Làm tiếp cần một held-out mới có đặc điểm này và quyết định của user rằng hai kênh là cùng concern.
 
 ## 3. Quyết định đã chốt (2026-10-21)
 
