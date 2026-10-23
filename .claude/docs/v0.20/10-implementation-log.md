@@ -716,7 +716,7 @@ User: "chạy do những gì còn hở ở phase A đảm bảo phase implement 
   - Điểm đổi theo ngày, không theo commit. Khác nhau giữa HEAD và `721e9be` (2/12 so với 3/9) không phân biệt được ở n này.
   - Claude Code: M4 chạy 2.1.306, hôm nay 2.1.308. Model lúc M4 không được ghi trong `run-meta.json`, nên không biết model có đổi không.
 - **Like-X không làm hỏng skill:** `diagnostic/zns-forced-deliberate` trên HEAD 3/3 ($0,98).
-- **Nguyên nhân gốc vẫn là trigger recall, như M4 đã nêu:** ở 6 run zns trên HEAD (`--keep-temp`), hint "Deliberation trigger" có trong session log 3/3 run đã kiểm; agent gọi Skill `deliberate` 1/6 và đó là run duy nhất pass. Agent thấy hint và vẫn theo "like X", "minimal", "don't ask".
+- **Nguyên nhân gốc vẫn là trigger recall, như M4 đã nêu:** ở 6 run zns trên HEAD (`--keep-temp`), hint "Deliberation trigger" có trong session log 3/3 run đã kiểm (*đính chính sau: grep đó khớp cả danh sách description của skill; replay tất định ở mục "M4 làm lại" xác nhận hint T2 có fire cho zns*); agent gọi Skill `deliberate` 1/6 và đó là run duy nhất pass. Agent thấy hint và vẫn theo "like X", "minimal", "don't ask".
 - **Không sửa trong lần đóng này.** zns và internal-client đã được dùng để chỉnh trigger; chỉnh câu hint thêm rồi đo trên chính chúng là overfit. Một bản sửa là một vòng EVL-4 với case held-out mới. Chờ user chọn: làm vòng đó ngay, hay mang M4 sang phase B.
 
 ### Tournament T3 với model
@@ -749,3 +749,50 @@ Lần đóng này: $14,84 (giá list, quota plan). Tổng M6 trở đi: $7,27 + 
 ### Regress sau khi đóng
 
 conformance 305; hook-tests 1246 (Python writer) / 1238 (bash writer); init 153; merge-learnings 105; worktree 54; artifact-oracle 14; ranker 8; migrate 62; reference-check 23/23; dist 22; trigger validate và lint prompt xanh. Case diagnostic mới không đổi số assertion. `~/.claude/plugins/data` không đổi.
+
+## M4 làm lại (2026-10-23)
+
+User: "làm luôn M4 ở phase này".
+
+### Case held-out mới (freeze trước mọi thay đổi lever)
+
+Chọn case dựa trên arm without; không có lever nào được đổi trong lúc chọn.
+
+| Case | Commit freeze | Loại | with | without | Ghi chú |
+|---|---|---|---|---|---|
+| report-archive-follows-storage-port | `17cb013` | should-abstract | 1.00 | 1.00 | không phân biệt; giữ làm guard không-hại |
+| ledger-client-direct | `17cb013` | should-not, tạo class client MỚI | 1.00 | 1.00 | guard cho lever lúc Write |
+| sameday-follows-carrier-port | `4ac2393` | should-abstract | 1.00 | 1.00 | không phân biệt; giữ làm guard không-hại |
+| courier-sibling-precedent | `90c4223` | should-abstract, cấu trúc zns ở domain khác | 1.00 | 0.33 | **phân biệt được**; thiết kế theo cấu trúc zns sau khi hai case trên không phân biệt |
+
+(n=3 mỗi arm, `--ablation with-without`.)
+
+### Replay tất định hint và advisory (miễn phí)
+
+Scaffold mỗi case, rồi chạy `inject-phase.sh` với prompt của case và `advise-variant.sh` với một Write class mới có URL:
+
+| Case | T2 hint | Advisory lúc Write |
+|---|---|---|
+| zns-follows-provider-pattern | fire | fire |
+| courier-sibling-precedent, sameday, payout, vendor-neutral | fire | fire |
+| bank-export-follows-param | fire | không (contract-param, không có họ port) |
+| report-archive-follows-storage-port | **không** (prompt "archive … in GCS" không khớp keyword) | fire |
+| internal-client-beside-family (should-not) | **fire sai** | fire |
+| ledger-client-direct (should-not) | **fire sai** | fire |
+| single-client-no-abstraction (should-not) | không | không |
+
+- zns: hint fire đúng. Vậy ở zns agent **nhận** trigger và vẫn chọn sai; đó là phán đoán "ZNS có cùng concern với SMS không", không phải trigger không fire.
+- courier: cùng hint, cùng advisory, Skill không được gọi, mà vẫn pass 3/3. Nội dung hint đủ khi concern hiển nhiên (giao hàng nhanh và giao hàng thường đều là carrier).
+- Độ chính xác của hint: fire sai ở 2/3 guard có họ variant. Không chặn, nhưng là lỗi thật.
+
+### Đăng ký trước khi đo (viết trước lần chạy dưới đây)
+
+- **Held-out, `--ablation with-without`, n=5 mỗi arm:** courier (case phân biệt), payout, report-archive, sameday (should-abstract không-hại), ledger (should-not).
+- **Tập đã tune, `--ablation none`, n=5, báo cáo riêng:** zns, bank-export, vendor-neutral, single-client, internal-client.
+- **Tiêu chí đóng M4:**
+  1. held-out should-abstract với plugin ≥80% ở **từng** case;
+  2. courier Δ (with − without) > 0;
+  3. held-out should-not với plugin ≥90%.
+- Không gộp case không phân biệt vào một tỷ lệ chung. Con số năm case gốc của M4 vẫn được báo cạnh bên.
+- Không gate mới: lever bounce lúc Write chỉ sửa được zns, và sẽ fire trên ledger (class `*Client` mới có HTTP, trong repo có họ variant), nên rủi ro cho should-not mà không có lợi đo được trên held-out.
+
