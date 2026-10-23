@@ -18,7 +18,7 @@ case "$fp" in */src/main/java/*.java|src/main/java/*.java) : ;; *) exit 0 ;; esa
 [ -e "$fp" ] && exit 0                                    # a new file only: editing an existing class is not a decision
 base="${fp##*/}"; cls="${base%.java}"
 # One more variant: the class name says so, or the new class itself calls an external system (an HTTP client or a
-# URL in its body) — `ZnsService` that POSTs to a vendor is an integration whatever it is called.
+# URL in its body) — `PushService` that POSTs to a vendor is an integration whatever it is called.
 case "$cls" in
   *Provider|*Client|*Sender|*Gateway|*Adapter|*Exporter|*Strategy|*Notifier|*Connector|*Integration) : ;;
   *) jq -e '.tool_input.content // "" | test("\\b(WebClient|RestTemplate|RestClient|HttpClient|HttpRequest|OkHttpClient|FeignClient)\\b|https?://")' \

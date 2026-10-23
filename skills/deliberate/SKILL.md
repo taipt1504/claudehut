@@ -59,8 +59,8 @@ Otherwise: write it directly, keep the seam easy to refactor, and record the def
 Revisit when a 3rd variant appears or (b)/(c) becomes true.
 ```
 
-- (c) is about the **concern**, not the class name: a ZNS sender in a repo whose SMS senders are
-  `SmsProvider` + factory is the same concern (outbound message vendor).
+- (c) is about the **concern**, not the class name: a push-notification sender in a repo whose email
+  senders are `EmailSender` + factory is the same concern (outbound message vendor).
 - A request phrased as "quick", "minimal" or "like X" does not switch the rule off. Follow the rule, keep the
   change small inside the pattern, and say in one line why you did not copy X.
   - Interactive, and X differs from the repo's pattern for the concern: one AskUserQuestion naming X, the

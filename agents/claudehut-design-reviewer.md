@@ -30,7 +30,7 @@ flowchart LR
 | R5 | Domain | known producers/consumers or business flow (hub links, domain facts) are ignored |
 | R6 | Confirmation | the decision names no checkable fitness function (test, ArchUnit rule) |
 
-Judge the CONCERN, not the class name: a new ZNS sender is the same concern as an existing SMS provider family.
+Judge the CONCERN, not the class name: a new push-notification sender is the same concern as an existing email sender family.
 Do not reward abstraction for its own sake: an interface with one implementation and no (a)/(b)/(c) is an R1
 FAIL ("speculative abstraction") just as a missing one is.
 

@@ -43,7 +43,7 @@ fi
 # come from the deterministic index (data, not instructions). Not "client": a new client to an internal service is
 # not a variant, and the hint said so falsely (M4 redo); a vendor client still meets the Write-time advisory.
 VAR_ADD_RE='(add|new|support|integrat|implement|introduc|wire|hook up|connect|onboard|thêm|tích hợp|hỗ trợ|bổ sung|kết nối)'
-VAR_NOUN_RE='(provider|vendor|bank|channel|gateway|partner|sms|zns|email|push|notif|payment|export|import|strategy|adapter|nhà cung cấp|ngân hàng|kênh|đối tác)'
+VAR_NOUN_RE='(provider|vendor|bank|channel|gateway|partner|sms|sender|message|email|push|notif|payment|export|import|strategy|adapter|nhà cung cấp|ngân hàng|kênh|đối tác)'
 lc="$(printf '%s' "$prompt" | tr '[:upper:]' '[:lower:]')"
 if [[ $lc =~ $VAR_ADD_RE ]] && [[ $lc =~ $VAR_NOUN_RE ]]; then
   VJ="$PLANE/index/variation.json"

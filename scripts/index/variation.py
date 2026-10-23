@@ -2,7 +2,7 @@
 docs/v0.20 05 §2, M3a).
 
 A variation point (VP) is a place where the code already chooses among variants of one concern. The decision
-evals fail when an agent adds a new variant (a ZNS sender, a second bank) as a hard-coded one-off next to an
+evals fail when an agent adds a new variant (a new message channel, a second bank) as a hard-coded one-off next to an
 existing selector. These detectors find the selectors; `kb_variation_points` / `kb_patterns` serve them.
 
   D1 multi-impl     an interface / abstract class with >=2 concrete production BEAN subtypes      # see rule:d1-*

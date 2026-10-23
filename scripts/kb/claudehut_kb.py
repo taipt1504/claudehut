@@ -48,7 +48,7 @@ TOOLS = [
                     "(multi-impl), the registry/factory/condition that selects one, and endpoint parameters that name "
                     "a variant (contract-param). Use before adding a provider, vendor, bank, channel or strategy.",
      "inputSchema": {"type": "object", "properties": {
-         "scope": {"type": "string", "description": "words for the concern (e.g. 'zns sender', 'bank export'); "
+         "scope": {"type": "string", "description": "words for the concern (e.g. 'push sender', 'bank export'); "
                                                     "ranks the results, never hides them"},
          "response_format": {"type": "string", "enum": ["concise", "detailed"], "default": "concise"}}}},
     {"name": "kb_patterns",
