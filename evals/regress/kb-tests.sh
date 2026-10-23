@@ -93,6 +93,8 @@ check "B7: an 'add a sender' prompt in an indexed repo gets ONE kb line naming t
 check "B7: … and the endpoint that takes the variant (bank)" 'jq -r ".hookSpecificOutput.additionalContext" <<<"$h" | grep -q "export(bank)"'
 q="$(ups "$J" "explain the refund flow")"
 check "B7: a prompt that adds nothing gets no hint" '! grep -q "Deliberation trigger" <<<"$q"'
+c="$(ups "$J" "Add a LedgerClient for ledger-ms, our own internal service")"
+check "B7: a new client to an internal service is not 'a variant' — 'client' alone does not fire the hint (M4 redo)" '! grep -q "Deliberation trigger" <<<"$c"'
 e="$(mkdir -p "$E/.claudehut/state"; ups "$E" "add a new sms provider")"
 check "B7: no variation point in the repo → no hint (silence, not an empty claim)" '! grep -q "Deliberation trigger" <<<"$e"'
 N="$(repo noidx "$ROOT/evals/fixtures/variation/repo")"; mkdir -p "$N/.claudehut/state"
