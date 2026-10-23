@@ -844,3 +844,15 @@ $22,65 (chọn held-out $4,93; đo đăng ký $14,64; sau bản sửa $3,08). T�
 ### Regress sau M4 làm lại
 
 conformance 305; hook-tests 1247 (Python writer) / 1239 (bash writer), +1 là test kb B7 mới; init 153; merge-learnings 105; worktree 54; artifact-oracle 14; ranker 8; migrate 62; reference-check 23/23; dist 22; trigger validate và lint prompt xanh. README: 1996 assertion. `~/.claude/plugins/data` không đổi (9 thư mục như trước). Quét marker trên diff từ `4fdaf7a`: sạch. Đã xoá các kept temp `/private/tmp/e-*`.
+
+### Scrub ví dụ domain của fixture khỏi plugin (`201ea90`)
+
+User hỏi: "với M4 đang enhance upgrade plugin sao lại có zns ở đây ?". zns là case eval (repo giả do `scaffold.sh` dựng, mô phỏng case N1 của a1), không phải service. Nhưng 6 chỗ trong plugin ship đã dùng ZNS/GapOne làm ví dụ hoặc keyword; user đồng ý bỏ.
+
+- Ví dụ trong `skills/deliberate/SKILL.md` §4(c) và `claudehut-design-reviewer`: "push-notification sender beside an email sender family". Mô tả tham số `scope` của kb và hai comment: ví dụ trung tính.
+- Keyword của hint: bỏ `zns`, thêm `sender` và `message` (danh từ chung cùng nhóm với `sms`, `email`, `push`). Chỉ bỏ `zns` thì mất hint ở vendor-neutral và 1 prompt corpus; thêm hai từ chung thì replay giống hệt trước: corpus 7/8 positive, 0/8 negative; 11 case decision fire như bảng replay ở trên.
+- `dist-tests` D2c: plugin public không có `zns|gapone` (trừ CHANGELOG, nơi tên case eval là lịch sử). Mutation: trên text cũ D2c fail (8 chỗ).
+- Case eval zns giữ nguyên trong `evals/`.
+- Chạy model sau scrub (n=3, `--ablation none`, $2,84): zns-forced-deliberate 1.00 (skill vẫn xử lý ZNS khi ví dụ đã trung tính), courier 1.00, internal-client 1.00, vendor-neutral 0.83 (1 run có cột vendor; trước đó 0.90 ở n=5 và 1.00 ở n=3; hint fire như cũ nên coi là nhiễu, chưa chứng minh).
+- Tổng chi phí từ M6: $44,76 + $2,84 = $47,60.
+- Regress sau scrub: conformance 305; hook-tests 1248 (Python writer) / 1240 (bash writer), +1 là D2c; reference-check 23/23; dist 23; các suite khác xanh. README: 1997 assertion.

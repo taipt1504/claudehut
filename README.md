@@ -494,9 +494,9 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1996 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 1997 assertions, all green on the release commit
 evals/conformance.sh              # 305  structural + behavioural wiring checks
-evals/hook-tests.sh               # 1247 advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 1248 advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness,plane-layout,state-diff,state-lock,tasklog,packs,dist,variation,kb,vendorleak,status,campaign,runner,profile-telemetry,tournament}-tests.sh (--fast: the first part only);
                                   #       index-tests counts 119 there (mutants + workspace off), 162 alone with mutants and the local-service part;
                                   #       hub-tests counts 107 there (workspace, dashboard and UA validator off), 119 alone with all three
