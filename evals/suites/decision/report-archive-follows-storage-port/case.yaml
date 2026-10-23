@@ -1,0 +1,5 @@
+schema_version: "1.1"
+name: report-archive-follows-storage-port
+tags: [decision, should-abstract, rule-c, held-out-m4r]
+context:
+  scaffold_script: scaffold.sh
