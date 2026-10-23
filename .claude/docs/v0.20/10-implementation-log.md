@@ -364,6 +364,8 @@ Theo mặc định, vì user hoãn quyết định: gate mode giữ `warn`; `cla
 - Description của skill được viết sắc hơn (trigger recall lên 14/24).
 - Thêm guard **should-not mới** `decision/internal-client-beside-family`: vẫn là một client nội bộ duy nhất, nhưng cạnh một họ SMS đang hoạt động, để hint chắc chắn fire. Thêm theo point 5 của advisor, vì guard single-client cũ không thể fail trước câu chữ mới.
 
+> **Đính chính (2026-10-23):** con số exit bên dưới không tái lập được. Chạy lại cùng ngày trên `1ace782`, `721e9be` và HEAD đều thấp hơn (xem "Đóng phase A"). 8/9 ở n=3 là một lần rút may mắn; M4 được mở lại.
+
 **Exit M4, đo trên `1ace782`** (`2026-10-21T17-15-57Z`, `--ablation with-without`, 3 run mỗi arm, plan quota, $5,38):
 
 | Case | Loại | with | without | Δ |
@@ -671,3 +673,79 @@ User chốt: "merge và resolve ở local luôn, các issues khác theo recommen
   - Decision suite chạy headless nên nhánh tương tác chưa đo được.
 - **Đã chốt, không đổi code:** gate mặc định `warn`; `claudehut-migrate-plane` là script riêng. Các chỗ "chờ user" ở trên coi như đã đóng.
 - **Suite process trên `b424a1a`** (`--tag process --runs 3 --ablation none`, plan, $2,76): end-refused-without-review 3/3, review-locus-first-try 3/3, review-pass-fixes-bad-citation 3/3, review-pass-new-plane 3/3, tức **12/12**. Lần chạy này phủ cả bản sửa header ở gate `review-pass` lẫn câu chữ mới. Chi phí model của M6 cộng phần sau M6: $4,51 + $2,76 = **$7,27** (giá list, quota plan).
+
+## Đóng phase A (2026-10-23)
+
+User: "chạy do những gì còn hở ở phase A đảm bảo phase implement done mọi thứ được clear rõ ràng nhất". Không push.
+
+### Bảng exit
+
+| Mục | Trạng thái | Bằng chứng |
+|---|---|---|
+| M0–M3, M5, M6 | **Đạt** | các mục ở trên; regress tất định chạy lại ở cuối mục này |
+| M4 (decision quality) | **Mở lại: không tái lập ngày 2026-10-23, ở commit nào cũng vậy** | xem "Decision suite" bên dưới |
+| Tournament T3 với model | **Đóng** | case `diagnostic/payout-tournament-t3`: 1/1 rồi 3/3 |
+| "Giống X", nhánh headless | **Đo được, chỉ khi skill chạy** | zns là prompt "giống X"; forced 3/3, không forced agent copy X ở 10/12 run |
+| "Giống X", nhánh tương tác | **Không đo được bằng harness này** | tool list của run `claude plugin eval` không có `AskUserQuestion`; cần một lần thử tay trong session tương tác |
+| Runner nhánh API key | **User miễn** | "API key tạm thời không test vì anh chỉ có claude code plan thôi" |
+| SCIP | **Sang phase B** | 09 §2.3 |
+| Hai dòng scrub đổi hành vi hub | **Sang phase B** | 09 §2.3 |
+| Metric pilot lên stable | **Sang phase B** | 09 §2.3 |
+| Scrub `evals/` | **Cổng trước push** | xem "Checklist trước push" |
+
+### Decision suite (plan, `--ablation none`, claude 2.1.308, model `claude-opus-5-5`)
+
+- Chạy `--tag decision --runs 3` trên `c1f9324` (`2026-10-23T01-10-36Z`, $3,90). Exit code 1 của lệnh là do `--threshold` mặc định 1.0, không phải crash.
+
+  | Case | Hôm nay | M4 exit |
+  |---|---|---|
+  | zns-follows-provider-pattern | 0.00 | 0.67 |
+  | bank-export-follows-param | 1.00 | 1.00 |
+  | vendor-neutral-columns | 1.00 | 1.00 |
+  | payout-channel-follows-strategy (held-out) | 1.00 | 1.00 |
+  | single-client-no-abstraction | 1.00 | 1.00 |
+  | internal-client-beside-family | 0.89 (2/3) | 1.00 |
+
+  - Ba case should-abstract mà M4 dùng: 6/9 (67%), dưới ngưỡng 80%. Tính cả payout: 9/12 (75%).
+  - Should-not: 5/6 (83%), dưới ngưỡng 90%.
+- **Tách nguyên nhân: commit hay ngày?** zns gộp các lần chạy hôm nay:
+  - HEAD: 2/12;
+  - `721e9be` (trước like-X): 3/9;
+  - `1ace782` (commit exit M4): 1/3, trong khi M4 ghi 0.67.
+  - Guard internal-client trên `1ace782` hôm nay: 0.89, M4 ghi 1.00. `721e9be`: 1.00.
+  - Điểm đổi theo ngày, không theo commit. Khác nhau giữa HEAD và `721e9be` (2/12 so với 3/9) không phân biệt được ở n này.
+  - Claude Code: M4 chạy 2.1.306, hôm nay 2.1.308. Model lúc M4 không được ghi trong `run-meta.json`, nên không biết model có đổi không.
+- **Like-X không làm hỏng skill:** `diagnostic/zns-forced-deliberate` trên HEAD 3/3 ($0,98).
+- **Nguyên nhân gốc vẫn là trigger recall, như M4 đã nêu:** ở 6 run zns trên HEAD (`--keep-temp`), hint "Deliberation trigger" có trong session log 3/3 run đã kiểm; agent gọi Skill `deliberate` 1/6 và đó là run duy nhất pass. Agent thấy hint và vẫn theo "like X", "minimal", "don't ask".
+- **Không sửa trong lần đóng này.** zns và internal-client đã được dùng để chỉnh trigger; chỉnh câu hint thêm rồi đo trên chính chúng là overfit. Một bản sửa là một vòng EVL-4 với case held-out mới. Chờ user chọn: làm vòng đó ngay, hay mang M4 sang phase B.
+
+### Tournament T3 với model
+
+- Case mới `diagnostic/payout-tournament-t3` (`ba83579`): repo payout có họ `PayoutChannel` + router, task full-route ở phase plan, prompt opt-in tournament với hai option (O0 channel mới, O1 gọi MoMo trực tiếp), headless.
+- Grader: judge được dispatch ≥2 lần; Bash `tournament aggregate`; trace có `tournament: (winner|no-winner|incomplete)`; `decision.md` ghi kết quả là assumption.
+- n=1: 1.00 ($0,70). n=3: 0.92 ($1,34). Run fail là do grader LLM (haiku) chấm FAIL 2/3 một `decision.md` đúng: `status: proposed (assumption, awaiting user confirmation — RISK: T3 money path, not self-approved)`.
+- **Sửa grader sau khi thấy kết quả** (`2f83e50`, ghi rõ là post-hoc): thay grader LLM bằng hai grader `tool_used` Write tất định: có `assumption|not confirmed|awaiting user` trong `decision.md`, và không có `status: accepted|approved|confirmed`. Probe: grader âm fire trên một input cài `status: accepted`, 0 trên 3 trace thật.
+- Chạy lại n=3: **1.00 (3/3)**, $1,61.
+- Cả 4 run có trace: `tournament: winner — O0 · pairs agreed 1, split 0, missing 0`. Hai thứ tự của judge khớp nhau (cùng chọn O0, criterion 1); `decision.md` ghi O0 là assumption có cờ rủi ro, không tự duyệt.
+
+### Dọn dẹp
+
+- `.gitignore`: thêm `evals/fixtures/**/bin/`. Các thư mục `evals/fixtures/hub/*/bin/main/` là output build của IDE/jdtls; không có `bin/` nào dưới `evals/fixtures` đang được track.
+- Worktree tạm `wt-721`, `wt-1ace` đã gỡ; kept temp `/private/tmp/e-*` của lần này đã xoá.
+- File untracked không phải do em tạo, để nguyên: `.understand-anything/`, `.worktreeinclude`, `CLAUDE.md` ở root, `.claude/reviews/prompt-audit-2026-10-01.*`.
+- `.claude/reviews/PR-improve-review-no-locus.md` (em tạo): đã cũ vì branch đã merge; để untracked, không push.
+
+### Checklist trước push
+
+1. Scrub `evals/` (fixture, test, danh sách marker của D2b) nếu push lên repo public. Test assert tên fixture, nên phải sửa cùng test.
+2. Không push `backup/v0.20-pre-filter`.
+3. `research/`, a1, a3 giữ local (đã ở `.gitignore`).
+4. Quét marker trên toàn bộ diff `main..HEAD`.
+
+### Chi phí
+
+Lần đóng này: $14,84 (giá list, quota plan). Tổng M6 trở đi: $7,27 + $14,84 = $22,11.
+
+### Regress sau khi đóng
+
+conformance 305; hook-tests 1246 (Python writer) / 1238 (bash writer); init 153; merge-learnings 105; worktree 54; artifact-oracle 14; ranker 8; migrate 62; reference-check 23/23; dist 22; trigger validate và lint prompt xanh. Case diagnostic mới không đổi số assertion. `~/.claude/plugins/data` không đổi.

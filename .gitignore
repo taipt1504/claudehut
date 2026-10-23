@@ -26,6 +26,7 @@ tests/.tmp/
 *.class
 evals/tasks/_fixtures/*/bin/
 evals/tasks/*/repo/bin/
+evals/fixtures/**/bin/
 
 # eval harness: keep committed reference rows, ignore nothing by default (rows are small evidence)
 

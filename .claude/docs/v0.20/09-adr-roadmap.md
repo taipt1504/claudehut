@@ -79,6 +79,11 @@ Q6 đã chốt, nên Q-a và Q-b là `block` có `--override`. Khi bật, chạy
 - `claudehut-migrate` lên 20 scope: cài ở user/managed scope, bundle, gỡ copy skill/checker/prompt, `task.json` → event log.
 - Campaign thật đầu tiên. Pilot trên payment-gateway-ms, va-ms, notification-ms.
 - Các câu hỏi domain trong a3 §5 (consumer/client chuẩn, topology DB ở DR, vendor class…).
+- Mang sang từ phase A (2026-10-23, xem [10](10-implementation-log.md) "Đóng phase A"):
+  - SCIP (tuỳ chọn, 05 §3): chỉ có ích trên service JVM thật, mà phase A không index repo thật.
+  - Hai dòng scrub đổi hành vi hub: `hub.py` `DEFAULT_LIB_OWNER` → `aliases.json` `lib_owner`; check KB home Summer của `claudehut-migrate` đọc từ hub.
+  - Metric pilot `review-no-locus` để đưa bản canary lên stable.
+  - Trigger recall của deliberation (M4 mở lại), nếu user không chọn làm ngay.
 
 ## 3. Quyết định đã chốt (2026-10-21)
 
