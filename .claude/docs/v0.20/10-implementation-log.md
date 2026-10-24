@@ -856,3 +856,18 @@ User hỏi: "với M4 đang enhance upgrade plugin sao lại có zns ở đây ?
 - Chạy model sau scrub (n=3, `--ablation none`, $2,84): zns-forced-deliberate 1.00 (skill vẫn xử lý ZNS khi ví dụ đã trung tính), courier 1.00, internal-client 1.00, vendor-neutral 0.83 (1 run có cột vendor; trước đó 0.90 ở n=5 và 1.00 ở n=3; hint fire như cũ nên coi là nhiễu, chưa chứng minh).
 - Tổng chi phí từ M6: $44,76 + $2,84 = $47,60.
 - Regress sau scrub: conformance 305; hook-tests 1248 (Python writer) / 1240 (bash writer), +1 là D2c; reference-check 23/23; dist 23; các suite khác xanh. README: 1997 assertion.
+
+## Chốt phase A: chạy model trọn bộ trên `6aa790c` (2026-10-24)
+
+`--runs 3 --ablation none`, plan, claude 2.1.308; $13,61.
+
+- **process 12/12:** end-refused-without-review, review-locus-first-try, review-pass-fixes-bad-citation, review-pass-new-plane đều 3/3.
+- **decision 27/30:** 9 case 3/3 (bank-export, courier, internal-client, ledger, payout, report-archive, sameday, single-client, vendor-neutral). zns 0/3 là giới hạn đã biết (M4 làm lại).
+- **diagnostic 9/9:** guard-forced-deliberate, payout-tournament-t3, zns-forced-deliberate đều 3/3.
+- Tổng chi phí từ M6: $47,60 + $13,61 = $61,21.
+
+### Trước push (repo `origin` là PUBLIC)
+
+- Quét marker nội bộ trên dòng **thêm mới** của `origin/main..HEAD`: 52 dòng (`ewallet` 22, `f8a` 11, `party-ms`/`notification-ms`/`java-common-ms` mỗi loại 8, …), nằm ở docs v0.20 tracked, fixture/test `evals/`, pack `org-summer` (`io.f8a.summer`, có chức năng) và `summer-kb-setup`. Không có secret; `taiphan` chỉ xuất hiện trong regex của D2b.
+- `origin/main` (đã public) có sẵn 971 dòng khớp cùng regex, nên đây không phải loại lộ mới; vẫn chờ user quyết trước khi push.
+- Nhánh tương tác "giống X": bộ thử tay đã chuẩn bị ở scratchpad (`ix-kit`), cần user chạy.
