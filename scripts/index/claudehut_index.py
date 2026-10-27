@@ -1098,7 +1098,7 @@ def shim_text(target):
 def refresh_shim():
     """A plugin upgrade moves the versioned install; `update` (run by maintain.sh every SessionStart) re-points an
     existing shim so installed git hooks keep working. Never creates one."""
-    data = os.environ.get("CLAUDE_PLUGIN_DATA")
+    data = plugin_data_dir()
     shim = os.path.join(data or "", "bin", "claudehut-index")
     if not data or not os.path.isfile(shim):
         return
@@ -1113,8 +1113,25 @@ def refresh_shim():
         pass
 
 
-def shim_cmd():
+def plugin_data_dir():
+    """CLAUDE_PLUGIN_DATA inside a session. A CLI run outside one (claudehut-migrate-plane, claudehut-init from a
+    terminal) has no such variable: derive it from an installed plugin's path, <config>/plugins/cache/<marketplace>/
+    <plugin>/<version>/ -> <config>/plugins/data/<plugin>-<marketplace> (the rule claudehut-migrate uses), so the hooks
+    call the shim, not a versioned path that dies on the next upgrade. A dev checkout gets None."""
     data = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if data:
+        return data
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(cli_path())))
+    rel = os.path.relpath(root, os.path.join(cfg, "plugins", "cache"))
+    parts = rel.split(os.sep)
+    if rel.startswith("..") or len(parts) != 3:
+        return None
+    return os.path.join(cfg, "plugins", "data", re.sub(r"[^A-Za-z0-9_-]", "-", "%s@%s" % (parts[1], parts[0])))
+
+
+def shim_cmd():
+    data = plugin_data_dir()
     target = os.path.abspath(cli_path())
     if not data:
         return target

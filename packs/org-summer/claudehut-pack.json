@@ -1,7 +1,7 @@
 {
   "$schema": "../claudehut-pack.schema.json",
   "pack": "org-summer",
-  "version": "0.20.0-dev.1",
+  "version": "0.20.0-dev.2",
   "kernel": "~0.20",
   "kind": "org",
   "description": "Summer Framework KB for consumer services (install, self-heal, always-on pointer).",

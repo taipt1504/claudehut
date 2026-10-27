@@ -74,6 +74,25 @@ grep -qx '@.claudehut/MEMORY.md' "$m/CLAUDE.md" && grep -qx 'keep @.claude/rules
   && ok "M: a local plane stays local (.claudehut/.gitignore '*'), the project .gitignore is untouched" || bad "M: gitignore handling"
 s1="$(snap "$m")"; "$MIG" --apply "$m" > "$TMP/re.out" 2>&1
 [ "$(snap "$m")" = "$s1" ] && grep -q 'already on' "$TMP/re.out" && ok "M: re-run is a no-op" || bad "M: re-run changed the tree"
+# Rollout (ewallet workspace root): CLAUDE.md imported @<hub>/.claude/claudehut/hub/HUB.md, which the own-plane rewrite
+# missed, and the root's MEMORY.md block kept naming .claude/claudehut.
+w="$TMP/ws"; mkdir -p "$w/.claude/claudehut" "$w/kn/.claude/claudehut/hub"; printf 'hub\n' > "$w/kn/.claude/claudehut/hub/HUB.md"
+printf '{"mode":"microservice","hub":"kn"}\n' > "$w/.claude/claudehut/topology.json"
+printf '<!-- claudehut:generated:start -->\n- Plane: `%s/.claude/claudehut`\n<!-- claudehut:generated:end -->\n\n## Mine\nkeep\n' "$w" > "$w/.claude/claudehut/MEMORY.md"
+printf '@.claude/claudehut/PROJECT.md\n@kn/.claude/claudehut/hub/HUB.md\n' > "$w/CLAUDE.md"
+"$MIG" --apply "$w" > "$TMP/ws1.out" 2>&1
+grep -qx '@.claudehut/PROJECT.md' "$w/CLAUDE.md" && grep -qx '@kn/.claude/claudehut/hub/HUB.md' "$w/CLAUDE.md" && grep -q 'not moved yet' "$TMP/ws1.out" \
+  && ok "M: an import of a plane not moved yet (the hub) stays, with a note" || bad "M: early hub import: $(cat "$w/CLAUDE.md") $(cat "$TMP/ws1.out")"
+grep -qF "/ws/.claudehut\` — " "$w/.claudehut/MEMORY.md" && grep -qx 'keep' "$w/.claudehut/MEMORY.md" \
+  && ok "M: the MEMORY.md block names the new plane, the notes below the end marker stay" || bad "M: MEMORY.md: $(cat "$w/.claudehut/MEMORY.md")"
+"$MIG" --apply "$w/kn" >/dev/null 2>&1; "$MIG" --apply "$w" > "$TMP/ws2.out" 2>&1
+grep -qx '@kn/.claudehut/hub/HUB.md' "$w/CLAUDE.md" && [ -f "$w/kn/.claudehut/hub/HUB.md" ] \
+  && ok "M: once the hub moved, a re-run rewrites the root's hub import" || bad "M: hub import after move: $(cat "$w/CLAUDE.md")"
+t="$TMP/tr"; mkdir -p "$t/.claude/claudehut"; git -C "$t" init -q; printf 'p\n' > "$t/.claude/claudehut/PROJECT.md"
+git -C "$t" add -A && git -C "$t" -c user.email=t@t -c user.name=t commit -qm x; printf '.claudehut/\n' > "$t/.gitignore"
+"$MIG" --apply "$t" > "$TMP/tr.out" 2>&1
+grep -q 'WARN: the project .gitignore ignores .claudehut/' "$TMP/tr.out" \
+  && ok "M: a tracked plane whose new path the project ignores gets a WARN" || bad "M: tracked+ignored: $(cat "$TMP/tr.out")"
 b="$TMP/both"; mkdir -p "$b/.claudehut" "$b/.claude/claudehut"
 "$MIG" --apply "$b" > "$TMP/both.out" 2>&1 && bad "M: both layouts not refused" \
   || { [ -d "$b/.claude/claudehut" ] && grep -q REFUSED "$TMP/both.out" && ok "M: a repo with both layouts is refused, nothing moved" || bad "M: both-layout handling"; }

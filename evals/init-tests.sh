@@ -369,6 +369,29 @@ chmod +w "$WX/.claudehut" 2>/dev/null
   || bad "RES-X1: init reported success while writing nothing"
 rm -rf "$WX"
 
+echo; echo "== R-1: --refresh keeps hand edits (rendered.txt) =="
+# Rollout pilot (wallet-ms): --refresh replaced an enriched PROJECT.md / architecture.md / LANGUAGE.md with seed stubs,
+# cut reuse-index.json to the empty skeleton and dropped the notes below the MEMORY.md end marker.
+WR="$(run_init "$ROOT/evals/tasks/clean-first-run/repo")"
+P="$WR/.claudehut"
+printf '\n- Layers: hand-enriched\n' >> "$P/PROJECT.md"
+printf '\n## My notes\nkeep me\n' >> "$P/MEMORY.md"
+printf '{"components":[{"id":"Mine"}]}\n' > "$P/reuse-index.json"
+lang0="$(cat "$P/LANGUAGE.md")"; printf 'stale\n' >> "$P/LANGUAGE.md"; sed -i.bak '$d' "$P/LANGUAGE.md"; rm -f "$P/LANGUAGE.md.bak"
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WR" --refresh 2>&1)"
+grep -q 'hand-enriched' "$P/PROJECT.md" && grep -q 'keep me' "$P/MEMORY.md" && grep -q '"Mine"' "$P/reuse-index.json" \
+  && ok "R-1: --refresh keeps an edited PROJECT.md, the MEMORY.md notes and the legacy reuse-index.json" \
+  || bad "R-1: --refresh overwrote a hand edit: $(printf '%s' "$out" | grep -E 'wrote|keep' | tr '\n' ' ')"
+printf '%s' "$out" | grep -q "wrote: .claudehut/LANGUAGE.md" && [ "$(cat "$P/LANGUAGE.md")" = "$lang0" ] \
+  && ok "R-1: --refresh still regenerates a file nobody edited since init wrote it" \
+  || bad "R-1: an unedited LANGUAGE.md was not regenerated: $(printf '%s' "$out" | grep LANGUAGE)"
+rm -f "$P/rendered.txt"
+out="$(CLAUDE_PLUGIN_ROOT="$ROOT" "$INIT" "$WR" --refresh 2>&1)"
+printf '%s' "$out" | grep -q "keep (edited since init wrote it; delete the file to regenerate): .claudehut/LANGUAGE.md" \
+  && ok "R-1: a plane without rendered.txt (made before it existed) keeps every memory file" \
+  || bad "R-1: a pre-record plane lost a memory file: $(printf '%s' "$out" | grep LANGUAGE)"
+rm -rf "$(dirname "$WR")"
+
 echo; echo "== RULE-17: --audit reports drift read-only =="
 # --refresh-rules only reports stale rules while RE-EMITTING, and bootstrap.sh runs it with stdout
 # discarded on every version bump, so the report never reached a human. --audit reaches an already-stamped

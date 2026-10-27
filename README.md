@@ -1,6 +1,6 @@
 # ClaudeHut
 
-> **v0.20.0-dev.1** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
+> **v0.20.0-dev.2** · a Claude Code plugin for **Java / Spring Boot backend engineers**.
 
 ClaudeHut gives Claude Code a working method for Spring backends: a per-repo codebase index, project memory,
 path-scoped stack rules and a set of phase skills and agents (discover, brainstorm, spec, plan, implement,
@@ -494,14 +494,14 @@ All tests are reproducible from the repo. The deterministic suite needs no Claud
 Claude Code headlessly and cost tokens.
 
 ```bash
-# deterministic (free, no Claude needed) — 1997 assertions, all green on the release commit
+# deterministic (free, no Claude needed) — 2005 assertions, all green on the release commit
 evals/conformance.sh              # 305  structural + behavioural wiring checks
-evals/hook-tests.sh               # 1248 advisory hook contract, fault injection, replays, state schema 2,
+evals/hook-tests.sh               # 1253 advisory hook contract, fault injection, replays, state schema 2,
                                   #       then evals/regress/{state,script,doclint,review-pack,index,hub,verify,eval-harness,plane-layout,state-diff,state-lock,tasklog,packs,dist,variation,kb,vendorleak,status,campaign,runner,profile-telemetry,tournament}-tests.sh (--fast: the first part only);
-                                  #       index-tests counts 119 there (mutants + workspace off), 162 alone with mutants and the local-service part;
+                                  #       index-tests counts 120 there (mutants + workspace off), 163 alone with mutants and the local-service part;
                                   #       hub-tests counts 107 there (workspace, dashboard and UA validator off), 119 alone with all three
 evals/hook-bench.sh               #       AC12 hook latency benchmark — a report; HOOK_BENCH_STRICT=1 gates it
-evals/init-tests.sh               # 153  claudehut-init: detection, plane generation, migrations
+evals/init-tests.sh               # 156  claudehut-init: detection, plane generation, migrations
 evals/merge-learnings-tests.sh    # 105  learnings merge, prune, injection, federation
 evals/reference-check.sh          #  23  reference oracles, MCP inventory, doc anchors, NUL bytes,
                                   #       and the freshness of the counts in this very list

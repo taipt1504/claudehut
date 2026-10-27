@@ -7,11 +7,15 @@
 #   --dry-run  prints, per repo, what --apply would do. Writes nothing.
 #   --apply    per repo:
 #                1. mv .claude/claudehut .claudehut (a hub root's hub/ moves with it: <hub>/.claudehut/hub)
-#                2. CLAUDE.md: the @.claude/claudehut/ imports become @.claudehut/ (nothing else is touched)
+#                2. CLAUDE.md: @imports of a moved plane become .claudehut/ — this repo's own @.claude/claudehut/ and
+#                   another repo's, e.g. a hub's @<hub>/.claude/claudehut/hub/HUB.md (nothing else is touched)
 #                3. a plane that was NOT tracked by git and is now not ignored gets .claudehut/.gitignore = '*'
 #                   (it was local before; it stays local). A tracked plane is reported: commit the rename yourself
-#                4. the index git hooks (if installed) are re-installed, so they find the new path
-#              Never commits, pushes, or edits the project .gitignore. Safe to re-run (a moved repo is skipped).
+#                   (WARN when the project .gitignore ignores .claudehut/: git then shows the plane as deleted)
+#                4. the MEMORY.md generated block is regenerated (it names the plane path)
+#                5. the index git hooks (if installed) are re-installed, so they find the new path
+#              Never commits, pushes, or edits the project .gitignore. Safe to re-run: a moved repo is skipped,
+#              except step 2 for a plane moved since (e.g. the hub, migrated after the workspace root).
 # A repo with BOTH layouts is refused: the resolver already uses .claudehut/, merging is a human decision.
 # Exit: 0 all done or nothing to do, 1 at least one repo refused or failed, 2 usage.
 set -uo pipefail
@@ -26,7 +30,7 @@ for a in "$@"; do
   case "$a" in
     --dry-run) ACTION=dry ;;
     --apply) ACTION=apply ;;
-    -h|--help) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "claudehut-migrate-plane: unknown flag $a" >&2; exit 2 ;;
     *) REPOS+=("$a") ;;
   esac
@@ -34,12 +38,48 @@ done
 [ -n "$ACTION" ] || { echo "claudehut-migrate-plane: pass --dry-run or --apply" >&2; exit 2; }
 [ "${#REPOS[@]}" -gt 0 ] || REPOS=("${CLAUDE_PROJECT_DIR:-$PWD}")
 
+# fix_imports REPO dry|apply — CLAUDE.md @imports of a legacy plane path become the new one, wherever the plane they name
+# (this repo's own, or another repo's such as a hub's HUB.md: @<hub>/.claude/claudehut/hub/HUB.md) has moved: its
+# legacy dir is gone and its new dir exists. An import of a plane not moved yet stays; re-run this after moving it.
+fix_imports() {
+  [ -f "$1/CLAUDE.md" ] || return 0
+  python3 -I - "$1" "$2" <<'PY'
+import os, re, sys
+repo, mode = sys.argv[1], sys.argv[2]
+path = os.path.join(repo, "CLAUDE.md")
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+done, left = [], []
+def sub(m):
+    pre = m.group(1)
+    base = os.path.join(repo, pre)
+    if os.path.isdir(os.path.join(base, ".claude", "claudehut")) or not os.path.isdir(os.path.join(base, ".claudehut")):
+        left.append(m.group(0))
+        return m.group(0)
+    done.append(m.group(0))
+    return "@" + pre + ".claudehut/"
+new = re.sub(r"@(\S*?)\.claude/claudehut/", sub, text)
+if done:
+    if mode == "apply":
+        tmp = path + ".tmp.%d" % os.getpid()
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(new)
+        os.replace(tmp, path)
+        print("  rewrote: CLAUDE.md imports (%d)" % len(done))
+    else:
+        print("  would rewrite: CLAUDE.md imports (%d)" % len(done))
+for imp in sorted(set(left)):
+    print("  note: CLAUDE.md %s... names a plane not moved yet; re-run after moving it" % imp)
+PY
+}
+
 rc=0
 for r in "${REPOS[@]}"; do
   r="${r%/}"; old="$r/$CH_PLANE_LEGACY"; new="$r/$CH_PLANE_NEW"
   echo "== $r"
   if [ ! -d "$old" ]; then
     if [ -d "$new" ]; then echo "  already on $CH_PLANE_NEW/ — skipped"; else echo "  no plane — skipped"; fi
+    fix_imports "$r" "$ACTION" || rc=1
     continue
   fi
   if [ -e "$new" ]; then
@@ -50,8 +90,6 @@ for r in "${REPOS[@]}"; do
   if git -C "$r" rev-parse --git-dir >/dev/null 2>&1 && [ -n "$(git -C "$r" ls-files -- "$CH_PLANE_LEGACY" 2>/dev/null | head -1)" ]; then
     tracked=true
   fi
-  imports=false
-  grep -q "@$CH_PLANE_LEGACY/" "$r/CLAUDE.md" 2>/dev/null && imports=true
   hooks=false
   hd="$(git -C "$r" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" || hd=""
   for h in post-commit post-merge post-checkout; do
@@ -59,8 +97,10 @@ for r in "${REPOS[@]}"; do
   done
   if [ "$ACTION" = dry ]; then
     echo "  would move: $CH_PLANE_LEGACY/ -> $CH_PLANE_NEW/ ($(find "$old" -type f 2>/dev/null | wc -l | tr -d ' ') files)"
-    $imports && echo "  would rewrite: CLAUDE.md @$CH_PLANE_LEGACY/ imports -> @$CH_PLANE_NEW/"
+    grep -q "@$CH_PLANE_LEGACY/" "$r/CLAUDE.md" 2>/dev/null && echo "  would rewrite: CLAUDE.md @$CH_PLANE_LEGACY/ imports -> @$CH_PLANE_NEW/"
     if $tracked; then echo "  note: the plane is tracked by git — commit the rename yourself"
+      git -C "$r" check-ignore -q "$CH_PLANE_NEW/MEMORY.md" 2>/dev/null \
+        && echo "  WARN: the project .gitignore ignores $CH_PLANE_NEW/ — the tracked plane would show as deleted"
     else echo "  would write: $CH_PLANE_NEW/.gitignore '*' if the new path is not ignored (the plane stays local)"; fi
     $hooks && echo "  would re-install: index git hooks"
     continue
@@ -68,15 +108,20 @@ for r in "${REPOS[@]}"; do
   mv "$old" "$new" || { echo "  FAILED: mv $old $new"; rc=1; continue; }
   rmdir "$r/.claude" 2>/dev/null || :   # only when nothing else lives in .claude/
   echo "  moved: $CH_PLANE_LEGACY/ -> $CH_PLANE_NEW/"
-  if $imports; then
-    tmp="$r/CLAUDE.md.tmp.$$"
-    sed "s#@$CH_PLANE_LEGACY/#@$CH_PLANE_NEW/#g" "$r/CLAUDE.md" > "$tmp" && mv -f "$tmp" "$r/CLAUDE.md" \
-      && echo "  rewrote: CLAUDE.md imports" || { rm -f "$tmp"; echo "  FAILED: CLAUDE.md imports"; rc=1; }
-  fi
+  fix_imports "$r" apply || { echo "  FAILED: CLAUDE.md imports"; rc=1; }
   if $tracked; then
     echo "  note: the plane was tracked by git — review and commit the rename yourself"
+    if git -C "$r" check-ignore -q "$CH_PLANE_NEW/MEMORY.md" 2>/dev/null; then
+      echo "  WARN: the project .gitignore ignores $CH_PLANE_NEW/ — git shows the tracked plane as deleted. Commit the"
+      echo "        deletion to make the plane local, or un-ignore $CH_PLANE_NEW/ to keep sharing it"
+    fi
   elif ! git -C "$r" check-ignore -q "$CH_PLANE_NEW/MEMORY.md" 2>/dev/null && [ ! -e "$new/.gitignore" ]; then
     printf '*\n' > "$new/.gitignore" && echo "  wrote: $CH_PLANE_NEW/.gitignore '*' (the plane stays local)"
+  fi
+  # the generated MEMORY.md block names the plane path; regenerate it (notes below the end marker are kept)
+  if [ -f "$new/MEMORY.md" ] && [ -x "$IDX" ]; then
+    "$IDX" memory --plane "$new" >/dev/null 2>&1 && echo "  refreshed: MEMORY.md generated block" \
+      || echo "  WARN: refresh MEMORY.md: claudehut-index memory"
   fi
   if $hooks && [ -x "$IDX" ]; then
     "$IDX" install-git-hooks --plane "$new" >/dev/null 2>&1 && echo "  re-installed: index git hooks" \

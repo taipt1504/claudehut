@@ -1,7 +1,7 @@
 {
   "$schema": "../claudehut-pack.schema.json",
   "pack": "workflow-standard",
-  "version": "0.20.0-dev.1",
+  "version": "0.20.0-dev.2",
   "kernel": "~0.20",
   "kind": "workflow",
   "description": "Phases discover → spec → plan → implement → review → learn; templates, router rubric, phase agents.",

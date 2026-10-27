@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.20.0-dev.2 — 2026-10-27 · fixes from the first service rollout (a dev build, not a release)
+
+- **`claudehut-init --refresh` keeps hand edits.** The first rollout pilot lost an enriched `PROJECT.md`,
+  `architecture.md` and `LANGUAGE.md`, the legacy `reuse-index.json` and the notes below the `MEMORY.md` end marker.
+  - init now records the sha256 of each file it writes in `<plane>/rendered.txt`.
+  - `--refresh` overwrites a file only when it still matches that record. A plane from before the record keeps
+    every memory file. Delete a file to regenerate it.
+  - `reuse-index.json` is legacy and read-only: `--refresh` never writes it.
+- **`claudehut-migrate-plane`:**
+  - Rewrites an `@import` of another repo's moved plane too, e.g. a workspace root's
+    `@<hub>/.claude/claudehut/hub/HUB.md`. An import of a plane not moved yet stays, with a note. A re-run rewrites it
+    once that plane has moved.
+  - Regenerates the `MEMORY.md` generated block, which names the plane path. Notes below the end marker stay.
+  - WARNs when the plane was tracked by git and the project `.gitignore` ignores `.claudehut/`: git then shows the
+    plane as deleted.
+- **Git hooks installed from a terminal call the stable shim.** Without `CLAUDE_PLUGIN_DATA`, `install-git-hooks`
+  wrote the versioned cache path, which dies on the next plugin update. The data dir is now derived from an installed
+  plugin's path (`<config>/plugins/data/<plugin>-<marketplace>`), the rule `claudehut-migrate` already used.
+- **index-tests mutants build again.** The mutant copy lacked `planepath.py` and the kernel, so no mutant index was
+  built: 7 library checks failed and the other mutant checks passed for the wrong reason.
+
 ## Unreleased — 0.20 M6 (improvement loop, tournament)
 
 - **Mining classifier, M6a** (08 §3, §5):

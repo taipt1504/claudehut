@@ -871,3 +871,22 @@ User hỏi: "với M4 đang enhance upgrade plugin sao lại có zns ở đây ?
 - Quét marker nội bộ trên dòng **thêm mới** của `origin/main..HEAD`: 52 dòng (`ewallet` 22, `f8a` 11, `party-ms`/`notification-ms`/`java-common-ms` mỗi loại 8, …), nằm ở docs v0.20 tracked, fixture/test `evals/`, pack `org-summer` (`io.f8a.summer`, có chức năng) và `summer-kb-setup`. Không có secret; `taiphan` chỉ xuất hiện trong regex của D2b.
 - `origin/main` (đã public) có sẵn 971 dòng khớp cùng regex, nên đây không phải loại lộ mới; vẫn chờ user quyết trước khi push.
 - Nhánh tương tác "giống X": bộ thử tay đã chuẩn bị ở scratchpad (`ix-kit`), cần user chạy.
+
+## Rollout cụm ewallet và bản sửa 0.20.0-dev.2 (2026-10-27)
+
+User quyết định rollout (phase B, mục `claudehut-migrate` trong [09](09-adr-roadmap.md) §2.3). Phạm vi: 20 project scope (19 service và workspace root) cùng hub; không commit, không push trong các repo service.
+
+- Trước khi ghi: backup tar mỗi repo (`.claude/`, `CLAUDE.md`, `.gitignore`, `.worktreeinclude`, `.git/hooks`), root, `installed_plugins.json` và cache 0.12.6; snapshot `git status` mỗi repo. Đợi user đóng các session 0.12.6 đang mở trong cụm.
+- `claude plugin update` 0.12.6 → 0.20.0-dev.1 trên 20 scope; `claudehut-migrate-plane --apply`; `claudehut-init` (không `--refresh`) để index lại và hub-sync.
+- Kết quả: không file nào viết tay đổi so với backup; hub giữ 19 service, 350 edge, `aliases.json` và `fleet-learnings.jsonl` nguyên vẹn; task cũ (`task.json` schema 2, không `events.jsonl`) kernel vẫn đọc.
+
+Lỗi tìm thấy, sửa trong 0.20.0-dev.2:
+
+- **`--refresh` ghi đè phần viết tay.** Pilot wallet-ms mất `PROJECT.md`, `architecture.md`, `LANGUAGE.md` đã bổ sung, `reuse-index.json` (6,6K → 230B) và ghi chú dưới end marker của `MEMORY.md`; đã khôi phục từ backup. Sửa: init ghi sha256 của file nó viết vào `<plane>/rendered.txt`; `--refresh` chỉ ghi đè file còn khớp; plane chưa có record giữ nguyên mọi file; `reuse-index.json` không bao giờ bị ghi lại.
+- **`migrate-plane` bỏ sót import hub của workspace root** (`@<hub>/.claude/claudehut/hub/HUB.md`) và để `MEMORY.md` root trỏ đường dẫn cũ. Sửa: viết lại import của plane repo khác khi plane đó đã chuyển (chạy lại sau khi chuyển hub cũng sửa), regenerate khối `MEMORY.md`. Thêm WARN khi plane tracked mà `.gitignore` của project ignore `.claudehut/` (report-service-ms).
+- **Git hook cài từ terminal trỏ đường dẫn cache có version.** Không có `CLAUDE_PLUGIN_DATA` thì hook ghi đường dẫn `cache/.../0.20.0-dev.1/bin`, chết ở lần update sau. Sửa: suy ra data dir từ đường dẫn plugin đã cài, cùng quy tắc `claudehut-migrate`.
+- **Mutant của index-tests không build.** Bản copy thiếu `planepath.py` và kernel từ K-18: 7 check library fail, các check mutant khác pass vì lý do sai. Sửa: copy đủ module và kernel.
+
+Không phải lỗi: dọn `state/` lúc SessionStart xoá `suspects.jsonl` của task 0015/0016 wallet-ms vì cả hai đã done (đúng thiết kế, `maintain.sh` giữ suspects của task còn active).
+
+Regress: conformance 305; hook-tests 1253; init 156; index (riêng, có mutant) 163; plane-layout 22; reference-check 23/23; merge-learnings 105; worktree 54; migrate 62; trigger validate 28. README: 2005 assertion.

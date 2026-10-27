@@ -67,15 +67,15 @@ No hook creates a plane (ClaudeHut stays silent without one): this skill, or `--
 It writes, under `${CLAUDE_PROJECT_DIR}/.claudehut/`: `MEMORY.md` (generated block ≤2 KB, from
 `claudehut-index memory`), `PROJECT.md`, `LANGUAGE.md`, `architecture.md`, `topology.json`, `learnings.jsonl`,
 `state/`; the **stack-gated** rules under `.claude/rules/`; the always-load `@import` slice in `CLAUDE.md`; in a
-git repo, the codebase index (`claudehut-index update`) and its status. Idempotent (`--refresh` regenerates);
-**never** clobbers `learnings.jsonl`.
+git repo, the codebase index (`claudehut-index update`) and its status. Idempotent (`--refresh` redoes
+unedited files only); **never** clobbers `learnings.jsonl`.
 
 Verify-and-retry per the Flow. **Init is not complete until all five files exist.**
 
 ## 2. Enrich the seeded stubs (best-effort — raises quality, not required for correctness)
 
 The script seeds judgment fields as `TBD — refine`. Improve them by reading the code (keep edits **under** the
-provenance line — re-`init` treats them as authoritative and won't overwrite them):
+provenance line — re-`init`, `--refresh` never overwrite an edit):
 
 - `architecture.md` / `PROJECT.md`: fill dependency direction, transaction strategy, error mapping, messaging topology.
 - Never write the index: `claudehut-index` extracts components from source, and a legacy `reuse-index.json`

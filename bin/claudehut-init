@@ -10,7 +10,8 @@
 # Usage: claudehut-init [PROJECT_DIR] [--refresh] [--detect] [--language vi|en] [--mode mono|microservice]
 #                       [--git-hooks yes|no] [--hub DIR] [--no-extras]
 #   PROJECT_DIR  default ${CLAUDE_PROJECT_DIR:-$PWD}
-#   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl)
+#   --refresh    regenerate plugin-owned files even if present (still never touches learnings.jsonl). A memory file
+#                edited since init wrote it (rendered.txt) and the legacy reuse-index.json are kept
 #   --detect     print detected stack values as JSON and exit (no writes) — used by the eval harness
 #   --language   reply/artifact language → topology.json .language (ADR-R7). The skill asks; headless and
 #                unset keep the recorded value, else en
@@ -337,11 +338,32 @@ migrate_memory() {
 # --refresh-rules on a plane init never generated: the rule tree only (below), then exit before the tail.
 RULES_ONLY=false; $RULES_REFRESH && ! $REFRESH && ! $INITIALIZED && RULES_ONLY=true
 
+# rendered.txt records the sha256 of every file render() wrote (key: the path, plane files relative to the plane).
+# --refresh overwrites only a file whose content still matches that record. The memory files are enriched by hand
+# (init SKILL §2), and a pilot --refresh replaced an enriched PROJECT.md / architecture.md / LANGUAGE.md with seed
+# stubs. A file with no record (a plane from before the record existed) counts as edited.
+RENDERED="$CHD/rendered.txt"
+sha_of() { { sha256sum "$1" 2>/dev/null || shasum -a 256 "$1" 2>/dev/null; } | cut -d' ' -f1; }
+rendered_sha() { [ -f "$RENDERED" ] && awk -F'\t' -v k="$1" '$1==k { s=$2 } END { print s }' "$RENDERED"; }
+record_render() { # $1 key, $2 file
+  local s; s="$(sha_of "$2")"; [ -n "$s" ] && [ -d "$CHD" ] || return 0
+  { [ -f "$RENDERED" ] && awk -F'\t' -v k="$1" '$1 != k' "$RENDERED"; printf '%s\t%s\n' "$1" "$s"; } > "$RENDERED.tmp" \
+    && mv -f "$RENDERED.tmp" "$RENDERED" || rm -f "$RENDERED.tmp"
+}
+
 # write a plugin-owned file from a template, honoring idempotency (skip if present unless --refresh)
 render() { # $1 template, $2 dest
-  local src="$TPL/$1" dest="$2" tmp
+  local src="$TPL/$1" dest="$2" key="${2#"$CHD"/}" rec tmp
   [ -f "$src" ] || { echo "claudehut-init: missing template $src" >&2; return 0; }
-  if [ -f "$dest" ] && ! $REFRESH; then echo "  keep (exists): $dest"; return 0; fi
+  if [ -f "$dest" ]; then
+    if ! $REFRESH; then echo "  keep (exists): $dest"; return 0; fi
+    # the legacy reuse index is read-only (claudehut-index extracts components); its template is an empty skeleton
+    [ "$1" = reuse-index.json.tmpl ] && { echo "  keep (legacy, read-only): $dest"; return 0; }
+    rec="$(rendered_sha "$key")"
+    if [ -z "$rec" ] || [ "$rec" != "$(sha_of "$dest")" ]; then
+      echo "  keep (edited since init wrote it; delete the file to regenerate): $dest"; return 0
+    fi
+  fi
   # RES-X1: the mv status was never tested. On a read-only .claude, or across a filesystem where the
   # rename fails, the whole chain short-circuited and printed NOTHING — no "wrote", no error — so init
   # reported success while the file was never written. Report the failure and keep the temp file out of
@@ -349,6 +371,7 @@ render() { # $1 template, $2 dest
   tmp="$(mktemp)"
   if sed "${SED[@]}" "$src" > "$tmp" 2>/dev/null && mv -f "$tmp" "$dest" 2>/dev/null; then
     echo "  wrote: $dest"
+    $RULES_ONLY || record_render "$key" "$dest"
   else
     rm -f "$tmp" 2>/dev/null
     echo "  WARN: could not write $dest (permissions? read-only checkout?) — plane is INCOMPLETE" >&2

@@ -168,7 +168,10 @@ echo "== 2. rule removal (mutants) =="
 if [ "${INDEX_NO_MUTANTS:-0}" = 1 ]; then
   echo "  (skipped: INDEX_NO_MUTANTS=1)"
 else
-  M="$W/mut"; mkdir -p "$M/scripts/index" "$M/bin"; cp "$CLI" "$M/bin/"; cp "$ROOT/scripts/index/claudehut_index.py" "$ROOT/scripts/index/hub.py" "$ROOT/scripts/index/memory.py" "$M/scripts/index/"
+  # every index module and the kernel they import (planepath.py → claudehut_kernel.plane): without them the mutant CLI
+  # never builds an index, and each "its probe fails" check below passes for the wrong reason
+  M="$W/mut"; mkdir -p "$M/scripts/index" "$M/bin"; cp "$CLI" "$M/bin/"; cp "$ROOT"/scripts/index/*.py "$M/scripts/index/"
+  cp -R "$ROOT/scripts/kernel" "$M/scripts/"
   RM="$W/rm"; build "$RM"; RML="$W/rml"; build_lib "$RML"
   while IFS=$'\t' read -r rule file pred; do
     case "$rule" in ''|'#'*) continue ;; esac
@@ -386,6 +389,12 @@ R="$W/r5"; build "$R"; printf '#!/usr/bin/env python3\nprint(1)\n' > "$R/.git/ho
 ix "$R" install-git-hooks
 chk "a non-shell hook is left alone and reported for manual edit" \
   '[[ "$OUT" == *"post-checkout not a shell script"* ]] && ! grep -q claudehut "$R/.git/hooks/post-checkout" && [ -x "$R/.git/hooks/post-merge" ]'
+# Rollout: claudehut-migrate-plane re-installed hooks from a terminal (no CLAUDE_PLUGIN_DATA), and 15 repos got the
+# versioned cache path. An installed plugin's data dir is derived from its path instead.
+R="$W/r5b"; build "$R"; FAKE="$W/cfg/plugins/cache/mk/claudehut/9.9/bin/claudehut-index"
+OUT="$(cd "$R" && env -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$W/cfg" CLAUDEHUT_INDEX_BIN="$FAKE" python3 -B "$ROOT/scripts/index/claudehut_index.py" install-git-hooks 2>"$W/stderr")"
+chk "no CLAUDE_PLUGIN_DATA: an installed plugin's hooks call the shim in <config>/plugins/data/<plugin>-<marketplace>" \
+  'grep -qF "$W/cfg/plugins/data/claudehut-mk/bin/claudehut-index" "$R/.git/hooks/post-merge" && ! grep -qF "9.9" "$R/.git/hooks/post-merge" && grep -qF "t='"'"'$FAKE'"'"'" "$W/cfg/plugins/data/claudehut-mk/bin/claudehut-index"'
 
 # ---------------------------------------------------------------- 7. degraded
 echo "== 7. degraded paths =="

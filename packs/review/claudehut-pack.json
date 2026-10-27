@@ -1,7 +1,7 @@
 {
   "$schema": "../claudehut-pack.schema.json",
   "pack": "review",
-  "version": "0.20.0-dev.1",
+  "version": "0.20.0-dev.2",
   "kernel": "~0.20",
   "kind": "quality",
   "description": "Review lanes chosen from the diff, review-pack, reviewer roster.",
